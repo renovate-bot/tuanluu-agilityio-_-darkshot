@@ -407,6 +407,7 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
     let notices = t(lang, Msg::ChkShowSuccessNotices);
     let keep = t(lang, Msg::ChkKeepSelection);
     let cursor = t(lang, Msg::ChkIncludeCursor);
+    let format_tab = t(lang, Msg::TabFormat);
     let (saved, copied, link) = (
         t(lang, Msg::SavedTitle),
         t(lang, Msg::CopiedTitle),
@@ -471,6 +472,7 @@ Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy đ�
 \x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát shotme.\n\
 \x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
 - Phím tắt: ba dòng \"{region_label}\", \"{save_label}\" và \"{upload_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- {format_tab}: chọn định dạng cho ảnh tải lên, PNG (mặc định) hoặc JPEG, và chất lượng JPEG từ 50 đến 100. Ảnh lưu vào máy luôn là PNG. Chất lượng càng cao thì file càng nặng.\n\
 - Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
 \n\
 4. Chuẩn bị Cloudflare R2\n\
@@ -506,6 +508,7 @@ Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard 
 \x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit shotme.\n\
 \x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
 - Hotkeys: three rows, \"{region_label}\", \"{save_label}\" and \"{upload_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
+- {format_tab}: choose the format for uploaded images, PNG (the default) or JPEG, and the JPEG quality from 50 to 100. Images saved to disk are always PNG. Higher quality means a larger file.\n\
 - R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
 \n\
 4. Setting up Cloudflare R2\n\
@@ -783,6 +786,16 @@ mod tests {
                 ),
                 s
             );
+        }
+    }
+
+    #[test]
+    fn help_text_mentions_format_tab() {
+        for l in Lang::ALL {
+            let s = help_text(l, &HelpKeys::default());
+            assert!(s.contains(t(l, Msg::TabFormat)), "{l:?} thiếu tên tab");
+            assert!(s.contains("PNG"), "{l:?} thiếu PNG");
+            assert!(s.contains("JPEG"), "{l:?} thiếu JPEG");
         }
     }
 

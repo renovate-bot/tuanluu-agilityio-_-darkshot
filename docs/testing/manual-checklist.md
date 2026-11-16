@@ -189,3 +189,25 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Giữ vị trí: thoát ứng dụng rồi mở lại: lớp phủ mở trống.
 - [ ] Giữ vị trí: tắt ô: lớp phủ mở trống; bật lại: khung của lượt chụp vùng gần nhất xuất hiện.
 - [ ] Hai phím toàn màn hình không đổi khung đang nhớ.
+
+## Đợt 3: định dạng
+
+- [ ] Tab "Định dạng" / "Format" đứng thứ ba (Thông thường, Phím tắt, Định dạng, Lưu trữ R2); bốn tab nằm trên một hàng, không có nút cuộn của dải tab, không chữ nào bị cắt; nhãn nhóm, hai nút chọn (kèm lời giải thích), nhãn "Chất lượng JPEG" / "JPEG quality", thanh trượt, số và dòng "Ảnh lưu vào máy luôn là PNG." / "Images saved to disk are always PNG." hiện đủ ở cả hai ngôn ngữ. Thử ở DPI 100% và 150%.
+- [ ] Thanh trượt bằng chuột (kéo và bấm vào rãnh), mũi tên (đổi 1), Page Up/Page Down (đổi 10), Home/End (về 50 và 100): số bên cạnh đổi theo ngay, kể cả khi đang kéo.
+- [ ] Chọn PNG: nhãn chất lượng, thanh trượt và số mờ đi, Tab không dừng ở thanh trượt; chọn lại JPEG: sáng lên với giá trị cũ. Đổi giữa hai nút bằng mũi tên cũng vậy.
+- [ ] Mở Tùy chọn khi cấu hình đang là PNG: ba ô chất lượng mờ ngay từ đầu; khi đang là JPEG: sáng.
+- [ ] Thứ tự Tab trong tab Định dạng: nút chọn (một điểm dừng, ở nút đang chọn), rồi thanh trượt.
+- [ ] Chọn JPEG, đặt 75, OK, mở lại: đúng JPEG và 75. Chọn PNG (thanh trượt ở 70), OK, mở lại: PNG, và chọn JPEG thì thanh trượt ở 70.
+- [ ] Đổi định dạng hoặc chất lượng rồi Hủy (hoặc Esc, hoặc đóng cửa sổ): mở lại thấy giá trị cũ.
+- [ ] Ctrl+Tab và Ctrl+Shift+Tab đi đủ bốn tab theo đúng thứ tự, kể cả khi tiêu điểm đang ở thanh trượt và ở nút chọn (đọc mã: `run_loop` xét Ctrl+Tab bằng `key_route` cho mọi cửa sổ con trước `IsDialogMessageW`, nên thanh trượt và nút chọn không nuốt được phím này).
+- [ ] Enter khi tiêu điểm ở thanh trượt hoặc nút chọn: như bấm OK. Esc: như Hủy.
+- [ ] Bắt phím ở tab Phím tắt vẫn như trước; đang bắt phím mà chuyển sang tab Định dạng (chuột hoặc Ctrl+Tab): thoát chế độ bắt như khi chuyển sang tab khác.
+- [ ] Lỗi ở tab Lưu trữ R2 (ví dụ tên kho có dấu cách) khi đang đứng ở tab Định dạng: OK nhảy đúng tab Lưu trữ R2 và đúng ô.
+- [ ] Chọn JPEG, tải lên bằng Ctrl+D ở lớp phủ và bằng phím tải lên nhanh: link kết thúc `.jpg`, mở được trong trình duyệt; tải file về mở được trong ứng dụng Ảnh của Windows.
+- [ ] So chữ nhỏ có màu (ví dụ link xanh, chữ đỏ trên nền trắng) trong ảnh JPEG ở mức 50, 90, 100: ghi lại mức nào còn dễ đọc.
+- [ ] So dung lượng file JPEG (mức 90) với PNG của cùng một vùng.
+- [ ] Chọn JPEG, rút mạng rồi tải lên: file lưu vào thư mục lưu có đuôi `.png`.
+- [ ] Đang chọn JPEG, Ctrl+S ở lớp phủ và phím lưu toàn màn hình: file vẫn là `.png`.
+- [ ] Nâng cấp với file cấu hình cũ (không có hai trường mới): tab Định dạng hiện PNG và 90; tải lên ra `.png`.
+- [ ] Trình đọc màn hình (Narrator) đọc tên thanh trượt là "Chất lượng JPEG" / "JPEG quality" kèm giá trị.
+- [ ] Trợ giúp có đoạn về tab Định dạng ở cả hai ngôn ngữ.
