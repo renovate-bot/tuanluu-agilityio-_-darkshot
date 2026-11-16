@@ -61,13 +61,22 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 pub fn authorization_header(c: &Credentials, i: &SignInput) -> String {
-    // Canonical headers: lowercase names, trimmed values, sorted by name.
-    let mut headers: Vec<(String, &str)> = i
-        .headers
-        .iter()
-        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim()))
-        .collect();
-    headers.sort();
+    // Canonical headers: lowercase names, trimmed values with inner whitespace
+    // runs collapsed to one space, duplicate names merged as "v1,v2" in order
+    // of appearance, sorted by name.
+    let mut headers: Vec<(String, String)> = Vec::new();
+    for (k, v) in i.headers {
+        let name = k.trim().to_ascii_lowercase();
+        let value = v.split_whitespace().collect::<Vec<_>>().join(" ");
+        match headers.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, existing)) => {
+                existing.push(',');
+                existing.push_str(&value);
+            }
+            None => headers.push((name, value)),
+        }
+    }
+    headers.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut canonical_headers = String::new();
     for (k, v) in &headers {
