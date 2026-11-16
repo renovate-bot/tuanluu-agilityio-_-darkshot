@@ -1,6 +1,8 @@
 //! Khóa bí mật được mã hóa bằng DPAPI, gắn với tài khoản Windows hiện tại.
 
+use crate::lang;
 use shotme_core::config::SecretStore;
+use shotme_core::i18n::Msg;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Cryptography::{
@@ -29,12 +31,7 @@ impl SecretStore for DpapiStore {
                 &mut out.blob,
             )
         }
-        .map_err(|e| {
-            format!(
-                "Không mã hóa được khóa bí mật (mã lỗi {:#010x})",
-                e.code().0
-            )
-        })?;
+        .map_err(|e| lang::tr_code(Msg::SecretEncryptFailed, &format!("{:#010x}", e.code().0)))?;
         Ok(out.to_vec())
     }
 
@@ -54,19 +51,14 @@ impl SecretStore for DpapiStore {
                 &mut out.blob,
             )
         }
-        .map_err(|e| {
-            format!(
-                "Không giải mã được khóa bí mật (mã lỗi {:#010x})",
-                e.code().0
-            )
-        })?;
+        .map_err(|e| lang::tr_code(Msg::SecretDecryptFailed, &format!("{:#010x}", e.code().0)))?;
         Ok(out.to_vec())
     }
 }
 
 /// Khối vào cho DPAPI, trỏ thẳng vào dữ liệu của bên gọi (không sao chép).
 fn blob_in(data: &[u8]) -> Result<CRYPT_INTEGER_BLOB, String> {
-    let len = u32::try_from(data.len()).map_err(|_| "Dữ liệu quá lớn để mã hóa".to_string())?;
+    let len = u32::try_from(data.len()).map_err(|_| lang::tr(Msg::SecretTooLarge).to_string())?;
     Ok(CRYPT_INTEGER_BLOB {
         cbData: len,
         // DPAPI không ghi vào khối vào; ép kiểu chỉ để khớp chữ ký C.

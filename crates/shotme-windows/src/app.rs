@@ -1,8 +1,9 @@
 //! Trạng thái ứng dụng và luồng tải lên. Phần lớn là hàm thuần để kiểm thử được.
 
+use crate::lang;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
 use shotme_core::config::{Config, ConfigError, SecretStore};
-use shotme_core::i18n::Lang;
+use shotme_core::i18n::{t, Lang, Msg};
 use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
 use shotme_core::upload::Uploader;
@@ -10,28 +11,44 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-pub const NOTICE_CORRUPT: &str =
-    "File cấu hình bị hỏng. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại.";
-pub const NOTICE_SECRET_LOST: &str =
-    "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.";
-pub const NOTICE_UNREADABLE: &str =
-    "Không đọc được file cấu hình. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại.";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfigNotice {
+    Corrupt,
+    SecretLost,
+    Unreadable,
+}
+
+impl ConfigNotice {
+    pub fn message(self, lang: Lang) -> String {
+        let m = match self {
+            ConfigNotice::Corrupt => Msg::NoticeConfigCorrupt,
+            ConfigNotice::SecretLost => Msg::NoticeSecretLost,
+            ConfigNotice::Unreadable => Msg::NoticeConfigUnreadable,
+        };
+        t(lang, m).to_string()
+    }
+}
 
 pub struct AppState {
     pub config: Config,
-    pub config_notice: Option<String>,
+    pub config_notice: Option<ConfigNotice>,
     pub overlay_open: bool,
 }
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
-pub fn startup(path: &Path, store: &dyn SecretStore, default_save_dir: &Path) -> AppState {
-    let defaults = || Config::defaults(default_save_dir, Lang::Vi);
+pub fn startup(
+    path: &Path,
+    store: &dyn SecretStore,
+    default_save_dir: &Path,
+    os_lang: Lang,
+) -> AppState {
+    let defaults = || Config::defaults(default_save_dir, os_lang);
     let (config, config_notice) =
-        match shotme_core::config::load(path, store, default_save_dir, Lang::Vi) {
-            Ok(l) if l.secret_lost => (l.config, Some(NOTICE_SECRET_LOST.to_string())),
+        match shotme_core::config::load(path, store, default_save_dir, os_lang) {
+            Ok(l) if l.secret_lost => (l.config, Some(ConfigNotice::SecretLost)),
             Ok(l) => (l.config, None),
-            Err(ConfigError::Corrupt(_)) => (defaults(), Some(NOTICE_CORRUPT.to_string())),
-            Err(_) => (defaults(), Some(NOTICE_UNREADABLE.to_string())),
+            Err(ConfigError::Corrupt(_)) => (defaults(), Some(ConfigNotice::Corrupt)),
+            Err(_) => (defaults(), Some(ConfigNotice::Unreadable)),
         };
     AppState {
         config,
@@ -122,10 +139,10 @@ impl Notifier for SilentNotifier {
 struct NoClipboard;
 impl Clipboard for NoClipboard {
     fn set_text(&self, _: &str) -> Result<(), String> {
-        Err("không dùng clipboard lúc thoát".into())
+        Err(lang::tr(Msg::ClipboardUnusedOnExit).into())
     }
     fn set_image(&self, _: &Image) -> Result<(), String> {
-        Err("không dùng clipboard lúc thoát".into())
+        Err(lang::tr(Msg::ClipboardUnusedOnExit).into())
     }
 }
 
@@ -142,7 +159,7 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
                 uploader: None,
                 clipboard: &NoClipboard,
                 notifier: &SilentNotifier,
-                lang: Lang::Vi,
+                lang: lang::current(),
             };
             matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
         })
@@ -162,6 +179,8 @@ pub struct UploadJob {
     pub on_needs_settings: Box<dyn FnOnce() + Send>,
     /// Sổ và mã của lượt này; luồng tải lên rút nó khỏi sổ khi kết thúc.
     pub pending: Option<(Arc<PendingUploads>, u64)>,
+    /// Ngôn ngữ của thông báo, chốt lúc tạo lượt.
+    pub lang: Lang,
 }
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
@@ -176,7 +195,7 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 uploader: job.uploader.as_deref(),
                 clipboard: job.clipboard.as_ref(),
                 notifier: job.notifier.as_ref(),
-                lang: Lang::Vi,
+                lang: job.lang,
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
             // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
@@ -250,7 +269,7 @@ mod tests {
     #[test]
     fn first_run_opens_settings() {
         let missing = temp_dir().join("config.json");
-        let s = startup(&missing, &XorStore, Path::new("C:/pics"));
+        let s = startup(&missing, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert!(needs_settings_on_start(&s, false) && s.config_notice.is_none());
         assert!(!missing.exists());
     }
@@ -259,9 +278,9 @@ mod tests {
     fn corrupt_config_uses_defaults_and_does_not_overwrite() {
         let path = temp_dir().join("config.json");
         std::fs::write(&path, "{not json").unwrap();
-        let s = startup(&path, &XorStore, Path::new("C:/pics"));
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config, Config::defaults(Path::new("C:/pics"), Lang::Vi));
-        assert_eq!(s.config_notice.as_deref(), Some(NOTICE_CORRUPT));
+        assert_eq!(s.config_notice, Some(ConfigNotice::Corrupt));
         assert!(needs_settings_on_start(&s, true));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json");
     }
@@ -270,21 +289,53 @@ mod tests {
     fn lost_secret_opens_settings_with_notice() {
         let path = temp_dir().join("config.json");
         shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
-        let s = startup(&path, &FailStore, Path::new("C:/pics"));
+        let s = startup(&path, &FailStore, Path::new("C:/pics"), Lang::Vi);
+        assert_eq!(s.config_notice, Some(ConfigNotice::SecretLost));
         assert!(s
             .config_notice
-            .as_deref()
             .unwrap()
+            .message(Lang::Vi)
             .contains("Secret Access Key"));
         assert!(needs_settings_on_start(&s, true));
         assert!(s.config.r2.secret_access_key.is_empty());
     }
 
     #[test]
+    fn corrupt_or_missing_config_uses_os_language() {
+        let path = temp_dir().join("config.json");
+        std::fs::write(&path, "{not json").unwrap();
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::En);
+        assert_eq!(s.config_notice, Some(ConfigNotice::Corrupt));
+
+        let missing = temp_dir().join("config.json");
+        let s = startup(&missing, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::En);
+        assert_eq!(s.config_notice, None);
+
+        let path = temp_dir().join("config.json");
+        std::fs::write(&path, "{}").unwrap();
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::Vi);
+        assert_eq!(s.config_notice, None);
+    }
+
+    #[test]
+    fn config_notice_messages_differ_by_language() {
+        for n in [
+            ConfigNotice::Corrupt,
+            ConfigNotice::SecretLost,
+            ConfigNotice::Unreadable,
+        ] {
+            assert_ne!(n.message(Lang::Vi), n.message(Lang::En));
+        }
+    }
+
+    #[test]
     fn complete_config_starts_quietly() {
         let path = temp_dir().join("config.json");
         shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
-        let s = startup(&path, &XorStore, Path::new("C:/pics"));
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config, complete_config());
         assert!(!needs_settings_on_start(&s, true));
         assert!(!s.overlay_open);
@@ -352,6 +403,7 @@ mod tests {
             clock: fixed_now,
             on_needs_settings: cb,
             pending: None,
+            lang: Lang::Vi,
         }
     }
 

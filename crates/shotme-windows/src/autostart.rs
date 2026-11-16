@@ -1,5 +1,7 @@
 //! Khởi động cùng Windows qua `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
+use crate::lang;
+use shotme_core::i18n::Msg;
 use std::path::Path;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
@@ -32,7 +34,7 @@ fn set_enabled_as(name: &str, on: bool) -> Result<(), String> {
     let key = RunKey::open()?;
     if on {
         let exe = std::env::current_exe()
-            .map_err(|e| format!("Không xác định được đường dẫn của shotme: {e}"))?;
+            .map_err(|e| format!("{}: {e}", lang::tr(Msg::AutostartExePath)))?;
         let data: Vec<u8> = launch_command(&exe)
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -41,19 +43,13 @@ fn set_enabled_as(name: &str, on: bool) -> Result<(), String> {
         // SAFETY: khóa đang mở với quyền ghi; dữ liệu REG_SZ kết thúc bằng NUL.
         let r = unsafe { RegSetValueExW(key.0, &HSTRING::from(name), None, REG_SZ, Some(&data)) };
         if r != ERROR_SUCCESS {
-            return Err(format!(
-                "Không bật được khởi động cùng Windows (mã lỗi {})",
-                r.0
-            ));
+            return Err(lang::tr_code(Msg::AutostartEnableFailed, &r.0.to_string()));
         }
     } else {
         // SAFETY: khóa đang mở với quyền ghi.
         let r = unsafe { RegDeleteValueW(key.0, &HSTRING::from(name)) };
         if r != ERROR_SUCCESS && r != ERROR_FILE_NOT_FOUND {
-            return Err(format!(
-                "Không tắt được khởi động cùng Windows (mã lỗi {})",
-                r.0
-            ));
+            return Err(lang::tr_code(Msg::AutostartDisableFailed, &r.0.to_string()));
         }
     }
     Ok(())
@@ -127,10 +123,7 @@ impl RunKey {
             )
         };
         if r != ERROR_SUCCESS {
-            return Err(format!(
-                "Không mở được khóa khởi động trong registry (mã lỗi {})",
-                r.0
-            ));
+            return Err(lang::tr_code(Msg::AutostartKeyFailed, &r.0.to_string()));
         }
         Ok(RunKey(key))
     }

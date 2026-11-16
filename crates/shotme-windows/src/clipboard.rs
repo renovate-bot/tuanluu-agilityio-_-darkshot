@@ -1,6 +1,8 @@
 //! Clipboard của Windows: chép link (văn bản) và ảnh.
 
+use crate::lang;
 use shotme_core::actions::Clipboard;
+use shotme_core::i18n::Msg;
 use shotme_core::image::Image;
 use std::time::Duration;
 use windows::core::{w, HSTRING};
@@ -57,9 +59,9 @@ impl Clipboard for WinClipboard {
 /// Dựng khối CF_DIB 24 bit (BITMAPINFOHEADER + pixel từ dưới lên, mỗi hàng đệm tới bội của 4).
 pub(crate) fn dib_from_image(img: &Image) -> Result<Vec<u8>, String> {
     if !img.is_valid() {
-        return Err("Ảnh không hợp lệ".into());
+        return Err(lang::tr(Msg::ClipInvalidImage).into());
     }
-    let too_big = || "Ảnh quá lớn để chép vào clipboard".to_string();
+    let too_big = || lang::tr(Msg::ClipImageTooBig).to_string();
     let w = img.width as usize;
     let width = i32::try_from(img.width).map_err(|_| too_big())?;
     let height = i32::try_from(img.height).map_err(|_| too_big())?;
@@ -125,12 +127,7 @@ impl OwnerWindow {
             )
         }
         .map(OwnerWindow)
-        .map_err(|e| {
-            format!(
-                "Không tạo được cửa sổ cho clipboard (mã lỗi {:#010x})",
-                e.code().0
-            )
-        })
+        .map_err(|e| lang::tr_code(Msg::ClipWindowFailed, &format!("{:#010x}", e.code().0)))
     }
 }
 
@@ -157,7 +154,7 @@ impl OpenGuard {
                 return Ok(OpenGuard);
             }
         }
-        Err("Clipboard đang bị ứng dụng khác giữ".into())
+        Err(lang::tr(Msg::ClipBusy).into())
     }
 }
 
@@ -175,7 +172,7 @@ struct GlobalMem(HGLOBAL);
 
 impl GlobalMem {
     fn from_bytes(data: &[u8]) -> Result<Self, String> {
-        let err = || "Không cấp phát được bộ nhớ cho clipboard".to_string();
+        let err = || lang::tr(Msg::ClipAllocFailed).to_string();
         // SAFETY: cấp phát vùng nhớ mới; quyền sở hữu nằm trong GlobalMem.
         let mem =
             GlobalMem(unsafe { GlobalAlloc(GMEM_MOVEABLE, data.len().max(1)) }.map_err(|_| err())?);
@@ -200,9 +197,9 @@ impl GlobalMem {
                 std::mem::forget(self);
                 Ok(())
             }
-            Err(e) => Err(format!(
-                "Không đặt được dữ liệu vào clipboard (mã lỗi {:#010x})",
-                e.code().0
+            Err(e) => Err(lang::tr_code(
+                Msg::ClipSetFailed,
+                &format!("{:#010x}", e.code().0),
             )),
         }
     }
@@ -246,7 +243,7 @@ fn put(format: u32, data: &[u8]) -> Result<(), String> {
         let _open = OpenGuard::open(&owner)?;
         // SAFETY: clipboard đang mở với chủ là `owner`.
         let r = unsafe { EmptyClipboard() }
-            .map_err(|e| format!("Không xóa được clipboard (mã lỗi {:#010x})", e.code().0))
+            .map_err(|e| lang::tr_code(Msg::ClipEmptyFailed, &format!("{:#010x}", e.code().0)))
             .and_then(|()| mem.into_clipboard(format));
         if r.is_ok() {
             for (id, m) in extras {
