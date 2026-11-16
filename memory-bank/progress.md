@@ -20,9 +20,9 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 9 Dịch vụ Windows | task/09-win-services | specialist | opus | xong | 134.713 | 73.546 | 0 | 208.259 |
 | 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | xong | 118.217 | 67.217 | 37.831 | 223.265 |
 | 11 Nối toàn bộ | task/11-integration | builder | sonnet | xong | 125.499 | 58.921 | 15.661 | 200.081 |
-| 13 Gia cố sau rà soát toàn bộ | task/13-hardening | specialist | opus | đang làm | | | | |
 | 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | xong, chờ nghiệm thu | 97.632 | 53.365 | 0 (phiên chính sửa README) | 150.997 |
-| Rà soát toàn bộ sau Task 12 | main | specialist | opus | chờ | | | | |
+| Rà soát toàn bộ sau Task 12 | main | specialist | opus | xong (DUYỆT) | | 189.767 | | 189.767 |
+| 13 Gia cố sau rà soát toàn bộ | task/13-hardening | specialist | opus | xong | 199.988 | 93.033 | 0 | 293.021 |
 
 Rà soát Task 4, 8, 9 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
@@ -38,4 +38,45 @@ Ghi chú về "Token sửa": khi một agent được gọi tiếp để sửa, 
 
 ## Tổng kết (lập khi dự án xong)
 
-Theo task, theo model, theo giai đoạn.
+Lập ngày 2026-11-16, sau Task 13. Số là `subagent_tokens` do công cụ báo cho từng agent con: số tương đối, không gồm phiên điều phối, có thể thấp hơn số tính tiền.
+
+### Theo task
+
+| Task | Tổng |
+|---|---|
+| 1 Khung workspace | 71.681 |
+| 2 Vùng chọn | 86.857 |
+| 3 Đặt tên, cấu hình | 99.835 |
+| 4 Ký yêu cầu | 135.459 |
+| 5 Tải lên R2 | 111.697 |
+| 6 PNG, hành động | 106.858 |
+| 7 Vỏ ứng dụng Windows | 126.691 |
+| 8 Chụp màn hình và lớp phủ | 435.076 |
+| 9 Dịch vụ Windows | 208.259 |
+| 10 Cửa sổ Cài đặt | 223.265 |
+| 11 Nối toàn bộ | 200.081 |
+| 12 Tài liệu và phát hành | 150.997 |
+| Rà soát toàn bộ | 189.767 |
+| 13 Gia cố | 293.021 |
+| Trước giai đoạn xây dựng | 105.307 |
+| **Cộng** | **2.544.851** |
+
+### Theo model
+
+| Model | Token | Tỉ lệ |
+|---|---|---|
+| Opus (Task 4, 8, 9, 13 và rà soát toàn bộ) | 1.261.582 | 50% |
+| Sonnet (Task 2, 3, 5, 6, 7, 10, 11 và các lượt rà soát thường) | 1.025.112 | 40% |
+| Haiku (làm Task 1 và 12) | 152.850 | 6% |
+| Trước giai đoạn xây dựng (general-purpose, claude-code-guide) | 105.307 | 4% |
+
+### Theo giai đoạn
+
+| Giai đoạn | Token | Tỉ lệ |
+|---|---|---|
+| Làm | 1.326.043 | 52% |
+| Rà soát (gồm rà soát toàn bộ) | 967.175 | 38% |
+| Sửa sau rà soát | 146.326 | 6% |
+| Trước giai đoạn xây dựng | 105.307 | 4% |
+
+Nhận xét: Task 8 (lớp phủ) một mình chiếm 17%; rà soát chiếm gần hai phần năm và lượt nào cũng tìm ra điểm đáng sửa, không lượt nào tìm ra lỗi chặn.
