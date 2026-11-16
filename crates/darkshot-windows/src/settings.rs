@@ -2884,6 +2884,270 @@ mod tests {
         );
     }
 
+    /// Cửa sổ cha ẩn riêng của một kiểm thử cửa sổ thật.
+    fn test_parent(class: PCWSTR) -> HWND {
+        unsafe extern "system" fn proc_(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+            // SAFETY: chuyển nguyên tham số.
+            unsafe { DefWindowProcW(h, m, w, l) }
+        }
+        // SAFETY: đăng ký lớp và tạo cửa sổ ẩn ở luồng kiểm thử; bên gọi hủy nó.
+        unsafe {
+            let hinst = GetModuleHandleW(None).unwrap();
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(proc_),
+                hInstance: hinst.into(),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                w!("parent"),
+                WS_CAPTION,
+                0,
+                0,
+                10,
+                10,
+                None,
+                None,
+                Some(hinst.into()),
+                None,
+            )
+            .unwrap()
+        }
+    }
+
+    /// Chờ cửa sổ Tùy chọn hiện (tối đa 5 s); trả HWND dưới dạng số để gửi qua luồng.
+    fn wait_settings_window() -> isize {
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        for _ in 0..100 {
+            // SAFETY: chỉ tìm cửa sổ theo tên lớp.
+            if let Ok(h) = unsafe { FindWindowW(w!("darkshot-settings"), None) } {
+                return h.0 as isize;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("settings window not found");
+    }
+
+    /// Dải tab của cửa sổ Tùy chọn `h`.
+    fn find_tabs(h: HWND) -> HWND {
+        // SAFETY: chỉ tìm cửa sổ con theo tên lớp.
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::FindWindowExW(
+                Some(h),
+                None,
+                w!("SysTabControl32"),
+                None,
+            )
+            .expect("tab control not found")
+        }
+    }
+
+    /// Chọn tab `i` như khi người dùng bấm chuột: đặt lựa chọn rồi báo TCN_SELCHANGE cho cửa sổ.
+    fn click_tab(h: HWND, tabs: HWND, i: usize) {
+        let nm = NMHDR {
+            hwndFrom: tabs,
+            idFrom: ID_TABS as usize,
+            code: TCN_SELCHANGE,
+        };
+        // SAFETY: SendMessageW chờ luồng cửa sổ xử lý xong, nên `nm` sống suốt lời gọi.
+        unsafe {
+            SendMessageW(tabs, TCM_SETCURSEL, Some(WPARAM(i)), None);
+            SendMessageW(
+                h,
+                WM_NOTIFY,
+                Some(WPARAM(ID_TABS as usize)),
+                Some(LPARAM(&nm as *const NMHDR as isize)),
+            );
+        }
+    }
+
+    /// Vẽ lại ngay toàn bộ cửa sổ `h` (kể cả viền ô nhập và mọi cửa sổ con).
+    fn repaint_now(h: HWND) {
+        use windows::Win32::Graphics::Gdi::{
+            RedrawWindow, RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RDW_UPDATENOW,
+        };
+        // SAFETY: chỉ yêu cầu vẽ lại cửa sổ của tiến trình này.
+        unsafe {
+            let _ = RedrawWindow(
+                Some(h),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+        }
+    }
+
+    fn gdi_count() -> u32 {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        // SAFETY: chỉ đọc bộ đếm của tiến trình hiện tại.
+        unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) }
+    }
+
+    /// Mở và đóng Tùy chọn 20 lần, mỗi lần đi qua đủ bốn tab và vẽ lại toàn bộ: số đối tượng GDI sau lần
+    /// cuối không lớn hơn sau lần đầu. Cần màn hình thật.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored options_no_gdi_leak`.
+    #[test]
+    #[ignore]
+    fn options_no_gdi_leak() {
+        let parent = test_parent(w!("darkshot-settings-gdi-parent"));
+        let cfg = Config::defaults(
+            std::path::Path::new("C:/darkshot-test-not-created"),
+            Lang::Vi,
+        );
+        let mut counts = Vec::new();
+        for _ in 0..20 {
+            let closer = std::thread::spawn(|| {
+                let h = HWND(wait_settings_window() as *mut c_void);
+                let tabs = find_tabs(h);
+                for i in [1, 2, 3, 0] {
+                    click_tab(h, tabs, i);
+                    repaint_now(h);
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+                // SAFETY: đăng thông điệp đóng cho cửa sổ Tùy chọn của tiến trình này.
+                unsafe {
+                    PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+                }
+            });
+            assert!(show(parent, &cfg, None, OpenReason::User).is_none());
+            closer.join().unwrap();
+            counts.push(gdi_count());
+        }
+        assert!(
+            counts[19] <= counts[0],
+            "GDI objects grew across opens: {counts:?}"
+        );
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+    }
+
+    /// Bàn phím vẫn đi được qua các điều khiển tự vẽ: Tab đi đúng thứ tự cũ trên tab Thông thường, Space
+    /// bật tắt ô tích, Ctrl+Tab đổi tab. Cần màn hình thật; phím Ctrl giả bằng bảng phím của luồng cửa sổ.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored options_keyboard_still_works`.
+    #[test]
+    #[ignore]
+    fn options_keyboard_still_works() {
+        use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            GetKeyboardState, SetKeyboardState, VK_SPACE, VK_TAB,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetDlgCtrlID, GetGUIThreadInfo, GUITHREADINFO,
+        };
+        let parent = test_parent(w!("darkshot-settings-kbd-parent"));
+        let cfg = Config::defaults(
+            std::path::Path::new("C:/darkshot-test-not-created"),
+            Lang::Vi,
+        );
+        // SAFETY: chỉ đọc mã luồng hiện tại.
+        let gui_tid = unsafe { GetCurrentThreadId() };
+        let checker = std::thread::spawn(move || {
+            let h = HWND(wait_settings_window() as *mut c_void);
+            let pause = || std::thread::sleep(std::time::Duration::from_millis(80));
+            let focus = || {
+                let mut gi = GUITHREADINFO {
+                    cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                    ..Default::default()
+                };
+                // SAFETY: gi có cbSize đúng; chỉ đọc trạng thái luồng cửa sổ.
+                unsafe { GetGUIThreadInfo(gui_tid, &mut gi).unwrap() };
+                gi.hwndFocus
+            };
+            // SAFETY: các HWND thuộc cửa sổ Tùy chọn của tiến trình này; chỉ đăng thông điệp phím.
+            let post_key = |target: HWND, vk: u16| unsafe {
+                PostMessageW(Some(target), WM_KEYDOWN, WPARAM(vk as usize), LPARAM(1)).unwrap();
+                PostMessageW(
+                    Some(target),
+                    WM_KEYUP,
+                    WPARAM(vk as usize),
+                    LPARAM(0xC000_0001u32 as isize),
+                )
+                .unwrap();
+            };
+            pause();
+            // SAFETY: chỉ đọc mã điều khiển.
+            let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
+            let mut seen = vec![id_of(focus())];
+            for _ in 0..11 {
+                post_key(focus(), VK_TAB.0);
+                pause();
+                seen.push(id_of(focus()));
+            }
+            let want = vec![
+                ID_AUTOSTART,
+                ID_NOTICES,
+                ID_KEEP_SELECTION,
+                ID_INCLUDE_CURSOR,
+                ID_DIR,
+                ID_BROWSE,
+                ID_LANGUAGE,
+                ID_HELP,
+                ID_OK,
+                ID_CANCEL,
+                ID_TABS,
+                ID_AUTOSTART,
+            ];
+            let tab_order_ok = seen == want;
+
+            // Space trên ô tích đang có tiêu điểm đổi trạng thái.
+            let chk = focus();
+            let before = is_checked(chk);
+            post_key(chk, VK_SPACE.0);
+            pause();
+            let space_ok = is_checked(chk) != before;
+
+            // Ctrl+Tab: giữ Ctrl trong bảng phím chung của hai luồng rồi gửi Tab.
+            let tabs = find_tabs(h);
+            // SAFETY: gắn hàng đợi nhập của luồng này với luồng cửa sổ, đặt rồi trả lại bảng phím.
+            let sel = unsafe {
+                let me = GetCurrentThreadId();
+                let _ = AttachThreadInput(me, gui_tid, true);
+                let mut keys = [0u8; 256];
+                let _ = GetKeyboardState(&mut keys);
+                let saved = keys;
+                keys[VK_CONTROL.0 as usize] = 0x80;
+                let _ = SetKeyboardState(&keys);
+                PostMessageW(
+                    Some(focus()),
+                    WM_KEYDOWN,
+                    WPARAM(VK_TAB.0 as usize),
+                    LPARAM(1),
+                )
+                .unwrap();
+                pause();
+                let sel = SendMessageW(tabs, TCM_GETCURSEL, None, None).0;
+                let _ = SetKeyboardState(&saved);
+                let _ = AttachThreadInput(me, gui_tid, false);
+                sel
+            };
+            // SAFETY: đăng thông điệp đóng cho cửa sổ Tùy chọn của tiến trình này.
+            unsafe {
+                PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+            }
+            (seen, tab_order_ok, space_ok, sel)
+        });
+        assert!(show(parent, &cfg, None, OpenReason::User).is_none());
+        let (seen, tab_order_ok, space_ok, sel) = checker.join().unwrap();
+        assert!(tab_order_ok, "tab order changed: {seen:?}");
+        assert!(space_ok, "Space must toggle the focused check box");
+        assert_eq!(
+            sel,
+            Tab::Hotkeys.index() as isize,
+            "Ctrl+Tab must go to the next tab"
+        );
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+    }
+
     /// Mở cửa sổ thật, đóng bằng WM_CLOSE rồi bằng nút Hủy. Không ghi đĩa, không gọi mạng.
     /// Chạy tay: `cargo test -p darkshot-windows -- --ignored settings_window`.
     #[test]

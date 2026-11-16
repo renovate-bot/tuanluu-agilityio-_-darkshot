@@ -97,6 +97,63 @@ pub fn brush(c: Rgb) -> HBRUSH {
     h
 }
 
+/// Loại nút bấm: thường (nền xám) hoặc chính (OK, Đóng: nền màu nhấn, chữ trắng đậm).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonKind {
+    Normal,
+    Primary,
+}
+
+/// Trạng thái của một điều khiển lúc vẽ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ControlState {
+    pub hot: bool,
+    pub pressed: bool,
+    pub focused: bool,
+    pub enabled: bool,
+    pub checked: bool,
+}
+
+/// Bộ màu vẽ: nền, viền, chữ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Colors {
+    pub fill: Rgb,
+    pub border: Rgb,
+    pub text: Rgb,
+}
+
+/// Màu nút bấm theo loại và trạng thái.
+pub fn button_colors(kind: ButtonKind, s: ControlState) -> Colors {
+    let _ = (kind, s);
+    todo!()
+}
+
+/// Hộp ô tích: tắt viền `CHECK_BORDER`, bật nền và viền `ACCENT_BUTTON`; chữ (nằm trên nền khung) `TEXT`
+/// hoặc `TEXT_DISABLED`.
+pub fn check_colors(s: ControlState) -> Colors {
+    let _ = s;
+    todo!()
+}
+
+/// Vòng nút chọn: bật thì viền và chấm (`fill`) `ACCENT`; tắt viền `CHECK_BORDER`.
+pub fn radio_colors(s: ControlState) -> Colors {
+    let _ = s;
+    todo!()
+}
+
+/// Tab: chọn chữ `TEXT`, gạch dưới (`border`) `ACCENT`; không chọn chữ `TEXT_MUTED`; khi trỏ nền
+/// `TAB_HOVER` và chữ `TEXT`.
+pub fn tab_colors(selected: bool, hot: bool) -> Colors {
+    let _ = (selected, hot);
+    todo!()
+}
+
+/// Màu viền ô nhập và độ dày (DIP) của gạch dưới: 2 khi có tiêu điểm, 1 khi không.
+pub fn edit_border(focused: bool, enabled: bool) -> (Rgb, u32) {
+    let _ = (focused, enabled);
+    todo!()
+}
+
 pub fn colorref(c: Rgb) -> COLORREF {
     COLORREF(c.colorref())
 }
@@ -123,6 +180,188 @@ mod tests {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, PeekMessageW,
         RegisterClassW, TranslateMessage, MSG, PM_REMOVE, WINDOW_EX_STYLE, WNDCLASSW, WS_CAPTION,
     };
+
+    use darkshot_core::theme::{
+        ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED, BUTTON, BUTTON_BORDER,
+        BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT_BORDER, SURFACE, TAB_HOVER,
+        TEXT_DISABLED, TEXT_MUTED, TEXT_PAIRS, WHITE,
+    };
+
+    fn st(hot: bool, pressed: bool, focused: bool, enabled: bool, checked: bool) -> ControlState {
+        ControlState {
+            hot,
+            pressed,
+            focused,
+            enabled,
+            checked,
+        }
+    }
+
+    const NORMAL: ControlState = ControlState {
+        hot: false,
+        pressed: false,
+        focused: false,
+        enabled: true,
+        checked: false,
+    };
+
+    /// Mọi tổ hợp trạng thái.
+    fn all_states() -> Vec<ControlState> {
+        let mut v = Vec::new();
+        for bits in 0..32u8 {
+            let b = |i: u8| bits & (1 << i) != 0;
+            v.push(st(b(0), b(1), b(2), b(3), b(4)));
+        }
+        v
+    }
+
+    #[test]
+    fn primary_button_colors() {
+        let c = button_colors(ButtonKind::Primary, NORMAL);
+        assert_eq!((c.fill, c.text), (ACCENT_BUTTON, WHITE));
+        let hot = button_colors(
+            ButtonKind::Primary,
+            ControlState {
+                hot: true,
+                ..NORMAL
+            },
+        );
+        assert_eq!(hot.fill, ACCENT_BUTTON_HOVER);
+        let pressed = button_colors(
+            ButtonKind::Primary,
+            ControlState {
+                hot: true,
+                pressed: true,
+                ..NORMAL
+            },
+        );
+        assert_eq!(pressed.fill, ACCENT_BUTTON_PRESSED);
+        let off = button_colors(
+            ButtonKind::Primary,
+            ControlState {
+                enabled: false,
+                ..NORMAL
+            },
+        );
+        assert_eq!(off.text, TEXT_DISABLED);
+    }
+
+    #[test]
+    fn normal_button_colors() {
+        assert_eq!(
+            button_colors(ButtonKind::Normal, NORMAL),
+            Colors {
+                fill: BUTTON,
+                border: BUTTON_BORDER,
+                text: TEXT
+            }
+        );
+        let hot = button_colors(
+            ButtonKind::Normal,
+            ControlState {
+                hot: true,
+                ..NORMAL
+            },
+        );
+        assert_eq!(hot.fill, BUTTON_HOVER);
+        let pressed = button_colors(
+            ButtonKind::Normal,
+            ControlState {
+                hot: true,
+                pressed: true,
+                ..NORMAL
+            },
+        );
+        assert_eq!(pressed.fill, BUTTON_PRESSED);
+        let off = button_colors(
+            ButtonKind::Normal,
+            ControlState {
+                enabled: false,
+                ..NORMAL
+            },
+        );
+        assert_eq!(off.text, TEXT_DISABLED);
+    }
+
+    #[test]
+    fn check_and_radio_colors() {
+        // Ô tích: tắt viền CHECK_BORDER, bật nền ACCENT_BUTTON; chữ TEXT hoặc TEXT_DISABLED.
+        let off = check_colors(NORMAL);
+        assert_eq!((off.border, off.text), (CHECK_BORDER, TEXT));
+        let on = check_colors(ControlState {
+            checked: true,
+            ..NORMAL
+        });
+        assert_eq!((on.fill, on.text), (ACCENT_BUTTON, TEXT));
+        for checked in [false, true] {
+            let dis = check_colors(ControlState {
+                checked,
+                enabled: false,
+                ..NORMAL
+            });
+            assert_eq!(dis.text, TEXT_DISABLED, "checked={checked}");
+            assert_ne!(dis.fill, ACCENT_BUTTON, "checked={checked}");
+        }
+        // Nút chọn: bật viền và chấm ACCENT; tắt viền CHECK_BORDER.
+        let off = radio_colors(NORMAL);
+        assert_eq!((off.border, off.text), (CHECK_BORDER, TEXT));
+        let on = radio_colors(ControlState {
+            checked: true,
+            ..NORMAL
+        });
+        assert_eq!((on.border, on.fill, on.text), (ACCENT, ACCENT, TEXT));
+        for checked in [false, true] {
+            let dis = radio_colors(ControlState {
+                checked,
+                enabled: false,
+                ..NORMAL
+            });
+            assert_eq!(dis.text, TEXT_DISABLED, "checked={checked}");
+            assert_ne!(dis.border, ACCENT, "checked={checked}");
+        }
+    }
+
+    #[test]
+    fn tab_colors_selected_and_hot() {
+        let sel = tab_colors(true, false);
+        assert_eq!((sel.text, sel.border, sel.fill), (TEXT, ACCENT, BG));
+        let other = tab_colors(false, false);
+        assert_eq!((other.text, other.fill), (TEXT_MUTED, BG));
+        assert_eq!(tab_colors(false, true).fill, TAB_HOVER);
+        assert_eq!(tab_colors(true, true).fill, TAB_HOVER);
+        assert_eq!(tab_colors(true, true).border, ACCENT);
+    }
+
+    #[test]
+    fn edit_border_focus() {
+        assert_eq!(edit_border(true, true), (ACCENT, 2));
+        assert_eq!(edit_border(false, true), (INPUT_BORDER, 1));
+        assert_eq!(edit_border(false, false).1, 1);
+    }
+
+    /// Mọi cặp (chữ, nền dưới chữ) có thể vẽ khi điều khiển bật đều nằm trong `TEXT_PAIRS`, nên kiểm thử
+    /// tương phản của core bao luôn chúng. Chữ của ô tích và nút chọn nằm trên nền khung (`SURFACE`),
+    /// không nằm trên hộp, nên cặp của chúng là (text, SURFACE).
+    #[test]
+    fn every_drawn_text_pair_is_listed() {
+        let listed = |fg: Rgb, bg: Rgb| TEXT_PAIRS.contains(&(fg, bg));
+        for s in all_states().into_iter().filter(|s| s.enabled) {
+            for kind in [ButtonKind::Normal, ButtonKind::Primary] {
+                let c = button_colors(kind, s);
+                assert!(listed(c.text, c.fill), "{kind:?} {s:?}: {c:?}");
+            }
+            let c = check_colors(s);
+            assert!(listed(c.text, SURFACE), "check {s:?}: {c:?}");
+            let c = radio_colors(s);
+            assert!(listed(c.text, SURFACE), "radio {s:?}: {c:?}");
+        }
+        for selected in [false, true] {
+            for hot in [false, true] {
+                let c = tab_colors(selected, hot);
+                assert!(listed(c.text, c.fill), "tab {selected} {hot}: {c:?}");
+            }
+        }
+    }
 
     #[test]
     fn theme_brush_is_cached() {
