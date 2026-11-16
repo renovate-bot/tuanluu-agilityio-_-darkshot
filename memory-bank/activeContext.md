@@ -5,8 +5,8 @@ Cập nhật: 2026-11-16
 ## Đang ở đâu
 
 - Giai đoạn: 5. Xây dựng.
-- Task vừa xong: Task 0 (môi trường, kho git, khung AI-first).
-- Task kế tiếp: **Task 1, `docs/tasks/01-workspace.md`**, nhánh `task/01-workspace`, agent `scaffolder`.
+- Task vừa xong: Task 1 (khung workspace), đã gộp vào `main`.
+- Task kế tiếp: **Task 2, `docs/tasks/02-geometry.md`**, nhánh `task/02-geometry`, agent `builder`.
 
 ## Bước kế tiếp
 
@@ -24,4 +24,5 @@ Gõ `/next-task`.
 ## Ghi chú cho phiên sau
 
 - Agent trong `.claude/agents/` được nạp khi khởi động phiên. Nếu phiên hiện tại chưa thấy chúng, giao việc bằng agent `general-purpose` với model tương ứng và dán nội dung file agent vào lời giao.
+- Cargo báo cảnh báo "unused dependency shotme-core" ở `shotme-windows`; sẽ hết khi Task 7 dùng core. Không cần sửa.
 - Chủ dự án có thể điều khiển phiên từ claude.ai bằng `/remote-control`.
