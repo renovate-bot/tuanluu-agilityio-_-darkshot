@@ -54,6 +54,7 @@ Hành vi:
 - `uploader` là `Some(R2Uploader::new(..))` khi `r2.is_complete()`, ngược lại `None`.
 - Kết quả `UploadFailedSaved { needs_settings: true }`: gửi sự kiện mở Cài đặt về luồng chính.
 - Lưu cài đặt: `config::save`, đăng ký lại phím tắt; phím mới bị chiếm thì thông báo Error và giữ phím cũ.
+- Lưu ý sau Task 10 (thay cho dòng "Lưu cài đặt" ở trên khi hai thứ khác nhau; đọc `settings.rs` để lấy đúng chữ ký): `settings::show(parent, &Config, notice) -> Option<SettingsResult>` trả `None` khi Hủy hoặc khi đã có một cửa sổ Cài đặt. `show` tự lo phím tắt: khi trả `Some`, phím mới ĐÃ được đăng ký cho `parent` (phím bị chiếm thì `show` báo lỗi trong cửa sổ và không đóng), nên KHÔNG gọi `hotkey::register` lại. `show` không ghi đĩa: sau khi nhận `Some`, gọi `config::save` với `DpapiStore`, rồi `autostart::set_enabled(config.autostart)`. Nếu `config::save` lỗi: thông báo Error, giữ cấu hình cũ trong bộ nhớ và đăng ký lại phím cũ. Trong lúc cửa sổ Cài đặt mở, bỏ qua mọi yêu cầu chụp (phím tắt và menu) và mọi yêu cầu mở Cài đặt khác; thêm trạng thái này vào cổng `gate_step` kèm kiểm thử, không dùng cờ rời. Gỡ `#[allow(dead_code)]` trên các module `settings`, `secret`, `autostart`, `paths`, `clipboard`.
 - Gỡ bỏ các thông báo tạm "Chưa có" và "Đã chọn …" của Task 7 và Task 8.
 
 - [ ] **Step 1: Viết kiểm thử thất bại** (dùng `XorStore` và `FailStore` như Task 3, định nghĩa lại trong module kiểm thử):
