@@ -522,6 +522,33 @@ mod tests {
     }
 
     #[test]
+    fn bad_account_id_is_not_configured() {
+        for id in ["a/b", "a@evil.com", "a:1", "a\\b","a.b", ""] {
+            let mut c = cfg();
+            c.account_id = id.into();
+            let up = R2Uploader::new(&c);
+            assert_eq!(
+                up.upload("d30/x.png", b"x"),
+                Err(UploadError::NotConfigured),
+                "account_id {id:?}"
+            );
+            assert_eq!(up.test_connection(), Err(UploadError::NotConfigured));
+        }
+    }
+
+    #[test]
+    fn http_public_base_is_not_configured_in_new() {
+        let mut c = cfg();
+        c.public_base_url = "http://img.example.com".into();
+        let up = R2Uploader::new(&c);
+        assert_eq!(
+            up.upload("d30/x.png", b"x"),
+            Err(UploadError::NotConfigured)
+        );
+        assert_eq!(up.test_connection(), Err(UploadError::NotConfigured));
+    }
+
+    #[test]
     fn error_text_never_contains_secret() {
         let errs = [
             UploadError::NotConfigured,
