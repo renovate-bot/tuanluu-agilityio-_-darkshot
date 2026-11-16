@@ -12,9 +12,10 @@ use windows::Win32::UI::Shell::{
     NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, LoadIconW, PostMessageW,
-    SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION, MF_STRING, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
+    LoadImageW, PostMessageW, SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION,
+    IMAGE_ICON, LR_SHARED, MF_STRING, SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WM_APP, WM_NULL,
 };
 
 /// Thông điệp riêng của biểu tượng khay.
@@ -83,14 +84,20 @@ impl Tray {
 
     pub fn new(hwnd: HWND) -> windows::core::Result<Tray> {
         // SAFETY: tài nguyên biểu tượng số 1 được nhúng bởi build.rs; thiếu thì dùng biểu tượng mặc định.
+        // Dùng LR_SHARED nên không cần DestroyIcon. Nạp đúng cỡ nhỏ của khay (16/20/24 vẽ theo lưới).
         let icon = unsafe {
             let hinst = GetModuleHandleW(None)?;
-            match LoadIconW(
-                Some(hinst.into()),
-                PCWSTR(std::ptr::without_provenance::<u16>(1)),
-            ) {
+            let res = PCWSTR(std::ptr::without_provenance::<u16>(1));
+            let cx = GetSystemMetrics(SM_CXSMICON);
+            let cy = GetSystemMetrics(SM_CYSMICON);
+            let small = LoadImageW(Some(hinst.into()), res, IMAGE_ICON, cx, cy, LR_SHARED)
+                .map(|h| HICON(h.0));
+            match small {
                 Ok(i) => i,
-                Err(_) => LoadIconW(None, IDI_APPLICATION)?,
+                Err(_) => match LoadIconW(Some(hinst.into()), res) {
+                    Ok(i) => i,
+                    Err(_) => LoadIconW(None, IDI_APPLICATION)?,
+                },
             }
         };
         let tray = Tray {

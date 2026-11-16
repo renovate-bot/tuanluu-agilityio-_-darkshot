@@ -37,15 +37,17 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-    GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild, IsDialogMessageW, IsIconic,
-    KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
-    SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK,
-    BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST,
-    CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL,
-    ES_PASSWORD, ES_READONLY, GWL_STYLE, HMENU, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
-    SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP,
-    WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_RBUTTONDOWN, WM_SETFONT,
+    GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild,
+    IsDialogMessageW, IsIconic, KillTimer, LoadImageW, PostMessageW, PostQuitMessage,
+    RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW,
+    ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
+    BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
+    CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD, ES_READONLY,
+    GWL_STYLE, HMENU, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, MSG, NONCLIENTMETRICSW,
+    SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
+    SWP_NOZORDER, SW_RESTORE, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE,
+    WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_RBUTTONDOWN, WM_SETFONT, WM_SETICON,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
     WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -1027,7 +1029,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         };
         // Đăng ký lại lần hai báo lỗi vô hại.
         RegisterClassW(&wc);
-        CreateWindowExW(
+        let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             class,
             w!("shotme – Cài đặt"),
@@ -1041,7 +1043,24 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
             Some(hinst.into()),
             None,
         )
-        .ok()?
+        .ok()?;
+        // Icon lớn (thanh tác vụ, Alt+Tab) và nhỏ (thanh tiêu đề); LR_SHARED nên không phải hủy.
+        let res = PCWSTR(std::ptr::without_provenance::<u16>(1));
+        for (which, metric_x, metric_y) in [
+            (ICON_BIG, SM_CXICON, SM_CYICON),
+            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
+        ] {
+            let (cx, cy) = (GetSystemMetrics(metric_x), GetSystemMetrics(metric_y));
+            if let Ok(icon) = LoadImageW(Some(hinst.into()), res, IMAGE_ICON, cx, cy, LR_SHARED) {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(which as usize)),
+                    Some(LPARAM(icon.0 as isize)),
+                );
+            }
+        }
+        hwnd
     };
     GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut s) = TEST_RESULT.lock() {
