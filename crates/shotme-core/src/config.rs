@@ -326,10 +326,13 @@ impl UrlError {
 }
 
 pub fn normalize_public_base_url(input: &str) -> Result<String, UrlError> {
-    let s = input.trim().trim_end_matches('/');
-    let Some(rest) = s.strip_prefix("https://") else {
+    let trimmed = input.trim();
+    if !trimmed.starts_with("https://") {
         return Err(UrlError::NotHttps);
-    };
+    }
+    // Cắt dấu `/` cuối sau khi đã xác nhận có `https://`, để "https://" trơn là thiếu tên miền.
+    let s = trimmed.trim_end_matches('/');
+    let rest = s.strip_prefix("https://").unwrap_or("");
     if rest.is_empty() {
         return Err(UrlError::MissingHost);
     }

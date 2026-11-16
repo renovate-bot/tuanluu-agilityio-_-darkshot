@@ -13,15 +13,21 @@ impl Lang {
     pub const ALL: [Lang; 2] = [Lang::Vi, Lang::En];
 
     pub fn code(self) -> &'static str {
-        todo!()
+        match self {
+            Lang::Vi => "vi",
+            Lang::En => "en",
+        }
     }
 
-    pub fn from_code(_s: &str) -> Option<Lang> {
-        todo!()
+    pub fn from_code(s: &str) -> Option<Lang> {
+        Lang::ALL.into_iter().find(|l| l.code() == s)
     }
 
     pub fn native_name(self) -> &'static str {
-        todo!()
+        match self {
+            Lang::Vi => "Tiếng Việt",
+            Lang::En => "English",
+        }
     }
 }
 
@@ -36,8 +42,12 @@ macro_rules! messages {
         }
 
         pub fn t(lang: Lang, m: Msg) -> &'static str {
-            let _ = (lang, m);
-            todo!()
+            match (lang, m) {
+                $(
+                    (Lang::Vi, Msg::$name) => $vi,
+                    (Lang::En, Msg::$name) => $en,
+                )*
+            }
         }
     };
 }
@@ -115,36 +125,78 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::SaveFailedTitle,
 ];
 
-pub fn expiry_label(_lang: Lang, _e: Expiry) -> &'static str {
-    todo!()
+pub fn expiry_label(lang: Lang, e: Expiry) -> &'static str {
+    match (lang, e) {
+        (Lang::Vi, Expiry::D1) => "1 ngày",
+        (Lang::Vi, Expiry::D7) => "7 ngày",
+        (Lang::Vi, Expiry::D30) => "30 ngày",
+        (Lang::Vi, Expiry::Keep) => "Không hết hạn",
+        (Lang::En, Expiry::D1) => "1 day",
+        (Lang::En, Expiry::D7) => "7 days",
+        (Lang::En, Expiry::D30) => "30 days",
+        (Lang::En, Expiry::Keep) => "Never expires",
+    }
 }
 
-pub fn copy_failed_body(_lang: Lang, _err: &str) -> String {
-    todo!()
+pub fn copy_failed_body(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không đưa được ảnh vào clipboard: {err}"),
+        Lang::En => format!("Could not put the image on the clipboard: {err}"),
+    }
 }
 
-pub fn encode_failed(_lang: Lang, _err: &str) -> String {
-    todo!()
+pub fn encode_failed(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không mã hóa được ảnh: {err}"),
+        Lang::En => format!("Could not encode the image: {err}"),
+    }
 }
 
-pub fn encoder_error(_lang: Lang, _err: &str) -> String {
-    todo!()
+pub fn encoder_error(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("lỗi bộ mã hóa PNG: {err}"),
+        Lang::En => format!("PNG encoder error: {err}"),
+    }
 }
 
-pub fn upload_failed_body(_lang: Lang, _reason: &str, _path: &str) -> String {
-    todo!()
+pub fn upload_failed_body(lang: Lang, reason: &str, path: &str) -> String {
+    match lang {
+        Lang::Vi => format!(
+            "{reason}
+Ảnh đã được lưu tại {path}"
+        ),
+        Lang::En => format!(
+            "{reason}
+The image was saved at {path}"
+        ),
+    }
 }
 
-pub fn save_failed_in_clipboard(_lang: Lang, _err: &str) -> String {
-    todo!()
+pub fn save_failed_in_clipboard(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => {
+            format!("Không lưu được ảnh ({err}). Ảnh đã được đặt trong clipboard, hãy dán ra ngay.")
+        }
+        Lang::En => format!(
+            "Could not save the image ({err}). The image is on the clipboard, paste it now."
+        ),
+    }
 }
 
-pub fn save_failed_no_clipboard(_lang: Lang, _err: &str) -> String {
-    todo!()
+pub fn save_failed_no_clipboard(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không lưu được ảnh ({err}) và cũng không đưa được vào clipboard."),
+        Lang::En => format!(
+            "Could not save the image ({err}) and could not put it on the clipboard either."
+        ),
+    }
 }
 
-pub fn http_error(_lang: Lang, _code: u16) -> String {
-    todo!()
+pub fn http_error(lang: Lang, code: u16) -> String {
+    match lang {
+        Lang::Vi => format!("Máy chủ trả về lỗi {code}."),
+        Lang::En => format!("The server returned error {code}."),
+    }
 }
 
 #[cfg(test)]
