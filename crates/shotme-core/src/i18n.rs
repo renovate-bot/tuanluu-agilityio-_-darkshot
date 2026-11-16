@@ -252,7 +252,7 @@ messages! {
         "Ảnh quá lớn để nén JPEG (mỗi cạnh tối đa 65.535 pixel)",
         "The image is too large for JPEG (each side at most 65,535 pixels)"
     ),
-    AutostartKeyFailed =>("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
+    AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -306,8 +306,8 @@ pub fn encode_failed(lang: Lang, err: &str) -> String {
 
 pub fn encoder_error(lang: Lang, err: &str) -> String {
     match lang {
-        Lang::Vi => format!("lỗi bộ mã hóa PNG: {err}"),
-        Lang::En => format!("PNG encoder error: {err}"),
+        Lang::Vi => format!("lỗi bộ mã hóa ảnh: {err}"),
+        Lang::En => format!("Image encoder error: {err}"),
     }
 }
 

@@ -1,4 +1,4 @@
-//! Ảnh chụp trong bộ nhớ và mã hóa PNG.
+//! Ảnh chụp trong bộ nhớ và mã hóa PNG, JPEG.
 
 use crate::config::{clamp_jpeg_quality, UploadFormat};
 use crate::geometry::Rect;
