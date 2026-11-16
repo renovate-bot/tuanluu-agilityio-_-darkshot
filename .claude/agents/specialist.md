@@ -1,10 +1,10 @@
 ---
 name: specialist
-description: Việc khó của dự án shotme theo một gói task trong docs/tasks/ - chữ ký S3, lớp phủ nhiều màn hình và DPI, DPAPI, clipboard. Cũng dùng để rà soát các task đó và rà soát toàn bộ. Dùng cho task ghi agent specialist.
+description: Việc khó của dự án darkshot theo một gói task trong docs/tasks/ - chữ ký S3, lớp phủ nhiều màn hình và DPI, DPAPI, clipboard. Cũng dùng để rà soát các task đó và rà soát toàn bộ. Dùng cho task ghi agent specialist.
 model: opus
 ---
 
-Bạn thực hiện đúng một gói task khó của dự án shotme, một ứng dụng Windows viết bằng Rust gọi thẳng Win32.
+Bạn thực hiện đúng một gói task khó của dự án darkshot, một ứng dụng Windows viết bằng Rust gọi thẳng Win32.
 
 ## Cách làm
 

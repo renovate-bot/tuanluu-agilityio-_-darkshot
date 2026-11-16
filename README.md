@@ -1,6 +1,6 @@
-# shotme
+# darkshot
 
-shotme là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, hoặc hủy. Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
+darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, hoặc hủy. Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
 
 ## Build
 
@@ -10,11 +10,23 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\shotme.exe`. Kích thước bản build `shotme.exe` kiểm tra ngày 2026-11-16: **1.513.472 byte** (khoảng 1,44 MiB, bản `--release` trên Windows 11).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build đo ngày 2026-11-16, khi ứng dụng còn tên cũ: **1.513.472 byte** (khoảng 1,44 MiB, bản `--release` trên Windows 11). Chưa đo lại `darkshot.exe`.
+
+## Chuyển từ shotme
+
+darkshot là tên mới của shotme. Nếu máy đang có shotme:
+
+1. Thoát shotme (menu khay, **Thoát**) trước khi chạy `darkshot.exe`. Hai bản cùng chạy sẽ tranh phím tắt; khi đó darkshot báo "Phím tắt chưa hoạt động".
+2. Lần chạy đầu, darkshot tự chép `%APPDATA%\shotme\config.json` sang `%APPDATA%\darkshot\config.json`, kể cả khóa R2 đã mã hóa. Không phải nhập lại R2. Nếu `%APPDATA%\darkshot\config.json` đã có thì darkshot giữ nguyên file đó, không ghi đè.
+3. Khởi động cùng Windows theo cấu hình của darkshot, và mục khởi động của shotme được gỡ. Khi cấu hình được chép từ shotme ở lần chạy đầu, shotme đang bật thì darkshot cũng bật. Nếu darkshot đã có cấu hình riêng với khởi động tắt thì vẫn tắt. Ngoại lệ: nếu `%APPDATA%\darkshot\config.json` hỏng hoặc không đọc được, darkshot không đụng tới mục khởi động nào (của cả hai bản) để không ai mất khởi động cùng Windows.
+4. Thư mục ảnh cũ vẫn được dùng: nếu shotme lưu vào `Pictures\shotme` (mặc định cũ), darkshot tiếp tục lưu vào đó. Cấu hình mới của darkshot dùng `Pictures\darkshot`.
+5. `%APPDATA%\shotme` không bị xóa. Sau khi thấy darkshot chạy đúng, có thể xóa thư mục này bằng tay.
+
+Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiết lập đang có và hiện thông báo "Chưa chuyển được hết thiết lập từ phiên bản cũ".
 
 ## Cách dùng
 
-1. Chạy `shotme.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "shotme".
+1. Chạy `darkshot.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "darkshot".
 2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
@@ -38,8 +50,8 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 ### Lưu vào máy
 
-- Định dạng PNG, thư mục mặc định `Pictures\shotme` (đổi được trong Tùy chọn, tab Thông thường; thư mục chưa có thì được tạo).
-- Tên file: `shotme_YYYY-MM-DD_HH-MM-SS.png` theo giờ máy. Nếu trùng tên thì thêm `_2`, `_3`.
+- Định dạng PNG, thư mục mặc định `Pictures\darkshot` (đổi được trong Tùy chọn, tab Thông thường; thư mục chưa có thì được tạo).
+- Tên file: `darkshot_YYYY-MM-DD_HH-MM-SS.png` theo giờ máy. Nếu trùng tên thì thêm `_2`, `_3`.
 - Ảnh lưu vào máy luôn là PNG, kể cả khi chọn JPEG cho ảnh tải lên và kể cả bản lưu dự phòng sau khi tải lên thất bại.
 
 ### Tải lên
@@ -84,7 +96,7 @@ Giao diện có hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy ch�
 
 - Khi chưa có file cấu hình (lần chạy đầu) hoặc file cấu hình bị hỏng: theo ngôn ngữ giao diện của Windows. Windows dùng tiếng Việt thì là Tiếng Việt, còn lại là English.
 - File cấu hình của bản cũ không có mục ngôn ngữ: Tiếng Việt.
-- **Kiểm tra kết nối** tải lên một file thử nhỏ, tải lại qua địa chỉ công khai để chắc link mở được, rồi xóa file thử. Kết quả hiện ngay bên cạnh nút. Thông báo lỗi phân biệt lỗi tải lên với lỗi địa chỉ công khai. File thử nằm ở `d1/shotme-test-{16 ký tự}.txt`. Nếu bước xóa thất bại, kết quả báo lỗi quyền dù tải lên đã được, và file thử ở lại trên kho đến khi quy tắc `d1/` xóa nó.
+- **Kiểm tra kết nối** tải lên một file thử nhỏ, tải lại qua địa chỉ công khai để chắc link mở được, rồi xóa file thử. Kết quả hiện ngay bên cạnh nút. Thông báo lỗi phân biệt lỗi tải lên với lỗi địa chỉ công khai. File thử nằm ở `d1/darkshot-test-{16 ký tự}.txt`. Nếu bước xóa thất bại, kết quả báo lỗi quyền dù tải lên đã được, và file thử ở lại trên kho đến khi quy tắc `d1/` xóa nó.
 
 ### Phím tắt chụp
 
@@ -133,12 +145,19 @@ Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích b�
 | Chụp màn hình | Mở lớp phủ chụp. |
 | Tùy chọn... | Mở cửa sổ Tùy chọn. Nếu đã mở thì đưa cửa sổ đó ra trước. |
 | Thông tin... | Mở cửa sổ Thông tin: biểu tượng, tên, phiên bản và mô tả ngắn. |
-| Trợ giúp | Mở cửa sổ Trợ giúp: các bước dùng shotme và chuẩn bị Cloudflare R2, theo phím tắt đang đặt. |
+| Trợ giúp | Mở cửa sổ Trợ giúp: các bước dùng darkshot và chuẩn bị Cloudflare R2, theo phím tắt đang đặt. |
 | Thoát | Thoát ứng dụng và xóa biểu tượng khỏi khay. |
 
 Thông tin và Trợ giúp không chặn ứng dụng: lúc hai cửa sổ này mở, vẫn chụp, dùng menu và mở Tùy chọn được. Mở lại khi đang mở thì chỉ đưa cửa sổ ra trước. Đóng bằng Enter, Esc, nút X hoặc nút Đóng.
 
-Chỉ một bản shotme chạy cùng lúc. Mở bản thứ hai thì bản mới thoát ngay.
+Chỉ một bản darkshot chạy cùng lúc. Mở bản thứ hai thì bản mới thoát ngay.
+
+## Giao diện
+
+- darkshot luôn dùng giao diện tối, không theo chế độ sáng hoặc tối của Windows.
+- Thông báo ở khay và hộp chọn thư mục vẫn theo chế độ của Windows, sáng hoặc tối.
+- Thanh tiêu đề tối cần Windows 10 bản 20H1 trở lên. Bản cũ hơn vẫn chạy, với thanh tiêu đề sáng.
+- Menu khay dùng nền tối khi Windows cho phép. Nếu không, menu vẫn chạy với nền sáng.
 
 ## Chuẩn bị Cloudflare R2
 
@@ -154,7 +173,7 @@ Tài liệu tham khảo:
 ### Bước 1: Tạo tài khoản và bucket
 
 1. Tạo tài khoản Cloudflare, đăng nhập trang quản lý, rồi mở mục **R2 object storage**.
-2. Tạo một bucket (kho) mới. Tên bucket chỉ gồm chữ thường `a-z`, số `0-9` và dấu gạch ngang `-`, dài từ 3 đến 63 ký tự, không bắt đầu hoặc kết thúc bằng `-`. Đây là quy tắc của Cloudflare; shotme không tự kiểm độ dài hay chữ hoa.
+2. Tạo một bucket (kho) mới. Tên bucket chỉ gồm chữ thường `a-z`, số `0-9` và dấu gạch ngang `-`, dài từ 3 đến 63 ký tự, không bắt đầu hoặc kết thúc bằng `-`. Đây là quy tắc của Cloudflare; darkshot không tự kiểm độ dài hay chữ hoa.
 3. Ghi lại **Account ID** (hiện trong trang tổng quan R2). Đây là giá trị mẫu, không phải khóa: `1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d`.
 
 ### Bước 2: Bật truy cập công khai
@@ -203,7 +222,7 @@ Sau khi tạo, mở lại mục **Object Lifecycle Rules** và kiểm tra đủ 
 
 Độ trễ xóa: theo tài liệu Cloudflare, đối tượng thường bị xóa trong vòng 24 giờ kể từ thời điểm hết hạn. Ảnh có thể còn trên kho thêm khoảng một ngày sau hạn.
 
-### Bước 5: Nhập vào shotme
+### Bước 5: Nhập vào darkshot
 
 1. Mở Tùy chọn, tab Lưu trữ R2, nhập Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai (ví dụ `https://img.example.com`).
 2. Bấm **Kiểm tra kết nối**. Chờ thông báo "Thành công: tải lên được và link mở được."
@@ -225,19 +244,19 @@ Sau khi kiểm tra xong, đặt lại **Hạn của link** theo ý bạn.
 
 Nếu `PrintScreen` không mở được lớp phủ, một ứng dụng khác đang giữ phím này.
 
-- **Lightshot:** thoát hẳn Lightshot trước khi dùng shotme. Cách tắt việc Lightshot giữ `PrintScreen` tùy phiên bản; chưa đối chiếu với tài liệu của Lightshot.
+- **Lightshot:** thoát hẳn Lightshot trước khi dùng darkshot. Cách tắt việc Lightshot giữ `PrintScreen` tùy phiên bản; chưa đối chiếu với tài liệu của Lightshot.
 - **Snipping Tool của Windows 11:** tắt việc gán `PrintScreen` cho công cụ cắt. Vào **Settings** > **Accessibility** > **Keyboard** rồi tắt mục dùng nút Print Screen để mở công cụ cắt. Tên mục có thể khác theo bản Windows. Tham khảo: https://support.microsoft.com/en-gb/accessibility/windows/make-your-mouse-keyboard-and-other-input-devices-easier-to-use
 
-Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của shotme (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`. Bỏ tích dòng "Chụp vùng màn hình" cũng trả `PrintScreen` về cho Windows; menu khay vẫn chụp được.
+Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của darkshot (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`. Bỏ tích dòng "Chụp vùng màn hình" cũng trả `PrintScreen` về cho Windows; menu khay vẫn chụp được.
 
 ## Bảo mật
 
-- Cấu hình nằm ở `%APPDATA%\shotme\config.json`.
+- Cấu hình nằm ở `%APPDATA%\darkshot\config.json`.
 - **Secret Access Key** được mã hóa bằng DPAPI của Windows, gắn với tài khoản Windows hiện tại, trước khi ghi vào file. Các mục khác ghi dạng văn bản thường. Nếu chép file sang tài khoản Windows khác thì khóa không đọc được, và Tùy chọn sẽ yêu cầu nhập lại.
 - Ứng dụng tải ảnh thẳng lên địa chỉ S3 của R2 qua HTTPS, yêu cầu được ký theo AWS Signature V4. Không có máy chủ trung gian.
 - Ứng dụng chỉ mở kết nối đến hai địa chỉ: `https://{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho do bạn nhập. Tên miền của hai địa chỉ này vẫn được hỏi qua máy chủ DNS mà Windows đang dùng, nên máy chủ DNS đó thấy được tên miền.
-- Ảnh và link do shotme chép vào clipboard được đánh dấu bằng các định dạng `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` = 0 và `CanUploadToCloudClipboard` = 0 theo tài liệu của Microsoft, để Windows không đưa chúng vào lịch sử clipboard (`Win+V`) và không đồng bộ sang thiết bị khác. Đây là quy ước của Windows; trình quản lý clipboard của hãng khác có thể không tuân theo.
-- Lúc khởi động, shotme tự loại mình khỏi Báo cáo lỗi của Windows (WER) cho tài khoản hiện tại, để khi ứng dụng sự cố Windows không gửi bản kết xuất bộ nhớ đi. Việc này ghi một giá trị DWORD `shotme.exe` = 1 vào `HKEY_CURRENT_USER\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications`. Muốn gỡ, xóa giá trị đó (ví dụ `reg delete "HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications" /v shotme.exe /f`). Chính sách WER do quản trị viên đặt cho cả máy vẫn có thể ghi đè. Việc loại trừ có hiệu lực từ sau lần shotme khởi động đầu tiên, và chưa được thử bằng một sự cố thật.
+- Ảnh và link do darkshot chép vào clipboard được đánh dấu bằng các định dạng `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` = 0 và `CanUploadToCloudClipboard` = 0 theo tài liệu của Microsoft, để Windows không đưa chúng vào lịch sử clipboard (`Win+V`) và không đồng bộ sang thiết bị khác. Đây là quy ước của Windows; trình quản lý clipboard của hãng khác có thể không tuân theo.
+- Lúc khởi động, darkshot tự loại mình khỏi Báo cáo lỗi của Windows (WER) cho tài khoản hiện tại, để khi ứng dụng sự cố Windows không gửi bản kết xuất bộ nhớ đi. Việc này ghi một giá trị DWORD `darkshot.exe` = 1 vào `HKEY_CURRENT_USER\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications`. Muốn gỡ, xóa giá trị đó (ví dụ `reg delete "HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications" /v darkshot.exe /f`). Chính sách WER do quản trị viên đặt cho cả máy vẫn có thể ghi đè. Việc loại trừ có hiệu lực từ sau lần darkshot khởi động đầu tiên, và chưa được thử bằng một sự cố thật.
 - Nếu bạn chọn Thoát (hoặc tắt máy, đăng xuất) lúc một lượt tải lên còn chạy, ảnh của lượt đó được lưu PNG vào thư mục lưu trước khi thoát. Có thể ảnh vừa được lưu vừa đã lên kho.
 - HTTPS dùng thư viện `rustls` với danh sách chứng chỉ gốc đóng kèm trong file, không dùng bộ chứng chỉ của Windows.
 - Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng.

@@ -1,8 +1,8 @@
 ---
-description: Chạy trọn task kế tiếp của shotme - nhánh, agent, rà soát, gộp, ghi token, cập nhật memory bank
+description: Chạy trọn task kế tiếp của darkshot - nhánh, agent, rà soát, gộp, ghi token, cập nhật memory bank
 ---
 
-Chạy task kế tiếp của dự án shotme. Bạn là phiên điều phối: không tự viết mã của task.
+Chạy task kế tiếp của dự án darkshot. Bạn là phiên điều phối: không tự viết mã của task.
 
 1. Đọc `memory-bank/activeContext.md` và `memory-bank/progress.md`. Xác định task kế tiếp (dòng `chờ` đầu tiên, hoặc task đang dở). Nếu mục "Đang chờ chủ dự án" có việc chặn task này, dừng và hỏi chủ dự án.
 2. Kiểm tra `git status` sạch và đang ở `main`. Nếu task đang dở trên một nhánh, chuyển sang nhánh đó và làm tiếp.
@@ -25,3 +25,5 @@ Task 15–19 (đợt 1) theo kế hoạch `docs/superpowers/plans/2026-11-16-opt
 Task 24–26 (đợt 3) theo kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md` và thiết kế `docs/superpowers/specs/2026-11-16-upload-format-design.md`; rà soát đối chiếu thêm mục "Review Focus" của kế hoạch đó. Task 25 do `specialist` rà soát. Không dừng sau Task 25 (quyết định 42).
 
 Task 20–23 (đợt 2) theo kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md` và thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md`. Rà soát các task này đối chiếu thêm mục "Review Focus" của kế hoạch đó.
+
+Task 27–31 (đợt 4) theo kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md` và thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md`; rà soát đối chiếu thêm mục "Review Focus" của kế hoạch đó. Task 28 và 30 do `specialist` rà soát. Không dừng sau Task 30 (quyết định 48).

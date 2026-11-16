@@ -1,5 +1,5 @@
 ---
-description: In tiến độ và bảng token của shotme
+description: In tiến độ và bảng token của darkshot
 ---
 
 Đọc `memory-bank/activeContext.md` và `memory-bank/progress.md`, rồi báo chủ dự án bằng tiếng Việt, ngắn gọn:

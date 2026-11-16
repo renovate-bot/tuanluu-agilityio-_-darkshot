@@ -1,6 +1,6 @@
-# shotme
+# darkshot
 
-Ứng dụng Windows chạy ở khay hệ thống: chụp vùng màn hình, lưu PNG, tải lên Cloudflare R2 của chủ dự án và chép link có hạn. Viết bằng Rust thuần.
+Ứng dụng Windows chạy ở khay hệ thống: chụp vùng màn hình, lưu PNG, tải lên Cloudflare R2 của chủ dự án và chép link có hạn. Viết bằng Rust thuần. Giao diện luôn tối.
 
 ## Bắt đầu phiên làm việc
 
@@ -20,6 +20,7 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 - Đợt 1 (menu mới, Tùy chọn dạng tab, hai ngôn ngữ): thiết kế `docs/superpowers/specs/2026-11-16-options-tabs-i18n-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`. Thiết kế đã duyệt cũng không sửa.
 - Đợt 2 (phím tắt toàn màn hình, con trỏ trong ảnh, giữ vị trí vùng, bật/tắt thông báo): thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md`. Thiết kế đã duyệt cũng không sửa.
 - Đợt 3 (định dạng ảnh tải lên: PNG hoặc JPEG): thiết kế `docs/superpowers/specs/2026-11-16-upload-format-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md`. Thiết kế đã duyệt cũng không sửa.
+- Đợt 4 (đổi tên darkshot, giao diện luôn tối): thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`. Thiết kế đã duyệt cũng không sửa.
 - Mọi chữ người dùng nhìn thấy lấy từ bảng `darkshot_core::i18n` (Tiếng Việt và English), không viết cứng trong mã.
 - Không bàn lại quyết định đã có trong `memory-bank/decisions.md` nếu chủ dự án không yêu cầu.
 - Chỉ đẩy mã lên remote `origin` (repo GitHub riêng tư của chủ dự án). Không gửi dữ liệu dự án ra dịch vụ nào khác.
@@ -29,4 +30,4 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 
 ## Ràng buộc kỹ thuật
 
-Danh sách đầy đủ ở mục "Global Constraints" của `docs/superpowers/plans/2026-11-16-shotme.md`; từ Task 15 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`; từ Task 20 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-capture-batch2.md`; từ Task 24 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-upload-format.md`. Mỗi gói task đã chép sẵn mục này.
+Danh sách đầy đủ ở mục "Global Constraints" của `docs/superpowers/plans/2026-11-16-shotme.md`; từ Task 15 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`; từ Task 20 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-capture-batch2.md`; từ Task 24 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-upload-format.md`; từ Task 27 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`. Mỗi gói task đã chép sẵn mục này.

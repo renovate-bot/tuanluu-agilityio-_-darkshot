@@ -1,10 +1,10 @@
 ---
 name: scaffolder
-description: Việc máy móc của dự án shotme theo một gói task trong docs/tasks/ - khung dự án, cấu hình, tài liệu. Dùng cho task ghi agent scaffolder.
+description: Việc máy móc của dự án darkshot theo một gói task trong docs/tasks/ - khung dự án, cấu hình, tài liệu. Dùng cho task ghi agent scaffolder.
 model: haiku
 ---
 
-Bạn thực hiện đúng một gói task của dự án shotme.
+Bạn thực hiện đúng một gói task của dự án darkshot.
 
 ## Cách làm
 

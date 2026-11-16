@@ -1,16 +1,16 @@
 
 ## Vỏ ứng dụng
 
-- [ ] Khởi động `shotme.exe`: biểu tượng nền xanh bo góc, có khung chọn trắng bốn góc chữ L (ở cỡ khay chỉ còn bốn góc, không chấm tròn) hiện ở khay hệ thống, chú thích "shotme"; nét sắc, không nhòe.
-- [ ] Biểu tượng mới hiện đúng ở ba nơi: khay hệ thống, nút của cửa sổ Tùy chọn trên thanh tác vụ (và thanh tiêu đề, Alt+Tab), và `shotme.exe` trong Explorer (thử các cỡ biểu tượng nhỏ, vừa, lớn, rất lớn). Thử thêm ở tỷ lệ hiển thị 100%, 125%, 150%.
+- [ ] Khởi động `darkshot.exe`: biểu tượng nền xanh bo góc, có khung chọn trắng bốn góc chữ L (ở cỡ khay chỉ còn bốn góc, không chấm tròn) hiện ở khay hệ thống, chú thích "darkshot"; nét sắc, không nhòe.
+- [ ] Biểu tượng mới hiện đúng ở ba nơi: khay hệ thống, nút của cửa sổ Tùy chọn trên thanh tác vụ (và thanh tiêu đề, Alt+Tab), và `darkshot.exe` trong Explorer (thử các cỡ biểu tượng nhỏ, vừa, lớn, rất lớn). Thử thêm ở tỷ lệ hiển thị 100%, 125%, 150%.
 - [ ] Bấm chuột phải (hoặc trái) vào biểu tượng: menu có năm mục (xem "Đợt 1: menu, Thông tin, Trợ giúp").
 - [ ] Chọn "Tùy chọn...": cửa sổ Tùy chọn mở (xem mục "Tùy chọn").
 - [ ] Chọn "Chụp màn hình" hoặc bấm phím của dòng "Chụp vùng màn hình" (mặc định PrintScreen): lớp phủ mở (xem mục "Lớp phủ"). Hai phím toàn màn hình không mở lớp phủ.
-- [ ] Khi Lightshot (hoặc ứng dụng khác giữ PrintScreen) đang chạy: shotme vẫn chạy và hiện thông báo "Phím tắt chưa hoạt động" nêu "PrintScreen".
-- [ ] Chạy `shotme.exe` lần thứ hai: bản thứ hai thoát ngay, chỉ còn một tiến trình.
+- [ ] Khi Lightshot (hoặc ứng dụng khác giữ PrintScreen) đang chạy: darkshot vẫn chạy và hiện thông báo "Phím tắt chưa hoạt động" nêu "PrintScreen".
+- [ ] Chạy `darkshot.exe` lần thứ hai: bản thứ hai thoát ngay, chỉ còn một tiến trình.
 - [ ] Khởi động lại Explorer (Task Manager, Restart): biểu tượng khay hiện lại.
 - [ ] Chọn "Thoát": biểu tượng biến mất khỏi khay và tiến trình kết thúc.
-- [ ] Bật tùy chọn khởi động cùng Windows, đăng xuất rồi đăng nhập lại: biểu tượng shotme xuất hiện ở khay (kể cả khi Explorer khởi động chậm).
+- [ ] Bật tùy chọn khởi động cùng Windows, đăng xuất rồi đăng nhập lại: biểu tượng darkshot xuất hiện ở khay (kể cả khi Explorer khởi động chậm).
 
 ## Lớp phủ
 
@@ -39,7 +39,7 @@
 - [ ] Hai màn hình khác tỉ lệ phóng to (ví dụ 100% và 150%): nút, nhãn, chú thích, tay nắm trên mỗi màn hình to theo tỉ lệ của màn hình đó; ảnh nền không bị lệch.
 - [ ] Ảnh nền và vùng chọn không bị mờ hay co giãn (so từng pixel chữ nhỏ với màn hình thật), ở cả 100% và 150%.
 - [ ] Chụp khi có hộp thoại UAC hoặc ngay sau khi mở khóa máy: nếu không chụp được thì hiện thông báo lỗi "Không chụp được màn hình", ứng dụng vẫn chạy.
-- [ ] Màn hình 4K hoặc hai màn hình lớn: kéo và di chuyển khung lớn vẫn mượt; mở rồi đóng lớp phủ 10 lần, bộ nhớ của shotme (Task Manager) trở về mức cũ, số GDI objects (cột "GDI objects" trong Task Manager, tab Details) không tăng dần.
+- [ ] Màn hình 4K hoặc hai màn hình lớn: kéo và di chuyển khung lớn vẫn mượt; mở rồi đóng lớp phủ 10 lần, bộ nhớ của darkshot (Task Manager) trở về mức cũ, số GDI objects (cột "GDI objects" trong Task Manager, tab Details) không tăng dần.
 
 ## Tùy chọn
 
@@ -68,16 +68,16 @@
 - [ ] "Chép ảnh": dán được vào Paint, Word, trình duyệt (ví dụ Gmail), Slack hoặc Telegram; ảnh đúng màu, không lật ngược.
 - [ ] "Tải lên": link dán ra đúng nguyên văn.
 - [ ] Chép khi một ứng dụng khác đang giữ clipboard: có thông báo lỗi "Clipboard đang bị ứng dụng khác giữ", ứng dụng vẫn chạy.
-- [ ] Bật khởi động cùng Windows trong Tùy chọn, khởi động lại máy: shotme tự chạy. Tắt đi, khởi động lại: không tự chạy.
-- [ ] Bật lịch sử clipboard (Cài đặt Windows > Hệ thống > Clipboard), chép ảnh và tải lên bằng shotme, rồi bấm `Win+V`: không có ảnh hay link nào của shotme trong danh sách; dán (`Ctrl+V`) vẫn ra đúng ảnh/link.
-- [ ] `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` không có giá trị nào tên `shotme-test-*` (sót lại từ kiểm thử bị ngắt giữa chừng).
-- [ ] Sau khi chạy shotme một lần: `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` có giá trị DWORD `shotme.exe` = 1 (loại khỏi Báo cáo lỗi của Windows); ngoài nó và khóa `Run` khi bật khởi động cùng Windows, shotme không ghi gì khác vào registry.
+- [ ] Bật khởi động cùng Windows trong Tùy chọn, khởi động lại máy: darkshot tự chạy. Tắt đi, khởi động lại: không tự chạy.
+- [ ] Bật lịch sử clipboard (Cài đặt Windows > Hệ thống > Clipboard), chép ảnh và tải lên bằng darkshot, rồi bấm `Win+V`: không có ảnh hay link nào của darkshot trong danh sách; dán (`Ctrl+V`) vẫn ra đúng ảnh/link.
+- [ ] `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` không có giá trị nào tên `darkshot-test-*` (sót lại từ kiểm thử bị ngắt giữa chừng).
+- [ ] Sau khi chạy darkshot một lần: `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` có giá trị DWORD `darkshot.exe` = 1 (loại khỏi Báo cáo lỗi của Windows); ngoài nó và khóa `Run` khi bật khởi động cùng Windows, darkshot không ghi gì khác vào registry.
 
 ## Luồng đầy đủ
 
-- [ ] Lần chạy đầu (xóa hoặc đổi tên `%APPDATA%\shotme\config.json` trước): ngay khi khởi động cửa sổ Tùy chọn tự mở, không có dòng thông báo ở đầu cửa sổ. Bấm Hủy: không có file cấu hình nào được tạo.
-- [ ] Bấm "OK" ở lần chạy đầu: file `%APPDATA%\shotme\config.json` được tạo; mở bằng Notepad thì không thấy Secret Access Key ở dạng đọc được.
-- [ ] Chụp, chọn "Lưu vào máy": file `shotme_YYYY-MM-DD_HH-MM-SS.png` nằm đúng trong thư mục lưu đã cấu hình (mặc định `Pictures\shotme`), tên đúng giờ hiện tại, mở ra đúng vùng đã chọn; có thông báo "Đã lưu ảnh" kèm đường dẫn. Lưu hai ảnh trong cùng một giây: tên thứ hai có hậu tố `_2`.
+- [ ] Lần chạy đầu (xóa hoặc đổi tên `%APPDATA%\darkshot\config.json` trước): ngay khi khởi động cửa sổ Tùy chọn tự mở, không có dòng thông báo ở đầu cửa sổ. Bấm Hủy: không có file cấu hình nào được tạo.
+- [ ] Bấm "OK" ở lần chạy đầu: file `%APPDATA%\darkshot\config.json` được tạo; mở bằng Notepad thì không thấy Secret Access Key ở dạng đọc được.
+- [ ] Chụp, chọn "Lưu vào máy": file `darkshot_YYYY-MM-DD_HH-MM-SS.png` nằm đúng trong thư mục lưu đã cấu hình (mặc định `Pictures\darkshot`), tên đúng giờ hiện tại, mở ra đúng vùng đã chọn; có thông báo "Đã lưu ảnh" kèm đường dẫn. Lưu hai ảnh trong cùng một giây: tên thứ hai có hậu tố `_2`.
 - [ ] Đổi thư mục lưu trong Tùy chọn rồi lưu ảnh: ảnh nằm trong thư mục mới (thư mục chưa có thì được tạo).
 - [ ] Chụp, chọn "Chép ảnh": thông báo "Đã chép ảnh"; dán được vào Paint, ảnh đúng vùng chọn.
 - [ ] Tải lên khi chưa cấu hình R2: ảnh được lưu vào thư mục lưu, thông báo lỗi nói rõ chưa cấu hình và nêu đường dẫn ảnh, cửa sổ Tùy chọn tự mở.
@@ -94,20 +94,20 @@
 - [ ] Che cửa sổ Tùy chọn bằng cửa sổ khác (hoặc thu nhỏ nó), rồi bấm biểu tượng khay: cửa sổ Tùy chọn hiện ra trước (khôi phục nếu đang thu nhỏ), không có menu khay và không mở cửa sổ thứ hai.
 - [ ] Tải lên khi chưa cấu hình, nhưng lúc đó đang mở lớp phủ chụp lần khác: lớp phủ đóng xong thì Tùy chọn mới mở (yêu cầu không bị mất).
 - [ ] Menu khay đang mở mà một lượt tải lên báo cần Tùy chọn: menu đóng rồi Tùy chọn mở, không treo.
-- [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\shotme` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím tắt chưa hoạt động" nêu tổ hợp bị chiếm, kèm hướng dẫn mở Tùy chọn chọn lại.
-- [ ] Bật "Khởi động cùng Windows" rồi bấm OK: mục `shotme` xuất hiện trong `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; tắt rồi bấm OK thì mất.
+- [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\darkshot` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím tắt chưa hoạt động" nêu tổ hợp bị chiếm, kèm hướng dẫn mở Tùy chọn chọn lại.
+- [ ] Bật "Khởi động cùng Windows" rồi bấm OK: mục `darkshot` xuất hiện trong `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; tắt rồi bấm OK thì mất.
 
 ## Nghiệm thu với R2 thật
 
 Chủ dự án tự làm các bước này với kho thật. Agent không nhận và không ghi khóa.
 
 - [ ] Nhập Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai theo README (mục "Chuẩn bị Cloudflare R2"), bấm "Kiểm tra kết nối": hiện "Thành công: tải lên được và link mở được."
-- [ ] Mở `%APPDATA%\shotme\config.json` bằng Notepad, tìm chuỗi Secret Access Key: không thấy khóa ở dạng đọc được.
+- [ ] Mở `%APPDATA%\darkshot\config.json` bằng Notepad, tìm chuỗi Secret Access Key: không thấy khóa ở dạng đọc được.
 - [ ] Chụp một vùng, bấm `Ctrl+D`: thông báo "Đã chép link", dán ra link nguyên văn.
 - [ ] Mở link ở trình duyệt khác (cửa sổ ẩn danh, không đăng nhập Cloudflare): ảnh hiện đúng vùng đã chọn.
 - [ ] Link của hạn mặc định có thư mục `/d30/`. Đổi "Hạn của link" sang "1 ngày", tải lên một ảnh: link có `/d1/`.
 - [ ] Rút mạng rồi bấm `Ctrl+D`: ảnh được lưu vào thư mục lưu, thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh; Tùy chọn không tự mở. Nối mạng lại.
-- [ ] Trong lúc `shotme.exe` chạy và tải lên, mở Resource Monitor (tab Network): các kết nối của `shotme.exe` chỉ tới địa chỉ `{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho.
+- [ ] Trong lúc `darkshot.exe` chạy và tải lên, mở Resource Monitor (tab Network): các kết nối của `darkshot.exe` chỉ tới địa chỉ `{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho.
 - [ ] Kiểm tra quy tắc xóa theo README (mục "Kiểm tra quy tắc xóa"): ảnh `d1/` biến mất sau hạn cộng độ trễ xóa.
 
 ## Đợt 1: cửa sổ Tùy chọn
@@ -123,7 +123,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Phím tắt mới bị ứng dụng khác chiếm: bấm OK chuyển sang tab Phím tắt và hiện lỗi; Hủy thì phím cũ hoạt động lại.
 - [ ] Bấm Kiểm tra kết nối rồi sang tab khác và quay lại: kết quả nằm ở dòng kết quả của tab Lưu trữ R2, nút bật lại.
 - [ ] Bấm Kiểm tra kết nối rồi Hủy ngay; mở lại Tùy chọn và bấm Kiểm tra kết nối: nó chạy (hiện "Đang kiểm tra…"), và kết quả của lần bị hủy không hiện ra trong cửa sổ mới.
-- [ ] Lần chạy đầu (xóa `%APPDATA%\shotme\config.json`) cửa sổ mở ở tab Lưu trữ R2, con trỏ ở Account ID; mở từ menu "Tùy chọn..." thì ở tab Thông thường.
+- [ ] Lần chạy đầu (xóa `%APPDATA%\darkshot\config.json`) cửa sổ mở ở tab Lưu trữ R2, con trỏ ở Account ID; mở từ menu "Tùy chọn..." thì ở tab Thông thường.
 - [ ] Đổi ngôn ngữ rồi OK: menu khay, thông báo, chữ rê chuột trên thanh công cụ lớp phủ và cửa sổ Tùy chọn mở lại đều đổi theo.
 - [ ] Đổi ngôn ngữ rồi Hủy: không đổi gì.
 - [ ] File cấu hình của bản cũ (không có trường `language`): vẫn Tiếng Việt, mọi cài đặt còn nguyên.
@@ -132,11 +132,11 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 ## Đợt 1: menu, Thông tin, Trợ giúp
 
 - [ ] Menu khay có đúng năm mục, không đường kẻ, theo thứ tự: Chụp màn hình, Tùy chọn..., Thông tin..., Trợ giúp, Thoát. Tiếng Anh: Take screenshot, Options..., About..., Help, Exit.
-- [ ] Thông tin hiện biểu tượng 48×48, "shotme", đúng phiên bản (so với `version` trong `Cargo.toml`), dòng mô tả đủ chữ ở cả hai ngôn ngữ, nút Đóng/Close giữ tiêu điểm. Không có link.
+- [ ] Thông tin hiện biểu tượng 48×48, "darkshot", đúng phiên bản (so với `version` trong `Cargo.toml`), dòng mô tả đủ chữ ở cả hai ngôn ngữ, nút Đóng/Close giữ tiêu điểm. Không có link.
 - [ ] Chọn lại Thông tin (hoặc Trợ giúp) khi cửa sổ đang mở, kể cả đang thu nhỏ: chỉ đưa nó ra trước (khôi phục nếu thu nhỏ), không mở cửa sổ thứ hai.
 - [ ] Enter, Esc, nút X và nút Đóng đều đóng được Thông tin và Trợ giúp, kể cả khi con trỏ đang đứng trong ô chữ của Trợ giúp.
 - [ ] Trợ giúp: cuộn được bằng thanh cuộn, bánh xe chuột; không có chữ nào bị bôi chọn sẵn; nêu đúng phím tắt đang đặt (đổi sang tổ hợp khác rồi mở lại để thử); không có địa chỉ web.
-- [ ] Thông tin và Trợ giúp có biểu tượng shotme trên thanh tiêu đề và thanh tác vụ, hiện giữa màn hình đang có con trỏ, không đổi cỡ được. Thử ở màn hình phụ và ở DPI khác 100%.
+- [ ] Thông tin và Trợ giúp có biểu tượng darkshot trên thanh tiêu đề và thanh tác vụ, hiện giữa màn hình đang có con trỏ, không đổi cỡ được. Thử ở màn hình phụ và ở DPI khác 100%.
 - [ ] Lúc Thông tin hoặc Trợ giúp đang mở: phím tắt chụp, menu khay và Tùy chọn vẫn dùng được; chụp xong, hai cửa sổ vẫn còn.
 - [ ] Nút Trợ giúp ở góc dưới trái cửa sổ Tùy chọn mở Trợ giúp (nêu đúng phím đang hiện trong tab Phím tắt, kể cả khi vừa đổi mà chưa bấm OK); gõ tiếp vào Tùy chọn được; bấm lại nút khi Trợ giúp đã mở chỉ đưa nó ra trước; đóng Tùy chọn (OK hoặc Hủy) thì Trợ giúp còn nguyên.
 - [ ] Tab trong Tùy chọn: Trợ giúp đứng ngay trước OK.
@@ -156,7 +156,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Một dòng đang tắt trùng tổ hợp với dòng đang bật: OK được.
 - [ ] Đặt một dòng vào phím mà ứng dụng khác đang giữ: OK báo lỗi nêu tên dòng và tổ hợp, tiêu điểm ở nút Đổi… của dòng đó; sau đó bấm Hủy thì phím cũ vẫn chạy.
 - [ ] Bỏ tích dòng 1 rồi OK: PrintScreen trả về cho Windows (Windows hoặc ứng dụng khác dùng được PrintScreen); menu khay vẫn chụp được.
-- [ ] Khởi động shotme khi hai phím đang bật bị ứng dụng khác chiếm: chỉ một thông báo "Phím tắt chưa hoạt động" liệt kê cả hai tổ hợp; dòng còn lại vẫn chạy.
+- [ ] Khởi động darkshot khi hai phím đang bật bị ứng dụng khác chiếm: chỉ một thông báo "Phím tắt chưa hoạt động" liệt kê cả hai tổ hợp; dòng còn lại vẫn chạy.
 - [ ] Tab Thông thường: ba ô tích "Hiện các thông báo lưu và sao chép", "Giữ vị trí vùng đã chọn", "Bao gồm con trỏ chuột vào ảnh chụp màn hình" nằm liền nhau dưới "Khởi động cùng Windows"; đổi từng ô, OK, mở lại: đúng giá trị đã lưu.
 - [ ] Bỏ tích "Hiện các thông báo lưu và sao chép": lưu ảnh, chép ảnh, tải lên thành công không hiện thông báo; lỗi (rút mạng rồi tải lên) vẫn hiện.
 - [ ] Trợ giúp nêu đúng phím của dòng đang bật và "chưa bật" (kèm chỗ bật) cho dòng đang tắt, ở hai ngôn ngữ; nút Trợ giúp trong Tùy chọn theo đúng ô tích và phím đang hiện, kể cả khi chưa bấm OK.
