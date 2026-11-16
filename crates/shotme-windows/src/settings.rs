@@ -1,14 +1,15 @@
-//! Cửa sổ Cài đặt (Win32 thuần, Common Controls v6 qua manifest).
+//! Cửa sổ Tùy chọn ba tab (Win32 thuần, Common Controls v6 qua manifest).
 //!
-//! Phần logic (`apply_form`, `capture_hotkey`) là hàm thuần có kiểm thử; phần cửa sổ mỏng.
+//! Phần logic (`apply_form`, `capture_hotkey`, `key_route`, `tab_of`, `initial_tab`) là hàm thuần
+//! có kiểm thử; phần cửa sổ mỏng.
 //! `show` chạy vòng lặp thông điệp riêng (hộp thoại kiểu modal) và bảo đảm khi trả về:
-//! Lưu thì phím tắt mới (nếu đổi) đã được đăng ký cho `parent`; Hủy thì phím tắt cũ đã đăng ký lại.
+//! OK thì phím tắt mới (nếu đổi) đã được đăng ký cho `parent`; Hủy thì phím tắt cũ đã đăng ký lại.
 //! Việc ghi `Config` ra đĩa và bật/tắt khởi động cùng Windows do bên gọi (Task 11) làm.
 
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
-use shotme_core::i18n::{self, expiry_label, Msg};
+use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -18,15 +19,20 @@ use std::sync::Mutex;
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, GetMonitorInfoW, GetSysColorBrush, MonitorFromPoint,
-    SetBkMode, SetTextColor, COLOR_BTNFACE, HBRUSH, HDC, HFONT, HGDIOBJ, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST, TRANSPARENT,
+    CreateFontIndirectW, DeleteObject, FillRect, GetMonitorInfoW, GetSysColorBrush,
+    MonitorFromPoint, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW, HBRUSH, HDC, HFONT,
+    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
     COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::{
+    InitCommonControlsEx, IsAppThemed, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, NMHDR, TCIF_TEXT,
+    TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCM_SETCURSEL, TCN_SELCHANGE,
+    TCN_SELCHANGING, WC_TABCONTROLW,
+};
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
 };
@@ -38,20 +44,22 @@ use windows::Win32::UI::Shell::{
     FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-    GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild,
-    IsDialogMessageW, IsIconic, KillTimer, LoadImageW, PostMessageW, PostQuitMessage,
-    RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW,
-    ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
-    BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-    CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD, ES_READONLY,
-    GWL_STYLE, HMENU, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, MSG, NONCLIENTMETRICSW,
-    SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
-    SWP_NOZORDER, SW_RESTORE, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_RBUTTONDOWN, WM_SETFONT, WM_SETICON,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetCursorPos,
+    GetMessageW, GetParent, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
+    GetWindowTextW, IsChild, IsDialogMessageW, IsIconic, KillTimer, LoadImageW, PostMessageW,
+    PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK,
+    BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
+    CB_GETDROPPEDSTATE, CB_SETCURSEL, CB_SHOWDROPDOWN, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD,
+    ES_READONLY, GWL_STYLE, HMENU, HWND_BOTTOM, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, MSG,
+    NONCLIENTMETRICSW, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SPI_GETNONCLIENTMETRICS,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOW,
+    WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN,
+    WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NOTIFY, WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_SETFONT,
+    WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU,
+    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 /// Giá trị đọc từ các ô của cửa sổ.
@@ -66,6 +74,7 @@ pub struct Form {
     pub hotkey: Hotkey,
     pub save_dir: String,
     pub autostart: bool,
+    pub language: Lang,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -81,6 +90,7 @@ impl std::fmt::Debug for Form {
             .field("hotkey", &self.hotkey)
             .field("save_dir", &self.save_dir)
             .field("autostart", &self.autostart)
+            .field("language", &self.language)
             .finish()
     }
 }
@@ -97,29 +107,109 @@ fn is_bucket_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
 }
 
+/// Tab của cửa sổ Tùy chọn, theo thứ tự trên dải tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    General,
+    Hotkeys,
+    R2,
+}
+
+/// Ô có thể sai khi bấm OK.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    SaveDir,
+    AccountId,
+    Bucket,
+    PublicUrl,
+}
+
+/// Lỗi của biểu mẫu: ô sai và câu báo lỗi (không bao giờ chứa khóa bí mật).
+#[derive(Debug, PartialEq, Eq)]
+pub struct FormError {
+    pub field: Field,
+    pub message: String,
+}
+
+/// Tab chứa ô `field`.
+pub fn tab_of(field: Field) -> Tab {
+    match field {
+        Field::SaveDir => Tab::General,
+        Field::AccountId | Field::Bucket | Field::PublicUrl => Tab::R2,
+    }
+}
+
+impl Tab {
+    /// Thứ tự trên dải tab.
+    const ALL: [Tab; 3] = [Tab::General, Tab::Hotkeys, Tab::R2];
+
+    fn index(self) -> usize {
+        match self {
+            Tab::General => 0,
+            Tab::Hotkeys => 1,
+            Tab::R2 => 2,
+        }
+    }
+
+    fn label(self) -> Msg {
+        match self {
+            Tab::General => Msg::TabGeneral,
+            Tab::Hotkeys => Msg::TabHotkeys,
+            Tab::R2 => Msg::TabR2,
+        }
+    }
+
+    /// Tab cách `step` bước về bên phải, vòng tròn (`len - 1` bước = tab bên trái).
+    fn cycle(self, step: usize) -> Tab {
+        Tab::ALL[(self.index() + step) % Tab::ALL.len()]
+    }
+}
+
+/// Lý do mở cửa sổ Tùy chọn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenReason {
+    /// Người dùng chọn "Tùy chọn..." ở menu.
+    User,
+    /// Ứng dụng tự mở vì R2 chưa cấu hình, mất khóa hoặc cấu hình lỗi.
+    NeedsR2,
+}
+
+/// Tab mở đầu theo lý do mở.
+pub fn initial_tab(reason: OpenReason) -> Tab {
+    match reason {
+        OpenReason::User => Tab::General,
+        OpenReason::NeedsR2 => Tab::R2,
+    }
+}
+
 /// Gộp biểu mẫu vào cấu hình hiện tại. Thuần: không đụng hệ điều hành.
-pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
+/// Kiểm tra theo thứ tự tab: SaveDir, AccountId, Bucket, PublicUrl; câu lỗi theo `lang`.
+pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, FormError> {
     let account_id = form.account_id.trim().to_string();
     let access_key_id = form.access_key_id.trim().to_string();
     let bucket = form.bucket.trim().to_string();
     let secret = form.secret_access_key.trim();
     let url = form.public_base_url.trim();
     let save_dir = form.save_dir.trim();
+    let err = |field: Field, message: String| Err(FormError { field, message });
 
+    if save_dir.is_empty() {
+        return err(Field::SaveDir, t(lang, Msg::ErrPickSaveDir).into());
+    }
     if !account_id.chars().all(is_account_char) {
-        return Err(lang::tr(Msg::ErrAccountChars).into());
+        return err(Field::AccountId, t(lang, Msg::ErrAccountChars).into());
     }
     if !bucket.chars().all(is_bucket_char) {
-        return Err(lang::tr(Msg::ErrBucketChars).into());
+        return err(Field::Bucket, t(lang, Msg::ErrBucketChars).into());
     }
     let public_base_url = if url.is_empty() {
         String::new()
     } else {
-        normalize_public_base_url(url).map_err(|e| e.message(lang::current()))?
+        match normalize_public_base_url(url) {
+            Ok(u) => u,
+            Err(e) => return err(Field::PublicUrl, e.message(lang)),
+        }
     };
-    if save_dir.is_empty() {
-        return Err(lang::tr(Msg::ErrPickSaveDir).into());
-    }
     let secret_access_key = if secret.is_empty() {
         current.r2.secret_access_key.clone()
     } else {
@@ -137,8 +227,41 @@ pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
         hotkey: form.hotkey,
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
-        language: current.language,
+        language: form.language,
     })
+}
+
+/// Một phím (WM_KEYDOWN) trong cửa sổ Tùy chọn đi về đâu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyRoute {
+    Capture,
+    NextTab,
+    PrevTab,
+    Cancel,
+    Accept,
+    Dialog,
+}
+
+/// Định tuyến phím; `combo_dropped` đúng khi một hộp chọn đang thả.
+pub fn key_route(
+    capturing: bool,
+    vk: u32,
+    ctrl: bool,
+    shift: bool,
+    combo_dropped: bool,
+) -> KeyRoute {
+    const TAB: u32 = 0x09;
+    if capturing {
+        return KeyRoute::Capture;
+    }
+    match vk {
+        TAB if ctrl && shift => KeyRoute::PrevTab,
+        TAB if ctrl => KeyRoute::NextTab,
+        _ if combo_dropped => KeyRoute::Dialog,
+        v if v == VK_ESCAPE.0 as u32 => KeyRoute::Cancel,
+        v if v == VK_RETURN.0 as u32 => KeyRoute::Accept,
+        _ => KeyRoute::Dialog,
+    }
 }
 
 /// Kết quả xử lý một lần nhả phím khi đang chọn phím tắt mới.
@@ -270,6 +393,11 @@ const ID_DIR: i32 = 108;
 const ID_BROWSE: i32 = 109;
 const ID_HK_CHANGE: i32 = 110;
 const ID_AUTOSTART: i32 = 111;
+const ID_LANGUAGE: i32 = 112;
+const ID_TABS: i32 = 113;
+/// Khung của tab thứ i có ID `ID_FRAME0 + i`.
+const ID_FRAME0: i32 = 120;
+const FRAME_CLASS: PCWSTR = w!("shotme-settings-frame");
 
 const fn ws(v: i32) -> WINDOW_STYLE {
     WINDOW_STYLE(v as u32)
@@ -283,6 +411,10 @@ const VK_CONTROL_U: i32 = VK_CONTROL.0 as i32;
 
 #[derive(Clone, Copy)]
 struct Ctl {
+    tabs: HWND,
+    /// Khung của từng tab, theo `Tab::index`.
+    frames: [HWND; 3],
+    language: HWND,
     account: HWND,
     keyid: HWND,
     secret: HWND,
@@ -304,16 +436,19 @@ struct St {
     hotkey: Hotkey,
     capturing: bool,
     cap: CaptureState,
-    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần Lưu lỗi) và cần đăng ký lại nếu Hủy.
+    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần OK lỗi) và cần đăng ký lại nếu Hủy.
     hk_unregistered: bool,
     done: bool,
     result: Option<Config>,
     font: Option<HFONT>,
+    /// Tab đang hiện.
+    tab: Tab,
 }
 
 thread_local! {
-    /// HWND của cửa sổ đang mở (0 = không có).
+    /// Một lần Kiểm tra kết nối đang chạy ở luồng nền (nút đang bị làm mờ).
     static TEST_RUNNING: Cell<bool> = const { Cell::new(false) };
+    /// HWND của cửa sổ đang mở (0 = không có).
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static CTL: Cell<Option<Ctl>> = const { Cell::new(None) };
     static ST: RefCell<Option<St>> = const { RefCell::new(None) };
@@ -356,17 +491,22 @@ fn set_text(h: HWND, s: &str) {
 fn read_form() -> Option<Form> {
     let c = ctl()?;
     // SAFETY: các HWND là điều khiển của cửa sổ đang mở ở luồng này.
-    let (sel, checked) = unsafe {
+    let (sel, checked, lang_sel) = unsafe {
         (
             SendMessageW(c.expiry, CB_GETCURSEL, None, None).0,
             SendMessageW(c.autostart, BM_GETCHECK, None, None).0,
+            SendMessageW(c.language, CB_GETCURSEL, None, None).0,
         )
     };
     let expiry = usize::try_from(sel)
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let hotkey = with_st(|s| s.hotkey)?;
+    let (hotkey, old_lang) = with_st(|s| (s.hotkey, s.current.language))?;
+    let language = usize::try_from(lang_sel)
+        .ok()
+        .and_then(|i| Lang::ALL.get(i).copied())
+        .unwrap_or(old_lang);
     Some(Form {
         account_id: get_text(c.account),
         access_key_id: get_text(c.keyid),
@@ -377,7 +517,113 @@ fn read_form() -> Option<Form> {
         hotkey,
         save_dir: get_text(c.dir),
         autostart: checked == 1,
+        language,
     })
+}
+
+/// Ô đầu tiên (theo thứ tự Tab) của mỗi tab.
+fn first_ctl(c: &Ctl, t: Tab) -> HWND {
+    match t {
+        Tab::General => c.autostart,
+        Tab::Hotkeys => c.hk_edit,
+        Tab::R2 => c.account,
+    }
+}
+
+fn field_ctl(c: &Ctl, f: Field) -> HWND {
+    match f {
+        Field::SaveDir => c.dir,
+        Field::AccountId => c.account,
+        Field::Bucket => c.bucket,
+        Field::PublicUrl => c.url,
+    }
+}
+
+/// Hiện khung của tab `t`, ẩn và tắt hai khung còn lại. Tiêu điểm đang nằm trong khung sắp ẩn
+/// thì chuyển sang ô đầu của khung mới trước khi ẩn, nên ô của khung ẩn không bao giờ giữ tiêu điểm.
+/// Không gửi thông điệp tới dải tab (bên gọi tự đặt lựa chọn của dải tab).
+fn show_frame(c: &Ctl, t: Tab) {
+    with_st(|s| s.tab = t);
+    let shown = c.frames[t.index()];
+    // SAFETY: các HWND là cửa sổ con của cửa sổ Tùy chọn đang mở ở luồng này.
+    unsafe {
+        let _ = EnableWindow(shown, true);
+        let _ = ShowWindow(shown, SW_SHOW);
+        let focus = GetFocus();
+        let in_hidden = !focus.is_invalid()
+            && c.frames
+                .iter()
+                .any(|f| *f != shown && (focus == *f || IsChild(*f, focus).as_bool()));
+        if in_hidden {
+            let _ = SetFocus(Some(first_ctl(c, t)));
+        }
+        for f in c.frames.iter().filter(|f| **f != shown) {
+            let _ = ShowWindow(*f, SW_HIDE);
+            let _ = EnableWindow(*f, false);
+        }
+    }
+}
+
+/// Chuyển tab bằng mã (Ctrl+Tab, lỗi khi OK): thoát chế độ bắt phím, đóng hộp chọn đang thả,
+/// đặt lựa chọn của dải tab (TCM_SETCURSEL không sinh TCN_SELCHANGE) rồi hiện khung.
+fn select_tab(t: Tab) {
+    let Some(c) = ctl() else { return };
+    end_capture();
+    // SAFETY: gửi thông điệp tới các điều khiển của cửa sổ đang mở ở luồng này.
+    unsafe {
+        for combo in [c.expiry, c.language] {
+            SendMessageW(combo, CB_SHOWDROPDOWN, Some(WPARAM(0)), None);
+        }
+        SendMessageW(c.tabs, TCM_SETCURSEL, Some(WPARAM(t.index())), None);
+    }
+    show_frame(&c, t);
+}
+
+/// Ctrl+Tab (`step` = 1) hoặc Ctrl+Shift+Tab (`step` = số tab - 1).
+fn cycle_tab(step: usize) {
+    if let Some(cur) = with_st(|s| s.tab) {
+        select_tab(cur.cycle(step));
+    }
+}
+
+/// Nền của vùng hiển thị dải tab: trắng khi có giao diện (visual styles), xám cổ điển khi không.
+fn body_brush() -> HBRUSH {
+    // SAFETY: hàm hệ thống không tham số; chổi màu hệ thống không phải giải phóng.
+    unsafe {
+        if IsAppThemed().as_bool() {
+            GetSysColorBrush(COLOR_WINDOW)
+        } else {
+            GetSysColorBrush(COLOR_BTNFACE)
+        }
+    }
+}
+
+/// Thủ tục cửa sổ của khung: ô con báo WM_COMMAND và WM_CTLCOLORSTATIC cho khung (cha trực tiếp),
+/// nên khung chuyển nguyên chúng lên cửa sổ chính. Nền khung tô bằng `body_brush`.
+unsafe extern "system" fn frame_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_COMMAND | WM_CTLCOLORSTATIC => {
+            // SAFETY: cha của khung là cửa sổ chính cùng luồng; SendMessageW gọi thẳng thủ tục của nó.
+            unsafe {
+                match GetParent(hwnd) {
+                    Ok(p) => SendMessageW(p, msg, Some(wp), Some(lp)),
+                    Err(_) => DefWindowProcW(hwnd, msg, wp, lp),
+                }
+            }
+        }
+        WM_ERASEBKGND | WM_PRINTCLIENT => {
+            let hdc = HDC(wp.0 as *mut c_void);
+            let mut rc = RECT::default();
+            // SAFETY: hdc do hệ thống (hoặc nút vẽ nền cha) cấp cho lần vẽ này; rc là biến cục bộ.
+            unsafe {
+                let _ = GetClientRect(hwnd, &mut rc);
+                FillRect(hdc, &rc, body_brush());
+            }
+            LRESULT(1)
+        }
+        // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
 }
 
 fn show_error(msg: &str) {
@@ -410,15 +656,27 @@ fn cancel() {
     finish(None);
 }
 
+/// Chuyển sang tab chứa ô sai, đặt tiêu điểm vào ô đó và hiện câu lỗi; giá trị ở mọi tab giữ nguyên.
+fn show_form_error(e: &FormError) {
+    select_tab(tab_of(e.field));
+    if let Some(c) = ctl() {
+        // SAFETY: ô thuộc khung vừa hiện của cửa sổ đang mở ở luồng này.
+        unsafe {
+            let _ = SetFocus(Some(field_ctl(&c, e.field)));
+        }
+    }
+    show_error(&e.message);
+}
+
 fn save() {
     let Some(form) = read_form() else { return };
     let Some(current) = with_st(|s| s.current.clone()) else {
         return;
     };
-    let cfg = match apply_form(&current, &form) {
+    let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            show_error(&e);
+            show_form_error(&e);
             return;
         }
     };
@@ -430,6 +688,13 @@ fn save() {
             hotkey::unregister(p);
             if !hotkey::register(p, &cfg.hotkey) {
                 with_st(|s| s.hk_unregistered = true);
+                select_tab(Tab::Hotkeys);
+                if let Some(c) = ctl() {
+                    // SAFETY: nút "Đổi…" thuộc khung vừa hiện của cửa sổ đang mở ở luồng này.
+                    unsafe {
+                        let _ = SetFocus(Some(c.hk_btn));
+                    }
+                }
                 show_error(&i18n::hotkey_taken_choose_other(
                     lang::current(),
                     &hotkey::describe(&cfg.hotkey),
@@ -591,10 +856,11 @@ fn on_test(hwnd: HWND) {
     let (Some(form), Some(current)) = (read_form(), with_st(|s| s.current.clone())) else {
         return;
     };
-    let cfg = match apply_form(&current, &form) {
+    let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            show_error(&e);
+            // Ô sai có thể ở tab khác (ví dụ Thư mục lưu trống): đưa người dùng tới đúng ô.
+            show_form_error(&e);
             return;
         }
     };
@@ -712,15 +978,55 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
             unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
+        WM_NOTIFY => {
+            // Thông báo của dải tab (con trực tiếp của cửa sổ này).
+            let hdr = lp.0 as *const NMHDR;
+            if let (Some(c), false) = (ctl(), hdr.is_null()) {
+                // SAFETY: với WM_NOTIFY, lParam trỏ tới NMHDR hợp lệ suốt lời gọi.
+                let (from, code) = unsafe { ((*hdr).hwndFrom, (*hdr).code) };
+                if from == c.tabs && code == TCN_SELCHANGING {
+                    // Đổi tab (chuột hoặc mũi tên) lúc đang bắt phím: thoát chế độ bắt trước.
+                    end_capture();
+                    return LRESULT(0);
+                }
+                if from == c.tabs && code == TCN_SELCHANGE {
+                    // SAFETY: hỏi tab đang chọn của dải tab thuộc cửa sổ này.
+                    let sel = unsafe { SendMessageW(c.tabs, TCM_GETCURSEL, None, None).0 };
+                    if let Some(t) = usize::try_from(sel).ok().and_then(|i| Tab::ALL.get(i)) {
+                        show_frame(&c, *t);
+                    }
+                    return LRESULT(0);
+                }
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
         WM_CTLCOLORSTATIC => {
-            if ctl().is_some_and(|c| c.err.0 as isize == lp.0) {
-                let hdc = HDC(wp.0 as *mut c_void);
-                // SAFETY: hdc do hệ thống cấp cho lần vẽ này; nền lấy từ màu hệ thống.
-                unsafe {
-                    SetTextColor(hdc, windows::Win32::Foundation::COLORREF(0x0000_00B4));
-                    SetBkMode(hdc, TRANSPARENT);
-                    let b: HBRUSH = GetSysColorBrush(COLOR_BTNFACE);
-                    return LRESULT(b.0 as isize);
+            let from = HWND(lp.0 as *mut c_void);
+            let hdc = HDC(wp.0 as *mut c_void);
+            if let Some(c) = ctl() {
+                if from == c.err {
+                    // SAFETY: hdc do hệ thống cấp cho lần vẽ này; nền lấy từ màu hệ thống.
+                    unsafe {
+                        SetTextColor(hdc, windows::Win32::Foundation::COLORREF(0x0000_00B4));
+                        SetBkMode(hdc, TRANSPARENT);
+                        let b: HBRUSH = GetSysColorBrush(COLOR_BTNFACE);
+                        return LRESULT(b.0 as isize);
+                    }
+                }
+                // Nhãn và ô tích trong khung (do khung chuyển lên): nền trùng nền dải tab.
+                // Ô chỉ đọc của phím tắt giữ nền mặc định để không trông như ô gõ được.
+                // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
+                let in_frame = from != c.hk_edit
+                    && c.frames
+                        .iter()
+                        .any(|f| unsafe { IsChild(*f, from) }.as_bool());
+                if in_frame {
+                    // SAFETY: hdc do hệ thống cấp cho lần vẽ này; chổi màu hệ thống không phải giải phóng.
+                    unsafe {
+                        SetBkMode(hdc, TRANSPARENT);
+                    }
+                    return LRESULT(body_brush().0 as isize);
                 }
             }
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
@@ -734,7 +1040,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 struct Builder {
     parent: HWND,
     dpi: i32,
-    all: Vec<HWND>,
+    font: Option<HFONT>,
 }
 
 impl Builder {
@@ -751,7 +1057,7 @@ impl Builder {
         (x, y, w, h): (i32, i32, i32, i32),
         id: i32,
     ) -> HWND {
-        // SAFETY: tạo cửa sổ con của cửa sổ Cài đặt ở luồng chính; lỗi thì trả cửa sổ rỗng (các hàm sau chịu được).
+        // SAFETY: tạo cửa sổ con của cửa sổ Tùy chọn ở luồng chính; lỗi thì trả cửa sổ rỗng (các hàm sau chịu được).
         let hwnd = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE(0),
@@ -769,8 +1075,42 @@ impl Builder {
             )
             .unwrap_or_default()
         };
-        self.all.push(hwnd);
+        if let (Some(f), false) = (self.font, hwnd.is_invalid()) {
+            // SAFETY: đặt phông cho điều khiển vừa tạo; phông sống đến khi đóng cửa sổ.
+            unsafe {
+                SendMessageW(
+                    hwnd,
+                    WM_SETFONT,
+                    Some(WPARAM(f.0 as usize)),
+                    Some(LPARAM(1)),
+                );
+            }
+        }
         hwnd
+    }
+
+    /// Khung của một tab: con của cửa sổ chính, ẩn và tắt lúc tạo (`show_frame` bật khung đang chọn).
+    /// `WS_EX_CONTROLPARENT` để Tab/Shift+Tab của hộp thoại đi vào các ô bên trong.
+    fn frame(&mut self, id: i32) -> HWND {
+        // SAFETY: tạo cửa sổ con của cửa sổ Tùy chọn ở luồng chính; lớp đã đăng ký trong `show`.
+        unsafe {
+            let hinst = GetModuleHandleW(None).ok();
+            CreateWindowExW(
+                WS_EX_CONTROLPARENT,
+                FRAME_CLASS,
+                PCWSTR::null(),
+                WS_CHILD | WS_DISABLED,
+                0,
+                0,
+                0,
+                0,
+                Some(self.parent),
+                Some(HMENU(id as usize as *mut c_void)),
+                hinst.map(|h| h.into()),
+                None,
+            )
+            .unwrap_or_default()
+        }
     }
 
     fn label(&mut self, text: &str, x: i32, y: i32, w: i32, h: i32) -> HWND {
@@ -822,87 +1162,45 @@ fn system_font(dpi: u32) -> Option<HFONT> {
     }
 }
 
-/// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
-fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i32, Option<Ctl>) {
-    const LX: i32 = 24; // lề trái nhãn
-    const EX: i32 = 168; // lề trái ô nhập
-    const EW: i32 = 282; // bề rộng ô nhập
-    let mut y = 12;
-    if let Some(n) = notice {
-        b.label(n, 12, y, 456, 34);
-        y += 42;
-    }
+/// Lề trái nhãn, lề trái ô nhập và bề rộng ô nhập trong một khung (DIP, tính từ góc khung).
+const LX: i32 = 12;
+const EX: i32 = 160;
+const EW: i32 = 270;
 
-    // Nhóm Cloudflare R2
-    let g1 = y;
-    let g1h = b.make(
-        w!("BUTTON"),
-        "Cloudflare R2",
-        ws(BS_GROUPBOX),
-        (12, y, 456, 1),
-        -1,
-    );
-    y += 24;
-    let rows = [
-        ("Account ID", ID_ACCOUNT, WINDOW_STYLE(0)),
-        ("Access Key ID", ID_KEYID, WINDOW_STYLE(0)),
-        (
-            "Secret Access Key",
-            ID_SECRET,
-            WINDOW_STYLE(ES_PASSWORD as u32),
-        ),
-        (lang::tr(Msg::LabelBucket), ID_BUCKET, WINDOW_STYLE(0)),
-    ];
-    let mut handles = Vec::new();
-    for (label, id, style) in rows {
-        b.label(label, LX, y + 3, EX - LX - 4, 20);
-        handles.push(b.edit(style, (EX, y, EW, 24), id));
-        y += 28;
-        if id == ID_SECRET {
-            let hint = if current.r2.secret_access_key.is_empty() {
-                lang::tr(Msg::SecretNone)
-            } else {
-                lang::tr(Msg::SecretSaved)
-            };
-            b.label(hint, EX, y - 2, EW, 18);
-            y += 20;
-        }
-    }
-    b.label(lang::tr(Msg::LabelPublicUrl), LX, y + 3, EX - LX - 4, 20);
-    let url = b.edit(WINDOW_STYLE(0), (EX, y, EW, 24), ID_URL);
-    y += 28;
-    let test_btn = b.button(
-        lang::tr(Msg::BtnTest),
-        WS_TABSTOP | ws(BS_PUSHBUTTON),
-        (LX, y, 140, 26),
-        ID_TEST,
-    );
-    let test_res = b.label("", EX, y + 4, EW, 36);
-    y += 44;
-    let g1_h = y - g1;
+/// Dòng nhãn + ô nhập một dòng trong khung; trả về ô nhập.
+fn row_edit(b: &mut Builder, label: &str, y: i32, w: i32, style: WINDOW_STYLE, id: i32) -> HWND {
+    b.label(label, LX, y + 3, EX - LX - 4, 20);
+    b.edit(style, (EX, y, w, 24), id)
+}
 
-    // Nhóm Chia sẻ và lưu
-    y += 4;
-    let g2 = y;
-    let g2h = b.make(
-        w!("BUTTON"),
-        lang::tr(Msg::GroupShare),
-        ws(BS_GROUPBOX),
-        (12, y, 456, 1),
-        -1,
-    );
-    y += 24;
-    b.label(lang::tr(Msg::LabelExpiry), LX, y + 3, EX - LX - 4, 20);
-    let expiry = b.make(
+fn combo(b: &mut Builder, y: i32, id: i32) -> HWND {
+    b.make(
         w!("COMBOBOX"),
         "",
         WS_GROUP | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
         (EX, y, 160, 200),
-        ID_EXPIRY,
+        id,
+    )
+}
+
+/// Ô của tab Thông thường; trả về (ô tích, thư mục, hộp ngôn ngữ, chiều cao DIP).
+fn build_general(b: &mut Builder) -> (HWND, HWND, HWND, i32) {
+    let mut y = 12;
+    let autostart = b.button(
+        lang::tr(Msg::ChkAutostart),
+        ws(BS_AUTOCHECKBOX),
+        (LX, y, 300, 22),
+        ID_AUTOSTART,
     );
     y += 32;
-    b.label(lang::tr(Msg::LabelSaveDir), LX, y + 3, EX - LX - 4, 20);
-    let dir = b.edit(WINDOW_STYLE(0), (EX, y, EW - 76, 24), ID_DIR);
+    let dir = row_edit(
+        b,
+        lang::tr(Msg::LabelSaveDir),
+        y,
+        EW - 76,
+        WINDOW_STYLE(0),
+        ID_DIR,
+    );
     b.button(
         lang::tr(Msg::BtnChoose),
         ws(BS_PUSHBUTTON),
@@ -910,48 +1208,228 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         ID_BROWSE,
     );
     y += 34;
-    let g2_h = y - g2;
+    b.label(lang::tr(Msg::LabelLanguage), LX, y + 3, EX - LX - 4, 20);
+    let language = combo(b, y, ID_LANGUAGE);
+    y += 32;
+    (autostart, dir, language, y + 4)
+}
 
-    // Nhóm Chung
-    y += 4;
-    let g3 = y;
-    let g3h = b.make(
-        w!("BUTTON"),
-        lang::tr(Msg::GroupGeneral),
-        ws(BS_GROUPBOX),
-        (12, y, 456, 1),
+/// Ô của tab Phím tắt; trả về (ô chỉ đọc, nút "Đổi…", chiều cao DIP).
+fn build_hotkeys(b: &mut Builder) -> (HWND, HWND, i32) {
+    let y = 12;
+    let hk_edit = row_edit(
+        b,
+        lang::tr(Msg::LabelHotkey),
+        y,
+        EW - 76,
+        WINDOW_STYLE(ES_READONLY as u32),
         -1,
     );
-    y += 24;
-    b.label(lang::tr(Msg::LabelHotkey), LX, y + 3, EX - LX - 4, 20);
-    let hk_edit = b.edit(WINDOW_STYLE(ES_READONLY as u32), (EX, y, EW - 76, 24), -1);
     let hk_btn = b.button(
         lang::tr(Msg::BtnChange),
         ws(BS_PUSHBUTTON),
         (EX + EW - 70, y - 1, 70, 26),
         ID_HK_CHANGE,
     );
-    y += 32;
-    let autostart = b.button(
-        lang::tr(Msg::ChkAutostart),
-        ws(BS_AUTOCHECKBOX),
-        (LX, y, 300, 22),
-        ID_AUTOSTART,
-    );
-    y += 30;
-    let g3_h = y - g3;
+    (hk_edit, hk_btn, y + 34 + 4)
+}
 
-    // Dòng lỗi và nút
-    y += 8;
+struct R2Ctl {
+    account: HWND,
+    keyid: HWND,
+    secret: HWND,
+    bucket: HWND,
+    url: HWND,
+    expiry: HWND,
+    test_btn: HWND,
+    test_res: HWND,
+    height: i32,
+}
+
+/// Ô của tab Lưu trữ R2. "Account ID", "Access Key ID", "Secret Access Key" là tên riêng, không dịch.
+fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
+    let mut y = 12;
+    let account = row_edit(b, "Account ID", y, EW, WINDOW_STYLE(0), ID_ACCOUNT);
+    y += 28;
+    let keyid = row_edit(b, "Access Key ID", y, EW, WINDOW_STYLE(0), ID_KEYID);
+    y += 28;
+    let secret = row_edit(
+        b,
+        "Secret Access Key",
+        y,
+        EW,
+        WINDOW_STYLE(ES_PASSWORD as u32),
+        ID_SECRET,
+    );
+    y += 28;
+    let hint = if current.r2.secret_access_key.is_empty() {
+        lang::tr(Msg::SecretNone)
+    } else {
+        lang::tr(Msg::SecretSaved)
+    };
+    b.label(hint, EX, y - 2, EW, 18);
+    y += 20;
+    let bucket = row_edit(
+        b,
+        lang::tr(Msg::LabelBucket),
+        y,
+        EW,
+        WINDOW_STYLE(0),
+        ID_BUCKET,
+    );
+    y += 28;
+    let url = row_edit(
+        b,
+        lang::tr(Msg::LabelPublicUrl),
+        y,
+        EW,
+        WINDOW_STYLE(0),
+        ID_URL,
+    );
+    y += 28;
+    b.label(lang::tr(Msg::LabelExpiry), LX, y + 3, EX - LX - 4, 20);
+    let expiry = combo(b, y, ID_EXPIRY);
+    y += 32;
+    let test_btn = b.button(
+        lang::tr(Msg::BtnTest),
+        ws(BS_PUSHBUTTON),
+        (LX, y, 140, 26),
+        ID_TEST,
+    );
+    let test_res = b.label("", EX, y + 4, EW, 36);
+    y += 44;
+    R2Ctl {
+        account,
+        keyid,
+        secret,
+        bucket,
+        url,
+        expiry,
+        test_btn,
+        test_res,
+        height: y + 4,
+    }
+}
+
+/// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
+///
+/// Thứ tự Z (cũng là thứ tự Tab của `IsDialogMessageW`): khung các tab, dòng lỗi, OK, Hủy, rồi dải tab
+/// ở đáy. Vòng Tab vì vậy là: dải tab → ô của khung đang hiện → OK → Hủy → dải tab. Dải tab có
+/// `WS_CLIPSIBLINGS` và nằm dưới các khung nên không vẽ đè lên chúng.
+fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i32, Option<Ctl>) {
+    let main = b.parent;
+    let mut y = 12;
+    if let Some(n) = notice {
+        b.label(n, 12, y, 456, 34);
+        y += 42;
+    }
+    let tab_top = y;
+
+    // Dải tab: phải có phông và các mục trước khi hỏi TCM_ADJUSTRECT.
+    let tabs = b.make(
+        WC_TABCONTROLW,
+        "",
+        WS_GROUP | WS_TABSTOP | WS_CLIPSIBLINGS,
+        (12, tab_top, 456, 300),
+        ID_TABS,
+    );
+    for (i, t) in Tab::ALL.iter().enumerate() {
+        let mut text: Vec<u16> = lang::tr(t.label())
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let item = TCITEMW {
+            mask: TCIF_TEXT,
+            pszText: PWSTR(text.as_mut_ptr()),
+            ..Default::default()
+        };
+        // SAFETY: `item` và bộ đệm chữ sống suốt lời gọi; dải tab tự chép chữ.
+        unsafe {
+            SendMessageW(
+                tabs,
+                TCM_INSERTITEMW,
+                Some(WPARAM(i)),
+                Some(LPARAM(&item as *const TCITEMW as isize)),
+            );
+        }
+    }
+
+    // Ba khung (ẩn, tắt) và ô của chúng; kích thước khung đặt sau khi biết tab cao nhất.
+    let frames = [
+        b.frame(ID_FRAME0),
+        b.frame(ID_FRAME0 + 1),
+        b.frame(ID_FRAME0 + 2),
+    ];
+    b.parent = frames[Tab::General.index()];
+    let (autostart, dir, language, h_general) = build_general(b);
+    b.parent = frames[Tab::Hotkeys.index()];
+    let (hk_edit, hk_btn, h_hotkeys) = build_hotkeys(b);
+    b.parent = frames[Tab::R2.index()];
+    let r2 = build_r2(b, current);
+    b.parent = main;
+    let frame_h = h_general.max(h_hotkeys).max(r2.height);
+
+    // Vùng hiển thị của dải tab cao đúng bằng tab cao nhất; khung phủ kín vùng đó.
+    let (left, top, width) = (b.s(12), b.s(tab_top), b.s(456));
+    let probe_h = b.s(300);
+    let mut probe = RECT {
+        left,
+        top,
+        right: left + width,
+        bottom: top + probe_h,
+    };
+    // SAFETY: probe là biến cục bộ; dải tab chỉ đổi giá trị của nó.
+    unsafe {
+        SendMessageW(
+            tabs,
+            TCM_ADJUSTRECT,
+            Some(WPARAM(0)),
+            Some(LPARAM(&mut probe as *mut RECT as isize)),
+        );
+    }
+    let bottom_inset = (top + probe_h - probe.bottom).max(0);
+    let disp = RECT {
+        left: probe.left,
+        top: probe.top.max(top),
+        right: probe.right.max(probe.left),
+        bottom: probe.top.max(top) + b.s(frame_h),
+    };
+    let tab_bottom = disp.bottom + bottom_inset;
+    // SAFETY: đổi vị trí và kích thước các cửa sổ con vừa tạo.
+    unsafe {
+        for f in frames {
+            let _ = SetWindowPos(
+                f,
+                None,
+                disp.left,
+                disp.top,
+                disp.right - disp.left,
+                disp.bottom - disp.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+        let _ = SetWindowPos(
+            tabs,
+            None,
+            left,
+            top,
+            width,
+            tab_bottom - top,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+
+    // Dòng lỗi và hàng nút, dưới dải tab. Vùng trái hàng nút (x 12..300) để trống cho nút Trợ giúp.
+    y = (tab_bottom * 96 + b.dpi - 1) / b.dpi.max(1) + 8;
     let err = b.label("", 12, y, 456, 36);
     y += 40;
     b.button(
-        lang::tr(Msg::BtnSave),
+        i18n::OK_LABEL,
         ws(BS_DEFPUSHBUTTON),
         (300, y, 80, 28),
         ID_OK,
     );
-    // Hủy không có WS_GROUP: Lưu và Hủy cùng một nhóm mũi tên.
+    // Hủy không có WS_GROUP: OK và Hủy cùng một nhóm mũi tên.
     b.make(
         w!("BUTTON"),
         lang::tr(Msg::BtnCancel),
@@ -960,50 +1438,72 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         ID_CANCEL,
     );
     y += 40;
-
-    // Giờ mới biết chiều cao thật của ba nhóm.
-    for (h, top, height) in [(g1h, g1, g1_h), (g2h, g2, g2_h), (g3h, g3, g3_h)] {
-        // SAFETY: đổi kích thước hộp nhóm vừa tạo.
-        unsafe {
-            let _ = SetWindowPos(
-                h,
-                None,
-                b.s(12),
-                b.s(top),
-                b.s(456),
-                b.s(height),
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
+    // Đặt lại dải tab xuống đáy thứ tự Z sau khi mọi cửa sổ con đã có.
+    // SAFETY: đổi thứ tự Z của dải tab vừa tạo.
+    unsafe {
+        let _ = SetWindowPos(
+            tabs,
+            Some(HWND_BOTTOM),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
     }
-    let ctl = (|| {
-        Some(Ctl {
-            account: *handles.first()?,
-            keyid: *handles.get(1)?,
-            secret: *handles.get(2)?,
-            bucket: *handles.get(3)?,
-            url,
-            test_btn,
-            test_res,
-            expiry,
-            dir,
-            hk_edit,
-            hk_btn,
-            autostart,
-            err,
-        })
-    })();
-    (y, ctl)
+
+    let all = [
+        tabs,
+        frames[0],
+        frames[1],
+        frames[2],
+        language,
+        r2.account,
+        r2.keyid,
+        r2.secret,
+        r2.bucket,
+        r2.url,
+        r2.test_btn,
+        r2.test_res,
+        r2.expiry,
+        dir,
+        hk_edit,
+        hk_btn,
+        autostart,
+        err,
+    ];
+    if all.iter().any(|h| h.is_invalid()) {
+        return (y, None);
+    }
+    let ctl = Ctl {
+        tabs,
+        frames,
+        language,
+        account: r2.account,
+        keyid: r2.keyid,
+        secret: r2.secret,
+        bucket: r2.bucket,
+        url: r2.url,
+        test_btn: r2.test_btn,
+        test_res: r2.test_res,
+        expiry: r2.expiry,
+        dir,
+        hk_edit,
+        hk_btn,
+        autostart,
+        err,
+    };
+    (y, Some(ctl))
 }
 
-/// Đưa cửa sổ Cài đặt đang mở (nếu có) ra trước; không làm gì khác.
+/// Đưa cửa sổ Tùy chọn đang mở (nếu có) ra trước; không làm gì khác.
 pub fn focus_existing() {
     let open = OPEN.with(|o| o.get());
     if open == 0 {
         return;
     }
     let h = HWND(open as *mut c_void);
-    // SAFETY: `h` là cửa sổ Cài đặt của luồng này, OPEN chỉ khác 0 khi cửa sổ còn sống.
+    // SAFETY: `h` là cửa sổ Tùy chọn của luồng này, OPEN chỉ khác 0 khi cửa sổ còn sống.
     unsafe {
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
@@ -1012,12 +1512,17 @@ pub fn focus_existing() {
     }
 }
 
-/// Mở cửa sổ Cài đặt và chờ đến khi người dùng Lưu hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
-pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<SettingsResult> {
+/// Mở cửa sổ Tùy chọn và chờ đến khi người dùng bấm OK hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
+pub fn show(
+    parent: HWND,
+    current: &Config,
+    notice: Option<&str>,
+    reason: OpenReason,
+) -> Option<SettingsResult> {
     let open = OPEN.with(|o| o.get());
     if open != 0 {
         let h = HWND(open as *mut c_void);
-        // SAFETY: đưa cửa sổ Cài đặt đang có ra trước.
+        // SAFETY: đưa cửa sổ Tùy chọn đang có ra trước.
         unsafe {
             if IsIconic(h).as_bool() {
                 let _ = ShowWindow(h, SW_RESTORE);
@@ -1041,6 +1546,20 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         };
         // Đăng ký lại lần hai báo lỗi vô hại.
         RegisterClassW(&wc);
+        // Lớp của khung tab: nền tự tô trong `frame_proc`.
+        let frame_wc = WNDCLASSW {
+            lpfnWndProc: Some(frame_proc),
+            hInstance: hinst.into(),
+            lpszClassName: FRAME_CLASS,
+            ..Default::default()
+        };
+        RegisterClassW(&frame_wc);
+        // Đăng ký lớp dải tab của Common Controls v6.
+        let icc = INITCOMMONCONTROLSEX {
+            dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+            dwICC: ICC_TAB_CLASSES,
+        };
+        let _ = InitCommonControlsEx(&icc);
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             class,
@@ -1074,7 +1593,9 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         }
         hwnd
     };
+    // Cửa sổ mới chưa có lần kiểm tra nào: bỏ kết quả và cờ của cửa sổ trước (nếu còn sót).
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    TEST_RUNNING.with(|r| r.set(false));
     if let Ok(mut s) = TEST_RESULT.lock() {
         *s = None;
     }
@@ -1084,11 +1605,11 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
     let mut b = Builder {
         parent: hwnd,
         dpi: dpi as i32,
-        all: Vec::new(),
+        font,
     };
     let (client_h, controls) = build_controls(&mut b, current, notice);
     let Some(c) = controls else {
-        // SAFETY: dọn cửa sổ vừa tạo.
+        // SAFETY: dọn cửa sổ vừa tạo (kéo theo mọi cửa sổ con) rồi phông.
         unsafe {
             let _ = DestroyWindow(hwnd);
             if let Some(f) = font {
@@ -1097,14 +1618,6 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         }
         return None;
     };
-    if let Some(f) = font {
-        for h in &b.all {
-            // SAFETY: đặt phông cho điều khiển con; phông sống đến khi đóng cửa sổ.
-            unsafe {
-                SendMessageW(*h, WM_SETFONT, Some(WPARAM(f.0 as usize)), Some(LPARAM(1)));
-            }
-        }
-    }
     CTL.with(|x| x.set(Some(c)));
     OPEN.with(|o| o.set(hwnd.0 as isize));
     ST.with(|s| {
@@ -1118,8 +1631,15 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
             done: false,
             result: None,
             font,
+            tab: Tab::General,
         })
     });
+    let first_tab = initial_tab(reason);
+    // SAFETY: chọn tab mở đầu trên dải tab của cửa sổ này (không sinh TCN_SELCHANGE).
+    unsafe {
+        SendMessageW(c.tabs, TCM_SETCURSEL, Some(WPARAM(first_tab.index())), None);
+    }
+    show_frame(&c, first_tab);
 
     // Điền giá trị ban đầu. Ô Secret luôn để trống.
     set_text(c.account, &current.r2.account_id);
@@ -1145,6 +1665,21 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
             .position(|e| *e == current.expiry)
             .unwrap_or(2);
         SendMessageW(c.expiry, CB_SETCURSEL, Some(WPARAM(idx)), None);
+        // Mỗi ngôn ngữ luôn hiện bằng chính ngôn ngữ đó.
+        for l in Lang::ALL {
+            let hs = HSTRING::from(l.native_name());
+            SendMessageW(
+                c.language,
+                CB_ADDSTRING,
+                None,
+                Some(LPARAM(hs.as_ptr() as isize)),
+            );
+        }
+        let lang_idx = Lang::ALL
+            .iter()
+            .position(|l| *l == current.language)
+            .unwrap_or(0);
+        SendMessageW(c.language, CB_SETCURSEL, Some(WPARAM(lang_idx)), None);
         SendMessageW(
             c.autostart,
             BM_SETCHECK,
@@ -1189,7 +1724,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         let _ = SetWindowPos(hwnd, None, x, y, ww, wh, SWP_NOZORDER);
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(c.account));
+        let _ = SetFocus(Some(first_ctl(&c, first_tab)));
     }
 
     run_loop(hwnd, c);
@@ -1208,7 +1743,10 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
     }
     CTL.with(|x| x.set(None));
     OPEN.with(|o| o.set(0));
+    // Thế hệ mới: kết quả muộn của luồng kiểm tra đang chạy sẽ bị bỏ. Hẹn giờ dự phòng đã chết
+    // theo cửa sổ, nên cờ phải hạ ở đây, không thì nút Kiểm tra kết nối của lần mở sau bị khóa.
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    TEST_RUNNING.with(|r| r.set(false));
     result.map(|config| SettingsResult { config })
 }
 
@@ -1241,32 +1779,52 @@ fn run_loop(hwnd: HWND, c: Ctl) {
             if msg.message == WM_KEYDOWN {
                 let vk = msg.wParam.0 as u32;
                 // SAFETY: chỉ đọc trạng thái hộp thả.
-                let dropped =
-                    unsafe { SendMessageW(c.expiry, CB_GETDROPPEDSTATE, None, None).0 != 0 };
-                if vk == VK_ESCAPE.0 as u32 && !dropped {
-                    cancel();
-                    continue;
-                }
-                if vk == VK_RETURN.0 as u32 && !dropped {
-                    // SAFETY: chỉ đọc điều khiển đang giữ focus.
-                    let focus = unsafe { GetFocus() };
-                    let is_push = unsafe {
-                        let st = GetWindowLongPtrW(focus, GWL_STYLE) as u32;
-                        let kind = st & 0xF;
-                        focus != HWND::default()
-                            && (kind == BS_PUSHBUTTON as u32 || kind == BS_DEFPUSHBUTTON as u32)
-                            && focus != c.autostart
-                            && get_class_is_button(focus)
-                    };
-                    if is_push {
-                        // SAFETY: bấm nút đang giữ focus.
-                        unsafe {
-                            SendMessageW(focus, BM_CLICK, None, None);
-                        }
-                    } else {
-                        save();
+                let dropped = [c.expiry, c.language]
+                    .iter()
+                    .any(|h| unsafe { SendMessageW(*h, CB_GETDROPPEDSTATE, None, None).0 != 0 });
+                let route = key_route(
+                    capturing,
+                    vk,
+                    key_down(VK_CONTROL_U),
+                    key_down(VK_SHIFT.0 as i32),
+                    dropped,
+                );
+                match route {
+                    KeyRoute::NextTab => {
+                        cycle_tab(1);
+                        continue;
                     }
-                    continue;
+                    KeyRoute::PrevTab => {
+                        cycle_tab(Tab::ALL.len() - 1);
+                        continue;
+                    }
+                    KeyRoute::Cancel => {
+                        cancel();
+                        continue;
+                    }
+                    // Đang bắt phím thì `capture_msg` ở trên đã nhận phím; còn lại cho hộp thoại.
+                    KeyRoute::Capture | KeyRoute::Dialog => {}
+                    KeyRoute::Accept => {
+                        // SAFETY: chỉ đọc điều khiển đang giữ focus.
+                        let focus = unsafe { GetFocus() };
+                        let is_push = unsafe {
+                            let st = GetWindowLongPtrW(focus, GWL_STYLE) as u32;
+                            let kind = st & 0xF;
+                            focus != HWND::default()
+                                && (kind == BS_PUSHBUTTON as u32 || kind == BS_DEFPUSHBUTTON as u32)
+                                && focus != c.autostart
+                                && get_class_is_button(focus)
+                        };
+                        if is_push {
+                            // SAFETY: bấm nút đang giữ focus.
+                            unsafe {
+                                SendMessageW(focus, BM_CLICK, None, None);
+                            }
+                        } else {
+                            save();
+                        }
+                        continue;
+                    }
                 }
             }
             // SAFETY: xử lý phím điều hướng (Tab, mũi tên) của hộp thoại.
@@ -1293,7 +1851,6 @@ fn get_class_is_button(h: HWND) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shotme_core::i18n::Lang;
     use std::path::Path;
 
     fn base() -> Config {
@@ -1319,6 +1876,7 @@ mod tests {
             hotkey: c.hotkey,
             save_dir: c.save_dir.to_string_lossy().into_owned(),
             autostart: c.autostart,
+            language: c.language,
         }
     }
 
@@ -1326,9 +1884,15 @@ mod tests {
     fn empty_secret_keeps_existing() {
         let c = base();
         let mut f = form_of(&c);
-        assert_eq!(apply_form(&c, &f).unwrap().r2.secret_access_key, "OLD");
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.secret_access_key,
+            "OLD"
+        );
         f.secret_access_key = "NEW".into();
-        assert_eq!(apply_form(&c, &f).unwrap().r2.secret_access_key, "NEW");
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.secret_access_key,
+            "NEW"
+        );
     }
 
     #[test]
@@ -1337,11 +1901,11 @@ mod tests {
         let mut f = form_of(&c);
         f.public_base_url = "https://img.example.com/".into();
         assert_eq!(
-            apply_form(&c, &f).unwrap().r2.public_base_url,
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.public_base_url,
             "https://img.example.com"
         );
         f.public_base_url = "http://x".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1349,7 +1913,7 @@ mod tests {
         let c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         let mut f = form_of(&c);
         f.save_dir = "C:/pics".into();
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert!(!out.r2.is_complete());
         assert_eq!(out.r2.public_base_url, "");
     }
@@ -1363,7 +1927,7 @@ mod tests {
         f.access_key_id = "\tk2 ".into();
         f.save_dir = "  C:/x  ".into();
         f.secret_access_key = " S ".into();
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.r2.bucket, "bkt");
         assert_eq!(out.r2.account_id, "acc2");
         assert_eq!(out.r2.access_key_id, "k2");
@@ -1376,7 +1940,7 @@ mod tests {
         let c = base();
         let mut f = form_of(&c);
         f.save_dir = "   ".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1392,7 +1956,7 @@ mod tests {
             win: false,
             vk: 0x53,
         };
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.expiry, Expiry::Keep);
         assert!(out.autostart);
         assert_eq!(out.hotkey, f.hotkey);
@@ -1403,10 +1967,10 @@ mod tests {
         let c = base();
         let mut f = form_of(&c);
         f.account_id = "a/b".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
         let mut f = form_of(&c);
         f.bucket = "my bucket".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1415,9 +1979,112 @@ mod tests {
         let mut f = form_of(&c);
         f.secret_access_key = "SUPER-SECRET".into();
         f.public_base_url = "http://x".into();
-        let e = apply_form(&c, &f).unwrap_err();
-        assert!(!e.contains("SUPER-SECRET"));
+        for lang in Lang::ALL {
+            let e = apply_form(&c, &f, lang).unwrap_err();
+            assert!(!e.message.contains("SUPER-SECRET"));
+            assert!(!format!("{e:?}").contains("SUPER-SECRET"));
+        }
         assert!(!format!("{f:?}").contains("SUPER-SECRET"));
+    }
+
+    #[test]
+    fn field_to_tab() {
+        assert_eq!(tab_of(Field::SaveDir), Tab::General);
+        for f in [Field::AccountId, Field::Bucket, Field::PublicUrl] {
+            assert_eq!(tab_of(f), Tab::R2);
+        }
+    }
+
+    #[test]
+    fn initial_tab_by_reason() {
+        assert_eq!(initial_tab(OpenReason::User), Tab::General);
+        assert_eq!(initial_tab(OpenReason::NeedsR2), Tab::R2);
+    }
+
+    #[test]
+    fn form_errors_name_their_field() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.save_dir = "  ".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::SaveDir
+        );
+        let mut f = form_of(&c);
+        f.account_id = "a/b".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::AccountId
+        );
+        let mut f = form_of(&c);
+        f.bucket = "my bucket".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::Bucket
+        );
+        let mut f = form_of(&c);
+        f.public_base_url = "http://x".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::PublicUrl
+        );
+    }
+
+    #[test]
+    fn first_error_wins_in_tab_order() {
+        // Sai cả SaveDir lẫn Bucket: báo SaveDir.
+        let c = base();
+        let mut f = form_of(&c);
+        f.save_dir = "".into();
+        f.bucket = "x y".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::SaveDir
+        );
+    }
+
+    #[test]
+    fn form_error_message_follows_language() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.bucket = "x y".into();
+        assert_ne!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().message,
+            apply_form(&c, &f, Lang::En).unwrap_err().message
+        );
+    }
+
+    #[test]
+    fn language_is_carried_from_form() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.language = Lang::En;
+        assert_eq!(apply_form(&c, &f, Lang::Vi).unwrap().language, Lang::En);
+    }
+
+    #[test]
+    fn key_routing() {
+        const TAB: u32 = 0x09;
+        const ESC: u32 = 0x1B;
+        const ENTER: u32 = 0x0D;
+        // Đang bắt phím: mọi thứ là của chế độ bắt, kể cả Ctrl+Tab, Esc, Enter.
+        for (vk, ctrl) in [(TAB, true), (ESC, false), (ENTER, false), (0x41, true)] {
+            assert_eq!(key_route(true, vk, ctrl, false, false), KeyRoute::Capture);
+        }
+        assert_eq!(key_route(false, TAB, true, false, false), KeyRoute::NextTab);
+        assert_eq!(key_route(false, TAB, true, true, false), KeyRoute::PrevTab);
+        assert_eq!(key_route(false, TAB, false, false, false), KeyRoute::Dialog);
+        assert_eq!(key_route(false, ESC, false, false, false), KeyRoute::Cancel);
+        assert_eq!(
+            key_route(false, ENTER, false, false, false),
+            KeyRoute::Accept
+        );
+        assert_eq!(key_route(false, ESC, false, false, true), KeyRoute::Dialog);
+        assert_eq!(
+            key_route(false, ENTER, false, false, true),
+            KeyRoute::Dialog
+        );
+        assert_eq!(key_route(false, TAB, true, false, true), KeyRoute::NextTab);
     }
 
     #[test]
@@ -1623,22 +2290,50 @@ mod tests {
             .unwrap()
         };
         let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"), Lang::Vi);
-        for use_command in [false, true] {
+        for (use_command, reason) in [
+            (false, OpenReason::User),
+            (true, OpenReason::NeedsR2),
+            (true, OpenReason::User),
+            (false, OpenReason::NeedsR2),
+        ] {
             let closer = std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                // SAFETY: tìm cửa sổ theo tên lớp rồi đăng thông điệp; HWND chỉ dùng như số.
-                unsafe {
+                // SAFETY: tìm cửa sổ theo tên lớp, hỏi tab đang chọn rồi đăng thông điệp; HWND chỉ dùng như số.
+                let sel = unsafe {
                     let h = FindWindowW(w!("shotme-settings"), None)
                         .expect("settings window not found");
+                    let tab = windows::Win32::UI::WindowsAndMessaging::FindWindowExW(
+                        Some(h),
+                        None,
+                        w!("SysTabControl32"),
+                        None,
+                    )
+                    .expect("tab control not found");
+                    let sel =
+                        SendMessageW(tab, windows::Win32::UI::Controls::TCM_GETCURSEL, None, None)
+                            .0;
                     if use_command {
                         PostMessageW(Some(h), WM_COMMAND, WPARAM(ID_CANCEL as usize), LPARAM(0))
                             .unwrap();
                     } else {
                         PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
                     }
-                }
+                    sel
+                };
+                let want = match initial_tab(reason) {
+                    Tab::General => 0,
+                    Tab::Hotkeys => 1,
+                    Tab::R2 => 2,
+                };
+                assert_eq!(sel, want, "{reason:?}");
             });
-            assert!(show(parent, &cfg, Some("Thông báo thử")).is_none());
+            // Giả lập lần Kiểm tra kết nối trước bị bỏ dở (Hủy ngay sau khi bấm): cờ kẹt ở true.
+            TEST_RUNNING.with(|r| r.set(true));
+            assert!(show(parent, &cfg, Some("Thông báo thử"), reason).is_none());
+            assert!(
+                !TEST_RUNNING.with(|r| r.get()),
+                "TEST_RUNNING must be cleared when the window closes"
+            );
             closer.join().unwrap();
             // SAFETY: tìm lại cửa sổ sau khi show trả về.
             assert!(unsafe { FindWindowW(w!("shotme-settings"), None) }.is_err());

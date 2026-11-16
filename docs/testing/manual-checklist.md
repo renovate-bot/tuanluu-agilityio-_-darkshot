@@ -109,3 +109,22 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Rút mạng rồi bấm `Ctrl+D`: ảnh được lưu vào thư mục lưu, thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh; Cài đặt không tự mở. Nối mạng lại.
 - [ ] Trong lúc `shotme.exe` chạy và tải lên, mở Resource Monitor (tab Network): các kết nối của `shotme.exe` chỉ tới địa chỉ `{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho.
 - [ ] Kiểm tra quy tắc xóa theo README (mục "Kiểm tra quy tắc xóa"): ảnh `d1/` biến mất sau hạn cộng độ trễ xóa.
+
+## Đợt 1: cửa sổ Tùy chọn
+
+- [ ] Ba tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (Chụp vùng màn hình + ô chỉ đọc + Đổi…), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
+- [ ] Cửa sổ không đổi cỡ khi chuyển tab.
+- [ ] Giá trị gõ ở một tab còn nguyên sau khi sang tab khác và quay lại.
+- [ ] Tab/Shift+Tab đi vòng: dải tab → các ô của tab đang hiện → OK → Hủy → dải tab; không bao giờ vào ô của tab đang ẩn. Mũi tên trái/phải đổi tab khi dải tab giữ tiêu điểm. Ctrl+Tab và Ctrl+Shift+Tab đổi tab (vòng tròn) từ bất cứ ô nào, kể cả khi hộp chọn đang thả.
+- [ ] Enter: bấm nút đang giữ tiêu điểm (Chọn…, Đổi…, Kiểm tra kết nối, Hủy), còn lại là OK. Esc và nút X: Hủy. Hộp chọn đang thả thì Enter/Esc chỉ đóng hộp chọn.
+- [ ] Ô sai ở tab khác (ví dụ đang ở tab Phím tắt, Tên kho có dấu cách; hoặc Thư mục lưu trống khi đang ở tab R2): bấm OK nhảy về đúng tab, con trỏ ở đúng ô, dòng lỗi đỏ hiện câu lỗi.
+- [ ] Đổi phím tắt: bấm Đổi…, rồi bấm chuột sang tab khác lúc đang bắt phím: thoát chế độ bắt, ô phím tắt hiện lại phím đang chọn.
+- [ ] Ctrl+Tab lúc đang bắt phím được nhận làm phím tắt (ô hiện "Ctrl+Tab"), không đổi tab.
+- [ ] Phím tắt mới bị ứng dụng khác chiếm: bấm OK chuyển sang tab Phím tắt và hiện lỗi; Hủy thì phím cũ hoạt động lại.
+- [ ] Bấm Kiểm tra kết nối rồi sang tab khác và quay lại: kết quả nằm ở dòng kết quả của tab Lưu trữ R2, nút bật lại.
+- [ ] Bấm Kiểm tra kết nối rồi Hủy ngay; mở lại Tùy chọn và bấm Kiểm tra kết nối: nó chạy (hiện "Đang kiểm tra…"), và kết quả của lần bị hủy không hiện ra trong cửa sổ mới.
+- [ ] Lần chạy đầu (xóa `%APPDATA%\shotme\config.json`) cửa sổ mở ở tab Lưu trữ R2, con trỏ ở Account ID; mở từ menu "Tùy chọn..." thì ở tab Thông thường.
+- [ ] Đổi ngôn ngữ rồi OK: menu khay, thông báo, chữ rê chuột trên thanh công cụ lớp phủ và cửa sổ Tùy chọn mở lại đều đổi theo.
+- [ ] Đổi ngôn ngữ rồi Hủy: không đổi gì.
+- [ ] File cấu hình của bản cũ (không có trường `language`): vẫn Tiếng Việt, mọi cài đặt còn nguyên.
+- [ ] Chữ English không bị cắt ở ô nào (nhãn, nút, tab, ô tích, dòng gợi ý, thông báo cấu hình lỗi).

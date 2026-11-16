@@ -113,16 +113,16 @@ messages! {
         "The public address must not contain ?, # or @"
     ),
     NoticeConfigCorrupt => (
-        "File cấu hình bị hỏng. Đang dùng tùy chọn mặc định; bấm Lưu để ghi lại.",
-        "The config file is corrupt. Using default options; click Save to write it again."
+        "File cấu hình bị hỏng. Đang dùng tùy chọn mặc định; bấm OK để ghi lại.",
+        "The config file is corrupt. Using default options; click OK to write it again."
     ),
     NoticeSecretLost => (
         "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.",
         "Could not read the saved secret key. Enter the Secret Access Key again."
     ),
     NoticeConfigUnreadable => (
-        "Không đọc được file cấu hình. Đang dùng tùy chọn mặc định; bấm Lưu để ghi lại.",
-        "Could not read the config file. Using default options; click Save to write it again."
+        "Không đọc được file cấu hình. Đang dùng tùy chọn mặc định; bấm OK để ghi lại.",
+        "Could not read the config file. Using default options; click OK to write it again."
     ),
     ClipboardUnusedOnExit => ("không dùng clipboard lúc thoát", "the clipboard is not used on exit"),
     TrayOptions => ("Tùy chọn...", "Options..."),
@@ -195,15 +195,16 @@ messages! {
     ),
     LabelPublicUrl => ("Địa chỉ công khai", "Public address"),
     BtnTest => ("Kiểm tra kết nối", "Test connection"),
-    GroupShare => ("Chia sẻ và lưu", "Share and save"),
     LabelExpiry => ("Hạn của link", "Link expiry"),
     LabelSaveDir => ("Thư mục lưu", "Save folder"),
     BtnChoose => ("Chọn…", "Choose..."),
-    GroupGeneral => ("Chung", "General"),
-    LabelHotkey => ("Phím tắt chụp", "Capture hotkey"),
+    LabelHotkey => ("Chụp vùng màn hình", "Capture a region"),
+    TabGeneral => ("Thông thường", "General"),
+    TabHotkeys => ("Phím tắt", "Hotkeys"),
+    TabR2 => ("Lưu trữ R2", "R2 storage"),
+    LabelLanguage => ("Ngôn ngữ", "Language"),
     BtnChange => ("Đổi…", "Change..."),
     ChkAutostart => ("Khởi động cùng Windows", "Start with Windows"),
-    BtnSave => ("Lưu", "Save"),
     BtnCancel => ("Hủy", "Cancel"),
     ClipInvalidImage => ("Ảnh không hợp lệ", "The image is invalid"),
     ClipImageTooBig => ("Ảnh quá lớn để chép vào clipboard", "The image is too large to copy to the clipboard"),
@@ -237,6 +238,10 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::AutostartFailedTitle,
     Msg::OptionsSaveFailedTitle,
 ];
+
+/// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
+/// (bảng đòi hai bản khác nhau).
+pub const OK_LABEL: &str = "OK";
 
 pub fn expiry_label(lang: Lang, e: Expiry) -> &'static str {
     match (lang, e) {
@@ -396,6 +401,13 @@ mod tests {
         assert!(t(Lang::Vi, Msg::UploadNotConfigured)
             .ends_with("Hãy nhập đủ thông tin trong Tùy chọn."));
         assert!(t(Lang::En, Msg::UploadNotConfigured).ends_with("in Options."));
+        assert_eq!(OK_LABEL, "OK");
+        // Câu thông báo cấu hình lỗi nhắc đúng nút OK của cửa sổ Tùy chọn.
+        for m in [Msg::NoticeConfigCorrupt, Msg::NoticeConfigUnreadable] {
+            for l in Lang::ALL {
+                assert!(t(l, m).contains(OK_LABEL), "{m:?} {l:?}");
+            }
+        }
     }
 
     #[test]

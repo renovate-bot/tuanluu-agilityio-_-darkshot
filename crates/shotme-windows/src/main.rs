@@ -15,9 +15,10 @@ mod wer;
 
 use app::{AppState, UploadJob};
 use secret::DpapiStore;
+use settings::OpenReason;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, NoticeKind, Notifier};
 use shotme_core::config::Hotkey;
-use shotme_core::i18n::{self, Msg};
+use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -118,6 +119,24 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
     }
 }
 
+/// Gộp lý do của hai yêu cầu mở Tùy chọn đang chờ: `NeedsR2` thắng.
+pub fn merge_reason(a: OpenReason, b: OpenReason) -> OpenReason {
+    if a == OpenReason::NeedsR2 || b == OpenReason::NeedsR2 {
+        OpenReason::NeedsR2
+    } else {
+        OpenReason::User
+    }
+}
+
+/// Ngôn ngữ sau khi đóng Tùy chọn: chỉ đổi khi đã ghi cấu hình thành công.
+pub fn lang_after_save(old: Lang, new: Lang, saved: bool) -> Lang {
+    if saved {
+        new
+    } else {
+        old
+    }
+}
+
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
 pub fn tray_click_opens_menu(ev: u32, menu_open: bool) -> bool {
     !menu_open && (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
@@ -129,6 +148,8 @@ thread_local! {
     static ADD_ATTEMPTS: Cell<u32> = const { Cell::new(0) };
     static APP: RefCell<Option<AppState>> = const { RefCell::new(None) };
     static GATE: Cell<CaptureGate> = const { Cell::new(CaptureGate::Idle) };
+    /// Lý do của yêu cầu mở Tùy chọn đang chờ (gộp bằng `merge_reason`); `run_settings` lấy ra.
+    static OPEN_REASON: Cell<OpenReason> = const { Cell::new(OpenReason::User) };
     /// Menu khay đang hiện.
     static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
     /// Sổ các lượt tải lên đang chạy; luồng tải lên giữ bản sao `Arc`.
@@ -186,6 +207,11 @@ fn post_open_settings(hwnd: isize) {
             LPARAM(0),
         );
     }
+}
+
+/// Ghi lý do của một yêu cầu mở Tùy chọn, gộp với yêu cầu đang chờ.
+fn note_open_reason(reason: OpenReason) {
+    OPEN_REASON.with(|r| r.set(merge_reason(r.get(), reason)));
 }
 
 fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
@@ -296,7 +322,7 @@ fn capture_flow(hwnd: HWND) {
 }
 
 /// Mở Cài đặt, lưu kết quả. Chỉ gọi qua `gate` (trạng thái `SettingsOpen`).
-fn open_settings(hwnd: HWND) {
+fn open_settings(hwnd: HWND, reason: OpenReason) {
     let Some((config, notice)) = with_app(|a| (a.config.clone(), a.config_notice.take())) else {
         return;
     };
@@ -304,6 +330,7 @@ fn open_settings(hwnd: HWND) {
         hwnd,
         &config,
         notice.map(|n| n.message(lang::current())).as_deref(),
+        reason,
     ) else {
         return;
     };
@@ -314,7 +341,14 @@ fn open_settings(hwnd: HWND) {
     };
     // `show` đã đăng ký phím mới cho hwnd; ở đây chỉ ghi đĩa.
     let new = result.config;
-    match shotme_core::config::save(&paths::config_path(), &new, &DpapiStore) {
+    let saved = shotme_core::config::save(&paths::config_path(), &new, &DpapiStore);
+    // Ghi thất bại thì ngôn ngữ giữ nguyên, cùng với cấu hình cũ và phím cũ.
+    lang::set(lang_after_save(
+        config.language,
+        new.language,
+        saved.is_ok(),
+    ));
+    match saved {
         Ok(()) => {
             if let Err(e) = autostart::set_enabled(new.autostart) {
                 notify(
@@ -323,7 +357,6 @@ fn open_settings(hwnd: HWND) {
                     &i18n::reason(lang::current(), &e),
                 );
             }
-            lang::set(new.language);
             with_app(|a| a.config = new);
         }
         Err(e) => {
@@ -356,7 +389,9 @@ fn open_settings(hwnd: HWND) {
 
 /// Mở Cài đặt (cổng đã ở `SettingsOpen`), rồi đóng cổng lại.
 fn run_settings(hwnd: HWND) {
-    open_settings(hwnd);
+    // Lấy lý do đang chờ ra, đặt lại `User` cho lần mở sau.
+    let reason = OPEN_REASON.with(|r| r.replace(OpenReason::User));
+    open_settings(hwnd, reason);
     let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::SettingsClosed);
     GATE.with(|g| g.set(next));
 }
@@ -397,7 +432,13 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
         GateAction::OpenSettings => {
             run_settings(hwnd);
         }
-        GateAction::FocusSettings => settings::focus_existing(),
+        GateAction::FocusSettings => {
+            // Yêu cầu mở đã được đáp bằng cửa sổ đang mở: không để lý do của nó dính sang lần mở sau.
+            if ev == GateEvent::OpenSettings {
+                OPEN_REASON.with(|r| r.set(OpenReason::User));
+            }
+            settings::focus_existing();
+        }
         GateAction::None | GateAction::Ignore => {}
     }
     act
@@ -464,7 +505,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::Capture) => {
                         gate(hwnd, GateEvent::MenuCapture);
                     }
-                    Some(MenuCommand::Settings) => handle_event(hwnd, AppEvent::OpenSettings),
+                    Some(MenuCommand::Settings) => {
+                        note_open_reason(OpenReason::User);
+                        handle_event(hwnd, AppEvent::OpenSettings);
+                    }
                     Some(MenuCommand::Quit) => handle_event(hwnd, AppEvent::Quit),
                     None => {}
                 }
@@ -472,6 +516,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_OPEN_SETTINGS => {
+            // Ứng dụng tự mở (khởi động thiếu cấu hình, tải lên báo thiếu cấu hình): mở ở tab R2.
+            note_open_reason(OpenReason::NeedsR2);
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi mở Cài đặt sau khi menu thoát, không mở lồng.
                 // SAFETY: đóng menu đang hiện của luồng này.
@@ -723,6 +769,20 @@ mod tests {
             gate_step(Capturing, SettingsClosed),
             (Capturing, GateAction::None)
         );
+    }
+
+    #[test]
+    fn open_reason_merge_prefers_r2() {
+        use settings::OpenReason::*;
+        assert_eq!(merge_reason(User, User), User);
+        assert_eq!(merge_reason(User, NeedsR2), NeedsR2);
+        assert_eq!(merge_reason(NeedsR2, User), NeedsR2);
+    }
+
+    #[test]
+    fn language_changes_only_when_saved() {
+        assert_eq!(lang_after_save(Lang::Vi, Lang::En, true), Lang::En);
+        assert_eq!(lang_after_save(Lang::Vi, Lang::En, false), Lang::Vi);
     }
 
     #[test]
