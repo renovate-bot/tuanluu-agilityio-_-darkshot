@@ -52,6 +52,10 @@ pub enum CaptureGate {
     Capturing,
     /// Cửa sổ Cài đặt đang mở.
     SettingsOpen,
+    /// Như `PendingMenu`, kèm yêu cầu mở Cài đặt đang chờ.
+    PendingMenuSettings,
+    /// Như `Capturing`, kèm yêu cầu mở Cài đặt đang chờ.
+    CapturingSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +79,8 @@ pub enum GateAction {
     CaptureNow,
     /// Mở cửa sổ Cài đặt.
     OpenSettings,
+    /// Đưa cửa sổ Cài đặt đang mở ra trước.
+    FocusSettings,
     Ignore,
 }
 
@@ -330,7 +336,7 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
             let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::SettingsClosed);
             GATE.with(|g| g.set(next));
         }
-        GateAction::None | GateAction::Ignore => {}
+        GateAction::FocusSettings | GateAction::None | GateAction::Ignore => {}
     }
     act
 }
@@ -582,8 +588,16 @@ mod tests {
             gate_step(Idle, OpenSettings),
             (SettingsOpen, GateAction::OpenSettings)
         );
-        // Đang mở Cài đặt: bỏ qua mọi yêu cầu chụp và mở thêm.
-        for ev in [MenuCapture, Hotkey, TimerFired, TrayClick, OpenSettings] {
+        // Đang mở Cài đặt: bấm khay hoặc mở lại thì đưa cửa sổ ra trước, vẫn SettingsOpen.
+        for ev in [TrayClick, OpenSettings] {
+            assert_eq!(
+                gate_step(SettingsOpen, ev),
+                (SettingsOpen, GateAction::FocusSettings),
+                "{ev:?}"
+            );
+        }
+        // Yêu cầu chụp bị bỏ qua.
+        for ev in [MenuCapture, Hotkey, TimerFired] {
             assert_eq!(
                 gate_step(SettingsOpen, ev),
                 (SettingsOpen, GateAction::Ignore),
@@ -598,20 +612,54 @@ mod tests {
             gate_step(SettingsOpen, SettingsClosed),
             (Idle, GateAction::None)
         );
-        // Đang chụp hoặc chờ menu: không mở Cài đặt.
-        assert_eq!(
-            gate_step(Capturing, OpenSettings),
-            (Capturing, GateAction::Ignore)
-        );
-        assert_eq!(
-            gate_step(PendingMenu, OpenSettings),
-            (PendingMenu, GateAction::Ignore)
-        );
         // Đóng Cài đặt khi không ở trạng thái đó: không đổi.
         assert_eq!(gate_step(Idle, SettingsClosed), (Idle, GateAction::None));
         assert_eq!(
             gate_step(Capturing, SettingsClosed),
             (Capturing, GateAction::None)
+        );
+    }
+
+    #[test]
+    fn settings_request_during_capture_is_remembered() {
+        let (s, a) = gate_step(Capturing, OpenSettings);
+        assert_eq!(a, GateAction::Ignore);
+        // Hai yêu cầu chờ chỉ mở một lần.
+        let (s, a) = gate_step(s, OpenSettings);
+        assert_eq!(a, GateAction::Ignore);
+        // Phím chụp trong lúc đó vẫn bị bỏ qua.
+        assert_eq!(gate_step(s, Hotkey).1, GateAction::Ignore);
+        assert_eq!(
+            gate_step(s, OverlayClosed),
+            (SettingsOpen, GateAction::OpenSettings)
+        );
+        // Không có yêu cầu chờ: về Idle như cũ.
+        assert_eq!(
+            gate_step(Capturing, OverlayClosed),
+            (Idle, GateAction::None)
+        );
+    }
+
+    #[test]
+    fn settings_request_during_pending_menu_is_remembered() {
+        let (s, a) = gate_step(PendingMenu, OpenSettings);
+        assert_eq!(a, GateAction::Ignore);
+        let (s, a) = gate_step(s, OpenSettings);
+        assert_eq!(a, GateAction::Ignore);
+        // Hẹn giờ nổ: vẫn chụp trước, yêu cầu còn chờ.
+        let (s, a) = gate_step(s, TimerFired);
+        assert_eq!(a, GateAction::CaptureNow);
+        assert_eq!(
+            gate_step(s, OverlayClosed),
+            (SettingsOpen, GateAction::OpenSettings)
+        );
+        // Phím chụp thay cho hẹn giờ cũng vậy.
+        let (s, _) = gate_step(PendingMenu, OpenSettings);
+        let (s, a) = gate_step(s, Hotkey);
+        assert_eq!(a, GateAction::CaptureNow);
+        assert_eq!(
+            gate_step(s, OverlayClosed),
+            (SettingsOpen, GateAction::OpenSettings)
         );
     }
 }
