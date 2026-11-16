@@ -43,7 +43,7 @@
 
 ## Tùy chọn
 
-- [ ] Mọi mục hiện đủ và đúng chữ theo ba tab (xem "Đợt 1: cửa sổ Tùy chọn"), nút "OK", "Hủy" và "Trợ giúp". Chữ không bị cắt, các ô không chồng nhau.
+- [ ] Mọi mục hiện đủ và đúng chữ theo bốn tab (xem "Đợt 1: cửa sổ Tùy chọn" và "Đợt 3: định dạng"), nút "OK", "Hủy" và "Trợ giúp". Chữ không bị cắt, các ô không chồng nhau.
 - [ ] Phông chữ giống phông hệ thống; ở màn hình 125% và 150% cửa sổ vẫn cân đối, không bị cắt.
 - [ ] Ô Secret Access Key hiện dấu chấm khi gõ; mở lại cửa sổ thì ô này rỗng, dòng chú thích dưới ô ghi "Đã lưu khóa; để trống nếu không đổi."; bấm OK với ô rỗng thì khóa cũ vẫn dùng được (Kiểm tra kết nối vẫn thành công).
 - [ ] Phím Tab đi qua các ô theo thứ tự hợp lý; Enter ở ô nhập là OK; Esc là Hủy; Enter khi đang chọn nút "Chọn…" hoặc "Đổi…" là bấm nút đó.
@@ -112,7 +112,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 
 ## Đợt 1: cửa sổ Tùy chọn
 
-- [ ] Ba tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; ba ô tích đợt 2; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (ba dòng, mỗi dòng có ô tích, ô chỉ đọc và Đổi…), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
+- [ ] Bốn tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; ba ô tích đợt 2; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (ba dòng, mỗi dòng có ô tích, ô chỉ đọc và Đổi…), Định dạng (xem "Đợt 3: định dạng"), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
 - [ ] Cửa sổ không đổi cỡ khi chuyển tab.
 - [ ] Giá trị gõ ở một tab còn nguyên sau khi sang tab khác và quay lại.
 - [ ] Tab/Shift+Tab đi vòng: dải tab → các ô của tab đang hiện → OK → Hủy → dải tab; không bao giờ vào ô của tab đang ẩn. Mũi tên trái/phải đổi tab khi dải tab giữ tiêu điểm. Ctrl+Tab và Ctrl+Shift+Tab đổi tab (vòng tròn) từ bất cứ ô nào, kể cả khi hộp chọn đang thả.
