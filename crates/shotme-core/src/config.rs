@@ -40,7 +40,13 @@ pub struct Hotkey {
 
 impl Default for Hotkey {
     fn default() -> Self {
-        Hotkey { ctrl: false, alt: false, shift: false, win: false, vk: 0x2C }
+        Hotkey {
+            ctrl: false,
+            alt: false,
+            shift: false,
+            win: false,
+            vk: 0x2C,
+        }
     }
 }
 
@@ -140,7 +146,13 @@ struct FileHotkey {
 impl Default for FileHotkey {
     fn default() -> Self {
         let h = Hotkey::default();
-        FileHotkey { ctrl: h.ctrl, alt: h.alt, shift: h.shift, win: h.win, vk: h.vk }
+        FileHotkey {
+            ctrl: h.ctrl,
+            alt: h.alt,
+            shift: h.shift,
+            win: h.win,
+            vk: h.vk,
+        }
     }
 }
 
@@ -174,7 +186,10 @@ pub fn load(
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Loaded { config: Config::defaults(default_save_dir), secret_lost: false })
+            return Ok(Loaded {
+                config: Config::defaults(default_save_dir),
+                secret_lost: false,
+            })
         }
         Err(e) => return Err(ConfigError::Io(e.to_string())),
     };
@@ -219,7 +234,10 @@ pub fn load(
         save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
         autostart: f.autostart,
     };
-    Ok(Loaded { config, secret_lost })
+    Ok(Loaded {
+        config,
+        secret_lost,
+    })
 }
 
 pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), ConfigError> {
@@ -348,7 +366,12 @@ mod tests {
 
     #[test]
     fn missing_file_gives_defaults() {
-        let l = load(&temp_dir().join("config.json"), &XorStore, Path::new("C:/pics")).unwrap();
+        let l = load(
+            &temp_dir().join("config.json"),
+            &XorStore,
+            Path::new("C:/pics"),
+        )
+        .unwrap();
         assert_eq!(l.config, Config::defaults(Path::new("C:/pics")));
         assert_eq!(l.config.hotkey.vk, 0x2C);
         assert!(!l.config.r2.is_complete() && !l.secret_lost && !l.config.autostart);
@@ -359,8 +382,13 @@ mod tests {
         let path = temp_dir().join("sub").join("config.json");
         let c = sample();
         save(&path, &c, &XorStore).unwrap();
-        assert!(!std::fs::read_to_string(&path).unwrap().contains("TOP-SECRET-VALUE"));
-        assert_eq!(load(&path, &XorStore, Path::new("C:/pics")).unwrap().config, c);
+        assert!(!std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("TOP-SECRET-VALUE"));
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics")).unwrap().config,
+            c
+        );
     }
 
     #[test]

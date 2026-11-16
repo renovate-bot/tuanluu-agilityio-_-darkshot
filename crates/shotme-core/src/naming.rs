@@ -73,7 +73,14 @@ mod tests {
 
     #[test]
     fn file_name_format() {
-        let t = LocalTime { year: 2026, month: 11, day: 16, hour: 14, minute: 3, second: 5 };
+        let t = LocalTime {
+            year: 2026,
+            month: 11,
+            day: 16,
+            hour: 14,
+            minute: 3,
+            second: 5,
+        };
         assert_eq!(local_file_name(&t), "shotme_2026-11-16_14-03-05.png");
     }
 
@@ -83,9 +90,15 @@ mod tests {
         let n = "shotme_2026-11-16_14-03-05.png";
         assert_eq!(unique_path(&d, n), d.join(n));
         std::fs::write(d.join(n), b"x").unwrap();
-        assert_eq!(unique_path(&d, n), d.join("shotme_2026-11-16_14-03-05_2.png"));
+        assert_eq!(
+            unique_path(&d, n),
+            d.join("shotme_2026-11-16_14-03-05_2.png")
+        );
         std::fs::write(d.join("shotme_2026-11-16_14-03-05_2.png"), b"x").unwrap();
-        assert_eq!(unique_path(&d, n), d.join("shotme_2026-11-16_14-03-05_3.png"));
+        assert_eq!(
+            unique_path(&d, n),
+            d.join("shotme_2026-11-16_14-03-05_3.png")
+        );
     }
 
     #[test]

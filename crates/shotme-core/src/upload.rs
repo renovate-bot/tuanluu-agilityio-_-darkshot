@@ -1,8 +1,16 @@
 //! Tải ảnh lên R2 (giao thức S3, chữ ký SigV4).
 
+use std::io::Read;
 use std::time::Duration;
 
 use crate::config::{Expiry, R2Config};
+use crate::naming::random_object_name;
+use crate::sigv4::{amz_date_now, authorization_header, sha256_hex, Credentials, SignInput};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const GLOBAL_TIMEOUT: Duration = Duration::from_secs(60);
+const REGION: &str = "auto";
+const SERVICE: &str = "s3";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum UploadError {
@@ -16,7 +24,25 @@ pub enum UploadError {
 
 impl UploadError {
     pub fn message_vi(&self) -> String {
-        todo!()
+        match self {
+            UploadError::NotConfigured => {
+                "Chưa cấu hình kho lưu trữ. Hãy nhập đủ thông tin trong cài đặt.".into()
+            }
+            UploadError::Network(_) => {
+                "Không kết nối được tới máy chủ. Kiểm tra mạng rồi thử lại.".into()
+            }
+            UploadError::Auth => {
+                "Khóa truy cập không hợp lệ hoặc không đủ quyền. Kiểm tra lại khóa.".into()
+            }
+            UploadError::BucketNotFound => {
+                "Không tìm thấy kho. Kiểm tra lại tên kho và mã tài khoản.".into()
+            }
+            UploadError::Http(code) => format!("Máy chủ trả về lỗi {code}."),
+            UploadError::PublicUrl(_) => {
+                "Không đọc được ảnh qua địa chỉ công khai. Kiểm tra lại địa chỉ công khai của kho."
+                    .into()
+            }
+        }
     }
 }
 
@@ -25,45 +51,219 @@ pub trait Uploader: Send + Sync {
     fn upload(&self, key: &str, png: &[u8]) -> Result<String, UploadError>;
 }
 
-pub fn object_key(_expiry: Expiry, _name: &str) -> String {
-    todo!()
+pub fn object_key(expiry: Expiry, name: &str) -> String {
+    format!("{}/{name}.png", expiry.prefix())
 }
 
-pub fn public_url(_base: &str, _key: &str) -> String {
-    todo!()
+pub fn public_url(base: &str, key: &str) -> String {
+    format!("{}/{key}", base.trim_end_matches('/'))
+}
+
+/// Splits "scheme://host[:port]" into (scheme, host header value).
+/// Default ports are dropped so the signed `host` equals what is sent.
+fn parse_endpoint(endpoint: &str) -> Option<(String, String)> {
+    let e = endpoint.trim().trim_end_matches('/');
+    let (scheme, rest) = e.split_once("://")?;
+    if !(scheme == "http" || scheme == "https")
+        || rest.is_empty()
+        || rest.contains(['/', '?', '#', '@', ' '])
+    {
+        return None;
+    }
+    let host = match (scheme, rest.rsplit_once(':')) {
+        ("https", Some((h, "443"))) | ("http", Some((h, "80"))) => h,
+        _ => rest,
+    };
+    Some((scheme.to_string(), host.to_string()))
+}
+
+/// Bucket names are placed in the URL path unencoded, so only characters that
+/// need no URI encoding are accepted; anything else is `NotConfigured`.
+fn bucket_is_safe(b: &str) -> bool {
+    !b.is_empty()
+        && b.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_'))
 }
 
 pub struct R2Uploader {
-    _unused: (),
+    agent: ureq::Agent,
+    access_key_id: String,
+    secret_access_key: String,
+    bucket: String,
+    complete: bool,
+    /// (scheme, host) of the S3 endpoint; `None` when unparsable.
+    s3: Option<(String, String)>,
+    public_base: String,
 }
 
 impl R2Uploader {
-    pub fn new(_cfg: &R2Config) -> Self {
-        todo!()
+    pub fn new(cfg: &R2Config) -> Self {
+        let endpoint = format!("https://{}.r2.cloudflarestorage.com", cfg.account_id);
+        Self::with_endpoints(cfg, &endpoint, &cfg.public_base_url)
     }
 
-    pub fn with_endpoints(_cfg: &R2Config, _s3_endpoint: &str, _public_base: &str) -> Self {
-        todo!()
+    pub fn with_endpoints(cfg: &R2Config, s3_endpoint: &str, public_base: &str) -> Self {
+        Self::build(cfg, s3_endpoint, public_base, GLOBAL_TIMEOUT)
     }
 
     #[cfg(test)]
     fn with_global_timeout(
-        _cfg: &R2Config,
-        _s3_endpoint: &str,
-        _public_base: &str,
-        _global: Duration,
+        cfg: &R2Config,
+        s3_endpoint: &str,
+        public_base: &str,
+        global: Duration,
     ) -> Self {
-        todo!()
+        Self::build(cfg, s3_endpoint, public_base, global)
+    }
+
+    fn build(cfg: &R2Config, s3_endpoint: &str, public_base: &str, global: Duration) -> Self {
+        // Roots: webpki-roots only (default TlsConfig, no platform verifier).
+        // No env proxy, no redirects followed, statuses are not errors.
+        let config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .max_redirects_will_error(false)
+            .proxy(None)
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_global(Some(global))
+            .build();
+        R2Uploader {
+            agent: ureq::Agent::new_with_config(config),
+            access_key_id: cfg.access_key_id.clone(),
+            secret_access_key: cfg.secret_access_key.clone(),
+            bucket: cfg.bucket.clone(),
+            complete: cfg.is_complete() && bucket_is_safe(&cfg.bucket),
+            s3: parse_endpoint(s3_endpoint),
+            public_base: public_base.to_string(),
+        }
+    }
+
+    /// Sends one signed S3 request; returns the HTTP status.
+    fn s3_request(
+        &self,
+        method: &str,
+        key: &str,
+        content_type: Option<&str>,
+        body: &[u8],
+    ) -> Result<u16, UploadError> {
+        let (scheme, host) = match (&self.s3, self.complete) {
+            (Some(s), true) => s,
+            _ => return Err(UploadError::NotConfigured),
+        };
+        let path = format!("/{}/{key}", self.bucket);
+        let payload_hash = sha256_hex(body);
+        let amz_date = amz_date_now();
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("host", host.as_str()),
+            ("x-amz-content-sha256", payload_hash.as_str()),
+            ("x-amz-date", amz_date.as_str()),
+        ];
+        if let Some(ct) = content_type {
+            headers.push(("content-type", ct));
+        }
+        let auth = authorization_header(
+            &Credentials {
+                access_key_id: &self.access_key_id,
+                secret_access_key: &self.secret_access_key,
+            },
+            &SignInput {
+                method,
+                path: &path,
+                query: "",
+                headers: &headers,
+                payload_sha256_hex: &payload_hash,
+                amz_date: &amz_date,
+                region: REGION,
+                service: SERVICE,
+            },
+        );
+        let url = format!("{scheme}://{host}{path}");
+        let result = match method {
+            "PUT" => {
+                let mut req = self
+                    .agent
+                    .put(&url)
+                    .header("x-amz-content-sha256", &payload_hash)
+                    .header("x-amz-date", &amz_date)
+                    .header("authorization", &auth);
+                if let Some(ct) = content_type {
+                    req = req.header("content-type", ct);
+                }
+                req.send(body)
+            }
+            _ => self
+                .agent
+                .delete(&url)
+                .header("x-amz-content-sha256", &payload_hash)
+                .header("x-amz-date", &amz_date)
+                .header("authorization", &auth)
+                .call(),
+        };
+        match result {
+            Ok(resp) => Ok(resp.status().as_u16()),
+            Err(e) => Err(UploadError::Network(e.to_string())),
+        }
+    }
+
+    fn check_status(status: u16) -> Result<(), UploadError> {
+        match status {
+            200..=299 => Ok(()),
+            401 | 403 => Err(UploadError::Auth),
+            404 => Err(UploadError::BucketNotFound),
+            other => Err(UploadError::Http(other)),
+        }
+    }
+
+    fn fetch_public(&self, key: &str) -> Result<Vec<u8>, UploadError> {
+        let url = public_url(&self.public_base, key);
+        let mut resp = self
+            .agent
+            .get(&url)
+            .call()
+            .map_err(|e| UploadError::PublicUrl(e.to_string()))?;
+        let status = resp.status().as_u16();
+        if !(200..=299).contains(&status) {
+            return Err(UploadError::PublicUrl(format!("HTTP {status}")));
+        }
+        let mut out = Vec::new();
+        resp.body_mut()
+            .as_reader()
+            .take(1024)
+            .read_to_end(&mut out)
+            .map_err(|e| UploadError::PublicUrl(e.to_string()))?;
+        Ok(out)
     }
 
     pub fn test_connection(&self) -> Result<(), UploadError> {
-        todo!()
+        if self.s3.is_none() || !self.complete {
+            return Err(UploadError::NotConfigured);
+        }
+        let key = format!("d1/shotme-test-{}.txt", random_object_name());
+        let status = self.s3_request("PUT", &key, Some("text/plain"), b"shotme")?;
+        Self::check_status(status)?;
+
+        let got = match self.fetch_public(&key) {
+            Ok(body) if body == b"shotme" => Ok(()),
+            Ok(_) => Err(UploadError::PublicUrl("nội dung không khớp".to_string())),
+            Err(e) => Err(e),
+        };
+        // Always clean up, even when the public GET failed.
+        let del = self
+            .s3_request("DELETE", &key, None, b"")
+            .and_then(Self::check_status);
+        got?;
+        del
     }
 }
 
 impl Uploader for R2Uploader {
-    fn upload(&self, _key: &str, _png: &[u8]) -> Result<String, UploadError> {
-        todo!()
+    fn upload(&self, key: &str, png: &[u8]) -> Result<String, UploadError> {
+        if !self.complete || self.s3.is_none() {
+            return Err(UploadError::NotConfigured);
+        }
+        let status = self.s3_request("PUT", key, Some("image/png"), png)?;
+        Self::check_status(status)?;
+        Ok(public_url(&self.public_base, key))
     }
 }
 
