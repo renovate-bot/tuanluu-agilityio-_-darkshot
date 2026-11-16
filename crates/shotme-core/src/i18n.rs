@@ -620,6 +620,7 @@ mod tests {
                 assert!(s.contains(k), "{l:?} thiếu {k}");
             }
             assert!(!s.contains("http"), "{l:?} có địa chỉ web");
+            assert!(s.contains(t(l, Msg::BtnChange)), "{l:?} sai nhãn nút Đổi");
         }
         assert_ne!(help_text(Lang::Vi, "X"), help_text(Lang::En, "X"));
     }
