@@ -35,6 +35,18 @@ pub fn to_image_coords(screen: Rect, origin: Point) -> Rect {
     }
 }
 
+/// Đổi một hình chữ nhật từ tọa độ ảnh của màn hình ảo sang tọa độ màn hình (ngược của
+/// `to_image_coords`).
+pub fn to_screen_coords(image: Rect, origin: Point) -> Rect {
+    todo!()
+}
+
+/// Góc trên trái để vẽ con trỏ vào ảnh: vị trí con trỏ (tọa độ màn hình) trừ điểm nóng,
+/// rồi đổi sang tọa độ ảnh của màn hình ảo có gốc `origin`.
+pub fn cursor_draw_origin(pos: Point, hotspot: Point, origin: Point) -> Point {
+    todo!()
+}
+
 /// Lỗi Win32 của luồng hiện tại; nếu luồng không ghi mã lỗi thì dùng `E_FAIL`.
 fn last_error() -> Error {
     let e = Error::from_thread();
@@ -309,6 +321,48 @@ mod tests {
                 w: 2560,
                 h: 1440
             }
+        );
+    }
+
+    #[test]
+    fn screen_and_image_coords_are_inverse() {
+        let o = Point { x: -1280, y: 40 };
+        let r = Rect {
+            x: 10,
+            y: 20,
+            w: 30,
+            h: 40,
+        };
+        assert_eq!(
+            to_screen_coords(r, o),
+            Rect {
+                x: -1270,
+                y: 60,
+                w: 30,
+                h: 40
+            }
+        );
+        assert_eq!(to_image_coords(to_screen_coords(r, o), o), r);
+    }
+
+    #[test]
+    fn cursor_origin_subtracts_hotspot_and_screen_origin() {
+        assert_eq!(
+            cursor_draw_origin(
+                Point { x: 100, y: 50 },
+                Point { x: 0, y: 0 },
+                Point { x: 0, y: 0 }
+            ),
+            Point { x: 100, y: 50 }
+        );
+        // màn hình phụ bên trái: gốc âm; con trỏ chữ I có điểm nóng ở giữa
+        assert_eq!(
+            cursor_draw_origin(
+                Point { x: -200, y: 10 },
+                Point { x: 8, y: 12 },
+                Point { x: -1280, y: 0 }
+            ),
+            Point { x: 1072, y: -2 }
         );
     }
 

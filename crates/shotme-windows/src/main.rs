@@ -23,6 +23,7 @@ use shotme_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
 use shotme_core::config::{Config, HotkeyRole, Hotkeys};
+use shotme_core::geometry::Rect;
 use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
@@ -122,6 +123,30 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
         (s, OverlayClosed) => (s, GateAction::None),
         (s, _) => (s, GateAction::Ignore),
     }
+}
+
+/// Loại của một lượt chụp: chụp vùng (lớp phủ) hoặc một trong hai kiểu toàn màn hình.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureKind {
+    Region,
+    SaveFull,
+    UploadFull,
+}
+
+/// Loại chụp của một dòng phím tắt.
+pub fn kind_of(role: HotkeyRole) -> CaptureKind {
+    todo!()
+}
+
+/// Loại chụp sau một bước của cổng: chỉ yêu cầu được nhận (`StartTimer`, `CaptureNow`) mới đổi loại.
+pub fn next_kind(current: CaptureKind, requested: CaptureKind, act: GateAction) -> CaptureKind {
+    todo!()
+}
+
+/// Khung nhớ (tọa độ màn hình) sau một lượt chụp vùng kết thúc bằng `action` với khung `picked`:
+/// tải lên, lưu, chép thì nhớ khung mới; hủy thì giữ khung cũ.
+pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Option<Rect> {
+    todo!()
 }
 
 /// Gộp lý do của hai yêu cầu mở Tùy chọn đang chờ: `NeedsR2` thắng.
@@ -926,6 +951,72 @@ mod tests {
             gate_step(Capturing, OverlayClosed),
             (Idle, GateAction::None)
         );
+    }
+
+    #[test]
+    fn kinds_of_roles() {
+        assert_eq!(kind_of(HotkeyRole::Region), CaptureKind::Region);
+        assert_eq!(kind_of(HotkeyRole::SaveFull), CaptureKind::SaveFull);
+        assert_eq!(kind_of(HotkeyRole::UploadFull), CaptureKind::UploadFull);
+    }
+
+    #[test]
+    fn capture_kind_follows_the_accepted_request() {
+        use CaptureKind::*;
+        let step = |state, ev, cur, req| {
+            let (s, a) = gate_step(state, ev);
+            (s, a, next_kind(cur, req, a))
+        };
+        // rảnh, bấm phím lưu toàn màn hình: chụp ngay loại đó
+        assert_eq!(
+            step(Idle, Hotkey, Region, SaveFull),
+            (Capturing, GateAction::CaptureNow, SaveFull)
+        );
+        // menu đang mở: chờ, loại được nhớ; hết giờ không đổi loại
+        let (s, a, k) = step(Idle, MenuCapture, Region, UploadFull);
+        assert_eq!((s, a, k), (PendingMenu, GateAction::StartTimer, UploadFull));
+        assert_eq!(
+            gate_step(s, TimerFired),
+            (Capturing, GateAction::CaptureNow)
+        );
+        // đang chờ menu (Region) mà bấm phím loại khác: chụp ngay một lần, loại của phím vừa bấm
+        assert_eq!(
+            step(PendingMenu, Hotkey, Region, SaveFull),
+            (Capturing, GateAction::CaptureNow, SaveFull)
+        );
+        // lớp phủ đang mở: bỏ qua, loại không đổi
+        assert_eq!(
+            step(Capturing, Hotkey, Region, SaveFull),
+            (Capturing, GateAction::Ignore, Region)
+        );
+        assert_eq!(step(Capturing, MenuCapture, Region, UploadFull).2, Region);
+        // Tùy chọn đang mở: đưa ra trước, loại không đổi
+        assert_eq!(
+            step(SettingsOpen, Hotkey, Region, UploadFull),
+            (SettingsOpen, GateAction::FocusSettings, Region)
+        );
+    }
+
+    #[test]
+    fn selection_is_remembered_only_when_used() {
+        let old = Some(Rect {
+            x: 1,
+            y: 2,
+            w: 3,
+            h: 4,
+        });
+        let new = Rect {
+            x: 10,
+            y: 20,
+            w: 30,
+            h: 40,
+        };
+        for a in [Action::Upload, Action::Save, Action::Copy] {
+            assert_eq!(remember_after(old, a, new), Some(new));
+            assert_eq!(remember_after(None, a, new), Some(new));
+        }
+        assert_eq!(remember_after(old, Action::Cancel, new), old);
+        assert_eq!(remember_after(None, Action::Cancel, new), None);
     }
 
     #[test]
