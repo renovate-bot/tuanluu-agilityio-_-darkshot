@@ -41,3 +41,11 @@ Tạm thời (đến Task 11) chọn xong một hành động chỉ hiện thôn
 - [ ] Ảnh nền và vùng chọn không bị mờ hay co giãn (so từng pixel chữ nhỏ với màn hình thật), ở cả 100% và 150%.
 - [ ] Chụp khi có hộp thoại UAC hoặc ngay sau khi mở khóa máy: nếu không chụp được thì hiện thông báo lỗi "Không chụp được màn hình", ứng dụng vẫn chạy.
 - [ ] Màn hình 4K hoặc hai màn hình lớn: kéo và di chuyển khung lớn vẫn mượt; mở rồi đóng lớp phủ 10 lần, bộ nhớ của shotme (Task Manager) trở về mức cũ, số GDI objects (cột "GDI objects" trong Task Manager, tab Details) không tăng dần.
+
+## Clipboard và khởi động cùng Windows (thử được sau Task 11)
+
+- [ ] "Chép ảnh": dán được vào Paint, Word, trình duyệt (ví dụ Gmail), Slack hoặc Telegram; ảnh đúng màu, không lật ngược.
+- [ ] "Tải lên": link dán ra đúng nguyên văn.
+- [ ] Chép khi một ứng dụng khác đang giữ clipboard: có thông báo lỗi "Clipboard đang bị ứng dụng khác giữ", ứng dụng vẫn chạy.
+- [ ] Bật khởi động cùng Windows trong Cài đặt, khởi động lại máy: shotme tự chạy. Tắt đi, khởi động lại: không tự chạy.
+- [ ] `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` không có giá trị nào tên `shotme-test-*` (sót lại từ kiểm thử bị ngắt giữa chừng).

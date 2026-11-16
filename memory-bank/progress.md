@@ -17,8 +17,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 6 PNG và luồng hành động | task/06-image-actions | builder | sonnet | xong | 63.192 | 35.413 | 8.253 | 106.858 |
 | 7 Vỏ ứng dụng Windows | task/07-win-shell | builder | sonnet | xong | 74.617 | 36.916 | 15.158 | 126.691 |
 | 8 Chụp màn hình và lớp phủ | task/08-capture-overlay | specialist | opus | xong, chưa thử tay | 185.819 | 193.926 | 55.331 | 435.076 |
-| 9 Dịch vụ Windows | task/09-win-services | specialist | opus | đang làm | | | | |
-| 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | chờ | | | | |
+| 9 Dịch vụ Windows | task/09-win-services | specialist | opus | xong | 134.713 | 73.546 | 0 | 208.259 |
+| 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | đang làm | | | | |
 | 11 Nối toàn bộ | task/11-integration | builder | sonnet | chờ | | | | |
 | 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | chờ | | | | |
 | Rà soát toàn bộ sau Task 12 | main | specialist | opus | chờ | | | | |

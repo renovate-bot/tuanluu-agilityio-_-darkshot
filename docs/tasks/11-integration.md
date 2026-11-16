@@ -48,7 +48,7 @@ pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool;
 
 Hành vi:
 - Khởi động: `config::load`. File chưa có: mở Cài đặt (spec 5.1). `Err(Corrupt)`: dùng mặc định, `config_notice` = "File cấu hình bị hỏng. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại.", mở Cài đặt, không ghi file. `secret_lost`: `config_notice` = "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.", mở Cài đặt.
-- Đăng ký phím tắt theo cấu hình; áp dụng `autostart::set_enabled` khi lưu cài đặt.
+- Đăng ký phím tắt theo cấu hình; áp dụng `autostart::set_enabled` khi lưu cài đặt. Lúc khởi động, nếu `autostart::is_enabled()` thì gọi lại `set_enabled(true)` để ghi lại đường dẫn exe hiện tại (phòng khi file exe bị chuyển chỗ); lỗi thì bỏ qua.
 - Capture: nếu lớp phủ đang mở thì bỏ qua. Chụp, `pick_region`, cắt ảnh bằng `Image::crop`. Lưu ý sau Task 8: `pick_region` trả `Result<Option<(Action, Rect)>, String>` (`Err` thì báo lỗi "Không mở được lớp phủ chọn vùng"), và việc "bỏ qua khi lớp phủ đang mở" đã do cổng `gate()`/`capture_flow` trong `main.rs` đảm nhận: nối `run_action` vào `capture_flow`, không viết lại cổng.
 - `Save` và `Copy` chạy ngay trên luồng chính. `Upload` chạy `run_action` trên một luồng mới với ảnh đã cắt; mỗi lần tải lên một luồng riêng, không chờ nhau.
 - `uploader` là `Some(R2Uploader::new(..))` khi `r2.is_complete()`, ngược lại `None`.
