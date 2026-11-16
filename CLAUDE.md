@@ -18,7 +18,7 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 - Sau mỗi task: ghi token vào `memory-bank/progress.md`, cập nhật `memory-bank/activeContext.md`.
 - Spec `docs/superpowers/specs/2026-11-16-shotme-design.md` đã duyệt, không sửa. Thay đổi về sau ghi vào `memory-bank/decisions.md`.
 - Không bàn lại quyết định đã có trong `memory-bank/decisions.md` nếu chủ dự án không yêu cầu.
-- Không đẩy mã lên máy chủ git nào. Không gửi dữ liệu dự án ra dịch vụ bên ngoài.
+- Chỉ đẩy mã lên remote `origin` (repo GitHub riêng tư của chủ dự án). Không gửi dữ liệu dự án ra dịch vụ nào khác.
 - Không bao giờ yêu cầu, đọc hay ghi lại khóa R2 của chủ dự án.
 - `prototype/` là bản giao diện dùng thử; không dùng lại mã của nó trong ứng dụng.
 - Trao đổi với chủ dự án bằng tiếng Việt.
