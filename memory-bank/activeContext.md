@@ -21,11 +21,13 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Đợt 4 (2026-11-17): đổi tên darkshot, giao diện luôn tối.** Thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`; gói task 27–31. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề để họ xem sau (mục "Vấn đề chờ chủ dự án xem" dưới đây). Task 27 đã gộp (rà soát DUYỆT; `target/release/darkshot.exe` 1.643.008 byte; agent quên commit `feat:`, phiên điều phối commit sau khi check qua). Task đang làm: 28 trên nhánh `task/28-legacy-migration`.
+**Đợt 4 (2026-11-17): đổi tên darkshot, giao diện luôn tối.** Thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`; gói task 27–31. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề để họ xem sau (mục "Vấn đề chờ chủ dự án xem" dưới đây). Task 27 đã gộp (rà soát DUYỆT; `target/release/darkshot.exe` 1.643.008 byte; agent quên commit `feat:`, phiên điều phối commit sau khi check qua). Task 28 đã gộp (rà soát `specialist` CẦN SỬA, một lỗi chặn đã sửa, phiên điều phối đọc lại phần sửa): `migrate.rs`, `legacy.rs`; khởi động gọi `legacy::run_before_startup()` trước `app::startup`, rồi `legacy::sync_autostart` chỉ khi `app::should_sync_autostart(config_notice)` (cấu hình hỏng hoặc không đọc được thì không đụng khóa Run); thông báo `NoticeMigrationIncompleteTitle`/`NoticeMigrationIncomplete` loại Info; bật feature `Win32_Storage_FileSystem` (`MoveFileExW` không đè). Task đang làm: 29 trên nhánh `task/29-dark-theme-core`.
 
 ### Vấn đề chờ chủ dự án xem (đợt 4)
 
 - Thiết kế mục 7.1 ghi tỉ lệ tương phản cao hơn thực tế và màu nút chính khi trỏ `#3D7BF0` chỉ đạt 3,97:1; kế hoạch dùng `#2563EB` (5,17:1). Số đúng ở mục "Bảng màu đã kiểm" của kế hoạch.
+- Task 28: cấu hình darkshot hỏng hoặc không đọc được thì khóa Run giữ nguyên cả `darkshot` lẫn `shotme` (chặt hơn thiết kế 6.3 "luôn xóa shotme"), để không ai mất khởi động cùng Windows; hệ quả: trong trường hợp hiếm đó, shotme cũ có thể vẫn tự chạy. Đổi tên exe darkshot thành tên cũ thì không gỡ WER cũ.
+- Task 28: hành vi mới so với trước: `autostart` tắt mà khóa Run còn giá trị `darkshot` thì giá trị bị xóa (trước đây giữ). Lỗi ghi/xóa Run cũng hiện thông báo "Chưa chuyển xong thiết lập".
 - Repo GitHub và thư mục dự án vẫn tên shotme: cần chủ dự án quyết có đổi không (thao tác bên ngoài).
 
 Đợt 1 (Task 15–19 và 19b) đã xong. **Đợt 2** (phím tắt toàn màn hình, con trỏ, giữ vị trí vùng, bật/tắt thông báo): thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md` đã duyệt (2026-11-16); kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md`; gói task `docs/tasks/20-...` đến `23-...`; quyết định 33–38. Đợt 2 (Task 20–23) đã xong và đã nghiệm thu. Bước kế tiếp: brainstorm đợt 3 với chủ dự án (thiết kế riêng, kế hoạch riêng, gói task từ số 24).
