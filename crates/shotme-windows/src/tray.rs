@@ -314,6 +314,25 @@ mod tests {
         assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
     }
 
+    /// Khung phải là bốn góc chữ L rời nhau: điểm giữa cạnh trên và cạnh trái (cỡ 32) là nền xanh.
+    #[test]
+    fn ico_32_frame_edges_are_open_at_midpoints() {
+        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        let u32at =
+            |o: usize| u32::from_le_bytes([ico[o], ico[o + 1], ico[o + 2], ico[o + 3]]) as usize;
+        let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
+        let e = (0..count)
+            .map(|i| 6 + 16 * i)
+            .find(|&e| ico[e] == 32)
+            .expect("thiếu cỡ 32");
+        let base = u32at(e + 12) + 40; // bỏ BITMAPINFOHEADER; điểm ảnh BGRA, từ dưới lên
+        let red = |x: usize, y: usize| ico[base + ((31 - y) * 32 + x) * 4 + 2];
+        let m = (0.285f32 * 32.0).round() as usize; // đường giữa nét của cạnh khung
+        assert!(red(16, m) < 128, "giữa cạnh trên bị tô trắng");
+        assert!(red(m, 16) < 128, "giữa cạnh trái bị tô trắng");
+        assert!(red(m, m) > 200, "góc trên trái phải là nét trắng");
+    }
+
     #[test]
     fn tray_add_retry_policy() {
         assert!(!should_retry(true, 0));
