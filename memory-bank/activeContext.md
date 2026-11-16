@@ -21,7 +21,7 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Đợt 4 (2026-11-17): đổi tên darkshot, giao diện luôn tối.** Thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`; gói task 27–31. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề để họ xem sau (mục "Vấn đề chờ chủ dự án xem" dưới đây). Task đang làm: 27 trên nhánh `task/27-rename-darkshot`.
+**Đợt 4 (2026-11-17): đổi tên darkshot, giao diện luôn tối.** Thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`; gói task 27–31. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề để họ xem sau (mục "Vấn đề chờ chủ dự án xem" dưới đây). Task 27 đã gộp (rà soát DUYỆT; `target/release/darkshot.exe` 1.643.008 byte; agent quên commit `feat:`, phiên điều phối commit sau khi check qua). Task đang làm: 28 trên nhánh `task/28-legacy-migration`.
 
 ### Vấn đề chờ chủ dự án xem (đợt 4)
 

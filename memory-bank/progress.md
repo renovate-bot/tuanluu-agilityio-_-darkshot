@@ -37,8 +37,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 24 Lõi đợt 3: định dạng tải lên, bộ nén JPEG | task/24-upload-format-core | builder | sonnet | xong | 143.728 | 46.466 | 3.060 | 193.254 |
 | 25 Tab Định dạng | task/25-format-tab | specialist | opus | xong | 184.196 | 118.542 | 4.661 | 307.399 |
 | 26 Tài liệu đợt 3 | task/26-docs-batch3 | scaffolder | haiku | xong | 140.579 | 44.680 | 0 | 185.259 |
-| 27 Đổi tên darkshot | task/27-rename-darkshot | builder | sonnet | đang làm | | | | |
-| 28 Chuyển dữ liệu từ shotme | task/28-legacy-migration | specialist | opus | chờ | | | | |
+| 27 Đổi tên darkshot | task/27-rename-darkshot | builder | sonnet | xong | 72.367 | 36.526 | 0 | 108.893 |
+| 28 Chuyển dữ liệu từ shotme | task/28-legacy-migration | specialist | opus | đang làm | | | | |
 | 29 Lõi giao diện tối, Thông tin, Trợ giúp, menu khay, lớp phủ | task/29-dark-theme-core | builder | sonnet | chờ | | | | |
 | 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | chờ | | | | |
 | 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | chờ | | | | |
