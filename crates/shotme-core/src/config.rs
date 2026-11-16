@@ -308,6 +308,17 @@ pub fn normalize_public_base_url(input: &str) -> Result<String, String> {
     if s.chars().any(char::is_whitespace) {
         return Err("Địa chỉ công khai không được chứa khoảng trắng".into());
     }
+    if rest.contains(['?', '#', '@']) {
+        return Err("Địa chỉ công khai không được chứa các ký tự ?, # hoặc @".into());
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = match authority.rsplit_once(':') {
+        Some((h, _port)) => h,
+        None => authority,
+    };
+    if host.is_empty() {
+        return Err("Địa chỉ công khai thiếu tên miền sau https://".into());
+    }
     Ok(s.to_string())
 }
 

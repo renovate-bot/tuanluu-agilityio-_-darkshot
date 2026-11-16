@@ -44,7 +44,9 @@ impl UploadError {
                 "Không đọc được ảnh qua địa chỉ công khai. Kiểm tra lại địa chỉ công khai của kho."
                     .into()
             }
-            UploadError::ClockSkew => String::new(),
+            UploadError::ClockSkew => {
+                "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại.".into()
+            }
         }
     }
 }
@@ -91,6 +93,26 @@ fn bucket_is_safe(b: &str) -> bool {
 /// The account id becomes part of the host name, so only `[A-Za-z0-9-]` is accepted.
 fn account_id_is_safe(a: &str) -> bool {
     !a.is_empty() && a.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+}
+
+/// Giới hạn số byte đọc từ thân phản hồi lỗi của S3.
+const ERROR_BODY_LIMIT: u64 = 4096;
+
+/// Thân phản hồi 403 (đọc tối đa 4 KB) có mã `RequestTimeTooSkewed` không.
+/// Thân chỉ được dò mã, không bao giờ đưa vào lỗi hay thông báo.
+fn body_says_clock_skew(resp: &mut ureq::http::Response<ureq::Body>) -> bool {
+    let mut buf = Vec::new();
+    if resp
+        .body_mut()
+        .as_reader()
+        .take(ERROR_BODY_LIMIT)
+        .read_to_end(&mut buf)
+        .is_err()
+    {
+        return false;
+    }
+    buf.windows(b"RequestTimeTooSkewed".len())
+        .any(|w| w == b"RequestTimeTooSkewed")
 }
 
 pub struct R2Uploader {
@@ -215,7 +237,13 @@ impl R2Uploader {
                 .call(),
         };
         match result {
-            Ok(resp) => Ok(resp.status().as_u16()),
+            Ok(mut resp) => {
+                let status = resp.status().as_u16();
+                if status == 403 && body_says_clock_skew(&mut resp) {
+                    return Err(UploadError::ClockSkew);
+                }
+                Ok(status)
+            }
             Err(e) => Err(UploadError::Network(e.to_string())),
         }
     }

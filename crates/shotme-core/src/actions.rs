@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Expiry;
 use crate::image::{encode_png, Image};
-use crate::naming::{local_file_name, random_object_name, unique_path, LocalTime};
-use crate::upload::{object_key, Uploader};
+use crate::naming::{local_file_name, random_object_name, LocalTime};
+use crate::upload::{object_key, UploadError, Uploader};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -121,7 +121,10 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
             }
             Outcome::Uploaded(link)
         }
-        Err(e) => fallback(ctx, img, &e.message_vi(), false),
+        Err(e) => {
+            let needs_settings = e == UploadError::NotConfigured;
+            fallback(ctx, img, &e.message_vi(), needs_settings)
+        }
     }
 }
 
@@ -155,16 +158,50 @@ fn save_failed(ctx: &Ctx, img: &Image, err: &str) -> Outcome {
     Outcome::Failed
 }
 
-/// Ghi PNG an toàn: ghi vào file tạm cùng thư mục rồi đổi tên, lỗi thì xóa file tạm,
-/// nên không bao giờ để lại file PNG dở dang dưới tên cuối cùng.
+/// Số hậu tố tối đa thử khi tên đích đã có người dùng.
+const MAX_NAME_ATTEMPTS: u32 = 10_000;
+
+/// Chiếm một tên chưa có trong `dir` bằng cách tạo file rỗng với `create_new` (nguyên tử),
+/// thử `name`, rồi `stem_2.ext`, `stem_3.ext`... Hai lượt lưu đồng thời không bao giờ nhận cùng tên.
+fn claim_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) => name.split_at(i),
+        None => (name, ""),
+    };
+    for n in 1..=MAX_NAME_ATTEMPTS {
+        let candidate = if n == 1 {
+            dir.join(name)
+        } else {
+            dir.join(format!("{stem}_{n}{ext}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            // Đóng file giữ chỗ ngay để bước đổi tên thay được nó.
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "quá nhiều ảnh trùng tên trong cùng một giây",
+    ))
+}
+
+/// Ghi PNG an toàn: chiếm tên đích, ghi vào file tạm cùng thư mục rồi đổi tên đè lên file giữ chỗ;
+/// lỗi thì xóa file tạm và file giữ chỗ, nên không bao giờ để lại PNG dở dang dưới tên cuối cùng.
 fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
-    let path = unique_path(ctx.save_dir, &local_file_name(&ctx.now));
-    let tmp = path.with_extension("png.tmp");
     let png = encode_png(img)?;
+    std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
+    let path = claim_path(ctx.save_dir, &local_file_name(&ctx.now)).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("png.tmp");
     let result = std::fs::write(&tmp, &png).and_then(|_| std::fs::rename(&tmp, &path));
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&path);
         return Err(e.to_string());
     }
     Ok(path)
