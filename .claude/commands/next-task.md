@@ -22,4 +22,6 @@ Sau Task 8, Task 12, Task 18 và Task 22, dừng lại để chủ dự án th�
 
 Task 15–19 (đợt 1) theo kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md` và thiết kế `docs/superpowers/specs/2026-11-16-options-tabs-i18n-design.md`. Rà soát các task này đối chiếu thêm mục "Review Focus" của kế hoạch đó.
 
+Task 24–26 (đợt 3) theo kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md` và thiết kế `docs/superpowers/specs/2026-11-16-upload-format-design.md`; rà soát đối chiếu thêm mục "Review Focus" của kế hoạch đó. Task 25 do `specialist` rà soát. Không dừng sau Task 25 (quyết định 42).
+
 Task 20–23 (đợt 2) theo kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md` và thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md`. Rà soát các task này đối chiếu thêm mục "Review Focus" của kế hoạch đó.

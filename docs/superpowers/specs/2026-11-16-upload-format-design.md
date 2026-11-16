@@ -1,6 +1,6 @@
 # shotme đợt 3: định dạng ảnh tải lên (PNG hoặc JPEG)
 
-Ngày: 2026-11-16. Trạng thái: chờ chủ dự án duyệt.
+Ngày: 2026-11-16. Trạng thái: chủ dự án đã duyệt (2026-11-16).
 
 Tài liệu này bổ sung cho spec gốc `2026-11-16-shotme-design.md`, thiết kế đợt 1 `2026-11-16-options-tabs-i18n-design.md` và thiết kế đợt 2 `2026-11-16-capture-batch2-design.md` (không sửa ba tài liệu đó). Chỗ nào khác nhau thì tài liệu này thắng, và điểm khác được ghi vào `memory-bank/decisions.md`.
 
