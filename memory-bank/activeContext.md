@@ -6,7 +6,7 @@ Cập nhật: 2026-11-16
 
 - Giai đoạn: 5. Xây dựng.
 - Task vừa xong: Task 2 (hình học vùng chọn), đã gộp vào `main`.
-- Task kế tiếp: **Task 3, `docs/tasks/03-naming-config.md`**, nhánh `task/03-naming-config`, agent `builder`.
+- Task đang làm: **Task 3, `docs/tasks/03-naming-config.md`**, nhánh `task/03-naming-config`, agent `builder`, trạng thái `đang làm`.
 
 ## Bước kế tiếp
 
