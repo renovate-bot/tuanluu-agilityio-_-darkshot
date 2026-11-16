@@ -8,11 +8,16 @@
 
 use crate::hotkey;
 use crate::lang;
+use crate::theme::{self, ButtonKind};
+use crate::winutil::scale;
 use darkshot_core::config::{
     clamp_jpeg_quality, normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys,
     R2Config, UploadFormat, JPEG_QUALITY_MAX, JPEG_QUALITY_MIN,
 };
 use darkshot_core::i18n::{self, expiry_label, t, Lang, Msg};
+use darkshot_core::theme::{
+    Rgb, BG, DANGER, INPUT, INPUT_BORDER, LINE, SUCCESS, SURFACE, TEXT, TEXT_DISABLED, TEXT_MUTED,
+};
 use darkshot_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -20,11 +25,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    DeleteObject, FillRect, GetDC, GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC,
-    SelectObject, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW, HBRUSH, HDC, HFONT,
-    HGDIOBJ, TRANSPARENT,
+    BeginPaint, DeleteObject, EndPaint, ExcludeClipRect, FillRect, GetDC, GetTextExtentPoint32W,
+    GetWindowDC, InvalidateRect, RedrawWindow, ReleaseDC, ScreenToClient, SelectObject, DT_CENTER,
+    DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, HDC, HFONT,
+    HGDIOBJ, PAINTSTRUCT, RDW_INVALIDATE, RDW_UPDATENOW,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -32,18 +38,20 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    InitCommonControlsEx, IsAppThemed, ICC_BAR_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX,
-    NMHDR, TBM_SETLINESIZE, TBM_SETPAGESIZE, TBM_SETPOS, TBM_SETRANGE, TBS_HORZ, TCIF_TEXT,
-    TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCM_SETCURSEL, TCN_SELCHANGE,
-    TCN_SELCHANGING, TRACKBAR_CLASSW, WC_TABCONTROLW,
+    InitCommonControlsEx, EM_GETRECT, EM_SETMARGINS, ICC_BAR_CLASSES, ICC_TAB_CLASSES,
+    INITCOMMONCONTROLSEX, NMHDR, NM_CUSTOMDRAW, TBM_SETLINESIZE, TBM_SETPAGESIZE, TBM_SETPOS,
+    TBM_SETRANGE, TBS_HORZ, TCHITTESTINFO, TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURFOCUS,
+    TCM_GETCURSEL, TCM_GETITEMCOUNT, TCM_GETITEMRECT, TCM_HITTEST, TCM_INSERTITEMW, TCM_SETCURSEL,
+    TCN_SELCHANGE, TCN_SELCHANGING, TRACKBAR_CLASSW, WC_TABCONTROLW, WM_MOUSELEAVE,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, GetFocus, GetKeyState, SetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU,
-    VK_RETURN, VK_RWIN, VK_SHIFT,
+    EnableWindow, GetFocus, GetKeyState, IsWindowEnabled, SetFocus, TrackMouseEvent, TME_LEAVE,
+    TRACKMOUSEEVENT, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RETURN, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    DefSubclassProc, FileOpenDialog, IFileOpenDialog, RemoveWindowSubclass, SetWindowSubclass,
+    FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
@@ -60,6 +68,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
     WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU,
     WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetDlgCtrlID, GetWindowRect, CB_GETLBTEXT, CB_GETLBTEXTLEN, NCCALCSIZE_PARAMS,
+    SWP_FRAMECHANGED, WM_CHAR, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_ENABLE, WM_KILLFOCUS,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT, WM_PAINT,
+    WM_SETFOCUS, WM_UPDATEUISTATE, WS_CLIPCHILDREN,
 };
 
 /// Giá trị đọc từ các ô của cửa sổ.
@@ -446,6 +460,9 @@ const ID_FMT_PNG: i32 = 118;
 const ID_FMT_JPEG: i32 = 119;
 const ID_QUALITY: i32 = 140;
 const ID_QUALITY_VALUE: i32 = 141;
+/// Ghi chú chữ phụ: dòng "đã lưu khóa" dưới ô Secret và dòng "ảnh lưu vào máy luôn là PNG".
+const ID_SECRET_NOTE: i32 = 150;
+const ID_PNG_NOTE: i32 = 151;
 /// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
@@ -527,11 +544,28 @@ thread_local! {
     static ST: RefCell<Option<St>> = const { RefCell::new(None) };
     /// Các dòng không đăng ký lại được ở lượt Hủy vừa rồi; bên gọi lấy bằng `take_cancel_failures`.
     static CANCEL_FAILED: RefCell<Vec<HotkeyRole>> = const { RefCell::new(Vec::new()) };
+    /// DPI lúc mở cửa sổ (bố cục và mọi kích thước vẽ tay theo nó).
+    static DPI: Cell<u32> = const { Cell::new(96) };
+    /// Phông đậm của tab đang chọn và nút OK; tạo khi mở, xóa ở WM_NCDESTROY của cửa sổ.
+    static BOLD: Cell<Option<HFONT>> = const { Cell::new(None) };
+    /// Tab đang được trỏ chuột (-1 = không có).
+    static TAB_HOT: Cell<i32> = const { Cell::new(-1) };
+    /// Màu của dòng kết quả Kiểm tra kết nối.
+    static TEST_TONE: Cell<Tone> = const { Cell::new(Tone::Neutral) };
+}
+
+/// Sắc thái của dòng kết quả Kiểm tra kết nối.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tone {
+    Neutral,
+    Ok,
+    Fail,
 }
 
 /// Thế hệ cửa sổ: kết quả của luồng nền thuộc cửa sổ đã đóng sẽ bị bỏ.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-static TEST_RESULT: Mutex<Option<(u64, String)>> = Mutex::new(None);
+/// (thế hệ, thành công, câu báo) của lần Kiểm tra kết nối vừa xong.
+static TEST_RESULT: Mutex<Option<(u64, bool, String)>> = Mutex::new(None);
 
 fn with_st<R>(f: impl FnOnce(&mut St) -> R) -> Option<R> {
     ST.with(|s| s.borrow_mut().as_mut().map(f))
@@ -726,23 +760,13 @@ fn cycle_tab(step: usize) {
     }
 }
 
-/// Nền của vùng hiển thị dải tab: trắng khi có giao diện (visual styles), xám cổ điển khi không.
-fn body_brush() -> HBRUSH {
-    // SAFETY: hàm hệ thống không tham số; chổi màu hệ thống không phải giải phóng.
-    unsafe {
-        if IsAppThemed().as_bool() {
-            GetSysColorBrush(COLOR_WINDOW)
-        } else {
-            GetSysColorBrush(COLOR_BTNFACE)
-        }
-    }
-}
-
-/// Thủ tục cửa sổ của khung: ô con báo WM_COMMAND, WM_CTLCOLORSTATIC và WM_HSCROLL (thanh trượt) cho khung (cha trực tiếp),
-/// nên khung chuyển nguyên chúng lên cửa sổ chính. Nền khung tô bằng `body_brush`.
+/// Thủ tục cửa sổ của khung: ô con báo WM_COMMAND, WM_CTLCOLOR*, WM_NOTIFY (vẽ tự chọn) và WM_HSCROLL
+/// (thanh trượt) cho khung (cha trực tiếp), nên khung chuyển nguyên chúng lên cửa sổ chính.
+/// Nền khung là `SURFACE`.
 unsafe extern "system" fn frame_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_COMMAND | WM_CTLCOLORSTATIC | WM_HSCROLL => {
+        WM_COMMAND | WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_NOTIFY
+        | WM_HSCROLL => {
             // SAFETY: cha của khung là cửa sổ chính cùng luồng; SendMessageW gọi thẳng thủ tục của nó.
             unsafe {
                 match GetParent(hwnd) {
@@ -757,13 +781,690 @@ unsafe extern "system" fn frame_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARA
             // SAFETY: hdc do hệ thống (hoặc nút vẽ nền cha) cấp cho lần vẽ này; rc là biến cục bộ.
             unsafe {
                 let _ = GetClientRect(hwnd, &mut rc);
-                FillRect(hdc, &rc, body_brush());
+                FillRect(hdc, &rc, theme::brush(SURFACE));
             }
             LRESULT(1)
         }
         // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
         _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Vẽ tối: dải tab, viền ô nhập, hộp chọn, nhãn mờ (subclass của điều khiển gốc)
+// ---------------------------------------------------------------------------
+
+/// Mã subclass dùng chung (mỗi điều khiển chỉ có một subclass của module này).
+const SUBCLASS_ID: usize = 0xDA5;
+
+fn dpi() -> u32 {
+    DPI.with(|d| d.get())
+}
+
+fn utf16(s: &str) -> Vec<u16> {
+    s.encode_utf16().collect()
+}
+
+/// Nền dưới một điều khiển: `BG` nếu nó nằm thẳng trên cửa sổ chính, `SURFACE` nếu nằm trong khung tab.
+fn bg_under(ctrl: HWND) -> Rgb {
+    // SAFETY: chỉ đọc quan hệ cửa sổ.
+    let parent = unsafe { GetParent(ctrl) }.unwrap_or_default();
+    let main = HWND(OPEN.with(|o| o.get()) as *mut c_void);
+    if parent == main {
+        BG
+    } else {
+        SURFACE
+    }
+}
+
+/// `true` khi `edit` là ô phím của dòng đang chờ bắt phím. Không mượn được trạng thái (đang được dùng)
+/// thì coi như không.
+fn is_capturing_edit(edit: HWND) -> bool {
+    let row_now = ST
+        .with(|s| {
+            s.try_borrow()
+                .ok()
+                .and_then(|st| st.as_ref().map(|st| st.capturing))
+        })
+        .flatten();
+    match (row_now, ctl()) {
+        (Some(r), Some(c)) => c.hk_edit[row(r)] == edit,
+        _ => false,
+    }
+}
+
+/// Gắn subclass `proc` cho `hwnd`; lỗi thì điều khiển giữ kiểu vẽ gốc.
+fn subclass(
+    hwnd: HWND,
+    proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM, usize, usize) -> LRESULT,
+) {
+    // SAFETY: hwnd là điều khiển của luồng này; subclass được gỡ ở WM_NCDESTROY của chính nó.
+    unsafe {
+        let _ = SetWindowSubclass(hwnd, Some(proc), SUBCLASS_ID, 0);
+    }
+}
+
+/// Phần chung của các subclass: gỡ ở WM_NCDESTROY rồi chuyển tiếp.
+unsafe fn subclass_default(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    proc: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM, usize, usize) -> LRESULT,
+) -> LRESULT {
+    // SAFETY: gọi trong thủ tục subclass của chính hwnd, cùng tham số hệ thống đã cấp.
+    unsafe {
+        if msg == WM_NCDESTROY {
+            let _ = RemoveWindowSubclass(hwnd, Some(proc), SUBCLASS_ID);
+        }
+        DefSubclassProc(hwnd, msg, wp, lp)
+    }
+}
+
+/// Vẽ lại ngay vùng client của `hwnd` (đè lên phần điều khiển gốc vừa tự vẽ ngoài WM_PAINT).
+fn repaint(hwnd: HWND) {
+    // SAFETY: chỉ yêu cầu vẽ lại cửa sổ của luồng này.
+    unsafe {
+        let _ = RedrawWindow(Some(hwnd), None, None, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+}
+
+/// Dải tab: không có hộp quanh tab; tab chọn chữ `TEXT` đậm, gạch dưới `ACCENT` 3 DIP bo hai góc trên;
+/// tab khác chữ `TEXT_MUTED`; trỏ chuột nền `TAB_HOVER`; đường kẻ `LINE` dưới dải; phần dưới `SURFACE`.
+unsafe extern "system" fn tab_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            paint_tabs(hwnd);
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => LRESULT(1),
+        WM_MOUSEMOVE => {
+            let pt = POINT {
+                x: (lp.0 & 0xFFFF) as i16 as i32,
+                y: ((lp.0 >> 16) & 0xFFFF) as i16 as i32,
+            };
+            let mut hit = TCHITTESTINFO {
+                pt,
+                ..Default::default()
+            };
+            let mut tme = TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            // SAFETY: hit và tme là biến cục bộ sống suốt lời gọi; hwnd là dải tab của luồng này.
+            let idx = unsafe {
+                let _ = TrackMouseEvent(&mut tme);
+                SendMessageW(
+                    hwnd,
+                    TCM_HITTEST,
+                    None,
+                    Some(LPARAM(&mut hit as *mut TCHITTESTINFO as isize)),
+                )
+                .0 as i32
+            };
+            if TAB_HOT.with(|h| h.replace(idx)) != idx {
+                // SAFETY: vẽ lại dải tab của luồng này.
+                unsafe {
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                }
+            }
+            // SAFETY: chuyển tiếp trong thủ tục subclass.
+            unsafe { subclass_default(hwnd, msg, wp, lp, tab_proc) }
+        }
+        WM_MOUSELEAVE => {
+            if TAB_HOT.with(|h| h.replace(-1)) != -1 {
+                // SAFETY: vẽ lại dải tab của luồng này.
+                unsafe {
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                }
+            }
+            // SAFETY: chuyển tiếp trong thủ tục subclass.
+            unsafe { subclass_default(hwnd, msg, wp, lp, tab_proc) }
+        }
+        WM_SETFOCUS | WM_KILLFOCUS | WM_UPDATEUISTATE | WM_ENABLE => {
+            // SAFETY: chuyển tiếp rồi vẽ lại (khung tiêu điểm theo tiêu điểm và gợi ý bàn phím).
+            unsafe {
+                let r = subclass_default(hwnd, msg, wp, lp, tab_proc);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                r
+            }
+        }
+        // SAFETY: chuyển tiếp trong thủ tục subclass.
+        _ => unsafe { subclass_default(hwnd, msg, wp, lp, tab_proc) },
+    }
+}
+
+/// Đỉnh của khung tab đầu tiên, theo tọa độ client của dải tab `tabs`.
+fn frame_top_in(tabs: HWND) -> Option<i32> {
+    let f = ctl()?.frames[0];
+    let mut wr = RECT::default();
+    let mut pt = POINT::default();
+    // SAFETY: chỉ đọc vị trí cửa sổ; POINT và RECT là biến cục bộ.
+    unsafe {
+        GetWindowRect(f, &mut wr).ok()?;
+        pt.y = wr.top;
+        ScreenToClient(tabs, &mut pt).ok().ok()?;
+    }
+    Some(pt.y)
+}
+
+fn paint_tabs(hwnd: HWND) {
+    let dpi = dpi();
+    let mut ps = PAINTSTRUCT::default();
+    let mut rc = RECT::default();
+    let mut first = RECT::default();
+    // SAFETY: BeginPaint/EndPaint cân bằng trong hàm này; RECT là biến cục bộ.
+    let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+    if hdc.is_invalid() {
+        return;
+    }
+    // SAFETY: hỏi dải tab của luồng này; RECT là biến cục bộ.
+    let (count, cur, focus_i, has_focus) = unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+        SendMessageW(
+            hwnd,
+            TCM_GETITEMRECT,
+            Some(WPARAM(0)),
+            Some(LPARAM(&mut first as *mut RECT as isize)),
+        );
+        (
+            SendMessageW(hwnd, TCM_GETITEMCOUNT, None, None).0,
+            SendMessageW(hwnd, TCM_GETCURSEL, None, None).0,
+            SendMessageW(hwnd, TCM_GETCURFOCUS, None, None).0,
+            GetFocus() == hwnd,
+        )
+    };
+    // Khung tab (cửa sổ anh em nằm trên dải tab) phủ từ đỉnh của nó trở xuống: đường kẻ và gạch dưới phải
+    // nằm ngay trên đỉnh đó.
+    let item_bottom = if first.bottom > rc.top {
+        first.bottom
+    } else {
+        rc.top + scale(28, dpi)
+    };
+    let strip_bottom = frame_top_in(hwnd)
+        .map_or(item_bottom, |t| item_bottom.min(t - 1))
+        .max(rc.top);
+    let cues = theme::ui_cues(hwnd);
+    let font = theme::control_font(hwnd);
+    let bold = BOLD.with(|b| b.get()).or(font);
+    let hot = TAB_HOT.with(|h| h.get()) as isize;
+    theme::buffered(hdc, &rc, |dc| {
+        theme::fill(
+            dc,
+            &RECT {
+                bottom: strip_bottom,
+                ..rc
+            },
+            BG,
+        );
+        theme::fill(
+            dc,
+            &RECT {
+                top: strip_bottom,
+                bottom: strip_bottom + 1,
+                ..rc
+            },
+            LINE,
+        );
+        theme::fill(
+            dc,
+            &RECT {
+                top: strip_bottom + 1,
+                ..rc
+            },
+            SURFACE,
+        );
+        for (i, tab) in Tab::ALL.iter().enumerate().take(count.max(0) as usize) {
+            let mut r = RECT::default();
+            // SAFETY: r là biến cục bộ, dải tab chỉ ghi vào nó.
+            unsafe {
+                SendMessageW(
+                    hwnd,
+                    TCM_GETITEMRECT,
+                    Some(WPARAM(i)),
+                    Some(LPARAM(&mut r as *mut RECT as isize)),
+                );
+            }
+            // Ô của tab dừng ở đường kẻ; chữ nằm giữa phần trên gạch dưới.
+            r.bottom = strip_bottom;
+            let text_rc = RECT {
+                bottom: strip_bottom - scale(3, dpi),
+                ..r
+            };
+            let selected = i as isize == cur;
+            let c = theme::tab_colors(selected, i as isize == hot);
+            if i as isize == hot {
+                theme::round_top_rect(dc, &r, scale(6, dpi), c.fill);
+            }
+            theme::draw_text(
+                dc,
+                &utf16(lang::tr(tab.label())),
+                &text_rc,
+                c.text,
+                if selected { bold } else { font },
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | theme::prefix_flag(cues.1),
+            );
+            if selected {
+                let inset = scale(10, dpi);
+                let ul = RECT {
+                    left: r.left + inset,
+                    right: r.right - inset,
+                    top: strip_bottom + 1 - scale(3, dpi),
+                    bottom: strip_bottom + 1,
+                };
+                theme::round_top_rect(dc, &ul, scale(3, dpi), c.border);
+            }
+            if has_focus && cues.0 && i as isize == focus_i {
+                let k = scale(2, dpi);
+                let fr = RECT {
+                    left: r.left + k,
+                    top: r.top + k,
+                    right: r.right - k,
+                    bottom: strip_bottom - scale(3, dpi),
+                };
+                theme::focus_frame(dc, &fr, dpi);
+            }
+        }
+    });
+    // SAFETY: kết thúc lần vẽ đã mở ở trên.
+    unsafe {
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+/// Độ dày (px) phần viền tự vẽ quanh ô nhập: đủ cho viền 1 px và gạch dưới 2 DIP.
+fn edit_inset() -> i32 {
+    scale(2, dpi())
+}
+
+/// Ô nhập (kể cả ô bí mật và ô phím): viền tự vẽ ở vùng ngoài client (nền `INPUT`, viền `INPUT_BORDER`
+/// bo 4 DIP; có tiêu điểm hoặc đang chờ bắt phím thì gạch dưới `ACCENT` 2 DIP). Ô bị vô hiệu tự vẽ chữ
+/// `TEXT_DISABLED` (hệ thống luôn dùng màu xám riêng cho ô nhập bị vô hiệu).
+unsafe extern "system" fn edit_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match msg {
+        WM_NCCALCSIZE => {
+            let k = edit_inset();
+            let deflate = |r: &mut RECT| {
+                r.left += k;
+                r.top += k;
+                r.right = (r.right - k).max(r.left);
+                r.bottom = (r.bottom - k).max(r.top);
+            };
+            // SAFETY: với WM_NCCALCSIZE, lp trỏ tới NCCALCSIZE_PARAMS (wp khác 0) hoặc RECT (wp = 0).
+            unsafe {
+                if wp.0 != 0 {
+                    if let Some(p) = (lp.0 as *mut NCCALCSIZE_PARAMS).as_mut() {
+                        deflate(&mut p.rgrc[0]);
+                    }
+                } else if let Some(r) = (lp.0 as *mut RECT).as_mut() {
+                    deflate(r);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_NCPAINT => {
+            paint_edit_frame(hwnd);
+            LRESULT(0)
+        }
+        // SAFETY: chỉ đọc trạng thái bật/tắt của ô.
+        WM_PAINT if !unsafe { IsWindowEnabled(hwnd) }.as_bool() => {
+            paint_disabled_edit(hwnd);
+            LRESULT(0)
+        }
+        WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE => {
+            // SAFETY: chuyển tiếp rồi vẽ lại viền theo tiêu điểm mới.
+            let r = unsafe { subclass_default(hwnd, msg, wp, lp, edit_proc) };
+            paint_edit_frame(hwnd);
+            r
+        }
+        // SAFETY: chuyển tiếp trong thủ tục subclass.
+        _ => unsafe { subclass_default(hwnd, msg, wp, lp, edit_proc) },
+    }
+}
+
+/// Vẽ viền tự vẽ của ô nhập `hwnd` (chỉ vùng ngoài client).
+fn paint_edit_frame(hwnd: HWND) {
+    let dpi = dpi();
+    let k = edit_inset();
+    let mut wr = RECT::default();
+    // SAFETY: DC cửa sổ lấy và trả trong khối này; chỉ vẽ ngoài vùng client (đã loại khỏi vùng cắt).
+    unsafe {
+        if GetWindowRect(hwnd, &mut wr).is_err() {
+            return;
+        }
+        let (w, h) = (wr.right - wr.left, wr.bottom - wr.top);
+        let dc = GetWindowDC(Some(hwnd));
+        if dc.is_invalid() {
+            return;
+        }
+        ExcludeClipRect(dc, k, k, w - k, h - k);
+        let enabled = IsWindowEnabled(hwnd).as_bool();
+        let focused = GetFocus() == hwnd || is_capturing_edit(hwnd);
+        let (border, thick) = theme::edit_border(focused, enabled);
+        let all = RECT {
+            left: 0,
+            top: 0,
+            right: w,
+            bottom: h,
+        };
+        theme::fill(dc, &all, SURFACE);
+        theme::round_rect(dc, &all, scale(theme::RADIUS, dpi), INPUT, INPUT_BORDER, 1);
+        if thick > 1 {
+            let ul = RECT {
+                left: scale(2, dpi),
+                top: h - scale(thick as i32, dpi),
+                right: w - scale(2, dpi),
+                bottom: h,
+            };
+            theme::fill(dc, &ul, border);
+        }
+        ReleaseDC(Some(hwnd), dc);
+    }
+}
+
+/// Vùng client của ô nhập bị vô hiệu: nền `INPUT`, chữ `TEXT_DISABLED` ở đúng vùng chữ của ô.
+fn paint_disabled_edit(hwnd: HWND) {
+    let mut ps = PAINTSTRUCT::default();
+    let mut rc = RECT::default();
+    let mut text_rc = RECT::default();
+    // SAFETY: BeginPaint/EndPaint cân bằng; RECT là biến cục bộ, ô chỉ ghi vào chúng.
+    unsafe {
+        let hdc = BeginPaint(hwnd, &mut ps);
+        if hdc.is_invalid() {
+            return;
+        }
+        let _ = GetClientRect(hwnd, &mut rc);
+        SendMessageW(
+            hwnd,
+            EM_GETRECT,
+            None,
+            Some(LPARAM(&mut text_rc as *mut RECT as isize)),
+        );
+        let text = theme::window_text(hwnd);
+        let font = theme::control_font(hwnd);
+        theme::buffered(hdc, &rc, |dc| {
+            theme::fill(dc, &rc, INPUT);
+            theme::draw_text(
+                dc,
+                &text,
+                &text_rc,
+                TEXT_DISABLED,
+                font,
+                DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+            );
+        });
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+/// Hộp chọn: mặt tự vẽ (nền `INPUT`, viền như ô nhập, chữ mục đang chọn, mũi tên chữ phụ). Hộp gốc có
+/// lúc tự vẽ mục đang chọn ngoài WM_PAINT (đổi lựa chọn, tiêu điểm), nên sau các thông điệp đó vẽ lại ngay.
+unsafe extern "system" fn combo_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            paint_combo(hwnd);
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => LRESULT(1),
+        WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE | WM_KEYDOWN | WM_CHAR | WM_LBUTTONDOWN
+        | WM_LBUTTONUP | WM_MOUSEWHEEL | WM_COMMAND | WM_UPDATEUISTATE | CB_SETCURSEL
+        | CB_SHOWDROPDOWN => {
+            // SAFETY: chuyển tiếp rồi vẽ lại mặt hộp.
+            let r = unsafe { subclass_default(hwnd, msg, wp, lp, combo_proc) };
+            repaint(hwnd);
+            r
+        }
+        // SAFETY: chuyển tiếp trong thủ tục subclass.
+        _ => unsafe { subclass_default(hwnd, msg, wp, lp, combo_proc) },
+    }
+}
+
+fn paint_combo(hwnd: HWND) {
+    let dpi = dpi();
+    let mut ps = PAINTSTRUCT::default();
+    let mut rc = RECT::default();
+    // SAFETY: BeginPaint/EndPaint cân bằng; chỉ hỏi trạng thái và chữ của hộp chọn; bộ đệm đủ chỗ.
+    unsafe {
+        let hdc = BeginPaint(hwnd, &mut ps);
+        if hdc.is_invalid() {
+            return;
+        }
+        let _ = GetClientRect(hwnd, &mut rc);
+        let enabled = IsWindowEnabled(hwnd).as_bool();
+        let dropped = SendMessageW(hwnd, CB_GETDROPPEDSTATE, None, None).0 != 0;
+        let focused = GetFocus() == hwnd || dropped;
+        let sel = SendMessageW(hwnd, CB_GETCURSEL, None, None).0;
+        let mut text = Vec::new();
+        if sel >= 0 {
+            let n = SendMessageW(hwnd, CB_GETLBTEXTLEN, Some(WPARAM(sel as usize)), None).0;
+            if n > 0 {
+                let mut buf = vec![0u16; n as usize + 1];
+                let got = SendMessageW(
+                    hwnd,
+                    CB_GETLBTEXT,
+                    Some(WPARAM(sel as usize)),
+                    Some(LPARAM(buf.as_mut_ptr() as isize)),
+                )
+                .0;
+                buf.truncate(got.clamp(0, n) as usize);
+                text = buf;
+            }
+        }
+        let font = theme::control_font(hwnd);
+        theme::buffered(hdc, &rc, |dc| {
+            theme::fill(dc, &rc, bg_under(hwnd));
+            theme::round_rect(dc, &rc, scale(theme::RADIUS, dpi), INPUT, INPUT_BORDER, 1);
+            let (border, thick) = theme::edit_border(focused, enabled);
+            if thick > 1 {
+                let ul = RECT {
+                    left: rc.left + scale(2, dpi),
+                    top: rc.bottom - scale(thick as i32, dpi),
+                    right: rc.right - scale(2, dpi),
+                    bottom: rc.bottom,
+                };
+                theme::fill(dc, &ul, border);
+            }
+            let tr = RECT {
+                left: rc.left + scale(8, dpi),
+                right: rc.right - scale(28, dpi),
+                ..rc
+            };
+            let fg = if enabled { TEXT } else { TEXT_DISABLED };
+            theme::draw_text(
+                dc,
+                &text,
+                &tr,
+                fg,
+                font,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,
+            );
+            let (cx, cy, a) = (
+                rc.right - scale(14, dpi),
+                (rc.top + rc.bottom) / 2,
+                scale(4, dpi),
+            );
+            theme::polyline(
+                dc,
+                &[
+                    POINT {
+                        x: cx - a,
+                        y: cy - a / 2,
+                    },
+                    POINT {
+                        x: cx,
+                        y: cy - a / 2 + a,
+                    },
+                    POINT {
+                        x: cx + a + 1,
+                        y: cy - a / 2 - 1,
+                    },
+                ],
+                if enabled { TEXT_MUTED } else { TEXT_DISABLED },
+                (scale(3, dpi) / 2).max(1),
+            );
+        });
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+/// Nhãn có thể bị vô hiệu (nhãn và số chất lượng JPEG): tự vẽ để chữ mờ là `TEXT_DISABLED` phẳng thay
+/// cho chữ khắc nổi của hệ thống.
+unsafe extern "system" fn static_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            let mut ps = PAINTSTRUCT::default();
+            let mut rc = RECT::default();
+            // SAFETY: BeginPaint/EndPaint cân bằng; chỉ đọc chữ, phông và trạng thái của nhãn.
+            unsafe {
+                let hdc = BeginPaint(hwnd, &mut ps);
+                if !hdc.is_invalid() {
+                    let _ = GetClientRect(hwnd, &mut rc);
+                    let fg = if IsWindowEnabled(hwnd).as_bool() {
+                        TEXT
+                    } else {
+                        TEXT_DISABLED
+                    };
+                    let text = theme::window_text(hwnd);
+                    let font = theme::control_font(hwnd);
+                    let bg = bg_under(hwnd);
+                    let cues = theme::ui_cues(hwnd);
+                    theme::buffered(hdc, &rc, |dc| {
+                        theme::fill(dc, &rc, bg);
+                        theme::draw_text(
+                            dc,
+                            &text,
+                            &rc,
+                            fg,
+                            font,
+                            DT_LEFT | DT_WORDBREAK | theme::prefix_flag(cues.1),
+                        );
+                    });
+                    let _ = EndPaint(hwnd, &ps);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => LRESULT(1),
+        WM_ENABLE => {
+            // SAFETY: chuyển tiếp rồi vẽ lại theo trạng thái mới.
+            unsafe {
+                let r = subclass_default(hwnd, msg, wp, lp, static_proc);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                r
+            }
+        }
+        // SAFETY: chuyển tiếp trong thủ tục subclass.
+        _ => unsafe { subclass_default(hwnd, msg, wp, lp, static_proc) },
+    }
+}
+
+/// Gắn phần vẽ tối cho các điều khiển của cửa sổ vừa dựng.
+fn apply_dark_controls(c: &Ctl) {
+    let dpi = dpi();
+    subclass(c.tabs, tab_proc);
+    let mut edits = vec![c.account, c.keyid, c.secret, c.bucket, c.url, c.dir];
+    edits.extend_from_slice(&c.hk_edit);
+    let margin = scale(6, dpi) as usize;
+    for e in edits {
+        subclass(e, edit_proc);
+        // SAFETY: đặt lề chữ và tính lại vùng ngoài client của ô nhập thuộc luồng này.
+        unsafe {
+            SendMessageW(
+                e,
+                EM_SETMARGINS,
+                Some(WPARAM(0x1 | 0x2)),
+                Some(LPARAM((margin | (margin << 16)) as isize)),
+            );
+            let _ = SetWindowPos(
+                e,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    for combo in [c.language, c.expiry] {
+        // Danh sách thả xuống tối (thanh cuộn, nền); mặt hộp tự vẽ.
+        theme::set_dark_control_theme(combo, theme::DarkClass::Cfd);
+        subclass(combo, combo_proc);
+    }
+    for s in [c.quality_label, c.quality_value] {
+        subclass(s, static_proc);
+    }
+}
+
+/// Màu chữ và nền của điều khiển `from` khi nó hỏi `WM_CTLCOLORSTATIC`.
+fn static_colors(from: HWND) -> (Rgb, Rgb) {
+    let Some(c) = ctl() else {
+        return (TEXT, bg_under(from));
+    };
+    if from == c.err {
+        return (DANGER, BG);
+    }
+    if from == c.test_res {
+        let fg = match TEST_TONE.with(|t| t.get()) {
+            Tone::Neutral => TEXT,
+            Tone::Ok => SUCCESS,
+            Tone::Fail => DANGER,
+        };
+        return (fg, SURFACE);
+    }
+    if c.hk_edit.contains(&from) {
+        // SAFETY: chỉ đọc trạng thái bật/tắt.
+        let fg = if !unsafe { IsWindowEnabled(from) }.as_bool() {
+            TEXT_DISABLED
+        } else if is_capturing_edit(from) {
+            TEXT_MUTED
+        } else {
+            TEXT
+        };
+        return (fg, INPUT);
+    }
+    // SAFETY: chỉ đọc mã điều khiển.
+    let id = unsafe { GetDlgCtrlID(from) };
+    if id == ID_SECRET_NOTE || id == ID_PNG_NOTE {
+        return (TEXT_MUTED, SURFACE);
+    }
+    (TEXT, bg_under(from))
+}
+
+/// Đặt câu kết quả Kiểm tra kết nối cùng sắc thái màu của nó.
+fn set_test_result(c: &Ctl, text: &str, tone: Tone) {
+    TEST_TONE.with(|t| t.set(tone));
+    set_text(c.test_res, text);
 }
 
 fn show_error(msg: &str) {
@@ -776,6 +1477,8 @@ fn show_error(msg: &str) {
 fn refresh_hotkey_text(r: HotkeyRole) {
     if let (Some(c), Some(hk)) = (ctl(), with_st(|s| s.hotkeys.get(r).key)) {
         set_text(c.hk_edit[row(r)], &hotkey::describe(&hk));
+        // Gạch dưới của ô đang chờ bắt phím tắt đi khi thoát chế độ bắt.
+        paint_edit_frame(c.hk_edit[row(r)]);
     }
 }
 
@@ -939,6 +1642,8 @@ fn on_change_hotkey(r: HotkeyRole) {
     .is_some();
     if started {
         set_text(c.hk_edit[row(r)], lang::tr(Msg::HotkeyCapturePrompt));
+        // Ô đang chờ: gạch dưới ACCENT dù tiêu điểm ở nút "Đổi…".
+        paint_edit_frame(c.hk_edit[row(r)]);
         show_error("");
     }
 }
@@ -1074,7 +1779,7 @@ fn on_test(hwnd: HWND) {
     };
     show_error("");
     if !cfg.r2.is_complete() {
-        set_text(c.test_res, lang::tr(Msg::TestFillAll));
+        set_test_result(&c, lang::tr(Msg::TestFillAll), Tone::Fail);
         return;
     }
     if TEST_RUNNING.with(|r| r.get()) {
@@ -1087,14 +1792,14 @@ fn on_test(hwnd: HWND) {
     let spawned = std::thread::Builder::new()
         .name("darkshot-test-connection".into())
         .spawn(move || {
-            let msg = match R2Uploader::new(&r2).test_connection() {
-                Ok(()) => lang::tr(Msg::TestSuccess).to_string(),
-                Err(e) => e.message(lang::current()),
+            let (ok, msg) = match R2Uploader::new(&r2).test_connection() {
+                Ok(()) => (true, lang::tr(Msg::TestSuccess).to_string()),
+                Err(e) => (false, e.message(lang::current())),
             };
             if let Ok(mut slot) = TEST_RESULT.lock() {
                 // Cửa sổ đã đóng (thế hệ đã đổi): bỏ kết quả, không đè lên kết quả của cửa sổ mới.
                 if generation == GENERATION.load(Ordering::SeqCst) {
-                    *slot = Some((generation, msg));
+                    *slot = Some((generation, ok, msg));
                 }
             }
             // SAFETY: nếu cửa sổ đã đóng thì PostMessageW trả lỗi và ta bỏ qua; kết quả nằm trong mutex, không có con trỏ treo.
@@ -1108,7 +1813,7 @@ fn on_test(hwnd: HWND) {
             }
         });
     if spawned.is_err() {
-        set_text(c.test_res, lang::tr(Msg::TestThreadFailed));
+        set_test_result(&c, lang::tr(Msg::TestThreadFailed), Tone::Fail);
         return;
     }
     TEST_RUNNING.with(|r| r.set(true));
@@ -1120,7 +1825,7 @@ fn on_test(hwnd: HWND) {
         let _ = EnableWindow(c.test_btn, false);
         SetTimer(Some(hwnd), TEST_TIMER_ID, TEST_FAILSAFE_MS, None);
     }
-    set_text(c.test_res, lang::tr(Msg::TestRunning));
+    set_test_result(&c, lang::tr(Msg::TestRunning), Tone::Neutral);
 }
 
 /// Bật lại nút "Kiểm tra kết nối" và hủy bộ hẹn giờ dự phòng.
@@ -1140,20 +1845,20 @@ fn on_test_timeout(hwnd: HWND) {
     }
     // Bỏ kết quả muộn của luồng nền.
     GENERATION.fetch_add(1, Ordering::SeqCst);
-    set_text(c.test_res, lang::tr(Msg::TestTimeout));
+    set_test_result(&c, lang::tr(Msg::TestTimeout), Tone::Fail);
     test_finished(hwnd, &c);
 }
 
 fn on_test_done(hwnd: HWND) {
     let Some(c) = ctl() else { return };
     let taken = TEST_RESULT.lock().ok().and_then(|mut s| s.take());
-    let Some((generation, msg)) = taken else {
+    let Some((generation, ok, msg)) = taken else {
         return;
     };
     if generation != GENERATION.load(Ordering::SeqCst) {
         return;
     }
-    set_text(c.test_res, &msg);
+    set_test_result(&c, &msg, if ok { Tone::Ok } else { Tone::Fail });
     test_finished(hwnd, &c);
 }
 
@@ -1197,8 +1902,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
         WM_NOTIFY => {
-            // Thông báo của dải tab (con trực tiếp của cửa sổ này).
             let hdr = lp.0 as *const NMHDR;
+            // SAFETY: với WM_NOTIFY, lParam trỏ tới NMHDR hợp lệ suốt lời gọi.
+            if unsafe { hdr.as_ref() }.is_some_and(|h| h.code == NM_CUSTOMDRAW) {
+                if let Some(r) = custom_draw(lp) {
+                    return r;
+                }
+            }
+            // Thông báo của dải tab (con trực tiếp của cửa sổ này).
             if let (Some(c), false) = (ctl(), hdr.is_null()) {
                 // SAFETY: với WM_NOTIFY, lParam trỏ tới NMHDR hợp lệ suốt lời gọi.
                 let (from, code) = unsafe { ((*hdr).hwndFrom, (*hdr).code) };
@@ -1220,31 +1931,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
         WM_CTLCOLORSTATIC => {
-            let from = HWND(lp.0 as *mut c_void);
-            let hdc = HDC(wp.0 as *mut c_void);
-            if let Some(c) = ctl() {
-                if from == c.err {
-                    // SAFETY: hdc do hệ thống cấp cho lần vẽ này; nền lấy từ màu hệ thống.
-                    unsafe {
-                        SetTextColor(hdc, windows::Win32::Foundation::COLORREF(0x0000_00B4));
-                        SetBkMode(hdc, TRANSPARENT);
-                        let b: HBRUSH = GetSysColorBrush(COLOR_BTNFACE);
-                        return LRESULT(b.0 as isize);
-                    }
-                }
-                // Nhãn và ô tích trong khung (do khung chuyển lên): nền trùng nền dải tab.
-                // Ô chỉ đọc của phím tắt giữ nền mặc định để không trông như ô gõ được.
-                // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
-                let in_frame = !c.hk_edit.contains(&from)
-                    && c.frames
-                        .iter()
-                        .any(|f| unsafe { IsChild(*f, from) }.as_bool());
-                if in_frame {
-                    // SAFETY: hdc do hệ thống cấp cho lần vẽ này; chổi màu hệ thống không phải giải phóng.
-                    unsafe {
-                        SetBkMode(hdc, TRANSPARENT);
-                    }
-                    return LRESULT(body_brush().0 as isize);
+            let (fg, bg) = static_colors(HWND(lp.0 as *mut c_void));
+            theme::ctl_color(HDC(wp.0 as *mut c_void), fg, bg)
+        }
+        // Ô nhập sửa được và danh sách thả xuống của hộp chọn: chữ chính trên nền ô nhập.
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            theme::ctl_color(HDC(wp.0 as *mut c_void), TEXT, INPUT)
+        }
+        WM_NCDESTROY => {
+            // Mọi điều khiển đã bị hủy: xóa phông đậm của tab chọn và nút OK.
+            if let Some(f) = BOLD.with(|b| b.take()) {
+                // SAFETY: phông do CreateFontIndirectW tạo, không còn điều khiển nào dùng.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(f.0));
                 }
             }
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
@@ -1253,6 +1952,32 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
         _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
     }
+}
+
+/// `NM_CUSTOMDRAW` của nút bấm, ô tích, nút chọn (cửa sổ chính hoặc khung chuyển lên) và thanh trượt.
+fn custom_draw(lp: LPARAM) -> Option<LRESULT> {
+    // SAFETY: bên gọi chỉ chuyển lp của WM_NOTIFY mang NM_CUSTOMDRAW.
+    let cd = unsafe { theme::nmcd_of(lp) }?;
+    let from = cd.hdr.hwndFrom;
+    let id = cd.hdr.idFrom as i32;
+    if id == ID_QUALITY {
+        return Some(theme::custom_draw_trackbar(cd, SURFACE, dpi()));
+    }
+    if !get_class_is_button(from) {
+        return None;
+    }
+    let kind = if id == ID_OK {
+        ButtonKind::Primary
+    } else {
+        ButtonKind::Normal
+    };
+    Some(theme::custom_draw_button(
+        cd,
+        kind,
+        bg_under(from),
+        dpi(),
+        BOLD.with(|b| b.get()),
+    ))
 }
 
 struct Builder {
@@ -1381,7 +2106,7 @@ impl Builder {
                 WS_EX_CONTROLPARENT,
                 FRAME_CLASS,
                 PCWSTR::null(),
-                WS_CHILD | WS_DISABLED,
+                WS_CHILD | WS_DISABLED | WS_CLIPCHILDREN,
                 0,
                 0,
                 0,
@@ -1626,7 +2351,13 @@ fn build_format(b: &mut Builder) -> FormatCtl {
         ID_QUALITY_VALUE,
     );
     y += 40;
-    b.label(lang::tr(Msg::NoteSavedAlwaysPng), LX, y, w, 20);
+    b.make(
+        w!("STATIC"),
+        lang::tr(Msg::NoteSavedAlwaysPng),
+        WINDOW_STYLE(0),
+        (LX, y, w, 20),
+        ID_PNG_NOTE,
+    );
     y += 28;
     FormatCtl {
         png,
@@ -1672,7 +2403,13 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
     } else {
         lang::tr(Msg::SecretSaved)
     };
-    b.label(hint, EX, y - 2, ew, 18);
+    b.make(
+        w!("STATIC"),
+        hint,
+        WINDOW_STYLE(0),
+        (EX, y - 2, ew, 18),
+        ID_SECRET_NOTE,
+    );
     y += 20;
     let bucket = row_edit(
         b,
@@ -2003,7 +2740,7 @@ pub fn show(
             lpfnWndProc: Some(wndproc),
             hInstance: hinst.into(),
             lpszClassName: class,
-            hbrBackground: GetSysColorBrush(COLOR_BTNFACE),
+            hbrBackground: theme::brush(BG),
             ..Default::default()
         };
         // Đăng ký lại lần hai báo lỗi vô hại.
@@ -2026,7 +2763,7 @@ pub fn show(
             WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             class,
             &title,
-            WS_CAPTION | WS_SYSMENU,
+            WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             100,
@@ -2049,6 +2786,11 @@ pub fn show(
     // SAFETY: hwnd vừa tạo.
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let font = crate::winutil::system_font(dpi);
+    DPI.with(|d| d.set(dpi));
+    // Xóa ở WM_NCDESTROY của cửa sổ, kể cả khi dựng điều khiển lỗi.
+    BOLD.with(|b| b.set(crate::winutil::system_font_styled(dpi, 100, true)));
+    TAB_HOT.with(|h| h.set(-1));
+    TEST_TONE.with(|t| t.set(Tone::Neutral));
     let mut b = Builder {
         parent: hwnd,
         dpi: dpi as i32,
@@ -2068,6 +2810,7 @@ pub fn show(
     };
     CTL.with(|x| x.set(Some(c)));
     OPEN.with(|o| o.set(hwnd.0 as isize));
+    apply_dark_controls(&c);
     ST.with(|s| {
         *s.borrow_mut() = Some(St {
             current: current.clone(),
@@ -2179,6 +2922,8 @@ pub fn show(
             dpi,
         );
         crate::winutil::center_on_cursor_monitor(hwnd, rc.right - rc.left, rc.bottom - rc.top);
+        // Thanh tiêu đề tối trước khi hiện, để không nhá trắng.
+        theme::apply_dark_title_bar(hwnd);
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
         let _ = SetFocus(Some(first_ctl(&c, first_tab)));
@@ -2918,13 +3663,27 @@ mod tests {
         }
     }
 
-    /// Chờ cửa sổ Tùy chọn hiện (tối đa 5 s); trả HWND dưới dạng số để gửi qua luồng.
+    /// Chờ cửa sổ Tùy chọn hiện (tối đa 5 s); trả HWND dưới dạng số để gửi qua luồng. Cửa sổ chỉ hiện
+    /// sau khi đã dựng xong mọi điều khiển, nên chờ cờ hiện chứ không chỉ chờ cửa sổ có mặt.
     fn wait_settings_window() -> isize {
-        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        use windows::Win32::System::Threading::GetCurrentProcessId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            FindWindowExW, GetWindowThreadProcessId, IsWindowVisible,
+        };
         for _ in 0..100 {
-            // SAFETY: chỉ tìm cửa sổ theo tên lớp.
-            if let Ok(h) = unsafe { FindWindowW(w!("darkshot-settings"), None) } {
-                return h.0 as isize;
+            // Chỉ nhận cửa sổ của tiến trình kiểm thử, không bao giờ đụng cửa sổ Tùy chọn của darkshot thật.
+            let mut prev: Option<HWND> = None;
+            // SAFETY: chỉ duyệt cửa sổ cấp cao theo tên lớp, đọc mã tiến trình và cờ hiện.
+            while let Ok(h) = unsafe { FindWindowExW(None, prev, w!("darkshot-settings"), None) } {
+                let mut pid = 0u32;
+                unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+                if pid == unsafe { GetCurrentProcessId() }
+                    && unsafe { IsWindowVisible(h) }.as_bool()
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    return h.0 as isize;
+                }
+                prev = Some(h);
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }

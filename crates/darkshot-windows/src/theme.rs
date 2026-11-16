@@ -1,16 +1,35 @@
 //! Giao diện tối dùng chung: thanh tiêu đề, menu, điều khiển chuẩn, chổi và màu vẽ.
 
-use darkshot_core::theme::Rgb;
+use crate::winutil::scale;
+use darkshot_core::theme::{
+    Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED, BG, BUTTON,
+    BUTTON_BORDER, BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT_BORDER, LINE, SURFACE,
+    TAB_HOVER, TEXT, TEXT_DISABLED, TEXT_MUTED, TRACK, WHITE,
+};
 use std::ffi::c_void;
 use std::sync::Mutex;
 use windows::core::{w, PCSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LRESULT};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, SetBkColor, SetBkMode, SetTextColor, HBRUSH, HDC, OPAQUE,
+    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, CreateSolidBrush, DeleteDC,
+    DeleteObject, DrawTextW, Ellipse, FillRect, FrameRect, IntersectClipRect, Polyline, RestoreDC,
+    RoundRect, SaveDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, SetWindowOrgEx,
+    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_HIDEPREFIX, DT_LEFT,
+    DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC, HFONT, HGDIOBJ, OPAQUE, PS_INSIDEFRAME, PS_SOLID,
+    SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
-use windows::Win32::UI::Controls::SetWindowTheme;
+use windows::Win32::UI::Controls::{
+    SetWindowTheme, BST_CHECKED, BST_HOT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_SKIPDEFAULT,
+    NMCUSTOMDRAW, TBM_GETCHANNELRECT, TBM_GETTHUMBRECT,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, IsWindowEnabled};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetClientRect, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, SendMessageW,
+    BM_GETSTATE, BST_PUSHED, GWL_STYLE, UISF_HIDEACCEL, UISF_HIDEFOCUS, WM_GETFONT,
+    WM_QUERYUISTATE,
+};
 
 /// Thanh tiêu đề tối. Thuộc tính 20 (Windows 10 20H1 trở lên, 11), lỗi thì thử 19 (bản cũ hơn); không có thì bỏ qua.
 pub fn apply_dark_title_bar(hwnd: HWND) {
@@ -59,7 +78,6 @@ pub fn enable_dark_menus() {
 }
 
 #[derive(Clone, Copy)]
-#[allow(dead_code)] // Cfd do Task 30 dùng cho hộp chọn.
 pub enum DarkClass {
     /// `DarkMode_Explorer`: nút, ô chữ, thanh cuộn.
     Explorer,
@@ -124,34 +142,102 @@ pub struct Colors {
 
 /// Màu nút bấm theo loại và trạng thái.
 pub fn button_colors(kind: ButtonKind, s: ControlState) -> Colors {
-    let _ = (kind, s);
-    todo!()
+    if !s.enabled {
+        return Colors {
+            fill: BUTTON,
+            border: BUTTON_BORDER,
+            text: TEXT_DISABLED,
+        };
+    }
+    match kind {
+        ButtonKind::Normal => Colors {
+            fill: if s.pressed {
+                BUTTON_PRESSED
+            } else if s.hot {
+                BUTTON_HOVER
+            } else {
+                BUTTON
+            },
+            border: BUTTON_BORDER,
+            text: TEXT,
+        },
+        ButtonKind::Primary => {
+            let fill = if s.pressed {
+                ACCENT_BUTTON_PRESSED
+            } else if s.hot {
+                ACCENT_BUTTON_HOVER
+            } else {
+                ACCENT_BUTTON
+            };
+            Colors {
+                fill,
+                border: fill,
+                text: WHITE,
+            }
+        }
+    }
 }
 
 /// Hộp ô tích: tắt viền `CHECK_BORDER`, bật nền và viền `ACCENT_BUTTON`; chữ (nằm trên nền khung) `TEXT`
 /// hoặc `TEXT_DISABLED`.
 pub fn check_colors(s: ControlState) -> Colors {
-    let _ = s;
-    todo!()
+    let text = if s.enabled { TEXT } else { TEXT_DISABLED };
+    match (s.checked, s.enabled) {
+        (true, true) => Colors {
+            fill: ACCENT_BUTTON,
+            border: ACCENT_BUTTON,
+            text,
+        },
+        (true, false) => Colors {
+            fill: TEXT_DISABLED,
+            border: TEXT_DISABLED,
+            text,
+        },
+        (false, true) => Colors {
+            fill: SURFACE,
+            border: CHECK_BORDER,
+            text,
+        },
+        (false, false) => Colors {
+            fill: SURFACE,
+            border: TEXT_DISABLED,
+            text,
+        },
+    }
 }
 
 /// Vòng nút chọn: bật thì viền và chấm (`fill`) `ACCENT`; tắt viền `CHECK_BORDER`.
 pub fn radio_colors(s: ControlState) -> Colors {
-    let _ = s;
-    todo!()
+    let text = if s.enabled { TEXT } else { TEXT_DISABLED };
+    let mark = match (s.checked, s.enabled) {
+        (true, true) => ACCENT,
+        (true, false) | (false, false) => TEXT_DISABLED,
+        (false, true) => CHECK_BORDER,
+    };
+    Colors {
+        fill: if s.checked { mark } else { SURFACE },
+        border: mark,
+        text,
+    }
 }
 
 /// Tab: chọn chữ `TEXT`, gạch dưới (`border`) `ACCENT`; không chọn chữ `TEXT_MUTED`; khi trỏ nền
 /// `TAB_HOVER` và chữ `TEXT`.
 pub fn tab_colors(selected: bool, hot: bool) -> Colors {
-    let _ = (selected, hot);
-    todo!()
+    Colors {
+        fill: if hot { TAB_HOVER } else { BG },
+        border: if selected { ACCENT } else { LINE },
+        text: if selected || hot { TEXT } else { TEXT_MUTED },
+    }
 }
 
 /// Màu viền ô nhập và độ dày (DIP) của gạch dưới: 2 khi có tiêu điểm, 1 khi không.
 pub fn edit_border(focused: bool, enabled: bool) -> (Rgb, u32) {
-    let _ = (focused, enabled);
-    todo!()
+    if focused && enabled {
+        (ACCENT, 2)
+    } else {
+        (INPUT_BORDER, 1)
+    }
 }
 
 pub fn colorref(c: Rgb) -> COLORREF {
@@ -167,6 +253,505 @@ pub fn ctl_color(hdc: HDC, fg: Rgb, bg: Rgb) -> LRESULT {
         SetBkMode(hdc, OPAQUE);
     }
     LRESULT(brush(bg).0 as isize)
+}
+
+// ---------------------------------------------------------------------------
+// Vẽ tay: hình cơ bản, nút bấm, ô tích, nút chọn, thanh trượt
+// ---------------------------------------------------------------------------
+
+/// Bán kính bo góc nút bấm và hộp ô tích (DIP).
+pub const RADIUS: i32 = 4;
+/// Cạnh hộp ô tích và vòng nút chọn (DIP).
+const BOX: i32 = 18;
+/// Khoảng từ hộp tới chữ (DIP). Hộp + khoảng = 24 DIP, đúng phần `HK_BOX` mà bố cục Tùy chọn dành sẵn.
+const BOX_GAP: i32 = 6;
+/// Đường kính chấm của nút chọn bật (DIP).
+const DOT: i32 = 8;
+/// Núm thanh trượt, độ dày viền núm và độ cao rãnh (DIP).
+const KNOB: i32 = 18;
+const KNOB_BORDER: i32 = 4;
+const TRACK_H: i32 = 4;
+
+/// Gợi ý bàn phím của cửa sổ theo `WM_QUERYUISTATE`: (hiện khung tiêu điểm, hiện chữ gạch dưới).
+pub fn ui_cues(hwnd: HWND) -> (bool, bool) {
+    // SAFETY: hỏi trạng thái giao diện của cửa sổ thuộc luồng này; không có tham số con trỏ.
+    let st = unsafe { SendMessageW(hwnd, WM_QUERYUISTATE, None, None).0 } as u32;
+    (st & UISF_HIDEFOCUS == 0, st & UISF_HIDEACCEL == 0)
+}
+
+/// Cờ `DrawTextW` ẩn chữ gạch dưới khi chưa dùng bàn phím (như Windows).
+pub fn prefix_flag(show_accel: bool) -> DRAW_TEXT_FORMAT {
+    if show_accel {
+        DRAW_TEXT_FORMAT(0)
+    } else {
+        DT_HIDEPREFIX
+    }
+}
+
+/// Tô `rc` bằng chổi dùng chung màu `c`.
+pub fn fill(hdc: HDC, rc: &RECT, c: Rgb) {
+    // SAFETY: hdc hợp lệ trong lần vẽ của bên gọi; chổi dùng chung không bị xóa.
+    unsafe {
+        FillRect(hdc, rc, brush(c));
+    }
+}
+
+/// Chọn bút viền (tạo rồi xóa ngay) và chổi nền dùng chung, gọi `draw`, trả lại đối tượng cũ.
+fn shape(hdc: HDC, fill_c: Rgb, border: Rgb, bw: i32, draw: impl FnOnce(HDC)) {
+    let (pen_c, width) = if bw > 0 { (border, bw) } else { (fill_c, 1) };
+    // SAFETY: bút tạo ở đây được bỏ chọn rồi xóa trước khi trả; chổi dùng chung không bị xóa.
+    unsafe {
+        let pen = CreatePen(PS_INSIDEFRAME, width, colorref(pen_c));
+        if pen.is_invalid() {
+            return;
+        }
+        let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+        let old_brush = SelectObject(hdc, HGDIOBJ(brush(fill_c).0));
+        draw(hdc);
+        SelectObject(hdc, old_brush);
+        SelectObject(hdc, old_pen);
+        let _ = DeleteObject(HGDIOBJ(pen.0));
+    }
+}
+
+/// Hình chữ nhật bo góc `radius` px, nền `fill_c`, viền `border` dày `bw` px (0 = không viền), vẽ trong `rc`.
+pub fn round_rect(hdc: HDC, rc: &RECT, radius: i32, fill_c: Rgb, border: Rgb, bw: i32) {
+    shape(hdc, fill_c, border, bw, |dc| {
+        // SAFETY: dc có bút và chổi đã chọn; tọa độ là số nguyên.
+        unsafe {
+            let _ = RoundRect(
+                dc,
+                rc.left,
+                rc.top,
+                rc.right,
+                rc.bottom,
+                radius * 2,
+                radius * 2,
+            );
+        }
+    });
+}
+
+/// Hình tròn (elip) nội tiếp `rc`, nền `fill_c`, viền `border` dày `bw` px (0 = không viền).
+pub fn ellipse(hdc: HDC, rc: &RECT, fill_c: Rgb, border: Rgb, bw: i32) {
+    shape(hdc, fill_c, border, bw, |dc| {
+        // SAFETY: dc có bút và chổi đã chọn.
+        unsafe {
+            let _ = Ellipse(dc, rc.left, rc.top, rc.right, rc.bottom);
+        }
+    });
+}
+
+/// Hình chữ nhật màu `c` chỉ bo hai góc trên: vẽ hình bo cao hơn `rc` rồi cắt phần dưới.
+pub fn round_top_rect(hdc: HDC, rc: &RECT, radius: i32, c: Rgb) {
+    // SAFETY: lưu và trả trạng thái DC (vùng cắt) quanh lần vẽ.
+    unsafe {
+        let saved = SaveDC(hdc);
+        IntersectClipRect(hdc, rc.left, rc.top, rc.right, rc.bottom);
+        let tall = RECT {
+            bottom: rc.bottom + radius * 2,
+            ..*rc
+        };
+        round_rect(hdc, &tall, radius, c, c, 0);
+        let _ = RestoreDC(hdc, saved);
+    }
+}
+
+/// Khung tiêu điểm: viền `TEXT` dày 1 DIP, vẽ phía trong `rc`.
+pub fn focus_frame(hdc: HDC, rc: &RECT, dpi: u32) {
+    let mut r = *rc;
+    for _ in 0..scale(1, dpi).max(1) {
+        if r.right - r.left < 2 || r.bottom - r.top < 2 {
+            return;
+        }
+        // SAFETY: hdc hợp lệ; chổi dùng chung.
+        unsafe {
+            FrameRect(hdc, &r, brush(TEXT));
+        }
+        r.left += 1;
+        r.top += 1;
+        r.right -= 1;
+        r.bottom -= 1;
+    }
+}
+
+/// Đoạn gấp khúc qua `pts`, bút màu `c` dày `width` px (tạo rồi xóa ngay).
+pub fn polyline(hdc: HDC, pts: &[POINT], c: Rgb, width: i32) {
+    // SAFETY: bút tạo ở đây được bỏ chọn rồi xóa trước khi trả.
+    unsafe {
+        let pen = CreatePen(PS_SOLID, width.max(1), colorref(c));
+        if pen.is_invalid() {
+            return;
+        }
+        let old = SelectObject(hdc, HGDIOBJ(pen.0));
+        let _ = Polyline(hdc, pts);
+        SelectObject(hdc, old);
+        let _ = DeleteObject(HGDIOBJ(pen.0));
+    }
+}
+
+/// Viết `text` (UTF-16, không có số 0 cuối) trong `rc` bằng phông `font`, màu `c`, nền trong suốt.
+/// Có `DT_CALCRECT` trong `flags` thì chỉ đo. Trả khung chữ (sau khi đo) hoặc `rc`.
+pub fn draw_text(
+    hdc: HDC,
+    text: &[u16],
+    rc: &RECT,
+    c: Rgb,
+    font: Option<HFONT>,
+    flags: DRAW_TEXT_FORMAT,
+) -> RECT {
+    let mut r = *rc;
+    if text.is_empty() {
+        return RECT {
+            right: r.left,
+            bottom: r.top,
+            ..r
+        };
+    }
+    let mut buf = text.to_vec();
+    // SAFETY: phông cũ được chọn lại trước khi trả; bộ đệm chữ sống suốt lời gọi.
+    unsafe {
+        let old = font.map(|f| SelectObject(hdc, HGDIOBJ(f.0)));
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, colorref(c));
+        DrawTextW(hdc, &mut buf, &mut r, flags);
+        if let Some(o) = old {
+            SelectObject(hdc, o);
+        }
+    }
+    r
+}
+
+/// Chữ của cửa sổ `hwnd` dạng UTF-16 (không có số 0 cuối).
+pub fn window_text(hwnd: HWND) -> Vec<u16> {
+    // SAFETY: bộ đệm đủ chỗ cho chuỗi cộng ký tự kết thúc.
+    unsafe {
+        let n = GetWindowTextLengthW(hwnd);
+        if n <= 0 {
+            return Vec::new();
+        }
+        let mut buf = vec![0u16; n as usize + 1];
+        let got = GetWindowTextW(hwnd, &mut buf).max(0) as usize;
+        buf.truncate(got.min(n as usize));
+        buf
+    }
+}
+
+/// Phông đang đặt cho điều khiển `hwnd` (`WM_GETFONT`), không có thì `None`.
+pub fn control_font(hwnd: HWND) -> Option<HFONT> {
+    // SAFETY: chỉ hỏi phông của điều khiển; phông vẫn thuộc về cửa sổ chủ.
+    let f = unsafe { SendMessageW(hwnd, WM_GETFONT, None, None).0 };
+    (f != 0).then_some(HFONT(f as *mut c_void))
+}
+
+/// Vẽ vào bitmap tạm có cùng tọa độ với `rc` rồi chép một lần lên `hdc` (không nháy).
+/// Không tạo được bitmap thì vẽ thẳng lên `hdc`.
+pub fn buffered(hdc: HDC, rc: &RECT, draw: impl FnOnce(HDC)) {
+    let (w, h) = (rc.right - rc.left, rc.bottom - rc.top);
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    // SAFETY: DC và bitmap tạm tạo ở đây được bỏ chọn và xóa trên mọi đường đi.
+    unsafe {
+        let mem = CreateCompatibleDC(Some(hdc));
+        if mem.is_invalid() {
+            draw(hdc);
+            return;
+        }
+        let bmp = CreateCompatibleBitmap(hdc, w, h);
+        if bmp.is_invalid() {
+            let _ = DeleteDC(mem);
+            draw(hdc);
+            return;
+        }
+        let old = SelectObject(mem, HGDIOBJ(bmp.0));
+        let _ = SetWindowOrgEx(mem, rc.left, rc.top, None);
+        draw(mem);
+        let _ = BitBlt(
+            hdc,
+            rc.left,
+            rc.top,
+            w,
+            h,
+            Some(mem),
+            rc.left,
+            rc.top,
+            SRCCOPY,
+        );
+        SelectObject(mem, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        let _ = DeleteDC(mem);
+    }
+}
+
+/// Trạng thái của nút `hwnd` theo `BM_GETSTATE`, bật/tắt và tiêu điểm.
+pub fn button_state(hwnd: HWND) -> ControlState {
+    // SAFETY: chỉ đọc trạng thái của nút thuộc luồng này.
+    let (st, enabled, focus) = unsafe {
+        (
+            SendMessageW(hwnd, BM_GETSTATE, None, None).0 as u32,
+            IsWindowEnabled(hwnd).as_bool(),
+            GetFocus(),
+        )
+    };
+    ControlState {
+        hot: st & BST_HOT != 0,
+        pressed: st & BST_PUSHED != 0,
+        focused: focus == hwnd,
+        enabled,
+        checked: st & BST_CHECKED.0 != 0,
+    }
+}
+
+/// Kiểu vẽ của một `BUTTON` theo kiểu cửa sổ của nó.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Look {
+    Push,
+    Check,
+    Radio,
+}
+
+fn look_of(hwnd: HWND) -> Look {
+    // SAFETY: chỉ đọc kiểu cửa sổ.
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32 & 0xF;
+    match style {
+        // BS_CHECKBOX, BS_AUTOCHECKBOX, BS_3STATE, BS_AUTO3STATE.
+        0x2 | 0x3 | 0x5 | 0x6 => Look::Check,
+        // BS_RADIOBUTTON, BS_AUTORADIOBUTTON.
+        0x4 | 0x9 => Look::Radio,
+        _ => Look::Push,
+    }
+}
+
+/// Vẽ nút bấm `kind` vào `rc`: nền và viền bo 4 DIP, chữ giữa, khung tiêu điểm phía trong.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_button(
+    hdc: HDC,
+    rc: &RECT,
+    text: &[u16],
+    kind: ButtonKind,
+    state: ControlState,
+    dpi: u32,
+    font: Option<HFONT>,
+    cues: (bool, bool),
+) {
+    let c = button_colors(kind, state);
+    let bw = if kind == ButtonKind::Primary {
+        0
+    } else {
+        scale(1, dpi).max(1)
+    };
+    round_rect(hdc, rc, scale(RADIUS, dpi), c.fill, c.border, bw);
+    draw_text(
+        hdc,
+        text,
+        rc,
+        c.text,
+        font,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | prefix_flag(cues.1),
+    );
+    if state.focused && cues.0 {
+        let inset = scale(3, dpi);
+        let fr = RECT {
+            left: rc.left + inset,
+            top: rc.top + inset,
+            right: rc.right - inset,
+            bottom: rc.bottom - inset,
+        };
+        focus_frame(hdc, &fr, dpi);
+    }
+}
+
+/// Vẽ ô tích (`radio == false`) hoặc nút chọn vào `rc`: hộp 18 DIP bên trái, chữ bên phải, khung tiêu
+/// điểm quanh chữ. `bg` là nền dưới hộp và chữ.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_check(
+    hdc: HDC,
+    rc: &RECT,
+    text: &[u16],
+    radio: bool,
+    state: ControlState,
+    dpi: u32,
+    font: Option<HFONT>,
+    cues: (bool, bool),
+) {
+    let c = if radio {
+        radio_colors(state)
+    } else {
+        check_colors(state)
+    };
+    let s = scale(BOX, dpi);
+    let top = rc.top + (rc.bottom - rc.top - s) / 2;
+    let bx = RECT {
+        left: rc.left,
+        top,
+        right: rc.left + s,
+        bottom: top + s,
+    };
+    let bw = (scale(3, dpi) / 2).max(1);
+    if radio {
+        ellipse(hdc, &bx, SURFACE, c.border, bw);
+        if state.checked {
+            let d = scale(DOT, dpi);
+            let off = (s - d) / 2;
+            let dot = RECT {
+                left: bx.left + off,
+                top: bx.top + off,
+                right: bx.left + off + d,
+                bottom: bx.top + off + d,
+            };
+            ellipse(hdc, &dot, c.fill, c.fill, 0);
+        }
+    } else {
+        round_rect(hdc, &bx, scale(RADIUS, dpi), c.fill, c.border, bw);
+        if state.checked {
+            let p = |fx: i32, fy: i32| POINT {
+                x: bx.left + s * fx / 100,
+                y: bx.top + s * fy / 100,
+            };
+            polyline(
+                hdc,
+                &[p(27, 50), p(43, 66), p(73, 35)],
+                WHITE,
+                scale(2, dpi),
+            );
+        }
+    }
+    let tr = RECT {
+        left: bx.right + scale(BOX_GAP, dpi),
+        ..*rc
+    };
+    let flags = DT_LEFT | DT_VCENTER | DT_SINGLELINE | prefix_flag(cues.1);
+    draw_text(hdc, text, &tr, c.text, font, flags | DT_END_ELLIPSIS);
+    if state.focused && cues.0 && !text.is_empty() {
+        let m = draw_text(hdc, text, &tr, c.text, font, flags | DT_CALCRECT);
+        let h = m.bottom - m.top;
+        let pad = scale(2, dpi);
+        let t = rc.top + (rc.bottom - rc.top - h) / 2;
+        let fr = RECT {
+            left: m.left - pad,
+            top: (t - pad).max(rc.top),
+            right: (m.right + pad).min(rc.right),
+            bottom: (t + h + pad).min(rc.bottom),
+        };
+        focus_frame(hdc, &fr, dpi);
+    }
+}
+
+/// Xử lý `NM_CUSTOMDRAW` của một `BUTTON` (nút bấm, ô tích, nút chọn; Common Controls v6): vẽ hết ở
+/// `CDDS_PREPAINT` rồi trả `CDRF_SKIPDEFAULT`, nên điều khiển gốc vẫn lo bàn phím, tiêu điểm và trợ năng.
+/// `kind` chỉ dùng cho nút bấm; `bg` là nền cửa sổ cha; `bold` là phông đậm của nút chính (thiếu thì
+/// dùng phông của nút).
+pub fn custom_draw_button(
+    nmcd: &NMCUSTOMDRAW,
+    kind: ButtonKind,
+    bg: Rgb,
+    dpi: u32,
+    bold: Option<HFONT>,
+) -> LRESULT {
+    if nmcd.dwDrawStage != CDDS_PREPAINT {
+        return LRESULT(CDRF_DODEFAULT as isize);
+    }
+    let hwnd = nmcd.hdr.hwndFrom;
+    let rc = nmcd.rc;
+    let state = button_state(hwnd);
+    let text = window_text(hwnd);
+    let cues = ui_cues(hwnd);
+    let font = control_font(hwnd);
+    let look = look_of(hwnd);
+    buffered(nmcd.hdc, &rc, |dc| {
+        fill(dc, &rc, bg);
+        match look {
+            Look::Push => {
+                let f = if kind == ButtonKind::Primary {
+                    bold.or(font)
+                } else {
+                    font
+                };
+                draw_button(dc, &rc, &text, kind, state, dpi, f, cues);
+            }
+            Look::Check => draw_check(dc, &rc, &text, false, state, dpi, font, cues),
+            Look::Radio => draw_check(dc, &rc, &text, true, state, dpi, font, cues),
+        }
+    });
+    LRESULT(CDRF_SKIPDEFAULT as isize)
+}
+
+/// Xử lý `NM_CUSTOMDRAW` của thanh trượt ngang: rãnh `TRACK`, phần đã qua `ACCENT`, núm tròn `TEXT`
+/// viền `ACCENT`; mờ khi vô hiệu; khung tiêu điểm khi đi bằng bàn phím. Vẽ hết ở `CDDS_PREPAINT`.
+pub fn custom_draw_trackbar(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32) -> LRESULT {
+    if nmcd.dwDrawStage != CDDS_PREPAINT {
+        return LRESULT(CDRF_DODEFAULT as isize);
+    }
+    let hwnd = nmcd.hdr.hwndFrom;
+    let mut client = RECT::default();
+    let (mut channel, mut thumb) = (RECT::default(), RECT::default());
+    // SAFETY: các RECT là biến cục bộ, thanh trượt chỉ ghi vào chúng; còn lại chỉ đọc trạng thái.
+    let (enabled, focused) = unsafe {
+        let _ = GetClientRect(hwnd, &mut client);
+        SendMessageW(
+            hwnd,
+            TBM_GETCHANNELRECT,
+            None,
+            Some(LPARAM(&mut channel as *mut RECT as isize)),
+        );
+        SendMessageW(
+            hwnd,
+            TBM_GETTHUMBRECT,
+            None,
+            Some(LPARAM(&mut thumb as *mut RECT as isize)),
+        );
+        (IsWindowEnabled(hwnd).as_bool(), GetFocus() == hwnd)
+    };
+    let (show_focus, _) = ui_cues(hwnd);
+    let (done_c, knob_fill, knob_border) = if enabled {
+        (ACCENT, TEXT, ACCENT)
+    } else {
+        (TEXT_DISABLED, TEXT_DISABLED, TRACK)
+    };
+    buffered(nmcd.hdc, &client, |dc| {
+        fill(dc, &client, bg);
+        let cy = (channel.top + channel.bottom) / 2;
+        let th = scale(TRACK_H, dpi).max(2);
+        let r = scale(KNOB, dpi) / 2;
+        let lo = client.left + r;
+        let hi = (client.right - r).max(lo);
+        let knob_x = ((thumb.left + thumb.right) / 2).clamp(lo, hi);
+        let track = RECT {
+            left: channel.left,
+            top: cy - th / 2,
+            right: channel.right,
+            bottom: cy - th / 2 + th,
+        };
+        round_rect(dc, &track, th / 2, TRACK, TRACK, 0);
+        let done = RECT {
+            right: knob_x.min(track.right),
+            ..track
+        };
+        if done.right > done.left {
+            round_rect(dc, &done, th / 2, done_c, done_c, 0);
+        }
+        let knob = RECT {
+            left: knob_x - r,
+            top: cy - r,
+            right: knob_x + r,
+            bottom: cy + r,
+        };
+        ellipse(dc, &knob, knob_fill, knob_border, scale(KNOB_BORDER, dpi));
+        if focused && show_focus {
+            focus_frame(dc, &client, dpi);
+        }
+    });
+    LRESULT(CDRF_SKIPDEFAULT as isize)
+}
+
+/// `NMCUSTOMDRAW` của một `WM_NOTIFY` mang `NM_CUSTOMDRAW`.
+///
+/// # Safety
+/// `lp` phải là lParam của một `WM_NOTIFY` có mã `NM_CUSTOMDRAW` đang được xử lý.
+pub unsafe fn nmcd_of<'a>(lp: LPARAM) -> Option<&'a NMCUSTOMDRAW> {
+    // SAFETY: theo hợp đồng của hàm, lp trỏ tới NMCUSTOMDRAW hợp lệ suốt lời gọi WM_NOTIFY.
+    unsafe { (lp.0 as *const NMCUSTOMDRAW).as_ref() }
 }
 
 #[cfg(test)]

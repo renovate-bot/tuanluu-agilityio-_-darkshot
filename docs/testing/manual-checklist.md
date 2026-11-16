@@ -232,3 +232,27 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Menu khay tối và mục đầu vẫn đậm.
 - [ ] Lớp phủ trên hai màn hình: thanh công cụ tối; nút khi trỏ đổi nền và biểu tượng xanh; chú thích nút tối; viền vùng chọn và tay nắm xanh.
 - [ ] Ảnh lưu ra giống màn hình (không có màu giao diện).
+
+## Đợt 4: cửa sổ Tùy chọn tối
+
+- [ ] So với prototype (`darkshot-theme.html`, phần "1. Cửa sổ Tùy chọn") từng tab ở cả hai ngôn ngữ, ở DPI 100% và 150%.
+- [ ] Kéo cửa sổ Tùy chọn sang màn hình có DPI khác: không có phần nào vẽ lệch hay vỡ (bố cục giữ DPI lúc mở như trước).
+- [ ] Không nháy trắng khi mở cửa sổ và khi đổi tab.
+- [ ] Tab đi đủ các ô theo thứ tự cũ (dải tab, ô của tab đang hiện, Trợ giúp, OK, Hủy) và luôn thấy ô nào đang có tiêu điểm (khung chữ chính hoặc gạch dưới xanh).
+- [ ] Space bật tắt ô tích.
+- [ ] Mũi tên đổi PNG/JPEG ở tab Định dạng.
+- [ ] Thanh trượt chất lượng: kéo bằng chuột; mũi tên, Page Up/Down, Home/End; số bên cạnh đổi theo.
+- [ ] Chọn PNG thì nhãn, thanh trượt và số chất lượng mờ; chọn JPEG thì sáng lại.
+- [ ] Ctrl+Tab và Ctrl+Shift+Tab đổi tab, kể cả khi tiêu điểm ở thanh trượt.
+- [ ] Alt+chữ gạch dưới vẫn chạy; chữ gạch dưới hiện khi giữ Alt.
+- [ ] Enter là OK, Esc là Hủy.
+- [ ] Bắt phím ở tab Phím tắt: ô đang chờ có gạch dưới xanh và lời nhắc chữ phụ; bắt xong, Esc hoặc bấm ra ngoài thì gạch dưới mất.
+- [ ] Lỗi ở tab Lưu trữ R2 (ví dụ tên kho có dấu cách) nhảy đúng tab, đúng ô; chữ lỗi đỏ đọc rõ.
+- [ ] Kiểm tra kết nối: thành công hiện chữ xanh lá, thất bại (hoặc thiếu ô) hiện chữ đỏ.
+- [ ] Danh sách thả xuống của hộp chọn (Ngôn ngữ, Hạn của link) tối; chọn bằng chuột và bằng mũi tên đều cập nhật mặt hộp, không còn vệt sáng.
+- [ ] Nút (Trợ giúp, Chọn…, Đổi…, Kiểm tra kết nối, Hủy, OK) đổi màu khi trỏ và khi nhấn; OK nền xanh, chữ trắng đậm.
+- [ ] Tab khi trỏ chuột có nền sáng hơn; tab đang chọn chữ đậm và gạch dưới xanh.
+- [ ] Ô phím của dòng tắt và nút "Đổi…" của nó mờ, chữ mờ đọc được trên nền tối.
+- [ ] Trình tường thuật (Narrator) đọc đúng tên và trạng thái ô tích, nút chọn, nút bấm và thanh trượt.
+- [ ] Mở đóng Tùy chọn 20 lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored options_no_gdi_leak` qua).
+- [ ] Thông tin và Trợ giúp có nút Đóng xanh, chữ trắng đậm; Enter và Esc vẫn đóng.
