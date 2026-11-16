@@ -20,7 +20,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 9 Dịch vụ Windows | task/09-win-services | specialist | opus | xong | 134.713 | 73.546 | 0 | 208.259 |
 | 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | xong | 118.217 | 67.217 | 37.831 | 223.265 |
 | 11 Nối toàn bộ | task/11-integration | builder | sonnet | xong | 125.499 | 58.921 | 15.661 | 200.081 |
-| 14 Biểu tượng ứng dụng mới | task/14-icon | builder | sonnet | đang làm | | | | |
+| 14 Biểu tượng ứng dụng mới | task/14-icon | builder | sonnet | xong | 71.041 | 0 (phiên chính xem ảnh, không rà soát mã) | 8.117 | 79.158 |
 | 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | xong, chờ nghiệm thu | 97.632 | 53.365 | 0 (phiên chính sửa README) | 150.997 |
 | Rà soát toàn bộ sau Task 12 | main | specialist | opus | xong (DUYỆT) | | 189.767 | | 189.767 |
 | 13 Gia cố sau rà soát toàn bộ | task/13-hardening | specialist | opus | xong | 199.988 | 93.033 | 0 | 293.021 |
@@ -60,7 +60,9 @@ Lập ngày 2026-11-16, sau Task 13. Số là `subagent_tokens` do công cụ b�
 | Rà soát toàn bộ | 189.767 |
 | 13 Gia cố | 293.021 |
 | Trước giai đoạn xây dựng | 105.307 |
-| **Cộng** | **2.544.851** |
+| **Cộng đến Task 13** | **2.544.851** |
+| 14 Biểu tượng (sau tổng kết; các bảng model và giai đoạn bên dưới chưa gồm) | 79.158 |
+| **Cộng** | **2.624.009** |
 
 ### Theo model
 
