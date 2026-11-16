@@ -299,6 +299,39 @@ mod tests {
         assert_eq!(amz_date_from_unix(1_369_353_600), "20130524T000000Z");
     }
 
+    fn sign_with(h: &[(&str, &str)]) -> String {
+        let input = SignInput {
+            method: "GET",
+            path: "/test.txt",
+            query: "",
+            headers: h,
+            payload_sha256_hex: EMPTY_SHA,
+            amz_date: "20130524T000000Z",
+            region: "us-east-1",
+            service: "s3",
+        };
+        authorization_header(&creds(), &input)
+    }
+
+    #[test]
+    fn header_value_inner_whitespace_is_collapsed() {
+        let spaced = sign_with(&[("host", "h"), ("x-amz-meta-a", "a   b")]);
+        let single = sign_with(&[("host", "h"), ("x-amz-meta-a", "a b")]);
+        assert_eq!(spaced, single);
+    }
+
+    #[test]
+    fn duplicate_header_names_are_merged() {
+        let dup = sign_with(&[("host", "h"), ("X-Amz-Meta-A", "1"), ("x-amz-meta-a", "2")]);
+        let merged = sign_with(&[("host", "h"), ("x-amz-meta-a", "1,2")]);
+        assert_eq!(dup, merged);
+        let signed = parts(&dup).1;
+        assert_eq!(
+            signed.split(';').filter(|n| *n == "x-amz-meta-a").count(),
+            1
+        );
+    }
+
     #[test]
     fn debug_hides_secret() {
         let s = format!("{:?}", creds());
