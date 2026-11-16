@@ -1,16 +1,14 @@
 #![windows_subsystem = "windows"]
 
-#[allow(dead_code)]
 mod capture;
 mod hotkey;
-#[allow(dead_code)]
 mod overlay;
 // Task 11 dùng các hàm trong paths; ở task này chỉ có kiểm thử gọi chúng.
 #[allow(dead_code)]
 mod paths;
 mod tray;
 
-use shotme_core::actions::{NoticeKind, Notifier};
+use shotme_core::actions::{Action, NoticeKind, Notifier};
 use shotme_core::config::Hotkey;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -40,6 +38,8 @@ thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
     static ADD_ATTEMPTS: Cell<u32> = const { Cell::new(0) };
+    /// Đang chụp hoặc lớp phủ đang mở.
+    static CAPTURING: Cell<bool> = const { Cell::new(false) };
 }
 
 const RETRY_TIMER_ID: usize = 1;
@@ -71,9 +71,57 @@ fn current_tray() -> Option<Rc<Tray>> {
     TRAY.with(|t| t.borrow().clone())
 }
 
+fn action_name(a: Action) -> &'static str {
+    match a {
+        Action::Upload => "tải lên",
+        Action::Save => "lưu",
+        Action::Copy => "chép",
+        Action::Cancel => "hủy",
+    }
+}
+
+/// Chụp rồi mở lớp phủ. Tạm thời (đến Task 11) chỉ báo vùng và hành động đã chọn.
+fn capture_flow() {
+    // Phím tắt hoặc menu khi lớp phủ đang mở: bỏ qua.
+    if CAPTURING.with(|c| c.replace(true)) {
+        return;
+    }
+    let notifier = current_tray().map(|t| t.notifier());
+    match capture::capture_virtual_screen() {
+        Err(_) => {
+            if let Some(n) = &notifier {
+                n.notify(
+                    NoticeKind::Error,
+                    "Không chụp được màn hình",
+                    "Windows không cho chụp lúc này (ví dụ màn hình khóa hoặc hộp thoại quyền quản trị). Hãy thử lại.",
+                );
+            }
+        }
+        Ok(shot) => {
+            let picked = overlay::pick_region(&shot);
+            // Giải phóng ảnh chụp ngay khi lớp phủ đóng.
+            drop(shot);
+            if let (Some((action, r)), Some(n)) = (picked, &notifier) {
+                n.notify(
+                    NoticeKind::Info,
+                    "shotme",
+                    &format!(
+                        "Đã chọn {} × {}, hành động {}",
+                        r.w,
+                        r.h,
+                        action_name(action)
+                    ),
+                );
+            }
+        }
+    }
+    CAPTURING.with(|c| c.set(false));
+}
+
 fn handle_event(hwnd: HWND, ev: AppEvent) {
     match ev {
-        AppEvent::Capture | AppEvent::OpenSettings => {
+        AppEvent::Capture => capture_flow(),
+        AppEvent::OpenSettings => {
             if let Some(t) = current_tray() {
                 t.notifier().notify(NoticeKind::Info, "shotme", "Chưa có");
             }
@@ -100,6 +148,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             handle_event(hwnd, AppEvent::Capture);
             LRESULT(0)
         }
+        WM_TRAY if CAPTURING.with(|c| c.get()) => LRESULT(0),
         WM_TRAY => {
             let ev = (lp.0 & 0xFFFF) as u32;
             if ev == WM_RBUTTONUP || ev == WM_LBUTTONUP {
