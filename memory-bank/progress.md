@@ -30,8 +30,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | xong | 178.194 | 72.826 | 0 | 251.020 |
 | 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | xong | 177.000 | 74.920 | 11.776 | 263.696 |
 | 19b Kiểm thử chập chờn, chữ "Đổi…" trong Trợ giúp | task/19b-flaky-test-help-text | builder | sonnet | xong | 53.642 | 0 (phiên chính đọc diff 18 dòng, không giao rà soát) | 0 | 53.642 |
-| 20 Lõi đợt 2 | task/20-batch2-core | builder | sonnet | đang làm | | | | |
-| 21 Tùy chọn: ba phím tắt, ba ô tích, lọc thông báo, Trợ giúp | task/21-hotkeys-options | specialist | opus | chờ | | | | |
+| 20 Lõi đợt 2 | task/20-batch2-core | builder | sonnet | xong | 121.832 | 41.358 | 0 | 163.190 |
+| 21 Tùy chọn: ba phím tắt, ba ô tích, lọc thông báo, Trợ giúp | task/21-hotkeys-options | specialist | opus | đang làm | | | | |
 | 22 Chụp: con trỏ, toàn màn hình, khung nhớ | task/22-fullscreen-cursor-selection | specialist | opus | chờ | | | | |
 | 23 Tài liệu đợt 2 | task/23-docs-batch2 | scaffolder | haiku | chờ (sau khi chủ dự án thử tay Task 22) | | | | |
 
