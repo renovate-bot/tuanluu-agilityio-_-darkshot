@@ -15,9 +15,10 @@ mod wer;
 
 use app::{AppState, UploadJob};
 use secret::DpapiStore;
+use settings::OpenReason;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, NoticeKind, Notifier};
 use shotme_core::config::Hotkey;
-use shotme_core::i18n::{self, Msg};
+use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -116,6 +117,18 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
         (s, OverlayClosed) => (s, GateAction::None),
         (s, _) => (s, GateAction::Ignore),
     }
+}
+
+/// Gộp lý do của hai yêu cầu mở Tùy chọn đang chờ: `NeedsR2` thắng.
+pub fn merge_reason(a: OpenReason, b: OpenReason) -> OpenReason {
+    let _ = (a, b);
+    todo!()
+}
+
+/// Ngôn ngữ sau khi đóng Tùy chọn: chỉ đổi khi đã ghi cấu hình thành công.
+pub fn lang_after_save(old: Lang, new: Lang, saved: bool) -> Lang {
+    let _ = (old, new, saved);
+    todo!()
 }
 
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
@@ -304,6 +317,7 @@ fn open_settings(hwnd: HWND) {
         hwnd,
         &config,
         notice.map(|n| n.message(lang::current())).as_deref(),
+        OpenReason::User,
     ) else {
         return;
     };
@@ -723,6 +737,20 @@ mod tests {
             gate_step(Capturing, SettingsClosed),
             (Capturing, GateAction::None)
         );
+    }
+
+    #[test]
+    fn open_reason_merge_prefers_r2() {
+        use settings::OpenReason::*;
+        assert_eq!(merge_reason(User, User), User);
+        assert_eq!(merge_reason(User, NeedsR2), NeedsR2);
+        assert_eq!(merge_reason(NeedsR2, User), NeedsR2);
+    }
+
+    #[test]
+    fn language_changes_only_when_saved() {
+        assert_eq!(lang_after_save(Lang::Vi, Lang::En, true), Lang::En);
+        assert_eq!(lang_after_save(Lang::Vi, Lang::En, false), Lang::Vi);
     }
 
     #[test]

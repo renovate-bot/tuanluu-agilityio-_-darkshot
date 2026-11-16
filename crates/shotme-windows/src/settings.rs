@@ -8,7 +8,7 @@
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
-use shotme_core::i18n::{self, expiry_label, Msg};
+use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -66,6 +66,7 @@ pub struct Form {
     pub hotkey: Hotkey,
     pub save_dir: String,
     pub autostart: bool,
+    pub language: Lang,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -81,6 +82,7 @@ impl std::fmt::Debug for Form {
             .field("hotkey", &self.hotkey)
             .field("save_dir", &self.save_dir)
             .field("autostart", &self.autostart)
+            .field("language", &self.language)
             .finish()
     }
 }
@@ -97,48 +99,77 @@ fn is_bucket_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
 }
 
-/// Gộp biểu mẫu vào cấu hình hiện tại. Thuần: không đụng hệ điều hành.
-pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
-    let account_id = form.account_id.trim().to_string();
-    let access_key_id = form.access_key_id.trim().to_string();
-    let bucket = form.bucket.trim().to_string();
-    let secret = form.secret_access_key.trim();
-    let url = form.public_base_url.trim();
-    let save_dir = form.save_dir.trim();
+/// Tab của cửa sổ Tùy chọn, theo thứ tự trên dải tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    General,
+    Hotkeys,
+    R2,
+}
 
-    if !account_id.chars().all(is_account_char) {
-        return Err(lang::tr(Msg::ErrAccountChars).into());
-    }
-    if !bucket.chars().all(is_bucket_char) {
-        return Err(lang::tr(Msg::ErrBucketChars).into());
-    }
-    let public_base_url = if url.is_empty() {
-        String::new()
-    } else {
-        normalize_public_base_url(url).map_err(|e| e.message(lang::current()))?
-    };
-    if save_dir.is_empty() {
-        return Err(lang::tr(Msg::ErrPickSaveDir).into());
-    }
-    let secret_access_key = if secret.is_empty() {
-        current.r2.secret_access_key.clone()
-    } else {
-        secret.to_string()
-    };
-    Ok(Config {
-        r2: R2Config {
-            account_id,
-            access_key_id,
-            secret_access_key,
-            bucket,
-            public_base_url,
-        },
-        expiry: form.expiry,
-        hotkey: form.hotkey,
-        save_dir: PathBuf::from(save_dir),
-        autostart: form.autostart,
-        language: current.language,
-    })
+/// Ô có thể sai khi bấm OK.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    SaveDir,
+    AccountId,
+    Bucket,
+    PublicUrl,
+}
+
+/// Lỗi của biểu mẫu: ô sai và câu báo lỗi (không bao giờ chứa khóa bí mật).
+#[derive(Debug, PartialEq, Eq)]
+pub struct FormError {
+    pub field: Field,
+    pub message: String,
+}
+
+/// Tab chứa ô `field`.
+pub fn tab_of(field: Field) -> Tab {
+    todo!("{field:?}")
+}
+
+/// Lý do mở cửa sổ Tùy chọn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenReason {
+    /// Người dùng chọn "Tùy chọn..." ở menu.
+    User,
+    /// Ứng dụng tự mở vì R2 chưa cấu hình, mất khóa hoặc cấu hình lỗi.
+    NeedsR2,
+}
+
+/// Tab mở đầu theo lý do mở.
+pub fn initial_tab(reason: OpenReason) -> Tab {
+    todo!("{reason:?}")
+}
+
+/// Gộp biểu mẫu vào cấu hình hiện tại. Thuần: không đụng hệ điều hành.
+/// Kiểm tra theo thứ tự tab: SaveDir, AccountId, Bucket, PublicUrl; câu lỗi theo `lang`.
+pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, FormError> {
+    let _ = (current, form, lang);
+    todo!()
+}
+
+/// Một phím (WM_KEYDOWN) trong cửa sổ Tùy chọn đi về đâu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyRoute {
+    Capture,
+    NextTab,
+    PrevTab,
+    Cancel,
+    Accept,
+    Dialog,
+}
+
+/// Định tuyến phím; `combo_dropped` đúng khi một hộp chọn đang thả.
+pub fn key_route(
+    capturing: bool,
+    vk: u32,
+    ctrl: bool,
+    shift: bool,
+    combo_dropped: bool,
+) -> KeyRoute {
+    let _ = (capturing, vk, ctrl, shift, combo_dropped);
+    todo!()
 }
 
 /// Kết quả xử lý một lần nhả phím khi đang chọn phím tắt mới.
@@ -377,6 +408,7 @@ fn read_form() -> Option<Form> {
         hotkey,
         save_dir: get_text(c.dir),
         autostart: checked == 1,
+        language: with_st(|s| s.current.language)?,
     })
 }
 
@@ -415,10 +447,10 @@ fn save() {
     let Some(current) = with_st(|s| s.current.clone()) else {
         return;
     };
-    let cfg = match apply_form(&current, &form) {
+    let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            show_error(&e);
+            show_error(&e.message);
             return;
         }
     };
@@ -591,10 +623,10 @@ fn on_test(hwnd: HWND) {
     let (Some(form), Some(current)) = (read_form(), with_st(|s| s.current.clone())) else {
         return;
     };
-    let cfg = match apply_form(&current, &form) {
+    let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            show_error(&e);
+            show_error(&e.message);
             return;
         }
     };
@@ -1013,7 +1045,13 @@ pub fn focus_existing() {
 }
 
 /// Mở cửa sổ Cài đặt và chờ đến khi người dùng Lưu hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
-pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<SettingsResult> {
+pub fn show(
+    parent: HWND,
+    current: &Config,
+    notice: Option<&str>,
+    reason: OpenReason,
+) -> Option<SettingsResult> {
+    let _ = reason;
     let open = OPEN.with(|o| o.get());
     if open != 0 {
         let h = HWND(open as *mut c_void);
@@ -1293,7 +1331,6 @@ fn get_class_is_button(h: HWND) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shotme_core::i18n::Lang;
     use std::path::Path;
 
     fn base() -> Config {
@@ -1319,6 +1356,7 @@ mod tests {
             hotkey: c.hotkey,
             save_dir: c.save_dir.to_string_lossy().into_owned(),
             autostart: c.autostart,
+            language: c.language,
         }
     }
 
@@ -1326,9 +1364,15 @@ mod tests {
     fn empty_secret_keeps_existing() {
         let c = base();
         let mut f = form_of(&c);
-        assert_eq!(apply_form(&c, &f).unwrap().r2.secret_access_key, "OLD");
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.secret_access_key,
+            "OLD"
+        );
         f.secret_access_key = "NEW".into();
-        assert_eq!(apply_form(&c, &f).unwrap().r2.secret_access_key, "NEW");
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.secret_access_key,
+            "NEW"
+        );
     }
 
     #[test]
@@ -1337,11 +1381,11 @@ mod tests {
         let mut f = form_of(&c);
         f.public_base_url = "https://img.example.com/".into();
         assert_eq!(
-            apply_form(&c, &f).unwrap().r2.public_base_url,
+            apply_form(&c, &f, Lang::Vi).unwrap().r2.public_base_url,
             "https://img.example.com"
         );
         f.public_base_url = "http://x".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1349,7 +1393,7 @@ mod tests {
         let c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         let mut f = form_of(&c);
         f.save_dir = "C:/pics".into();
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert!(!out.r2.is_complete());
         assert_eq!(out.r2.public_base_url, "");
     }
@@ -1363,7 +1407,7 @@ mod tests {
         f.access_key_id = "\tk2 ".into();
         f.save_dir = "  C:/x  ".into();
         f.secret_access_key = " S ".into();
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.r2.bucket, "bkt");
         assert_eq!(out.r2.account_id, "acc2");
         assert_eq!(out.r2.access_key_id, "k2");
@@ -1376,7 +1420,7 @@ mod tests {
         let c = base();
         let mut f = form_of(&c);
         f.save_dir = "   ".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1392,7 +1436,7 @@ mod tests {
             win: false,
             vk: 0x53,
         };
-        let out = apply_form(&c, &f).unwrap();
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.expiry, Expiry::Keep);
         assert!(out.autostart);
         assert_eq!(out.hotkey, f.hotkey);
@@ -1403,10 +1447,10 @@ mod tests {
         let c = base();
         let mut f = form_of(&c);
         f.account_id = "a/b".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
         let mut f = form_of(&c);
         f.bucket = "my bucket".into();
-        assert!(apply_form(&c, &f).is_err());
+        assert!(apply_form(&c, &f, Lang::Vi).is_err());
     }
 
     #[test]
@@ -1415,9 +1459,112 @@ mod tests {
         let mut f = form_of(&c);
         f.secret_access_key = "SUPER-SECRET".into();
         f.public_base_url = "http://x".into();
-        let e = apply_form(&c, &f).unwrap_err();
-        assert!(!e.contains("SUPER-SECRET"));
+        for lang in Lang::ALL {
+            let e = apply_form(&c, &f, lang).unwrap_err();
+            assert!(!e.message.contains("SUPER-SECRET"));
+            assert!(!format!("{e:?}").contains("SUPER-SECRET"));
+        }
         assert!(!format!("{f:?}").contains("SUPER-SECRET"));
+    }
+
+    #[test]
+    fn field_to_tab() {
+        assert_eq!(tab_of(Field::SaveDir), Tab::General);
+        for f in [Field::AccountId, Field::Bucket, Field::PublicUrl] {
+            assert_eq!(tab_of(f), Tab::R2);
+        }
+    }
+
+    #[test]
+    fn initial_tab_by_reason() {
+        assert_eq!(initial_tab(OpenReason::User), Tab::General);
+        assert_eq!(initial_tab(OpenReason::NeedsR2), Tab::R2);
+    }
+
+    #[test]
+    fn form_errors_name_their_field() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.save_dir = "  ".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::SaveDir
+        );
+        let mut f = form_of(&c);
+        f.account_id = "a/b".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::AccountId
+        );
+        let mut f = form_of(&c);
+        f.bucket = "my bucket".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::Bucket
+        );
+        let mut f = form_of(&c);
+        f.public_base_url = "http://x".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::PublicUrl
+        );
+    }
+
+    #[test]
+    fn first_error_wins_in_tab_order() {
+        // Sai cả SaveDir lẫn Bucket: báo SaveDir.
+        let c = base();
+        let mut f = form_of(&c);
+        f.save_dir = "".into();
+        f.bucket = "x y".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::SaveDir
+        );
+    }
+
+    #[test]
+    fn form_error_message_follows_language() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.bucket = "x y".into();
+        assert_ne!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().message,
+            apply_form(&c, &f, Lang::En).unwrap_err().message
+        );
+    }
+
+    #[test]
+    fn language_is_carried_from_form() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.language = Lang::En;
+        assert_eq!(apply_form(&c, &f, Lang::Vi).unwrap().language, Lang::En);
+    }
+
+    #[test]
+    fn key_routing() {
+        const TAB: u32 = 0x09;
+        const ESC: u32 = 0x1B;
+        const ENTER: u32 = 0x0D;
+        // Đang bắt phím: mọi thứ là của chế độ bắt, kể cả Ctrl+Tab, Esc, Enter.
+        for (vk, ctrl) in [(TAB, true), (ESC, false), (ENTER, false), (0x41, true)] {
+            assert_eq!(key_route(true, vk, ctrl, false, false), KeyRoute::Capture);
+        }
+        assert_eq!(key_route(false, TAB, true, false, false), KeyRoute::NextTab);
+        assert_eq!(key_route(false, TAB, true, true, false), KeyRoute::PrevTab);
+        assert_eq!(key_route(false, TAB, false, false, false), KeyRoute::Dialog);
+        assert_eq!(key_route(false, ESC, false, false, false), KeyRoute::Cancel);
+        assert_eq!(
+            key_route(false, ENTER, false, false, false),
+            KeyRoute::Accept
+        );
+        assert_eq!(key_route(false, ESC, false, false, true), KeyRoute::Dialog);
+        assert_eq!(
+            key_route(false, ENTER, false, false, true),
+            KeyRoute::Dialog
+        );
+        assert_eq!(key_route(false, TAB, true, false, true), KeyRoute::NextTab);
     }
 
     #[test]
@@ -1623,22 +1770,44 @@ mod tests {
             .unwrap()
         };
         let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"), Lang::Vi);
-        for use_command in [false, true] {
+        for (use_command, reason) in [
+            (false, OpenReason::User),
+            (true, OpenReason::NeedsR2),
+            (true, OpenReason::User),
+            (false, OpenReason::NeedsR2),
+        ] {
             let closer = std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                // SAFETY: tìm cửa sổ theo tên lớp rồi đăng thông điệp; HWND chỉ dùng như số.
-                unsafe {
+                // SAFETY: tìm cửa sổ theo tên lớp, hỏi tab đang chọn rồi đăng thông điệp; HWND chỉ dùng như số.
+                let sel = unsafe {
                     let h = FindWindowW(w!("shotme-settings"), None)
                         .expect("settings window not found");
+                    let tab = windows::Win32::UI::WindowsAndMessaging::FindWindowExW(
+                        Some(h),
+                        None,
+                        w!("SysTabControl32"),
+                        None,
+                    )
+                    .expect("tab control not found");
+                    let sel =
+                        SendMessageW(tab, windows::Win32::UI::Controls::TCM_GETCURSEL, None, None)
+                            .0;
                     if use_command {
                         PostMessageW(Some(h), WM_COMMAND, WPARAM(ID_CANCEL as usize), LPARAM(0))
                             .unwrap();
                     } else {
                         PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
                     }
-                }
+                    sel
+                };
+                let want = match initial_tab(reason) {
+                    Tab::General => 0,
+                    Tab::Hotkeys => 1,
+                    Tab::R2 => 2,
+                };
+                assert_eq!(sel, want, "{reason:?}");
             });
-            assert!(show(parent, &cfg, Some("Thông báo thử")).is_none());
+            assert!(show(parent, &cfg, Some("Thông báo thử"), reason).is_none());
             closer.join().unwrap();
             // SAFETY: tìm lại cửa sổ sau khi show trả về.
             assert!(unsafe { FindWindowW(w!("shotme-settings"), None) }.is_err());
