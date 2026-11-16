@@ -113,16 +113,16 @@ messages! {
         "The public address must not contain ?, # or @"
     ),
     NoticeConfigCorrupt => (
-        "File cấu hình bị hỏng. Tùy chọn mặc định đang được dùng; bấm Lưu để ghi lại.",
-        "The config file is corrupt. Default options are in use; click Save to write it again."
+        "File cấu hình bị hỏng. Đang dùng tùy chọn mặc định; bấm Lưu để ghi lại.",
+        "The config file is corrupt. Using default options; click Save to write it again."
     ),
     NoticeSecretLost => (
         "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.",
         "Could not read the saved secret key. Enter the Secret Access Key again."
     ),
     NoticeConfigUnreadable => (
-        "Không đọc được file cấu hình. Tùy chọn mặc định đang được dùng; bấm Lưu để ghi lại.",
-        "Could not read the config file. Default options are in use; click Save to write it again."
+        "Không đọc được file cấu hình. Đang dùng tùy chọn mặc định; bấm Lưu để ghi lại.",
+        "Could not read the config file. Using default options; click Save to write it again."
     ),
     ClipboardUnusedOnExit => ("không dùng clipboard lúc thoát", "the clipboard is not used on exit"),
     TrayOptions => ("Tùy chọn...", "Options..."),
@@ -144,7 +144,7 @@ messages! {
     ),
     OverlayFailedTitle => ("Không mở được lớp phủ chọn vùng", "Could not open the region selector"),
     UploadStartFailedTitle => ("Không bắt đầu được việc tải lên", "Could not start the upload"),
-    AutostartFailedTitle => ("Không đổi được khởi động cùng Windows", "Could not change start with Windows"),
+    AutostartFailedTitle => ("Không đổi được khởi động cùng Windows", "Could not change the Start with Windows setting"),
     OptionsSaveFailedTitle => ("Không lưu được tùy chọn", "Could not save the options"),
     HotkeyReregisterFailedBody => (
         "Không đăng ký lại được phím tắt cũ. Hãy mở Tùy chọn và chọn lại phím tắt.",
@@ -216,8 +216,8 @@ messages! {
     SecretDecryptFailed => ("Không giải mã được khóa bí mật", "Could not decrypt the secret key"),
     SecretTooLarge => ("Dữ liệu quá lớn để mã hóa", "The data is too large to encrypt"),
     AutostartExePath => ("Không xác định được đường dẫn của shotme", "Could not determine the path of shotme"),
-    AutostartEnableFailed => ("Không bật được khởi động cùng Windows", "Could not turn on start with Windows"),
-    AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not turn off start with Windows"),
+    AutostartEnableFailed => ("Không bật được khởi động cùng Windows", "Could not enable starting with Windows"),
+    AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not disable starting with Windows"),
     AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
 }
 
@@ -351,21 +351,21 @@ pub fn options_save_failed_body(lang: Lang, why: &str) -> String {
 pub fn hotkey_inactive_title(lang: Lang, key: &str) -> String {
     match lang {
         Lang::Vi => format!("Phím {key} hiện không hoạt động"),
-        Lang::En => format!("The {key} key is not working now"),
+        Lang::En => format!("The {key} hotkey is not working"),
     }
 }
 
 pub fn hotkey_taken_title(lang: Lang, key: &str) -> String {
     match lang {
         Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm"),
-        Lang::En => format!("Another app is using the {key} key"),
+        Lang::En => format!("Another app is using the {key} hotkey"),
     }
 }
 
 pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
     match lang {
         Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm. Hãy chọn phím khác."),
-        Lang::En => format!("Another app is using the {key} key. Choose a different key."),
+        Lang::En => format!("Another app is using the {key} hotkey. Choose a different one."),
     }
 }
 
@@ -495,5 +495,15 @@ mod tests {
             with_error_code(Lang::Vi, "x", "1"),
             with_error_code(Lang::En, "x", "1")
         );
+    }
+
+    #[test]
+    fn hotkey_titles_fit_tray_limit() {
+        let key = "Ctrl+Alt+Shift+Win+PrintScreen";
+        for l in Lang::ALL {
+            for title in [hotkey_taken_title(l, key), hotkey_inactive_title(l, key)] {
+                assert!(title.encode_utf16().count() <= 63, "{l:?} {title}");
+            }
+        }
     }
 }

@@ -35,10 +35,17 @@ $viPattern = '"[^"]*[\u00C0-\u024F\u1E00-\u1EFF][^"]*"'
 $hard = $false
 Get-ChildItem -Path 'crates\*\src\*.rs' | Where-Object { $_.Name -ne 'i18n.rs' } | ForEach-Object {
     $file = $_
-    $lineNo = 0
-    foreach ($line in (Get-Content -Encoding UTF8 -LiteralPath $file.FullName)) {
-        $lineNo++
-        if ($line -match '#\[cfg\(test\)\]') { break }
+    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $lineNo = $i + 1
+        $line = $lines[$i]
+        if ($line -match '#\[cfg\(test\)\]') {
+            # Chi dung khi #[cfg(test)] gan vao "mod ..." (dong khong rong ke tiep).
+            $j = $i + 1
+            while ($j -lt $lines.Count -and $lines[$j].Trim() -eq '') { $j++ }
+            if ($j -lt $lines.Count -and $lines[$j] -match '^\s*mod\s') { break }
+            continue
+        }
         $code = $line -replace '//.*$', ''
         if ($code -cmatch $viPattern) {
             Write-Host "CHECK FAILED: hard-coded string in $($file.Name):$lineNo"

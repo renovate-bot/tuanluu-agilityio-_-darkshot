@@ -276,7 +276,7 @@ impl R2Uploader {
 
         let got = match self.fetch_public(&key) {
             Ok(body) if body == b"shotme" => Ok(()),
-            Ok(_) => Err(UploadError::PublicUrl("nội dung không khớp".to_string())),
+            Ok(_) => Err(UploadError::PublicUrl("content mismatch".to_string())),
             Err(e) => Err(e),
         };
         // Always clean up, even when the public GET failed.
