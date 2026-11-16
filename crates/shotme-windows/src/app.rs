@@ -75,29 +75,75 @@ impl PendingUploads {
         }
     }
 
+    fn lock(&self) -> std::sync::MutexGuard<'_, PendingInner> {
+        // Sổ chỉ là danh sách; một luồng panic giữa chừng không làm nó sai, nên dùng tiếp.
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Ghi một lượt vào sổ; trả mã để rút ra sau.
     pub fn add(&self, image: Arc<Image>, save_dir: PathBuf) -> u64 {
-        let _ = (image, save_dir);
-        0
+        let mut g = self.lock();
+        let id = g.next_id;
+        g.next_id = g.next_id.wrapping_add(1);
+        g.items.push((id, PendingUpload { image, save_dir }));
+        id
     }
 
     /// Rút một lượt khỏi sổ; `false` nếu nó không còn trong sổ.
     pub fn remove(&self, id: u64) -> bool {
-        let _ = id;
-        false
+        let mut g = self.lock();
+        match g.items.iter().position(|(i, _)| *i == id) {
+            Some(pos) => {
+                g.items.remove(pos);
+                true
+            }
+            None => false,
+        }
     }
 
-    /// Lấy ra mọi lượt còn trong sổ, sổ trở thành rỗng.
+    /// Lấy ra mọi lượt còn trong sổ (theo thứ tự thêm vào), sổ trở thành rỗng.
     pub fn drain(&self) -> Vec<PendingUpload> {
-        Vec::new()
+        std::mem::take(&mut self.lock().items)
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect()
+    }
+}
+
+/// Bỏ qua mọi thông báo: lúc thoát hoặc tắt máy không còn ai để báo.
+struct SilentNotifier;
+impl Notifier for SilentNotifier {
+    fn notify(&self, _: shotme_core::actions::NoticeKind, _: &str, _: &str) {}
+}
+
+/// Không đụng clipboard của người dùng khi lưu lúc thoát.
+struct NoClipboard;
+impl Clipboard for NoClipboard {
+    fn set_text(&self, _: &str) -> Result<(), String> {
+        Err("không dùng clipboard lúc thoát".into())
+    }
+    fn set_image(&self, _: &Image) -> Result<(), String> {
+        Err("không dùng clipboard lúc thoát".into())
     }
 }
 
 /// Lưu PNG của các lượt chưa xong vào thư mục lưu của từng lượt. Chỉ ghi file, không thông báo,
 /// không chạm clipboard, không mạng. Trả số ảnh đã lưu được.
 pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
-    let _ = (items, now);
-    0
+    items
+        .iter()
+        .filter(|p| {
+            let ctx = Ctx {
+                save_dir: &p.save_dir,
+                expiry: shotme_core::config::Expiry::Keep,
+                now,
+                uploader: None,
+                clipboard: &NoClipboard,
+                notifier: &SilentNotifier,
+            };
+            matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
+        })
+        .count()
 }
 
 /// Mọi thứ một lượt tải lên cần; đã là bản chụp riêng, không tham chiếu trạng thái luồng chính.
@@ -129,6 +175,10 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 notifier: job.notifier.as_ref(),
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
+            // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
+            if let Some((reg, id)) = &job.pending {
+                reg.remove(*id);
+            }
             if let Outcome::UploadFailedSaved {
                 needs_settings: true,
                 ..

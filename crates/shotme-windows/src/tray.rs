@@ -1,7 +1,7 @@
 //! Biểu tượng khay, menu và thông báo.
 
 use shotme_core::actions::{NoticeKind, Notifier};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
@@ -46,6 +46,8 @@ pub struct Tray {
     hwnd: HWND,
     icon: HICON,
     added: Cell<bool>,
+    /// Thông báo đến lúc biểu tượng chưa có.
+    pending: RefCell<VecDeque<Notice>>,
 }
 
 fn hwnd_from(v: isize) -> HWND {
@@ -95,6 +97,7 @@ impl Tray {
             hwnd,
             icon,
             added: Cell::new(false),
+            pending: RefCell::new(VecDeque::new()),
         };
         // Explorer có thể chưa sẵn sàng (tự khởi động cùng Windows): không phải lỗi chết.
         tray.try_add();
@@ -111,7 +114,18 @@ impl Tray {
         let nid = self.full_data();
         // SAFETY: nid được khởi tạo đầy đủ.
         let ok = unsafe { Shell_NotifyIconW(NIM_ADD, &nid).as_bool() };
+        self.set_added(ok)
+    }
+
+    /// Ghi nhận trạng thái biểu tượng; vừa có thì hiện thông báo đang chờ (nếu có).
+    fn set_added(&self, ok: bool) -> bool {
         self.added.set(ok);
+        if ok {
+            let next = take_notice_to_show(&mut self.pending.borrow_mut());
+            if let Some(n) = next {
+                self.show_notice(&n);
+            }
+        }
         ok
     }
 
@@ -148,14 +162,23 @@ impl Tray {
     }
 
     /// Thêm lại biểu tượng khi Explorer khởi động lại ("TaskbarCreated").
-    pub fn readd(&self) {
-        self.try_add();
+    /// `NIM_ADD` thất bại (biểu tượng có thể vẫn còn) thì thử `NIM_MODIFY` trước khi coi là chưa có.
+    pub fn readd(&self) -> bool {
+        let nid = self.full_data();
+        // SAFETY: nid được khởi tạo đầy đủ.
+        let ok = unsafe {
+            Shell_NotifyIconW(NIM_ADD, &nid).as_bool()
+                || Shell_NotifyIconW(NIM_MODIFY, &nid).as_bool()
+        };
+        self.set_added(ok)
     }
 
     /// Hiện bong bóng thông báo. Chỉ gọi ở luồng chính.
+    /// Chưa có biểu tượng thì xếp vào hàng đợi, hiện khi biểu tượng được thêm.
     pub fn show_notice(&self, n: &Notice) {
         if !self.added.get() {
-            return; // chưa có biểu tượng thì bỏ qua thông báo
+            enqueue_notice(&mut self.pending.borrow_mut(), n.clone());
+            return;
         }
         let mut nid = self.base_data();
         nid.uFlags = NIF_INFO;
@@ -223,14 +246,21 @@ pub const MAX_QUEUED_NOTICES: usize = 8;
 
 /// Xếp một thông báo vào hàng đợi; đầy thì bỏ cái cũ nhất.
 pub fn enqueue_notice(q: &mut VecDeque<Notice>, n: Notice) {
-    let _ = (q, n);
+    while q.len() >= MAX_QUEUED_NOTICES {
+        q.pop_front();
+    }
+    q.push_back(n);
 }
 
 /// Chọn thông báo để hiện khi biểu tượng vừa có: cái mới nhất mức Error nếu có, không thì cái
 /// mới nhất. Hàng đợi được làm rỗng.
 pub fn take_notice_to_show(q: &mut VecDeque<Notice>) -> Option<Notice> {
-    let _ = q;
-    None
+    let pick = match q.iter().rposition(|n| n.kind == NoticeKind::Error) {
+        Some(i) => q.remove(i),
+        None => q.pop_back(),
+    };
+    q.clear();
+    pick
 }
 
 /// Số lần thử lại tối đa khi chưa thêm được biểu tượng.

@@ -10,6 +10,7 @@ mod paths;
 mod secret;
 mod settings;
 mod tray;
+mod wer;
 
 use app::{AppState, UploadJob};
 use secret::DpapiStore;
@@ -30,8 +31,9 @@ use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EndMenu, GetMessageW,
     KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetTimer,
-    TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP,
-    WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
+    TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY,
+    WM_LBUTTONUP, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WS_OVERLAPPED,
 };
 
 /// Sự kiện nội bộ; Task 11 mở rộng.
@@ -101,7 +103,10 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
             (PendingMenuSettings, GateAction::Ignore)
         }
         (Capturing | CapturingSettings, OpenSettings) => (CapturingSettings, GateAction::Ignore),
-        (SettingsOpen, TrayClick | OpenSettings) => (SettingsOpen, GateAction::FocusSettings),
+        // Cài đặt đang mở: mọi yêu cầu từ người dùng (kể cả chụp) đưa cửa sổ ra trước để nó không bị khuất.
+        (SettingsOpen, TrayClick | OpenSettings | Hotkey | MenuCapture) => {
+            (SettingsOpen, GateAction::FocusSettings)
+        }
         (SettingsOpen, SettingsClosed) => (Idle, GateAction::None),
         (s, SettingsClosed) => (s, GateAction::None),
         (Capturing, OverlayClosed) => (Idle, GateAction::None),
@@ -113,8 +118,7 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
 
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
 pub fn tray_click_opens_menu(ev: u32, menu_open: bool) -> bool {
-    let _ = menu_open;
-    ev == WM_RBUTTONUP || ev == WM_LBUTTONUP
+    !menu_open && (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
 }
 
 thread_local! {
@@ -125,6 +129,16 @@ thread_local! {
     static GATE: Cell<CaptureGate> = const { Cell::new(CaptureGate::Idle) };
     /// Menu khay đang hiện.
     static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
+    /// Sổ các lượt tải lên đang chạy; luồng tải lên giữ bản sao `Arc`.
+    static PENDING: Arc<app::PendingUploads> = Arc::new(app::PendingUploads::new());
+}
+
+/// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
+fn save_pending_uploads() {
+    let items = PENDING.with(|p| p.drain());
+    if !items.is_empty() {
+        app::save_pending(items, paths::local_now());
+    }
 }
 
 /// Luồng nền (hoặc lúc khởi động) nhờ luồng chính mở Cài đặt.
@@ -240,6 +254,8 @@ fn capture_flow(hwnd: HWND) {
             };
             let image = Arc::new(image);
             let hwnd_raw = hwnd.0 as isize;
+            let registry = PENDING.with(Arc::clone);
+            let pending_id = registry.add(image.clone(), config.save_dir.clone());
             let job = UploadJob {
                 save_dir: config.save_dir.clone(),
                 expiry: config.expiry,
@@ -249,9 +265,11 @@ fn capture_flow(hwnd: HWND) {
                 image: image.clone(),
                 clock: paths::local_now,
                 on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
-                pending: None,
+                pending: Some((registry.clone(), pending_id)),
             };
             if let Err(e) = app::spawn_upload(job) {
+                // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.
+                registry.remove(pending_id);
                 // Không tạo được luồng: lưu ảnh ngay thay vì mất nó.
                 notifier.notify(
                     NoticeKind::Error,
@@ -384,6 +402,8 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             gate(hwnd, GateEvent::OpenSettings);
         }
         AppEvent::Quit => {
+            // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng.
+            save_pending_uploads();
             // SAFETY: hwnd là cửa sổ của luồng này.
             unsafe {
                 let _ = DestroyWindow(hwnd);
@@ -396,7 +416,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     let tb = TASKBAR_CREATED.with(|c| c.get());
     if tb != 0 && msg == tb {
         if let Some(t) = current_tray() {
-            t.readd();
+            if !t.readd() {
+                // Explorer chưa nhận biểu tượng: thử lại theo hẹn giờ như lúc khởi động.
+                ADD_ATTEMPTS.with(|c| c.set(0));
+                // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
+                unsafe {
+                    SetTimer(Some(hwnd), RETRY_TIMER_ID, RETRY_INTERVAL_MS, None);
+                }
+            }
         }
         return LRESULT(0);
     }
@@ -416,7 +443,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TRAY => {
             let ev = (lp.0 & 0xFFFF) as u32;
-            if (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
+            // Menu đang mở thì bỏ qua hẳn: không mở menu lồng và không hạ cờ MENU_OPEN sớm.
+            if tray_click_opens_menu(ev, MENU_OPEN.with(|m| m.get()))
                 && gate(hwnd, GateEvent::TrayClick) == GateAction::None
             {
                 MENU_OPEN.with(|m| m.set(true));
@@ -464,6 +492,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TIMER if wp.0 == RETRY_TIMER_ID => {
             on_retry_timer(hwnd);
+            LRESULT(0)
+        }
+        // Tài liệu WM_QUERYENDSESSION: trả TRUE ngay, để việc dọn dẹp tới WM_ENDSESSION.
+        WM_QUERYENDSESSION => LRESULT(1),
+        WM_ENDSESSION => {
+            if wp.0 != 0 {
+                // Phiên sắp kết thúc (tắt máy, đăng xuất): chỉ ghi file ảnh của các lượt còn dở.
+                save_pending_uploads();
+            }
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -517,6 +554,8 @@ fn main() {
         }
         h
     };
+    // Không để Windows gửi bản kết xuất bộ nhớ (có thể chứa khóa, ảnh) đi khi sự cố.
+    wer::exclude_from_error_reporting();
 
     let Ok(hwnd) = create_window() else { return };
     // SAFETY: chuỗi hằng kết thúc bằng 0.
@@ -568,6 +607,8 @@ fn main() {
             DispatchMessageW(&msg);
         }
     }
+    // Lưới an toàn: vòng lặp kết thúc theo đường nào thì ảnh của lượt còn dở cũng được lưu.
+    save_pending_uploads();
 }
 
 #[cfg(test)]
