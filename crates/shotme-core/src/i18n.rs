@@ -387,6 +387,7 @@ pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
 /// Nội dung cửa sổ Trợ giúp: văn bản thuần, các dòng ngăn bằng `\n`, không có địa chỉ web.
 /// `hotkey` là tổ hợp phím chụp đang đặt (ví dụ "PrintScreen").
 pub fn help_text(lang: Lang, hotkey: &str) -> String {
+    let change = t(lang, Msg::BtnChange);
     match lang {
         Lang::Vi => format!(
             "1. Chụp màn hình\n\
@@ -402,7 +403,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
 - Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ.\n\
-- Phím tắt: phím tắt chụp. Bấm Đổi... rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- Phím tắt: phím tắt chụp. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
 \n\
 4. Chuẩn bị Cloudflare R2\n\
@@ -431,7 +432,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
 - General: start with Windows, save folder, language.\n\
-- Hotkeys: the capture hotkey. Click Change..., then press the new combination; Esc skips.\n\
+- Hotkeys: the capture hotkey. Click {change}, then press the new combination; Esc skips.\n\
 - R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
 \n\
 4. Setting up Cloudflare R2\n\
@@ -620,6 +621,7 @@ mod tests {
                 assert!(s.contains(k), "{l:?} thiếu {k}");
             }
             assert!(!s.contains("http"), "{l:?} có địa chỉ web");
+            assert!(s.contains(t(l, Msg::BtnChange)), "{l:?} sai nhãn nút Đổi");
         }
         assert_ne!(help_text(Lang::Vi, "X"), help_text(Lang::En, "X"));
     }
