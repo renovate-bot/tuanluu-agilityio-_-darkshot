@@ -11,6 +11,10 @@ pub struct Image {
 }
 
 impl Image {
+    pub fn is_valid(&self) -> bool {
+        true
+    }
+
     /// Cắt theo `r`; `r` được kẹp vào ảnh.
     pub fn crop(&self, r: Rect) -> Image {
         let x0 = i64::from(r.x).max(0);
@@ -40,7 +44,7 @@ impl Image {
 }
 
 /// PNG RGB 8 bit, bỏ kênh alpha.
-pub fn encode_png(img: &Image) -> Vec<u8> {
+pub fn encode_png(img: &Image) -> Result<Vec<u8>, String> {
     let mut rgb = Vec::with_capacity(img.width as usize * img.height as usize * 3);
     for p in img.bgra.as_chunks::<4>().0 {
         rgb.extend_from_slice(&[p[2], p[1], p[0]]);
@@ -53,7 +57,7 @@ pub fn encode_png(img: &Image) -> Vec<u8> {
         let mut w = enc.write_header().expect("PNG header to memory");
         w.write_image_data(&rgb).expect("PNG data to memory");
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -118,10 +122,45 @@ mod tests {
     }
 
     #[test]
+    fn crop_of_short_buffer_is_empty() {
+        let img = Image {
+            width: 4,
+            height: 4,
+            bgra: vec![0; 8],
+        };
+        let c = img.crop(Rect {
+            x: 0,
+            y: 0,
+            w: 2,
+            h: 2,
+        });
+        assert_eq!((c.width, c.height), (0, 0));
+        assert!(c.bgra.is_empty());
+    }
+
+    #[test]
+    fn encode_rejects_invalid_images() {
+        let empty = Image {
+            width: 0,
+            height: 0,
+            bgra: vec![],
+        };
+        assert!(encode_png(&empty).is_err());
+        let short = Image {
+            width: 2,
+            height: 2,
+            bgra: vec![1, 2, 3],
+        };
+        assert!(encode_png(&short).is_err());
+        assert!(!empty.is_valid() && !short.is_valid());
+        assert!(gradient(2, 2).is_valid());
+    }
+
+    #[test]
     fn png_round_trip() {
         let mut img = gradient(3, 2);
         img.bgra[0..4].copy_from_slice(&[10, 20, 30, 255]); // B=10 G=20 R=30
-        let data = encode_png(&img);
+        let data = encode_png(&img).unwrap();
         assert_eq!(data[..8], [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
         let dec = png::Decoder::new(std::io::Cursor::new(&data));
         let mut reader = dec.read_info().unwrap();

@@ -92,7 +92,7 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
             true,
         );
     };
-    let png = encode_png(img);
+    let png = encode_png(img).unwrap_or_default();
     let key = object_key(ctx.expiry, &random_object_name());
     match uploader.upload(&key, &png) {
         Ok(link) => {
@@ -147,7 +147,7 @@ fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
     std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
     let path = unique_path(ctx.save_dir, &local_file_name(&ctx.now));
     let tmp = path.with_extension("png.tmp");
-    let png = encode_png(img);
+    let png = encode_png(img)?;
     let result = std::fs::write(&tmp, &png).and_then(|_| std::fs::rename(&tmp, &path));
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
@@ -258,6 +258,35 @@ mod tests {
             clipboard: cb,
             notifier: n,
         }
+    }
+
+    #[test]
+    fn invalid_image_fails_with_one_error_notice() {
+        let bad = Image {
+            width: 0,
+            height: 0,
+            bgra: vec![],
+        };
+        for action in [Action::Save, Action::Upload, Action::Copy] {
+            let d = temp_dir();
+            let up = FakeUploader::new(Ok("https://x/y.png".to_string()));
+            let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+            let out = run_action(&ctx(&d, Some(&up), &cb, &n), action, &bad);
+            assert_eq!(out, Outcome::Failed, "{action:?}");
+            let notes = n.notes.lock().unwrap();
+            assert_eq!(notes.len(), 1, "{action:?}");
+            assert_eq!(notes[0].0, NoticeKind::Error);
+            assert_eq!(notes[0].1, "Không có ảnh để xử lý");
+            assert_eq!(notes[0].2, "Vùng chọn trống hoặc ảnh không hợp lệ.");
+            assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+            assert!(up.keys.lock().unwrap().is_empty());
+            assert!(cb.images.lock().unwrap().is_empty());
+            assert!(cb.texts.lock().unwrap().is_empty());
+        }
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Cancel, &bad);
+        assert_eq!(out, Outcome::Cancelled);
     }
 
     #[test]
