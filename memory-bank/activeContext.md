@@ -12,7 +12,7 @@ Cập nhật: 2026-11-16
 - Task 12 (README, mục nghiệm thu R2) đã gộp vào `main`. Cả 12 task đã xong. Bản phát hành `target/release/shotme.exe` 1.513.472 byte.
 - Rà soát toàn bộ (specialist) đã xong: DUYỆT, không lỗi chặn; phần bảo mật (hai đích mạng, đường đi của khóa, tên ngẫu nhiên) đã xác nhận. Sáu điểm nên sửa và bốn điểm nhỏ thành gói `docs/tasks/13-hardening.md`.
 - Task 13 (gia cố) đã gộp vào `main`: lõi 64 kiểm thử, lớp Windows 49 kiểm thử và 4 kiểm thử chạy tay. Tổng kết token đã lập trong `progress.md`.
-- Task 14 (biểu tượng mới, tám cỡ, sinh bằng `crates/shotme-windows/res/make_icon.py`, cần Pillow; ảnh xem trước `docs/icon-preview.png`) đã gộp vào `main`. Phần mã (khay nạp cỡ nhỏ bằng `LoadImageW`, `WM_SETICON` cho Cài đặt) chưa qua agent rà soát. Chủ dự án chưa duyệt hình.
+- Task 14 (biểu tượng mới, tám cỡ, sinh bằng `crates/shotme-windows/res/make_icon.py`, cần Pillow; ảnh xem trước `docs/icon-preview.png`) đã gộp vào `main`. Phần mã (khay nạp cỡ nhỏ bằng `LoadImageW`, `WM_SETICON` cho Cài đặt) chưa qua agent rà soát. Chủ dự án đã duyệt hình (2026-11-16).
 - Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay và nghiệm thu với R2 thật.
 - Agent không được tự tắt tiến trình `shotme` đang chạy sẵn (có thể chủ dự án đang dùng): chỉ tắt tiến trình do chính nó khởi động; nếu exe bị khóa thì bỏ qua build release và báo lại.
 - shotme ghi `shotme.exe`=1 (DWORD) vào `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` mỗi lần khởi động (đã có trên máy chủ dự án từ lượt chạy thử Task 13). Chưa thử bằng sự cố thật.
