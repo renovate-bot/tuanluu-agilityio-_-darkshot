@@ -397,9 +397,23 @@ pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
     }
 }
 
+/// Tổ hợp phím của từng dòng phím tắt cho Trợ giúp; `None` là dòng đang tắt.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct HelpKeys {
+    pub region: Option<String>,
+    pub save_full: Option<String>,
+    pub upload_full: Option<String>,
+}
+
 /// Nội dung cửa sổ Trợ giúp: văn bản thuần, các dòng ngăn bằng `\n`, không có địa chỉ web.
-/// `hotkey` là tổ hợp phím chụp đang đặt (ví dụ "PrintScreen").
-pub fn help_text(lang: Lang, hotkey: &str) -> String {
+/// `keys` là tổ hợp của các dòng phím tắt đang bật (ví dụ "PrintScreen").
+pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
+    let _ = (lang, keys);
+    todo!()
+}
+
+#[allow(dead_code)]
+fn help_text_old(lang: Lang, hotkey: &str) -> String {
     let change = t(lang, Msg::BtnChange);
     match lang {
         Lang::Vi => format!(
@@ -660,8 +674,12 @@ mod tests {
 
     #[test]
     fn help_text_names_the_hotkey_and_keys() {
+        let keys = |k: &str| HelpKeys {
+            region: Some(k.into()),
+            ..Default::default()
+        };
         for l in Lang::ALL {
-            let s = help_text(l, "Ctrl+Shift+Q");
+            let s = help_text(l, &keys("Ctrl+Shift+Q"));
             assert!(s.contains("Ctrl+Shift+Q"), "{l:?}");
             for k in [
                 "Ctrl+D",
@@ -678,7 +696,65 @@ mod tests {
             assert!(!s.contains("http"), "{l:?} có địa chỉ web");
             assert!(s.contains(t(l, Msg::BtnChange)), "{l:?} sai nhãn nút Đổi");
         }
-        assert_ne!(help_text(Lang::Vi, "X"), help_text(Lang::En, "X"));
+        assert_ne!(
+            help_text(Lang::Vi, &keys("X")),
+            help_text(Lang::En, &keys("X"))
+        );
+    }
+
+    #[test]
+    fn help_text_lists_enabled_and_disabled_hotkeys() {
+        for l in Lang::ALL {
+            let all = HelpKeys {
+                region: Some("KEY_A".into()),
+                save_full: Some("KEY_B".into()),
+                upload_full: Some("KEY_C".into()),
+            };
+            let s = help_text(l, &all);
+            for k in [
+                "KEY_A", "KEY_B", "KEY_C", "Ctrl+D", "Ctrl+S", "Ctrl+C", "Esc",
+            ] {
+                assert!(s.contains(k), "{l:?} thiếu {k}");
+            }
+            assert!(!s.contains("http"));
+            assert!(s.contains(t(l, Msg::BtnChange)));
+            let none = help_text(l, &HelpKeys::default());
+            for k in ["KEY_A", "KEY_B", "KEY_C"] {
+                assert!(!none.contains(k));
+            }
+            assert_ne!(none, s);
+            // mỗi dòng tắt riêng lẻ cho văn bản khác với khi bật
+            assert_ne!(
+                help_text(
+                    l,
+                    &HelpKeys {
+                        save_full: None,
+                        ..all.clone()
+                    }
+                ),
+                s
+            );
+            assert_ne!(
+                help_text(
+                    l,
+                    &HelpKeys {
+                        upload_full: None,
+                        ..all.clone()
+                    }
+                ),
+                s
+            );
+            assert_ne!(
+                help_text(
+                    l,
+                    &HelpKeys {
+                        region: None,
+                        ..all.clone()
+                    }
+                ),
+                s
+            );
+        }
     }
 
     #[test]

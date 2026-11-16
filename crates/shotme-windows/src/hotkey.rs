@@ -1,6 +1,7 @@
 //! Đăng ký phím tắt toàn cục.
 
-use shotme_core::config::Hotkey;
+use shotme_core::config::{Hotkey, HotkeyRole, Hotkeys};
+use shotme_core::i18n::HelpKeys;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
@@ -8,6 +9,44 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 pub const HOTKEY_ID: i32 = 1;
+
+/// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3.
+pub fn id_of(role: HotkeyRole) -> i32 {
+    let _ = role;
+    todo!()
+}
+
+/// Dòng ứng với mã `id` của `WM_HOTKEY`.
+pub fn role_of(id: i32) -> Option<HotkeyRole> {
+    let _ = id;
+    todo!()
+}
+
+/// Hủy đăng ký cả ba dòng.
+#[allow(dead_code)]
+pub fn unregister_all(hwnd: HWND) {
+    let _ = hwnd;
+    todo!()
+}
+
+/// Đăng ký các dòng đang bật theo `HotkeyRole::ALL`; trả về các dòng không đăng ký được.
+#[allow(dead_code)]
+pub fn register_enabled(hwnd: HWND, keys: &Hotkeys) -> Vec<HotkeyRole> {
+    let _ = (hwnd, keys);
+    todo!()
+}
+
+/// Tổ hợp của các dòng đang bật cho Trợ giúp.
+pub fn help_keys(keys: &Hotkeys) -> HelpKeys {
+    let _ = keys;
+    todo!()
+}
+
+/// Tên tổ hợp của các dòng `failed`, theo thứ tự `HotkeyRole::ALL`.
+pub fn taken_combos(keys: &Hotkeys, failed: &[HotkeyRole]) -> Vec<String> {
+    let _ = (keys, failed);
+    todo!()
+}
 
 /// RegisterHotKey với MOD_NOREPEAT. Trả về `false` khi phím đang bị ứng dụng khác chiếm.
 pub fn register(hwnd: HWND, hk: &Hotkey) -> bool {
@@ -114,5 +153,50 @@ mod tests {
             }),
             "Alt+F2"
         );
+    }
+
+    #[test]
+    fn ids_round_trip() {
+        assert_eq!(id_of(HotkeyRole::Region), 1);
+        let ids: Vec<i32> = HotkeyRole::ALL.iter().map(|r| id_of(*r)).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+        for r in HotkeyRole::ALL {
+            assert_eq!(role_of(id_of(r)), Some(r));
+        }
+        assert_eq!(role_of(0), None);
+        assert_eq!(role_of(4), None);
+    }
+
+    #[test]
+    fn help_keys_skip_disabled_rows() {
+        let mut h = Hotkeys::default();
+        assert_eq!(
+            help_keys(&h),
+            HelpKeys {
+                region: Some("PrintScreen".into()),
+                save_full: None,
+                upload_full: None
+            }
+        );
+        h.upload_full.enabled = true;
+        h.region.enabled = false;
+        assert_eq!(
+            help_keys(&h),
+            HelpKeys {
+                region: None,
+                save_full: None,
+                upload_full: Some("Ctrl+PrintScreen".into())
+            }
+        );
+    }
+
+    #[test]
+    fn taken_combos_follow_row_order() {
+        let h = Hotkeys::default();
+        assert_eq!(
+            taken_combos(&h, &[HotkeyRole::UploadFull, HotkeyRole::Region]),
+            vec!["PrintScreen".to_string(), "Ctrl+PrintScreen".to_string()]
+        );
+        assert!(taken_combos(&h, &[]).is_empty());
     }
 }

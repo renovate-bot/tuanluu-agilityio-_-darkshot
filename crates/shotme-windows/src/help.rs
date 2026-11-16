@@ -58,7 +58,11 @@ pub fn show(owner: HWND, hotkey: &Hotkey) {
     OPEN.with(|o| o.set(hwnd.0 as isize));
 
     // Ô EDIT cần \r\n để xuống dòng.
-    let text = help_text(lang::current(), &hotkey::describe(hotkey)).replace('\n', "\r\n");
+    let keys = shotme_core::i18n::HelpKeys {
+        region: Some(hotkey::describe(hotkey)),
+        ..Default::default()
+    };
+    let text = help_text(lang::current(), &keys).replace('\n', "\r\n");
     let edit_style = WS_BORDER
         | WS_VSCROLL
         | WS_TABSTOP

@@ -9,7 +9,7 @@
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{
-    normalize_public_base_url, Config, Expiry, Hotkey, HotkeySlot, Hotkeys, R2Config,
+    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, HotkeySlot, Hotkeys, R2Config,
 };
 use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
@@ -68,10 +68,13 @@ pub struct Form {
     pub bucket: String,
     pub public_base_url: String,
     pub expiry: Expiry,
-    pub hotkey: Hotkey,
+    pub hotkeys: Hotkeys,
     pub save_dir: String,
     pub autostart: bool,
     pub language: Lang,
+    pub show_success_notices: bool,
+    pub keep_selection: bool,
+    pub include_cursor: bool,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -84,10 +87,13 @@ impl std::fmt::Debug for Form {
             .field("bucket", &self.bucket)
             .field("public_base_url", &self.public_base_url)
             .field("expiry", &self.expiry)
-            .field("hotkey", &self.hotkey)
+            .field("hotkeys", &self.hotkeys)
             .field("save_dir", &self.save_dir)
             .field("autostart", &self.autostart)
             .field("language", &self.language)
+            .field("show_success_notices", &self.show_success_notices)
+            .field("keep_selection", &self.keep_selection)
+            .field("include_cursor", &self.include_cursor)
             .finish()
     }
 }
@@ -116,6 +122,7 @@ pub enum Tab {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     SaveDir,
+    HotkeyRow(HotkeyRole),
     AccountId,
     Bucket,
     PublicUrl,
@@ -132,6 +139,7 @@ pub struct FormError {
 pub fn tab_of(field: Field) -> Tab {
     match field {
         Field::SaveDir => Tab::General,
+        Field::HotkeyRow(_) => todo!(),
         Field::AccountId | Field::Bucket | Field::PublicUrl => Tab::R2,
     }
 }
@@ -223,7 +231,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         expiry: form.expiry,
         hotkeys: Hotkeys {
             region: HotkeySlot {
-                key: form.hotkey,
+                key: form.hotkeys.region.key,
                 ..current.hotkeys.region
             },
             ..current.hotkeys
@@ -509,7 +517,8 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (hotkey, old_lang) = with_st(|s| (s.hotkey, s.current.language))?;
+    let (hotkey, old_lang, current) =
+        with_st(|s| (s.hotkey, s.current.language, s.current.clone()))?;
     let language = usize::try_from(lang_sel)
         .ok()
         .and_then(|i| Lang::ALL.get(i).copied())
@@ -521,10 +530,19 @@ fn read_form() -> Option<Form> {
         bucket: get_text(c.bucket),
         public_base_url: get_text(c.url),
         expiry,
-        hotkey,
+        hotkeys: Hotkeys {
+            region: HotkeySlot {
+                key: hotkey,
+                ..current.hotkeys.region
+            },
+            ..current.hotkeys
+        },
         save_dir: get_text(c.dir),
         autostart: checked == 1,
         language,
+        show_success_notices: current.show_success_notices,
+        keep_selection: current.keep_selection,
+        include_cursor: current.include_cursor,
     })
 }
 
@@ -540,6 +558,7 @@ fn first_ctl(c: &Ctl, t: Tab) -> HWND {
 fn field_ctl(c: &Ctl, f: Field) -> HWND {
     match f {
         Field::SaveDir => c.dir,
+        Field::HotkeyRow(_) => todo!(),
         Field::AccountId => c.account,
         Field::Bucket => c.bucket,
         Field::PublicUrl => c.url,
@@ -1846,10 +1865,13 @@ mod tests {
             bucket: c.r2.bucket.clone(),
             public_base_url: c.r2.public_base_url.clone(),
             expiry: c.expiry,
-            hotkey: c.hotkeys.region.key,
+            hotkeys: c.hotkeys,
             save_dir: c.save_dir.to_string_lossy().into_owned(),
             autostart: c.autostart,
             language: c.language,
+            show_success_notices: c.show_success_notices,
+            keep_selection: c.keep_selection,
+            include_cursor: c.include_cursor,
         }
     }
 
@@ -1922,7 +1944,7 @@ mod tests {
         let mut f = form_of(&c);
         f.expiry = Expiry::Keep;
         f.autostart = true;
-        f.hotkey = Hotkey {
+        f.hotkeys.region.key = Hotkey {
             ctrl: true,
             alt: false,
             shift: false,
@@ -1932,7 +1954,7 @@ mod tests {
         let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.expiry, Expiry::Keep);
         assert!(out.autostart);
-        assert_eq!(out.hotkeys.region.key, f.hotkey);
+        assert_eq!(out.hotkeys.region.key, f.hotkeys.region.key);
     }
 
     #[test]
@@ -1966,6 +1988,66 @@ mod tests {
         for f in [Field::AccountId, Field::Bucket, Field::PublicUrl] {
             assert_eq!(tab_of(f), Tab::R2);
         }
+    }
+
+    #[test]
+    fn hotkey_rows_belong_to_hotkeys_tab() {
+        for r in HotkeyRole::ALL {
+            assert_eq!(tab_of(Field::HotkeyRow(r)), Tab::Hotkeys);
+        }
+    }
+
+    #[test]
+    fn hotkey_conflict_is_a_form_error() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.hotkeys.save_full = HotkeySlot {
+            enabled: true,
+            key: f.hotkeys.region.key,
+        };
+        let e = apply_form(&c, &f, Lang::Vi).unwrap_err();
+        assert_eq!(e.field, Field::HotkeyRow(HotkeyRole::SaveFull));
+        assert!(e.message.contains("PrintScreen"));
+        assert!(e.message.contains(t(Lang::Vi, HotkeyRole::Region.label())));
+        assert!(e
+            .message
+            .contains(t(Lang::Vi, HotkeyRole::SaveFull.label())));
+        f.hotkeys.save_full.enabled = false; // dòng tắt không tính
+        assert!(apply_form(&c, &f, Lang::Vi).is_ok());
+    }
+
+    #[test]
+    fn error_order_is_savedir_hotkeys_r2() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.hotkeys.save_full = HotkeySlot {
+            enabled: true,
+            key: f.hotkeys.region.key,
+        };
+        f.bucket = "x y".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::HotkeyRow(HotkeyRole::SaveFull)
+        );
+        f.save_dir = "".into();
+        assert_eq!(
+            apply_form(&c, &f, Lang::Vi).unwrap_err().field,
+            Field::SaveDir
+        );
+    }
+
+    #[test]
+    fn new_options_are_carried_from_form() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.show_success_notices = false;
+        f.keep_selection = true;
+        f.include_cursor = true;
+        f.hotkeys.upload_full.enabled = true;
+        f.hotkeys.region.enabled = false;
+        let n = apply_form(&c, &f, Lang::Vi).unwrap();
+        assert!(!n.show_success_notices && n.keep_selection && n.include_cursor);
+        assert_eq!(n.hotkeys, f.hotkeys);
     }
 
     #[test]

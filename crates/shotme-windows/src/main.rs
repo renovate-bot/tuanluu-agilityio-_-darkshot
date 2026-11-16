@@ -828,6 +828,31 @@ mod tests {
     }
 
     #[test]
+    fn info_windows_close_when_any_hotkey_row_changes() {
+        use std::path::Path;
+        let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
+        // Bật/tắt một dòng: stale.
+        for r in shotme_core::config::HotkeyRole::ALL {
+            let mut b = a.clone();
+            let mut slot = b.hotkeys.get(r);
+            slot.enabled = !slot.enabled;
+            b.hotkeys.set(r, slot);
+            assert!(info_windows_stale(&a, &b), "{r:?}");
+        }
+        // Đổi tổ hợp của dòng 2 hay 3: stale.
+        let mut b = a.clone();
+        b.hotkeys.save_full.key.alt = true;
+        assert!(info_windows_stale(&a, &b));
+        let mut b = a.clone();
+        b.hotkeys.upload_full.key.vk = 0x71;
+        assert!(info_windows_stale(&a, &b));
+        // Đổi show_success_notices: không stale.
+        let mut b = a.clone();
+        b.show_success_notices = !b.show_success_notices;
+        assert!(!info_windows_stale(&a, &b));
+    }
+
+    #[test]
     fn tray_click_while_menu_open_is_ignored() {
         assert!(tray_click_opens_menu(WM_RBUTTONUP, false));
         assert!(tray_click_opens_menu(WM_LBUTTONUP, false));
