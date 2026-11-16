@@ -1,7 +1,53 @@
-//! Cửa sổ Cài đặt.
+//! Cửa sổ Cài đặt (Win32 thuần, Common Controls v6 qua manifest).
+//!
+//! Phần logic (`apply_form`, `capture_hotkey`) là hàm thuần có kiểm thử; phần cửa sổ mỏng.
+//! `show` chạy vòng lặp thông điệp riêng (hộp thoại kiểu modal) và bảo đảm khi trả về:
+//! Lưu thì phím tắt mới (nếu đổi) đã được đăng ký cho `parent`; Hủy thì phím tắt cũ đã đăng ký lại.
+//! Việc ghi `Config` ra đĩa và bật/tắt khởi động cùng Windows do bên gọi (Task 11) làm.
 
+use crate::hotkey;
 use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
+use shotme_core::upload::R2Uploader;
+use std::cell::{Cell, RefCell};
+use std::ffi::c_void;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use windows::core::{w, HSTRING, PCWSTR, PWSTR};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    CreateFontIndirectW, DeleteObject, GetMonitorInfoW, GetSysColorBrush, MonitorFromPoint,
+    SetBkMode, SetTextColor, COLOR_BTNFACE, HBRUSH, HDC, HFONT, HGDIOBJ, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, TRANSPARENT,
+};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
+    COINIT_APARTMENTTHREADED,
+};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::{
+    AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, GetFocus, GetKeyState, SetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU,
+    VK_RETURN, VK_RWIN, VK_SHIFT,
+};
+use windows::Win32::UI::Shell::{
+    FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
+    GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild, IsDialogMessageW, IsIconic,
+    PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK,
+    BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING,
+    CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD,
+    ES_READONLY, GWL_STYLE, HMENU, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
+    SWP_NOZORDER, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP, WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW,
+    WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_CONTROLPARENT, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    WS_VSCROLL,
+};
 
 /// Giá trị đọc từ các ô của cửa sổ.
 #[derive(Clone)]
@@ -17,6 +63,7 @@ pub struct Form {
     pub autostart: bool,
 }
 
+// Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
 impl std::fmt::Debug for Form {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Form")
@@ -33,10 +80,59 @@ impl std::fmt::Debug for Form {
     }
 }
 
+pub struct SettingsResult {
+    pub config: Config,
+}
+
+fn is_account_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-'
+}
+
+fn is_bucket_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
+}
+
+/// Gộp biểu mẫu vào cấu hình hiện tại. Thuần: không đụng hệ điều hành.
 pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
-    let _ = (current, form, normalize_public_base_url("")); // khung tối thiểu
-    let _ = (R2Config::default(), PathBuf::new());
-    todo!()
+    let account_id = form.account_id.trim().to_string();
+    let access_key_id = form.access_key_id.trim().to_string();
+    let bucket = form.bucket.trim().to_string();
+    let secret = form.secret_access_key.trim();
+    let url = form.public_base_url.trim();
+    let save_dir = form.save_dir.trim();
+
+    if !account_id.chars().all(is_account_char) {
+        return Err("Account ID chỉ gồm chữ cái, chữ số và dấu gạch ngang.".into());
+    }
+    if !bucket.chars().all(is_bucket_char) {
+        return Err("Tên kho chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới và gạch ngang.".into());
+    }
+    let public_base_url = if url.is_empty() {
+        String::new()
+    } else {
+        normalize_public_base_url(url)?
+    };
+    if save_dir.is_empty() {
+        return Err("Hãy chọn thư mục lưu ảnh.".into());
+    }
+    let secret_access_key = if secret.is_empty() {
+        current.r2.secret_access_key.clone()
+    } else {
+        secret.to_string()
+    };
+    Ok(Config {
+        r2: R2Config {
+            account_id,
+            access_key_id,
+            secret_access_key,
+            bucket,
+            public_base_url,
+        },
+        expiry: form.expiry,
+        hotkey: form.hotkey,
+        save_dir: PathBuf::from(save_dir),
+        autostart: form.autostart,
+    })
 }
 
 /// Kết quả xử lý một lần nhả phím khi đang chọn phím tắt mới.
@@ -49,9 +145,931 @@ pub enum Capture {
     Got(Hotkey),
 }
 
+/// Phím cho phép đứng một mình làm phím tắt: PrintScreen, Pause, ScrollLock, F1..F24.
+fn allowed_bare(vk: u32) -> bool {
+    matches!(vk, 0x2C | 0x13 | 0x91 | 0x70..=0x87)
+}
+
 pub fn capture_hotkey(vk: u32, ctrl: bool, alt: bool, shift: bool, win: bool) -> Capture {
-    let _ = (vk, ctrl, alt, shift, win);
-    todo!()
+    if matches!(vk, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C | 0xA0..=0xA5) {
+        return Capture::Ignore;
+    }
+    if ctrl || alt || shift || win || allowed_bare(vk) {
+        Capture::Got(Hotkey {
+            ctrl,
+            alt,
+            shift,
+            win,
+            vk,
+        })
+    } else {
+        Capture::NeedModifier
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cửa sổ
+// ---------------------------------------------------------------------------
+
+const ID_OK: i32 = 1;
+const ID_CANCEL: i32 = 2;
+const ID_ACCOUNT: i32 = 101;
+const ID_KEYID: i32 = 102;
+const ID_SECRET: i32 = 103;
+const ID_BUCKET: i32 = 104;
+const ID_URL: i32 = 105;
+const ID_TEST: i32 = 106;
+const ID_EXPIRY: i32 = 107;
+const ID_DIR: i32 = 108;
+const ID_BROWSE: i32 = 109;
+const ID_HK_CHANGE: i32 = 110;
+const ID_AUTOSTART: i32 = 111;
+
+const fn ws(v: i32) -> WINDOW_STYLE {
+    WINDOW_STYLE(v as u32)
+}
+
+const WM_APP_TEST_DONE: u32 = WM_APP + 1;
+const VK_CONTROL_U: i32 = VK_CONTROL.0 as i32;
+
+#[derive(Clone, Copy)]
+struct Ctl {
+    account: HWND,
+    keyid: HWND,
+    secret: HWND,
+    bucket: HWND,
+    url: HWND,
+    test_btn: HWND,
+    test_res: HWND,
+    expiry: HWND,
+    dir: HWND,
+    hk_edit: HWND,
+    hk_btn: HWND,
+    autostart: HWND,
+    err: HWND,
+}
+
+struct St {
+    current: Config,
+    parent: HWND,
+    hotkey: Hotkey,
+    capturing: bool,
+    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần Lưu lỗi) và cần đăng ký lại nếu Hủy.
+    hk_unregistered: bool,
+    done: bool,
+    result: Option<Config>,
+    font: Option<HFONT>,
+}
+
+thread_local! {
+    /// HWND của cửa sổ đang mở (0 = không có).
+    static OPEN: Cell<isize> = const { Cell::new(0) };
+    static CTL: Cell<Option<Ctl>> = const { Cell::new(None) };
+    static ST: RefCell<Option<St>> = const { RefCell::new(None) };
+}
+
+/// Thế hệ cửa sổ: kết quả của luồng nền thuộc cửa sổ đã đóng sẽ bị bỏ.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+static TEST_RESULT: Mutex<Option<(u64, String)>> = Mutex::new(None);
+
+fn with_st<R>(f: impl FnOnce(&mut St) -> R) -> Option<R> {
+    ST.with(|s| s.borrow_mut().as_mut().map(f))
+}
+
+fn ctl() -> Option<Ctl> {
+    CTL.with(|c| c.get())
+}
+
+fn get_text(h: HWND) -> String {
+    // SAFETY: h là cửa sổ con của luồng này; bộ đệm đủ chỗ cho chuỗi cộng ký tự kết thúc.
+    unsafe {
+        let n = GetWindowTextLengthW(h);
+        if n <= 0 {
+            return String::new();
+        }
+        let mut buf = vec![0u16; n as usize + 1];
+        let got = GetWindowTextW(h, &mut buf).max(0) as usize;
+        let s = String::from_utf16_lossy(&buf[..got.min(buf.len())]);
+        buf.fill(0);
+        s
+    }
+}
+
+fn set_text(h: HWND, s: &str) {
+    // SAFETY: HSTRING sống suốt lời gọi.
+    unsafe {
+        let _ = SetWindowTextW(h, &HSTRING::from(s));
+    }
+}
+
+fn read_form() -> Option<Form> {
+    let c = ctl()?;
+    // SAFETY: các HWND là điều khiển của cửa sổ đang mở ở luồng này.
+    let (sel, checked) = unsafe {
+        (
+            SendMessageW(c.expiry, CB_GETCURSEL, None, None).0,
+            SendMessageW(c.autostart, BM_GETCHECK, None, None).0,
+        )
+    };
+    let expiry = usize::try_from(sel)
+        .ok()
+        .and_then(|i| Expiry::ALL.get(i).copied())
+        .unwrap_or_default();
+    let hotkey = with_st(|s| s.hotkey)?;
+    Some(Form {
+        account_id: get_text(c.account),
+        access_key_id: get_text(c.keyid),
+        secret_access_key: get_text(c.secret),
+        bucket: get_text(c.bucket),
+        public_base_url: get_text(c.url),
+        expiry,
+        hotkey,
+        save_dir: get_text(c.dir),
+        autostart: checked == 1,
+    })
+}
+
+fn show_error(msg: &str) {
+    if let Some(c) = ctl() {
+        set_text(c.err, msg);
+    }
+}
+
+fn refresh_hotkey_text() {
+    if let (Some(c), Some(hk)) = (ctl(), with_st(|s| s.hotkey)) {
+        set_text(c.hk_edit, &hotkey::describe(&hk));
+    }
+}
+
+fn finish(result: Option<Config>) {
+    with_st(|s| {
+        s.result = result;
+        s.done = true;
+    });
+}
+
+fn cancel() {
+    with_st(|s| {
+        if s.hk_unregistered {
+            // Đăng ký lại phím tắt cũ; nếu bị chiếm giữa chừng thì không còn cách nào hơn.
+            let _ = hotkey::register(s.parent, &s.current.hotkey);
+            s.hk_unregistered = false;
+        }
+    });
+    finish(None);
+}
+
+fn save() {
+    let Some(form) = read_form() else { return };
+    let Some(current) = with_st(|s| s.current.clone()) else {
+        return;
+    };
+    let cfg = match apply_form(&current, &form) {
+        Ok(c) => c,
+        Err(e) => {
+            show_error(&e);
+            return;
+        }
+    };
+    let need_rereg =
+        with_st(|s| s.hk_unregistered || s.hotkey != s.current.hotkey).unwrap_or(false);
+    if need_rereg {
+        let parent = with_st(|s| s.parent);
+        if let Some(p) = parent {
+            hotkey::unregister(p);
+            if !hotkey::register(p, &cfg.hotkey) {
+                with_st(|s| s.hk_unregistered = true);
+                show_error(&format!(
+                    "Phím {} đang bị ứng dụng khác chiếm. Hãy chọn phím khác.",
+                    hotkey::describe(&cfg.hotkey)
+                ));
+                return;
+            }
+            with_st(|s| s.hk_unregistered = false);
+        }
+    }
+    finish(Some(cfg));
+}
+
+fn on_command(hwnd: HWND, id: i32) {
+    match id {
+        ID_OK => save(),
+        ID_CANCEL => cancel(),
+        ID_TEST => on_test(hwnd),
+        ID_BROWSE => on_browse(hwnd),
+        ID_HK_CHANGE => on_change_hotkey(),
+        _ => {}
+    }
+}
+
+fn on_change_hotkey() {
+    let Some(c) = ctl() else { return };
+    let started = with_st(|s| {
+        if s.capturing {
+            return false;
+        }
+        hotkey::unregister(s.parent);
+        s.hk_unregistered = true;
+        s.capturing = true;
+        true
+    })
+    .unwrap_or(false);
+    if started {
+        set_text(c.hk_edit, "Nhấn tổ hợp phím mới… (Esc để bỏ qua)");
+        show_error("");
+    }
+}
+
+/// Xử lý phím khi đang chọn phím tắt. Trả về `true` nếu đã nuốt thông điệp.
+fn capture_key(msg: &MSG) -> bool {
+    let is_up = msg.message == WM_KEYUP || msg.message == WM_SYSKEYUP;
+    let is_down = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
+    if !is_up && !is_down {
+        return false;
+    }
+    if is_down {
+        return true;
+    }
+    let vk = msg.wParam.0 as u32;
+    if vk == VK_ESCAPE.0 as u32 {
+        with_st(|s| s.capturing = false);
+        refresh_hotkey_text();
+        return true;
+    }
+    let down = |k: i32| {
+        // SAFETY: chỉ đọc trạng thái phím.
+        unsafe { GetKeyState(k) < 0 }
+    };
+    let out = capture_hotkey(
+        vk,
+        down(VK_CONTROL_U),
+        down(VK_MENU.0 as i32),
+        down(VK_SHIFT.0 as i32),
+        down(VK_LWIN.0 as i32) || down(VK_RWIN.0 as i32),
+    );
+    match out {
+        Capture::Ignore => {}
+        Capture::NeedModifier => {
+            if let Some(c) = ctl() {
+                set_text(
+                    c.hk_edit,
+                    "Phím này cần kèm Ctrl, Alt, Shift hoặc Win. Thử lại…",
+                );
+            }
+        }
+        Capture::Got(h) => {
+            with_st(|s| {
+                s.hotkey = h;
+                s.capturing = false;
+            });
+            refresh_hotkey_text();
+        }
+    }
+    true
+}
+
+fn on_browse(hwnd: HWND) {
+    let Some(c) = ctl() else { return };
+    // SAFETY: COM được khởi tạo và giải phóng cân bằng trong hàm này; chuỗi do COM cấp được giải phóng bằng CoTaskMemFree.
+    let picked: Option<String> = unsafe {
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let inited = hr.is_ok();
+        let r = (|| -> windows::core::Result<String> {
+            let dlg: IFileOpenDialog =
+                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+            let opts = dlg.GetOptions()?;
+            dlg.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)?;
+            dlg.SetTitle(&HSTRING::from("Chọn thư mục lưu ảnh"))?;
+            dlg.Show(Some(hwnd))?;
+            let item = dlg.GetResult()?;
+            let name: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH)?;
+            let s = name.to_string();
+            CoTaskMemFree(Some(name.0 as *const c_void));
+            Ok(s.unwrap_or_default())
+        })();
+        if inited {
+            CoUninitialize();
+        }
+        r.ok().filter(|s| !s.is_empty())
+    };
+    if let Some(p) = picked {
+        set_text(c.dir, &p);
+    }
+}
+
+fn on_test(hwnd: HWND) {
+    let Some(c) = ctl() else { return };
+    let (Some(form), Some(current)) = (read_form(), with_st(|s| s.current.clone())) else {
+        return;
+    };
+    let cfg = match apply_form(&current, &form) {
+        Ok(c) => c,
+        Err(e) => {
+            show_error(&e);
+            return;
+        }
+    };
+    show_error("");
+    if !cfg.r2.is_complete() {
+        set_text(
+            c.test_res,
+            "Hãy điền đủ Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai trước.",
+        );
+        return;
+    }
+    let generation = GENERATION.load(Ordering::SeqCst);
+    let target = hwnd.0 as isize;
+    let r2 = cfg.r2;
+    let spawned = std::thread::Builder::new()
+        .name("shotme-test-connection".into())
+        .spawn(move || {
+            let msg = match R2Uploader::new(&r2).test_connection() {
+                Ok(()) => "Thành công: tải lên được và link mở được.".to_string(),
+                Err(e) => e.message_vi(),
+            };
+            if let Ok(mut slot) = TEST_RESULT.lock() {
+                // Cửa sổ đã đóng (thế hệ đã đổi): bỏ kết quả, không đè lên kết quả của cửa sổ mới.
+                if generation == GENERATION.load(Ordering::SeqCst) {
+                    *slot = Some((generation, msg));
+                }
+            }
+            // SAFETY: nếu cửa sổ đã đóng thì PostMessageW trả lỗi và ta bỏ qua; kết quả nằm trong mutex, không có con trỏ treo.
+            unsafe {
+                let _ = PostMessageW(
+                    Some(HWND(target as *mut c_void)),
+                    WM_APP_TEST_DONE,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
+        });
+    if spawned.is_err() {
+        set_text(c.test_res, "Không tạo được luồng kiểm tra. Hãy thử lại.");
+        return;
+    }
+    // SAFETY: vô hiệu nút trong lúc chờ.
+    unsafe {
+        let _ = EnableWindow(c.test_btn, false);
+    }
+    set_text(c.test_res, "Đang kiểm tra…");
+}
+
+fn on_test_done() {
+    let Some(c) = ctl() else { return };
+    let taken = TEST_RESULT.lock().ok().and_then(|mut s| s.take());
+    let Some((generation, msg)) = taken else {
+        return;
+    };
+    if generation != GENERATION.load(Ordering::SeqCst) {
+        return;
+    }
+    set_text(c.test_res, &msg);
+    // SAFETY: bật lại nút.
+    unsafe {
+        let _ = EnableWindow(c.test_btn, true);
+    }
+}
+
+unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_COMMAND => {
+            let code = (wp.0 >> 16) & 0xFFFF;
+            if code == 0 {
+                on_command(hwnd, (wp.0 & 0xFFFF) as i32);
+            }
+            LRESULT(0)
+        }
+        WM_CLOSE => {
+            cancel();
+            LRESULT(0)
+        }
+        WM_APP_TEST_DONE => {
+            on_test_done();
+            LRESULT(0)
+        }
+        WM_CTLCOLORSTATIC => {
+            if ctl().is_some_and(|c| c.err.0 as isize == lp.0) {
+                let hdc = HDC(wp.0 as *mut c_void);
+                // SAFETY: hdc do hệ thống cấp cho lần vẽ này; nền lấy từ màu hệ thống.
+                unsafe {
+                    SetTextColor(hdc, windows::Win32::Foundation::COLORREF(0x0000_00B4));
+                    SetBkMode(hdc, TRANSPARENT);
+                    let b: HBRUSH = GetSysColorBrush(COLOR_BTNFACE);
+                    return LRESULT(b.0 as isize);
+                }
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
+}
+
+struct Builder {
+    parent: HWND,
+    dpi: i32,
+    all: Vec<HWND>,
+}
+
+impl Builder {
+    fn s(&self, v: i32) -> i32 {
+        (v * self.dpi + 48) / 96
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make(
+        &mut self,
+        class: PCWSTR,
+        text: &str,
+        style: WINDOW_STYLE,
+        (x, y, w, h): (i32, i32, i32, i32),
+        id: i32,
+    ) -> HWND {
+        // SAFETY: tạo cửa sổ con của cửa sổ Cài đặt ở luồng chính; lỗi thì trả cửa sổ rỗng (các hàm sau chịu được).
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                &HSTRING::from(text),
+                WS_CHILD | WS_VISIBLE | style,
+                self.s(x),
+                self.s(y),
+                self.s(w),
+                self.s(h),
+                Some(self.parent),
+                Some(HMENU(id as usize as *mut c_void)),
+                None,
+                None,
+            )
+            .unwrap_or_default()
+        };
+        self.all.push(hwnd);
+        hwnd
+    }
+
+    fn label(&mut self, text: &str, x: i32, y: i32, w: i32, h: i32) -> HWND {
+        self.make(w!("STATIC"), text, WINDOW_STYLE(0), (x, y, w, h), -1)
+    }
+
+    fn edit(&mut self, style: WINDOW_STYLE, rect: (i32, i32, i32, i32), id: i32) -> HWND {
+        self.make(
+            w!("EDIT"),
+            "",
+            WS_TABSTOP | ws(ES_AUTOHSCROLL) | style | WS_BORDER,
+            rect,
+            id,
+        )
+    }
+
+    fn button(
+        &mut self,
+        text: &str,
+        style: WINDOW_STYLE,
+        rect: (i32, i32, i32, i32),
+        id: i32,
+    ) -> HWND {
+        self.make(w!("BUTTON"), text, WS_TABSTOP | style, rect, id)
+    }
+}
+
+fn system_font(dpi: u32) -> Option<HFONT> {
+    let mut ncm = NONCLIENTMETRICSW {
+        cbSize: std::mem::size_of::<NONCLIENTMETRICSW>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: ncm có cbSize đúng; hệ thống điền lfMessageFont.
+    unsafe {
+        SystemParametersInfoForDpi(
+            SPI_GETNONCLIENTMETRICS.0,
+            ncm.cbSize,
+            Some(&mut ncm as *mut _ as *mut c_void),
+            0,
+            dpi,
+        )
+        .ok()?;
+        let f = CreateFontIndirectW(&ncm.lfMessageFont);
+        if f.is_invalid() {
+            None
+        } else {
+            Some(f)
+        }
+    }
+}
+
+/// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
+fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i32, Option<Ctl>) {
+    const LX: i32 = 24; // lề trái nhãn
+    const EX: i32 = 168; // lề trái ô nhập
+    const EW: i32 = 282; // bề rộng ô nhập
+    let mut y = 12;
+    if let Some(n) = notice {
+        b.label(n, 12, y, 456, 34);
+        y += 42;
+    }
+
+    // Nhóm Cloudflare R2
+    let g1 = y;
+    let g1h = b.make(
+        w!("BUTTON"),
+        "Cloudflare R2",
+        ws(BS_GROUPBOX),
+        (12, y, 456, 1),
+        -1,
+    );
+    y += 24;
+    let rows = [
+        ("Account ID", ID_ACCOUNT, WINDOW_STYLE(0)),
+        ("Access Key ID", ID_KEYID, WINDOW_STYLE(0)),
+        (
+            "Secret Access Key",
+            ID_SECRET,
+            WINDOW_STYLE(ES_PASSWORD as u32),
+        ),
+        ("Tên kho (bucket)", ID_BUCKET, WINDOW_STYLE(0)),
+    ];
+    let mut handles = Vec::new();
+    for (label, id, style) in rows {
+        b.label(label, LX, y + 3, EX - LX - 4, 20);
+        handles.push(b.edit(style, (EX, y, EW, 24), id));
+        y += 28;
+        if id == ID_SECRET {
+            let hint = if current.r2.secret_access_key.is_empty() {
+                "Chưa có khóa."
+            } else {
+                "Đã lưu khóa; để trống nếu không đổi."
+            };
+            b.label(hint, EX, y - 2, EW, 18);
+            y += 20;
+        }
+    }
+    b.label("Địa chỉ công khai", LX, y + 3, EX - LX - 4, 20);
+    let url = b.edit(WINDOW_STYLE(0), (EX, y, EW, 24), ID_URL);
+    y += 28;
+    let test_btn = b.button(
+        "Kiểm tra kết nối",
+        WS_TABSTOP | ws(BS_PUSHBUTTON),
+        (LX, y, 140, 26),
+        ID_TEST,
+    );
+    let test_res = b.label("", EX, y + 4, EW, 36);
+    y += 44;
+    let g1_h = y - g1;
+
+    // Nhóm Chia sẻ và lưu
+    y += 4;
+    let g2 = y;
+    let g2h = b.make(
+        w!("BUTTON"),
+        "Chia sẻ và lưu",
+        ws(BS_GROUPBOX),
+        (12, y, 456, 1),
+        -1,
+    );
+    y += 24;
+    b.label("Hạn của link", LX, y + 3, EX - LX - 4, 20);
+    let expiry = b.make(
+        w!("COMBOBOX"),
+        "",
+        WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
+        (EX, y, 160, 200),
+        ID_EXPIRY,
+    );
+    y += 32;
+    b.label("Thư mục lưu", LX, y + 3, EX - LX - 4, 20);
+    let dir = b.edit(WINDOW_STYLE(0), (EX, y, EW - 76, 24), ID_DIR);
+    b.button(
+        "Chọn…",
+        ws(BS_PUSHBUTTON),
+        (EX + EW - 70, y - 1, 70, 26),
+        ID_BROWSE,
+    );
+    y += 34;
+    let g2_h = y - g2;
+
+    // Nhóm Chung
+    y += 4;
+    let g3 = y;
+    let g3h = b.make(w!("BUTTON"), "Chung", ws(BS_GROUPBOX), (12, y, 456, 1), -1);
+    y += 24;
+    b.label("Phím tắt chụp", LX, y + 3, EX - LX - 4, 20);
+    let hk_edit = b.edit(WINDOW_STYLE(ES_READONLY as u32), (EX, y, EW - 76, 24), -1);
+    let hk_btn = b.button(
+        "Đổi…",
+        ws(BS_PUSHBUTTON),
+        (EX + EW - 70, y - 1, 70, 26),
+        ID_HK_CHANGE,
+    );
+    y += 32;
+    let autostart = b.button(
+        "Khởi động cùng Windows",
+        ws(BS_AUTOCHECKBOX),
+        (LX, y, 300, 22),
+        ID_AUTOSTART,
+    );
+    y += 30;
+    let g3_h = y - g3;
+
+    // Dòng lỗi và nút
+    y += 8;
+    let err = b.label("", 12, y, 456, 36);
+    y += 40;
+    b.button("Lưu", ws(BS_DEFPUSHBUTTON), (300, y, 80, 28), ID_OK);
+    b.button("Hủy", ws(BS_PUSHBUTTON), (388, y, 80, 28), ID_CANCEL);
+    y += 40;
+
+    // Giờ mới biết chiều cao thật của ba nhóm.
+    for (h, top, height) in [(g1h, g1, g1_h), (g2h, g2, g2_h), (g3h, g3, g3_h)] {
+        // SAFETY: đổi kích thước hộp nhóm vừa tạo.
+        unsafe {
+            let _ = SetWindowPos(
+                h,
+                None,
+                b.s(12),
+                b.s(top),
+                b.s(456),
+                b.s(height),
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+    let ctl = (|| {
+        Some(Ctl {
+            account: *handles.first()?,
+            keyid: *handles.get(1)?,
+            secret: *handles.get(2)?,
+            bucket: *handles.get(3)?,
+            url,
+            test_btn,
+            test_res,
+            expiry,
+            dir,
+            hk_edit,
+            hk_btn,
+            autostart,
+            err,
+        })
+    })();
+    (y, ctl)
+}
+
+/// Mở cửa sổ Cài đặt và chờ đến khi người dùng Lưu hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
+pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<SettingsResult> {
+    let open = OPEN.with(|o| o.get());
+    if open != 0 {
+        let h = HWND(open as *mut c_void);
+        // SAFETY: đưa cửa sổ Cài đặt đang có ra trước.
+        unsafe {
+            if IsIconic(h).as_bool() {
+                let _ = ShowWindow(h, SW_RESTORE);
+            }
+            let _ = SetForegroundWindow(h);
+        }
+        return None;
+    }
+
+    // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; mọi handle được giải phóng ở cuối hàm.
+    let hwnd = unsafe {
+        let hinst = GetModuleHandleW(None).ok()?;
+        let class = w!("shotme-settings");
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(wndproc),
+            hInstance: hinst.into(),
+            lpszClassName: class,
+            hbrBackground: GetSysColorBrush(COLOR_BTNFACE),
+            ..Default::default()
+        };
+        // Đăng ký lại lần hai báo lỗi vô hại.
+        RegisterClassW(&wc);
+        CreateWindowExW(
+            WS_EX_CONTROLPARENT,
+            class,
+            w!("shotme – Cài đặt"),
+            WS_CAPTION | WS_SYSMENU,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            100,
+            100,
+            Some(parent),
+            None,
+            Some(hinst.into()),
+            None,
+        )
+        .ok()?
+    };
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut s) = TEST_RESULT.lock() {
+        *s = None;
+    }
+    // SAFETY: hwnd vừa tạo.
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+    let font = system_font(dpi);
+    let mut b = Builder {
+        parent: hwnd,
+        dpi: dpi as i32,
+        all: Vec::new(),
+    };
+    let (client_h, controls) = build_controls(&mut b, current, notice);
+    let Some(c) = controls else {
+        // SAFETY: dọn cửa sổ vừa tạo.
+        unsafe {
+            let _ = DestroyWindow(hwnd);
+            if let Some(f) = font {
+                let _ = DeleteObject(HGDIOBJ(f.0));
+            }
+        }
+        return None;
+    };
+    if let Some(f) = font {
+        for h in &b.all {
+            // SAFETY: đặt phông cho điều khiển con; phông sống đến khi đóng cửa sổ.
+            unsafe {
+                SendMessageW(*h, WM_SETFONT, Some(WPARAM(f.0 as usize)), Some(LPARAM(1)));
+            }
+        }
+    }
+    CTL.with(|x| x.set(Some(c)));
+    OPEN.with(|o| o.set(hwnd.0 as isize));
+    ST.with(|s| {
+        *s.borrow_mut() = Some(St {
+            current: current.clone(),
+            parent,
+            hotkey: current.hotkey,
+            capturing: false,
+            hk_unregistered: false,
+            done: false,
+            result: None,
+            font,
+        })
+    });
+
+    // Điền giá trị ban đầu. Ô Secret luôn để trống.
+    set_text(c.account, &current.r2.account_id);
+    set_text(c.keyid, &current.r2.access_key_id);
+    set_text(c.bucket, &current.r2.bucket);
+    set_text(c.url, &current.r2.public_base_url);
+    set_text(c.dir, &current.save_dir.to_string_lossy());
+    refresh_hotkey_text();
+    let labels = ["1 ngày", "7 ngày", "30 ngày", "Không hết hạn"];
+    // SAFETY: gửi thông điệp tới các điều khiển của cửa sổ này; HSTRING sống suốt lời gọi.
+    unsafe {
+        for l in labels {
+            let hs = HSTRING::from(l);
+            SendMessageW(
+                c.expiry,
+                CB_ADDSTRING,
+                None,
+                Some(LPARAM(hs.as_ptr() as isize)),
+            );
+        }
+        let idx = Expiry::ALL
+            .iter()
+            .position(|e| *e == current.expiry)
+            .unwrap_or(2);
+        SendMessageW(c.expiry, CB_SETCURSEL, Some(WPARAM(idx)), None);
+        SendMessageW(
+            c.autostart,
+            BM_SETCHECK,
+            Some(WPARAM(usize::from(current.autostart))),
+            None,
+        );
+    }
+
+    // Đổi kích thước theo DPI, căn giữa màn hình đang có con trỏ.
+    // SAFETY: các lời gọi hệ thống chỉ dùng giá trị cục bộ.
+    unsafe {
+        let mut rc = RECT {
+            left: 0,
+            top: 0,
+            right: b.s(480),
+            bottom: b.s(client_h),
+        };
+        let _ = AdjustWindowRectExForDpi(
+            &mut rc,
+            WS_CAPTION | WS_SYSMENU,
+            false,
+            WS_EX_CONTROLPARENT,
+            dpi,
+        );
+        let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        let mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        let (x, y) = if GetMonitorInfoW(mon, &mut mi).as_bool() {
+            let a = mi.rcWork;
+            (
+                a.left + ((a.right - a.left) - ww) / 2,
+                a.top + ((a.bottom - a.top) - wh) / 2,
+            )
+        } else {
+            (100, 100)
+        };
+        let _ = SetWindowPos(hwnd, None, x, y, ww, wh, SWP_NOZORDER);
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(Some(c.account));
+    }
+
+    run_loop(hwnd, c);
+
+    // Dọn dẹp: cửa sổ, phông, trạng thái.
+    let result = with_st(|s| s.result.take()).flatten();
+    // SAFETY: hủy cửa sổ và phông do hàm này tạo.
+    unsafe {
+        let _ = DestroyWindow(hwnd);
+    }
+    if let Some(Some(f)) = ST.with(|s| s.borrow_mut().take().map(|st| st.font)) {
+        // SAFETY: phông do CreateFontIndirectW tạo, cửa sổ dùng nó đã bị hủy.
+        unsafe {
+            let _ = DeleteObject(HGDIOBJ(f.0));
+        }
+    }
+    CTL.with(|x| x.set(None));
+    OPEN.with(|o| o.set(0));
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    result.map(|config| SettingsResult { config })
+}
+
+fn run_loop(hwnd: HWND, c: Ctl) {
+    let mut msg = MSG::default();
+    loop {
+        if with_st(|s| s.done).unwrap_or(true) {
+            break;
+        }
+        // SAFETY: vòng lặp thông điệp chuẩn của luồng này.
+        let r = unsafe { GetMessageW(&mut msg, None, 0, 0) };
+        if r.0 == 0 {
+            // WM_QUIT: trả lại cho vòng lặp ngoài rồi thoát.
+            // SAFETY: gửi lại yêu cầu thoát.
+            unsafe { PostQuitMessage(msg.wParam.0 as i32) };
+            cancel();
+            break;
+        }
+        if r.0 < 0 {
+            cancel();
+            break;
+        }
+        // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
+        let mine = msg.hwnd == hwnd || unsafe { IsChild(hwnd, msg.hwnd).as_bool() };
+        if mine {
+            let capturing = with_st(|s| s.capturing).unwrap_or(false);
+            if capturing && capture_key(&msg) {
+                continue;
+            }
+            if msg.message == WM_KEYDOWN {
+                let vk = msg.wParam.0 as u32;
+                // SAFETY: chỉ đọc trạng thái hộp thả.
+                let dropped =
+                    unsafe { SendMessageW(c.expiry, CB_GETDROPPEDSTATE, None, None).0 != 0 };
+                if vk == VK_ESCAPE.0 as u32 && !dropped {
+                    cancel();
+                    continue;
+                }
+                if vk == VK_RETURN.0 as u32 && !dropped {
+                    // SAFETY: chỉ đọc điều khiển đang giữ focus.
+                    let focus = unsafe { GetFocus() };
+                    let is_push = unsafe {
+                        let st = GetWindowLongPtrW(focus, GWL_STYLE) as u32;
+                        let kind = st & 0xF;
+                        focus != HWND::default()
+                            && (kind == BS_PUSHBUTTON as u32 || kind == BS_DEFPUSHBUTTON as u32)
+                            && focus != c.autostart
+                            && get_class_is_button(focus)
+                    };
+                    if is_push {
+                        // SAFETY: bấm nút đang giữ focus.
+                        unsafe {
+                            SendMessageW(focus, BM_CLICK, None, None);
+                        }
+                    } else {
+                        save();
+                    }
+                    continue;
+                }
+            }
+            // SAFETY: xử lý phím điều hướng (Tab, mũi tên) của hộp thoại.
+            if unsafe { IsDialogMessageW(hwnd, &msg).as_bool() } {
+                continue;
+            }
+        }
+        // SAFETY: chuyển thông điệp chuẩn.
+        unsafe {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+fn get_class_is_button(h: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
+    let mut buf = [0u16; 16];
+    // SAFETY: bộ đệm cục bộ đủ chỗ.
+    let n = unsafe { GetClassNameW(h, &mut buf) }.max(0) as usize;
+    String::from_utf16_lossy(&buf[..n.min(buf.len())]).eq_ignore_ascii_case("button")
 }
 
 #[cfg(test)]
