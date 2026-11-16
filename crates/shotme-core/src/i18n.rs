@@ -374,6 +374,14 @@ pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
     }
 }
 
+pub fn help_text(_lang: Lang, _hotkey: &str) -> String {
+    todo!()
+}
+
+pub fn about_version(_lang: Lang, _version: &str) -> String {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +524,35 @@ mod tests {
             for title in [hotkey_taken_title(l, key), hotkey_inactive_title(l, key)] {
                 assert!(title.encode_utf16().count() <= 63, "{l:?} {title}");
             }
+        }
+    }
+
+    #[test]
+    fn help_text_names_the_hotkey_and_keys() {
+        for l in Lang::ALL {
+            let s = help_text(l, "Ctrl+Shift+Q");
+            assert!(s.contains("Ctrl+Shift+Q"), "{l:?}");
+            for k in [
+                "Ctrl+D",
+                "Ctrl+S",
+                "Ctrl+C",
+                "Esc",
+                "d1/",
+                "d7/",
+                "d30/",
+                "Object Read & Write",
+            ] {
+                assert!(s.contains(k), "{l:?} thiếu {k}");
+            }
+            assert!(!s.contains("http"), "{l:?} có địa chỉ web");
+        }
+        assert_ne!(help_text(Lang::Vi, "X"), help_text(Lang::En, "X"));
+    }
+
+    #[test]
+    fn about_version_contains_version() {
+        for l in Lang::ALL {
+            assert!(about_version(l, "1.2.3").contains("1.2.3"));
         }
     }
 }

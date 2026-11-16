@@ -1,9 +1,11 @@
 #![windows_subsystem = "windows"]
 
+mod about;
 mod app;
 mod autostart;
 mod capture;
 mod clipboard;
+mod help;
 mod hotkey;
 mod lang;
 mod overlay;
@@ -17,7 +19,7 @@ use app::{AppState, UploadJob};
 use secret::DpapiStore;
 use settings::OpenReason;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, NoticeKind, Notifier};
-use shotme_core::config::Hotkey;
+use shotme_core::config::{Config, Hotkey};
 use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
@@ -135,6 +137,11 @@ pub fn lang_after_save(old: Lang, new: Lang, saved: bool) -> Lang {
     } else {
         old
     }
+}
+
+/// Chữ trong cửa sổ Thông tin và Trợ giúp đã cũ sau khi lưu cấu hình mới (ngôn ngữ hoặc phím tắt đổi).
+pub fn info_windows_stale(_old: &Config, _new: &Config) -> bool {
+    todo!()
 }
 
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
@@ -783,6 +790,22 @@ mod tests {
     fn language_changes_only_when_saved() {
         assert_eq!(lang_after_save(Lang::Vi, Lang::En, true), Lang::En);
         assert_eq!(lang_after_save(Lang::Vi, Lang::En, false), Lang::Vi);
+    }
+
+    #[test]
+    fn info_windows_close_when_language_or_hotkey_changes() {
+        use std::path::Path;
+        let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
+        assert!(!info_windows_stale(&a, &a.clone()));
+        let mut b = a.clone();
+        b.language = Lang::En;
+        assert!(info_windows_stale(&a, &b));
+        let mut b = a.clone();
+        b.hotkey.ctrl = true;
+        assert!(info_windows_stale(&a, &b));
+        let mut b = a.clone();
+        b.autostart = true;
+        assert!(!info_windows_stale(&a, &b));
     }
 
     #[test]
