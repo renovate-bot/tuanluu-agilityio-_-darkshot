@@ -40,8 +40,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 27 Đổi tên darkshot | task/27-rename-darkshot | builder | sonnet | xong | 72.367 | 36.526 | 0 | 108.893 |
 | 28 Chuyển dữ liệu từ shotme | task/28-legacy-migration | specialist | opus | xong | 133.605 | 89.121 | 6.665 | 229.391 |
 | 29 Lõi giao diện tối, Thông tin, Trợ giúp, menu khay, lớp phủ | task/29-dark-theme-core | builder | sonnet | xong | 95.280 | 44.739 | 2.387 | 142.406 |
-| 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | đang làm | | | | |
-| 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | chờ | | | | |
+| 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | xong | 308.654 | 146.553 | 3.810 | 459.017 |
+| 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | đang làm | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
