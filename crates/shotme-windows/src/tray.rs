@@ -12,9 +12,10 @@ use windows::Win32::UI::Shell::{
     NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, LoadIconW, PostMessageW,
-    SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION, MF_STRING, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
+    LoadImageW, PostMessageW, SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION,
+    IMAGE_ICON, LR_SHARED, MF_STRING, SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WM_APP, WM_NULL,
 };
 
 /// Thông điệp riêng của biểu tượng khay.
@@ -83,14 +84,20 @@ impl Tray {
 
     pub fn new(hwnd: HWND) -> windows::core::Result<Tray> {
         // SAFETY: tài nguyên biểu tượng số 1 được nhúng bởi build.rs; thiếu thì dùng biểu tượng mặc định.
+        // Dùng LR_SHARED nên không cần DestroyIcon. Nạp đúng cỡ nhỏ của khay (16/20/24 vẽ theo lưới).
         let icon = unsafe {
             let hinst = GetModuleHandleW(None)?;
-            match LoadIconW(
-                Some(hinst.into()),
-                PCWSTR(std::ptr::without_provenance::<u16>(1)),
-            ) {
+            let res = PCWSTR(std::ptr::without_provenance::<u16>(1));
+            let cx = GetSystemMetrics(SM_CXSMICON);
+            let cy = GetSystemMetrics(SM_CYSMICON);
+            let small = LoadImageW(Some(hinst.into()), res, IMAGE_ICON, cx, cy, LR_SHARED)
+                .map(|h| HICON(h.0));
+            match small {
                 Ok(i) => i,
-                Err(_) => LoadIconW(None, IDI_APPLICATION)?,
+                Err(_) => match LoadIconW(Some(hinst.into()), res) {
+                    Ok(i) => i,
+                    Err(_) => LoadIconW(None, IDI_APPLICATION)?,
+                },
             }
         };
         let tray = Tray {
@@ -274,6 +281,57 @@ pub fn should_retry(added: bool, attempts: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Phân tích ICONDIR của `res/shotme.ico`: đủ tám cỡ, 32 bit, offset/kích thước hợp lệ.
+    #[test]
+    fn ico_has_all_sizes_32bit_within_file() {
+        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        assert!(ico.len() >= 6, "file quá ngắn");
+        let u16at = |o: usize| u16::from_le_bytes([ico[o], ico[o + 1]]) as usize;
+        let u32at =
+            |o: usize| u32::from_le_bytes([ico[o], ico[o + 1], ico[o + 2], ico[o + 3]]) as usize;
+        assert_eq!(u16at(0), 0, "reserved");
+        assert_eq!(u16at(2), 1, "type phải là icon");
+        let count = u16at(4);
+        assert!(ico.len() >= 6 + 16 * count, "thiếu mục ICONDIRENTRY");
+        let mut sizes = Vec::new();
+        for i in 0..count {
+            let e = 6 + 16 * i;
+            let w = if ico[e] == 0 { 256 } else { ico[e] as usize };
+            let h = if ico[e + 1] == 0 {
+                256
+            } else {
+                ico[e + 1] as usize
+            };
+            assert_eq!(w, h, "cỡ phải vuông");
+            assert_eq!(u16at(e + 6), 32, "cỡ {w} phải 32 bit");
+            let size = u32at(e + 8);
+            let off = u32at(e + 12);
+            assert!(size > 0 && off + size <= ico.len(), "cỡ {w} vượt file");
+            sizes.push(w);
+        }
+        sizes.sort_unstable();
+        assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
+    }
+
+    /// Khung phải là bốn góc chữ L rời nhau: điểm giữa cạnh trên và cạnh trái (cỡ 32) là nền xanh.
+    #[test]
+    fn ico_32_frame_edges_are_open_at_midpoints() {
+        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        let u32at =
+            |o: usize| u32::from_le_bytes([ico[o], ico[o + 1], ico[o + 2], ico[o + 3]]) as usize;
+        let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;
+        let e = (0..count)
+            .map(|i| 6 + 16 * i)
+            .find(|&e| ico[e] == 32)
+            .expect("thiếu cỡ 32");
+        let base = u32at(e + 12) + 40; // bỏ BITMAPINFOHEADER; điểm ảnh BGRA, từ dưới lên
+        let red = |x: usize, y: usize| ico[base + ((31 - y) * 32 + x) * 4 + 2];
+        let m = (0.285f32 * 32.0).round() as usize; // đường giữa nét của cạnh khung
+        assert!(red(16, m) < 128, "giữa cạnh trên bị tô trắng");
+        assert!(red(m, 16) < 128, "giữa cạnh trái bị tô trắng");
+        assert!(red(m, m) > 200, "góc trên trái phải là nét trắng");
+    }
 
     #[test]
     fn tray_add_retry_policy() {

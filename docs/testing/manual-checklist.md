@@ -1,7 +1,8 @@
 
 ## Vỏ ứng dụng
 
-- [ ] Khởi động `shotme.exe`: biểu tượng xanh có khung chọn trắng hiện ở khay hệ thống, chú thích "shotme".
+- [ ] Khởi động `shotme.exe`: biểu tượng nền xanh bo góc, có khung chọn trắng bốn góc chữ L (ở cỡ khay chỉ còn bốn góc, không chấm tròn) hiện ở khay hệ thống, chú thích "shotme"; nét sắc, không nhòe.
+- [ ] Biểu tượng mới hiện đúng ở ba nơi: khay hệ thống, nút của cửa sổ Cài đặt trên thanh tác vụ (và thanh tiêu đề, Alt+Tab), và `shotme.exe` trong Explorer (thử các cỡ biểu tượng nhỏ, vừa, lớn, rất lớn). Thử thêm ở tỷ lệ hiển thị 100%, 125%, 150%.
 - [ ] Bấm chuột phải (hoặc trái) vào biểu tượng: menu có ba mục "Chụp màn hình", "Cài đặt", "Thoát".
 - [ ] Chọn "Cài đặt": cửa sổ Cài đặt mở (xem mục "Cài đặt").
 - [ ] Chọn "Chụp màn hình" hoặc bấm PrintScreen: lớp phủ mở (xem mục "Lớp phủ").
