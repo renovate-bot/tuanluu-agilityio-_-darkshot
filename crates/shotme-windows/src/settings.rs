@@ -17,11 +17,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, FillRect, GetMonitorInfoW, GetSysColorBrush,
-    MonitorFromPoint, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW, HBRUSH, HDC, HFONT,
-    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, TRANSPARENT,
+    DeleteObject, FillRect, GetSysColorBrush, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW,
+    HBRUSH, HDC, HFONT, HGDIOBJ, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -33,9 +32,7 @@ use windows::Win32::UI::Controls::{
     TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCM_SETCURSEL, TCN_SELCHANGE,
     TCN_SELCHANGING, WC_TABCONTROLW,
 };
-use windows::Win32::UI::HiDpi::{
-    AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
-};
+use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     EnableWindow, GetFocus, GetKeyState, SetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU,
     VK_RETURN, VK_RWIN, VK_SHIFT,
@@ -44,20 +41,18 @@ use windows::Win32::UI::Shell::{
     FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetCursorPos,
-    GetMessageW, GetParent, GetSystemMetrics, GetWindowLongPtrW, GetWindowTextLengthW,
-    GetWindowTextW, IsChild, IsDialogMessageW, IsIconic, KillTimer, LoadImageW, PostMessageW,
-    PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos,
-    SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK,
-    BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL,
-    CB_GETDROPPEDSTATE, CB_SETCURSEL, CB_SHOWDROPDOWN, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD,
-    ES_READONLY, GWL_STYLE, HMENU, HWND_BOTTOM, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, MSG,
-    NONCLIENTMETRICSW, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, SPI_GETNONCLIENTMETRICS,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE, SW_SHOW,
-    WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW,
+    GetParent, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild, IsDialogMessageW,
+    IsIconic, KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
+    SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
+    BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
+    CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL,
+    CB_SHOWDROPDOWN, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD, ES_READONLY, GWL_STYLE, HMENU,
+    HWND_BOTTOM, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE,
+    SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
     WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN,
     WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NOTIFY, WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_SETFONT,
-    WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
     WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU,
     WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -1138,30 +1133,6 @@ impl Builder {
     }
 }
 
-fn system_font(dpi: u32) -> Option<HFONT> {
-    let mut ncm = NONCLIENTMETRICSW {
-        cbSize: std::mem::size_of::<NONCLIENTMETRICSW>() as u32,
-        ..Default::default()
-    };
-    // SAFETY: ncm có cbSize đúng; hệ thống điền lfMessageFont.
-    unsafe {
-        SystemParametersInfoForDpi(
-            SPI_GETNONCLIENTMETRICS.0,
-            ncm.cbSize,
-            Some(&mut ncm as *mut _ as *mut c_void),
-            0,
-            dpi,
-        )
-        .ok()?;
-        let f = CreateFontIndirectW(&ncm.lfMessageFont);
-        if f.is_invalid() {
-            None
-        } else {
-            Some(f)
-        }
-    }
-}
-
 /// Lề trái nhãn, lề trái ô nhập và bề rộng ô nhập trong một khung (DIP, tính từ góc khung).
 const LX: i32 = 12;
 const EX: i32 = 160;
@@ -1575,22 +1546,7 @@ pub fn show(
             None,
         )
         .ok()?;
-        // Icon lớn (thanh tác vụ, Alt+Tab) và nhỏ (thanh tiêu đề); LR_SHARED nên không phải hủy.
-        let res = PCWSTR(std::ptr::without_provenance::<u16>(1));
-        for (which, metric_x, metric_y) in [
-            (ICON_BIG, SM_CXICON, SM_CYICON),
-            (ICON_SMALL, SM_CXSMICON, SM_CYSMICON),
-        ] {
-            let (cx, cy) = (GetSystemMetrics(metric_x), GetSystemMetrics(metric_y));
-            if let Ok(icon) = LoadImageW(Some(hinst.into()), res, IMAGE_ICON, cx, cy, LR_SHARED) {
-                SendMessageW(
-                    hwnd,
-                    WM_SETICON,
-                    Some(WPARAM(which as usize)),
-                    Some(LPARAM(icon.0 as isize)),
-                );
-            }
-        }
+        crate::winutil::set_app_icons(hwnd);
         hwnd
     };
     // Cửa sổ mới chưa có lần kiểm tra nào: bỏ kết quả và cờ của cửa sổ trước (nếu còn sót).
@@ -1601,7 +1557,7 @@ pub fn show(
     }
     // SAFETY: hwnd vừa tạo.
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-    let font = system_font(dpi);
+    let font = crate::winutil::system_font(dpi);
     let mut b = Builder {
         parent: hwnd,
         dpi: dpi as i32,
@@ -1704,24 +1660,7 @@ pub fn show(
             WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             dpi,
         );
-        let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
-        let mut pt = POINT::default();
-        let _ = GetCursorPos(&mut pt);
-        let mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-        let mut mi = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let (x, y) = if GetMonitorInfoW(mon, &mut mi).as_bool() {
-            let a = mi.rcWork;
-            (
-                a.left + ((a.right - a.left) - ww) / 2,
-                a.top + ((a.bottom - a.top) - wh) / 2,
-            )
-        } else {
-            (100, 100)
-        };
-        let _ = SetWindowPos(hwnd, None, x, y, ww, wh, SWP_NOZORDER);
+        crate::winutil::center_on_cursor_monitor(hwnd, rc.right - rc.left, rc.bottom - rc.top);
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
         let _ = SetFocus(Some(first_ctl(&c, first_tab)));

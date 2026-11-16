@@ -14,6 +14,7 @@ mod secret;
 mod settings;
 mod tray;
 mod wer;
+mod winutil;
 
 use app::{AppState, UploadJob};
 use secret::DpapiStore;
