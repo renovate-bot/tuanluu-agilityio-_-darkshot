@@ -791,9 +791,19 @@ impl Painter {
         // SAFETY: bút tạo và xóa trong khối; đối tượng cũ được chọn lại trước khi xóa.
         unsafe {
             let pen = CreatePen(PS_SOLID, 1, cr(ACCENT));
-            let old_pen = SelectObject(self.dc, pen.into());
+            let outer = CreatePen(PS_SOLID, 1, cr(OVERLAY_LABEL));
+            let old_pen = SelectObject(self.dc, outer.into());
             let old_brush = SelectObject(self.dc, GetStockObject(NULL_BRUSH));
             SetBkMode(self.dc, OPAQUE);
+            // Nét tối ngoài 1px để viền xanh nổi trên nền xanh.
+            let _ = Rectangle(
+                self.dc,
+                rc.left - 2,
+                rc.top - 2,
+                rc.right + 2,
+                rc.bottom + 2,
+            );
+            SelectObject(self.dc, pen.into());
             let _ = Rectangle(
                 self.dc,
                 rc.left - 1,
@@ -804,6 +814,7 @@ impl Painter {
             SelectObject(self.dc, old_brush);
             SelectObject(self.dc, old_pen);
             let _ = DeleteObject(pen.into());
+            let _ = DeleteObject(outer.into());
         }
     }
 
