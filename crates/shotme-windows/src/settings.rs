@@ -9,7 +9,7 @@
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{
-    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, HotkeySlot, Hotkeys, R2Config,
+    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys, R2Config,
 };
 use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
@@ -19,10 +19,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    DeleteObject, FillRect, GetSysColorBrush, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW,
-    HBRUSH, HDC, HFONT, HGDIOBJ, TRANSPARENT,
+    DeleteObject, FillRect, GetDC, GetSysColorBrush, GetTextExtentPoint32W, ReleaseDC,
+    SelectObject, SetBkMode, SetTextColor, COLOR_BTNFACE, COLOR_WINDOW, HBRUSH, HDC, HFONT,
+    HGDIOBJ, TRANSPARENT,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -139,7 +140,7 @@ pub struct FormError {
 pub fn tab_of(field: Field) -> Tab {
     match field {
         Field::SaveDir => Tab::General,
-        Field::HotkeyRow(_) => todo!(),
+        Field::HotkeyRow(_) => Tab::Hotkeys,
         Field::AccountId | Field::Bucket | Field::PublicUrl => Tab::R2,
     }
 }
@@ -188,7 +189,8 @@ pub fn initial_tab(reason: OpenReason) -> Tab {
 }
 
 /// Gộp biểu mẫu vào cấu hình hiện tại. Thuần: không đụng hệ điều hành.
-/// Kiểm tra theo thứ tự tab: SaveDir, AccountId, Bucket, PublicUrl; câu lỗi theo `lang`.
+/// Kiểm tra theo thứ tự tab: SaveDir, trùng tổ hợp giữa các dòng phím tắt đang bật, AccountId,
+/// Bucket, PublicUrl; câu lỗi theo `lang`.
 pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, FormError> {
     let account_id = form.account_id.trim().to_string();
     let access_key_id = form.access_key_id.trim().to_string();
@@ -200,6 +202,17 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
 
     if save_dir.is_empty() {
         return err(Field::SaveDir, t(lang, Msg::ErrPickSaveDir).into());
+    }
+    if let Some((first, second)) = form.hotkeys.first_conflict() {
+        return err(
+            Field::HotkeyRow(second),
+            i18n::hotkeys_conflict(
+                lang,
+                t(lang, first.label()),
+                t(lang, second.label()),
+                &hotkey::describe(&form.hotkeys.get(second).key),
+            ),
+        );
     }
     if !account_id.chars().all(is_account_char) {
         return err(Field::AccountId, t(lang, Msg::ErrAccountChars).into());
@@ -229,16 +242,10 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
             public_base_url,
         },
         expiry: form.expiry,
-        hotkeys: Hotkeys {
-            region: HotkeySlot {
-                key: form.hotkeys.region.key,
-                ..current.hotkeys.region
-            },
-            ..current.hotkeys
-        },
-        show_success_notices: current.show_success_notices,
-        keep_selection: current.keep_selection,
-        include_cursor: current.include_cursor,
+        hotkeys: form.hotkeys,
+        show_success_notices: form.show_success_notices,
+        keep_selection: form.keep_selection,
+        include_cursor: form.include_cursor,
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
         language: form.language,
@@ -405,11 +412,16 @@ const ID_TEST: i32 = 106;
 const ID_EXPIRY: i32 = 107;
 const ID_DIR: i32 = 108;
 const ID_BROWSE: i32 = 109;
-const ID_HK_CHANGE: i32 = 110;
 const ID_AUTOSTART: i32 = 111;
 const ID_LANGUAGE: i32 = 112;
 const ID_TABS: i32 = 113;
 const ID_HELP: i32 = 114;
+const ID_NOTICES: i32 = 115;
+const ID_KEEP_SELECTION: i32 = 116;
+const ID_INCLUDE_CURSOR: i32 = 117;
+/// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
+const ID_HK_CHANGE0: i32 = 130;
+const ID_HK_CHECK0: i32 = 133;
 /// Khung của tab thứ i có ID `ID_FRAME0 + i`.
 const ID_FRAME0: i32 = 120;
 const FRAME_CLASS: PCWSTR = w!("shotme-settings-frame");
@@ -439,19 +451,31 @@ struct Ctl {
     test_res: HWND,
     expiry: HWND,
     dir: HWND,
-    hk_edit: HWND,
-    hk_btn: HWND,
+    /// Ô tích, ô chỉ đọc và nút "Đổi…" của từng dòng phím tắt, theo `HotkeyRole::ALL`.
+    hk_chk: [HWND; 3],
+    hk_edit: [HWND; 3],
+    hk_btn: [HWND; 3],
     autostart: HWND,
+    notices: HWND,
+    keep_selection: HWND,
+    include_cursor: HWND,
     err: HWND,
+}
+
+/// Vị trí của dòng `r` trong `HotkeyRole::ALL` (chỉ số của các mảng `hk_*` trong `Ctl`).
+fn row(r: HotkeyRole) -> usize {
+    HotkeyRole::ALL.iter().position(|x| *x == r).unwrap_or(0)
 }
 
 struct St {
     current: Config,
     parent: HWND,
-    hotkey: Hotkey,
-    capturing: bool,
+    /// Ba dòng phím tắt đang hiện trên biểu mẫu (bật/tắt theo ô tích).
+    hotkeys: Hotkeys,
+    /// Dòng đang ở chế độ bắt phím; mỗi lúc tối đa một dòng.
+    capturing: Option<HotkeyRole>,
     cap: CaptureState,
-    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần OK lỗi) và cần đăng ký lại nếu Hủy.
+    /// Các phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần OK lỗi) và cần đăng ký lại nếu Hủy.
     hk_unregistered: bool,
     done: bool,
     result: Option<Config>,
@@ -506,10 +530,9 @@ fn set_text(h: HWND, s: &str) {
 fn read_form() -> Option<Form> {
     let c = ctl()?;
     // SAFETY: các HWND là điều khiển của cửa sổ đang mở ở luồng này.
-    let (sel, checked, lang_sel) = unsafe {
+    let (sel, lang_sel) = unsafe {
         (
             SendMessageW(c.expiry, CB_GETCURSEL, None, None).0,
-            SendMessageW(c.autostart, BM_GETCHECK, None, None).0,
             SendMessageW(c.language, CB_GETCURSEL, None, None).0,
         )
     };
@@ -517,8 +540,13 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (hotkey, old_lang, current) =
-        with_st(|s| (s.hotkey, s.current.language, s.current.clone()))?;
+    let (mut hotkeys, old_lang) = with_st(|s| (s.hotkeys, s.current.language))?;
+    // Ô tích là nguồn đúng của trạng thái bật/tắt.
+    for r in HotkeyRole::ALL {
+        let mut slot = hotkeys.get(r);
+        slot.enabled = is_checked(c.hk_chk[row(r)]);
+        hotkeys.set(r, slot);
+    }
     let language = usize::try_from(lang_sel)
         .ok()
         .and_then(|i| Lang::ALL.get(i).copied())
@@ -530,27 +558,33 @@ fn read_form() -> Option<Form> {
         bucket: get_text(c.bucket),
         public_base_url: get_text(c.url),
         expiry,
-        hotkeys: Hotkeys {
-            region: HotkeySlot {
-                key: hotkey,
-                ..current.hotkeys.region
-            },
-            ..current.hotkeys
-        },
+        hotkeys,
         save_dir: get_text(c.dir),
-        autostart: checked == 1,
+        autostart: is_checked(c.autostart),
         language,
-        show_success_notices: current.show_success_notices,
-        keep_selection: current.keep_selection,
-        include_cursor: current.include_cursor,
+        show_success_notices: is_checked(c.notices),
+        keep_selection: is_checked(c.keep_selection),
+        include_cursor: is_checked(c.include_cursor),
     })
+}
+
+fn is_checked(h: HWND) -> bool {
+    // SAFETY: h là ô tích của cửa sổ đang mở ở luồng này; chỉ đọc trạng thái.
+    unsafe { SendMessageW(h, BM_GETCHECK, None, None).0 == 1 }
+}
+
+fn set_checked(h: HWND, on: bool) {
+    // SAFETY: h là ô tích của cửa sổ đang mở ở luồng này.
+    unsafe {
+        SendMessageW(h, BM_SETCHECK, Some(WPARAM(usize::from(on))), None);
+    }
 }
 
 /// Ô đầu tiên (theo thứ tự Tab) của mỗi tab.
 fn first_ctl(c: &Ctl, t: Tab) -> HWND {
     match t {
         Tab::General => c.autostart,
-        Tab::Hotkeys => c.hk_edit,
+        Tab::Hotkeys => c.hk_chk[0],
         Tab::R2 => c.account,
     }
 }
@@ -558,7 +592,7 @@ fn first_ctl(c: &Ctl, t: Tab) -> HWND {
 fn field_ctl(c: &Ctl, f: Field) -> HWND {
     match f {
         Field::SaveDir => c.dir,
-        Field::HotkeyRow(_) => todo!(),
+        Field::HotkeyRow(r) => c.hk_btn[row(r)],
         Field::AccountId => c.account,
         Field::Bucket => c.bucket,
         Field::PublicUrl => c.url,
@@ -658,10 +692,36 @@ fn show_error(msg: &str) {
     }
 }
 
-fn refresh_hotkey_text() {
-    if let (Some(c), Some(hk)) = (ctl(), with_st(|s| s.hotkey)) {
-        set_text(c.hk_edit, &hotkey::describe(&hk));
+/// Ô chỉ đọc của dòng `r` hiện tổ hợp đang chọn trên biểu mẫu.
+fn refresh_hotkey_text(r: HotkeyRole) {
+    if let (Some(c), Some(hk)) = (ctl(), with_st(|s| s.hotkeys.get(r).key)) {
+        set_text(c.hk_edit[row(r)], &hotkey::describe(&hk));
     }
+}
+
+/// Ô phím và nút "Đổi…" của dòng `r` sáng khi dòng bật, mờ khi tắt; tổ hợp giữ nguyên.
+fn apply_row_enabled(c: &Ctl, r: HotkeyRole, on: bool) {
+    // SAFETY: hai điều khiển thuộc cửa sổ đang mở ở luồng này.
+    unsafe {
+        let _ = EnableWindow(c.hk_edit[row(r)], on);
+        let _ = EnableWindow(c.hk_btn[row(r)], on);
+    }
+}
+
+/// Người dùng bấm ô tích của dòng `r`.
+fn on_toggle_row(r: HotkeyRole) {
+    let Some(c) = ctl() else { return };
+    let on = is_checked(c.hk_chk[row(r)]);
+    // Bỏ tích dòng đang bắt phím: thoát chế độ bắt trước (giữ phím cũ của dòng).
+    if !on && with_st(|s| s.capturing == Some(r)).unwrap_or(false) {
+        end_capture();
+    }
+    with_st(|s| {
+        let mut slot = s.hotkeys.get(r);
+        slot.enabled = on;
+        s.hotkeys.set(r, slot);
+    });
+    apply_row_enabled(&c, r, on);
 }
 
 fn finish(result: Option<Config>) {
@@ -674,8 +734,9 @@ fn finish(result: Option<Config>) {
 fn cancel() {
     with_st(|s| {
         if s.hk_unregistered {
-            // Đăng ký lại phím tắt cũ; nếu bị chiếm giữa chừng thì không còn cách nào hơn.
-            let _ = hotkey::register(s.parent, &s.current.hotkeys.region.key);
+            // Đăng ký lại các dòng đang bật của cấu hình cũ (dòng tắt không đăng ký); nếu bị chiếm
+            // giữa chừng thì không còn cách nào hơn.
+            let _ = hotkey::register_enabled(s.parent, &s.current.hotkeys);
             s.hk_unregistered = false;
         }
     });
@@ -706,29 +767,40 @@ fn save() {
             return;
         }
     };
-    let need_rereg =
-        with_st(|s| s.hk_unregistered || s.hotkey != s.current.hotkeys.region.key).unwrap_or(false);
+    let Some((parent, need_rereg)) = with_st(|s| {
+        (
+            s.parent,
+            s.hk_unregistered || cfg.hotkeys != s.current.hotkeys,
+        )
+    }) else {
+        return;
+    };
     if need_rereg {
-        let parent = with_st(|s| s.parent);
-        if let Some(p) = parent {
-            hotkey::unregister(p);
-            if !hotkey::register(p, &cfg.hotkeys.region.key) {
+        hotkey::unregister_all(parent);
+        // Đăng ký lần lượt các dòng đang bật; dòng tắt không bao giờ được đăng ký.
+        for r in HotkeyRole::ALL {
+            let slot = cfg.hotkeys.get(r);
+            if slot.enabled && !hotkey::register(parent, r, &slot.key) {
+                // Không nửa vời: hủy mọi dòng đã đăng ký, chờ OK lần sau hoặc Hủy.
+                hotkey::unregister_all(parent);
                 with_st(|s| s.hk_unregistered = true);
                 select_tab(Tab::Hotkeys);
                 if let Some(c) = ctl() {
                     // SAFETY: nút "Đổi…" thuộc khung vừa hiện của cửa sổ đang mở ở luồng này.
                     unsafe {
-                        let _ = SetFocus(Some(c.hk_btn));
+                        let _ = SetFocus(Some(c.hk_btn[row(r)]));
                     }
                 }
-                show_error(&i18n::hotkey_taken_choose_other(
-                    lang::current(),
-                    &hotkey::describe(&cfg.hotkeys.region.key),
+                let lang = lang::current();
+                show_error(&i18n::hotkey_row_taken(
+                    lang,
+                    t(lang, r.label()),
+                    &hotkey::describe(&slot.key),
                 ));
                 return;
             }
-            with_st(|s| s.hk_unregistered = false);
         }
+        with_st(|s| s.hk_unregistered = false);
     }
     finish(Some(cfg));
 }
@@ -739,46 +811,56 @@ fn on_command(hwnd: HWND, id: i32) {
         ID_CANCEL => cancel(),
         ID_TEST => on_test(hwnd),
         ID_BROWSE => on_browse(hwnd),
-        ID_HK_CHANGE => on_change_hotkey(),
         ID_HELP => on_help(),
-        _ => {}
+        _ => {
+            for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+                if id == ID_HK_CHANGE0 + i as i32 {
+                    on_change_hotkey(r);
+                } else if id == ID_HK_CHECK0 + i as i32 {
+                    on_toggle_row(r);
+                }
+            }
+        }
     }
 }
 
-/// Mở Trợ giúp với phím tắt đang hiện trong biểu mẫu. Chủ của cửa sổ Trợ giúp là cửa sổ ẩn của
+/// Mở Trợ giúp với các dòng phím tắt đang hiện trong biểu mẫu. Chủ của cửa sổ Trợ giúp là cửa sổ ẩn của
 /// ứng dụng, không phải Tùy chọn, nên đóng Tùy chọn không kéo Trợ giúp theo.
 fn on_help() {
     // Đang bắt phím mà bấm nút này: thoát chế độ bắt trước, như bấm ra ngoài.
     end_capture();
-    if let Some((parent, hk)) = with_st(|s| (s.parent, s.hotkey)) {
-        crate::help::show(parent, &hk);
+    // `St.hotkeys` theo sát ô tích (`on_toggle_row`) và phím vừa bắt; không đọc cả biểu mẫu
+    // để khóa bí mật không bị chép ra chỉ vì mở Trợ giúp.
+    if let Some((parent, keys)) = with_st(|s| (s.parent, s.hotkeys)) {
+        crate::help::show(parent, &hotkey::help_keys(&keys));
     }
 }
 
-fn on_change_hotkey() {
+/// Bấm "Đổi…" của dòng `r`: dòng khác đang bắt thì thoát (giữ phím cũ của nó), rồi dòng `r` vào
+/// chế độ bắt. Lần đầu trong phiên mở cửa sổ: hủy đăng ký cả ba dòng (Hủy sẽ đăng ký lại).
+fn on_change_hotkey(r: HotkeyRole) {
     let Some(c) = ctl() else { return };
+    if with_st(|s| s.capturing == Some(r)).unwrap_or(true) {
+        return;
+    }
+    end_capture();
     let started = with_st(|s| {
-        if s.capturing {
-            return false;
-        }
-        hotkey::unregister(s.parent);
+        hotkey::unregister_all(s.parent);
         s.hk_unregistered = true;
-        s.capturing = true;
+        s.capturing = Some(r);
         s.cap = CaptureState::new();
-        true
     })
-    .unwrap_or(false);
+    .is_some();
     if started {
-        set_text(c.hk_edit, lang::tr(Msg::HotkeyCapturePrompt));
+        set_text(c.hk_edit[row(r)], lang::tr(Msg::HotkeyCapturePrompt));
         show_error("");
     }
 }
 
 /// Thoát chế độ bắt phím, giữ phím tắt đang chọn trong biểu mẫu.
 fn end_capture() {
-    let was = with_st(|s| std::mem::replace(&mut s.capturing, false)).unwrap_or(false);
-    if was {
-        refresh_hotkey_text();
+    if let Some(r) = with_st(|s| s.capturing.take()).flatten() {
+        refresh_hotkey_text(r);
     }
 }
 
@@ -840,17 +922,20 @@ fn capture_msg(msg: &MSG, hk_btn: HWND) -> bool {
                 Capture::Ignore => true,
                 Capture::PassThrough => false,
                 Capture::NeedModifier => {
-                    if let Some(c) = ctl() {
-                        set_text(c.hk_edit, lang::tr(Msg::HotkeyNeedModifier));
+                    if let (Some(c), Some(Some(r))) = (ctl(), with_st(|s| s.capturing)) {
+                        set_text(c.hk_edit[row(r)], lang::tr(Msg::HotkeyNeedModifier));
                     }
                     true
                 }
                 Capture::Got(h) => {
-                    with_st(|s| {
-                        s.hotkey = h;
-                        s.capturing = false;
-                    });
-                    refresh_hotkey_text();
+                    if let Some(r) = with_st(|s| s.capturing.take()).flatten() {
+                        with_st(|s| {
+                            let mut slot = s.hotkeys.get(r);
+                            slot.key = h;
+                            s.hotkeys.set(r, slot);
+                        });
+                        refresh_hotkey_text(r);
+                    }
                     true
                 }
             }
@@ -1054,7 +1139,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // Nhãn và ô tích trong khung (do khung chuyển lên): nền trùng nền dải tab.
                 // Ô chỉ đọc của phím tắt giữ nền mặc định để không trông như ô gõ được.
                 // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
-                let in_frame = from != c.hk_edit
+                let in_frame = !c.hk_edit.contains(&from)
                     && c.frames
                         .iter()
                         .any(|f| unsafe { IsChild(*f, from) }.as_bool());
@@ -1196,8 +1281,18 @@ fn combo(b: &mut Builder, y: i32, id: i32) -> HWND {
     )
 }
 
-/// Ô của tab Thông thường; trả về (ô tích, thư mục, hộp ngôn ngữ, chiều cao DIP).
-fn build_general(b: &mut Builder) -> (HWND, HWND, HWND, i32) {
+struct GeneralCtl {
+    autostart: HWND,
+    notices: HWND,
+    keep_selection: HWND,
+    include_cursor: HWND,
+    dir: HWND,
+    language: HWND,
+    height: i32,
+}
+
+/// Ô của tab Thông thường.
+fn build_general(b: &mut Builder) -> GeneralCtl {
     let mut y = 12;
     let autostart = b.button(
         lang::tr(Msg::ChkAutostart),
@@ -1205,6 +1300,14 @@ fn build_general(b: &mut Builder) -> (HWND, HWND, HWND, i32) {
         (LX, y, 300, 22),
         ID_AUTOSTART,
     );
+    // Ba ô tích của đợt 2, liền nhau ngay dưới "Khởi động cùng Windows".
+    let mut check = |b: &mut Builder, msg: Msg, id: i32| {
+        y += 26;
+        b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), (LX, y, 420, 22), id)
+    };
+    let notices = check(b, Msg::ChkShowSuccessNotices, ID_NOTICES);
+    let keep_selection = check(b, Msg::ChkKeepSelection, ID_KEEP_SELECTION);
+    let include_cursor = check(b, Msg::ChkIncludeCursor, ID_INCLUDE_CURSOR);
     y += 32;
     let dir = row_edit(
         b,
@@ -1224,27 +1327,94 @@ fn build_general(b: &mut Builder) -> (HWND, HWND, HWND, i32) {
     b.label(lang::tr(Msg::LabelLanguage), LX, y + 3, EX - LX - 4, 20);
     let language = combo(b, y, ID_LANGUAGE);
     y += 32;
-    (autostart, dir, language, y + 4)
+    GeneralCtl {
+        autostart,
+        notices,
+        keep_selection,
+        include_cursor,
+        dir,
+        language,
+        height: y + 4,
+    }
 }
 
-/// Ô của tab Phím tắt; trả về (ô chỉ đọc, nút "Đổi…", chiều cao DIP).
-fn build_hotkeys(b: &mut Builder) -> (HWND, HWND, i32) {
-    let y = 12;
-    let hk_edit = row_edit(
-        b,
-        lang::tr(Msg::LabelHotkey),
-        y,
-        EW - 76,
-        WINDOW_STYLE(ES_READONLY as u32),
-        -1,
+struct HotkeysCtl {
+    chk: [HWND; 3],
+    edit: [HWND; 3],
+    btn: [HWND; 3],
+    height: i32,
+}
+
+/// Bề rộng (DIP) của chuỗi dài nhất trong `texts` khi vẽ bằng phông của cửa sổ; `None` khi không đo được.
+fn max_text_width_dip(b: &Builder, texts: &[&str]) -> Option<i32> {
+    let font = b.font?;
+    // SAFETY: DC màn hình lấy và trả trong khối này; phông cũ được chọn lại trước khi trả DC.
+    unsafe {
+        let hdc = GetDC(None);
+        if hdc.is_invalid() {
+            return None;
+        }
+        let old = SelectObject(hdc, HGDIOBJ(font.0));
+        let mut widest = 0;
+        for s in texts {
+            let w: Vec<u16> = s.encode_utf16().collect();
+            let mut size = SIZE::default();
+            if GetTextExtentPoint32W(hdc, &w, &mut size).as_bool() {
+                widest = widest.max(size.cx);
+            }
+        }
+        SelectObject(hdc, old);
+        ReleaseDC(None, hdc);
+        Some((widest * 96 + b.dpi - 1) / b.dpi.max(1))
+    }
+}
+
+/// Ô của tab Phím tắt: mỗi dòng theo `HotkeyRole::ALL` có ô tích (nhãn của dòng), ô chỉ đọc, nút "Đổi…".
+/// Cột nhãn đủ rộng cho nhãn dài nhất của mọi ngôn ngữ; ô phím lấy phần còn lại.
+fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
+    // Ô vuông của ô tích và khoảng cách tới chữ.
+    const BOX: i32 = 24;
+    const BTN_W: i32 = 70;
+    let right = EX + EW;
+    let labels: Vec<&str> = HotkeyRole::ALL
+        .iter()
+        .flat_map(|r| Lang::ALL.map(|l| t(l, r.label())))
+        .collect();
+    let chk_w = (max_text_width_dip(b, &labels).unwrap_or(176) + BOX).clamp(150, 240);
+    let edit_x = LX + chk_w + 6;
+    let edit_w = right - BTN_W - 6 - edit_x;
+    let mut y = 12;
+    let (mut chk, mut edit, mut btn) = (
+        [HWND::default(); 3],
+        [HWND::default(); 3],
+        [HWND::default(); 3],
     );
-    let hk_btn = b.button(
-        lang::tr(Msg::BtnChange),
-        ws(BS_PUSHBUTTON),
-        (EX + EW - 70, y - 1, 70, 26),
-        ID_HK_CHANGE,
-    );
-    (hk_edit, hk_btn, y + 34 + 4)
+    for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+        chk[i] = b.button(
+            lang::tr(r.label()),
+            ws(BS_AUTOCHECKBOX),
+            (LX, y + 1, chk_w, 22),
+            ID_HK_CHECK0 + i as i32,
+        );
+        edit[i] = b.edit(
+            WINDOW_STYLE(ES_READONLY as u32),
+            (edit_x, y, edit_w, 24),
+            -1,
+        );
+        btn[i] = b.button(
+            lang::tr(Msg::BtnChange),
+            ws(BS_PUSHBUTTON),
+            (right - BTN_W, y - 1, BTN_W, 26),
+            ID_HK_CHANGE0 + i as i32,
+        );
+        y += 34;
+    }
+    HotkeysCtl {
+        chk,
+        edit,
+        btn,
+        height: y + 4,
+    }
 }
 
 struct R2Ctl {
@@ -1374,13 +1544,14 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         b.frame(ID_FRAME0 + 2),
     ];
     b.parent = frames[Tab::General.index()];
-    let (autostart, dir, language, h_general) = build_general(b);
+    let g = build_general(b);
     b.parent = frames[Tab::Hotkeys.index()];
-    let (hk_edit, hk_btn, h_hotkeys) = build_hotkeys(b);
+    let hk = build_hotkeys(b);
     b.parent = frames[Tab::R2.index()];
     let r2 = build_r2(b, current);
     b.parent = main;
-    let frame_h = h_general.max(h_hotkeys).max(r2.height);
+    // Cửa sổ cao theo tab cao nhất.
+    let frame_h = g.height.max(hk.height).max(r2.height);
 
     // Vùng hiển thị của dải tab cao đúng bằng tab cao nhất; khung phủ kín vùng đó.
     let (left, top, width) = (b.s(12), b.s(tab_top), b.s(456));
@@ -1477,7 +1648,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         frames[0],
         frames[1],
         frames[2],
-        language,
+        g.language,
         r2.account,
         r2.keyid,
         r2.secret,
@@ -1486,19 +1657,26 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         r2.test_btn,
         r2.test_res,
         r2.expiry,
-        dir,
-        hk_edit,
-        hk_btn,
-        autostart,
+        g.dir,
+        g.autostart,
+        g.notices,
+        g.keep_selection,
+        g.include_cursor,
         err,
     ];
-    if all.iter().any(|h| h.is_invalid()) {
+    if all
+        .iter()
+        .chain(hk.chk.iter())
+        .chain(hk.edit.iter())
+        .chain(hk.btn.iter())
+        .any(|h| h.is_invalid())
+    {
         return (y, None);
     }
     let ctl = Ctl {
         tabs,
         frames,
-        language,
+        language: g.language,
         account: r2.account,
         keyid: r2.keyid,
         secret: r2.secret,
@@ -1507,10 +1685,14 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         test_btn: r2.test_btn,
         test_res: r2.test_res,
         expiry: r2.expiry,
-        dir,
-        hk_edit,
-        hk_btn,
-        autostart,
+        dir: g.dir,
+        hk_chk: hk.chk,
+        hk_edit: hk.edit,
+        hk_btn: hk.btn,
+        autostart: g.autostart,
+        notices: g.notices,
+        keep_selection: g.keep_selection,
+        include_cursor: g.include_cursor,
         err,
     };
     (y, Some(ctl))
@@ -1629,8 +1811,8 @@ pub fn show(
         *s.borrow_mut() = Some(St {
             current: current.clone(),
             parent,
-            hotkey: current.hotkeys.region.key,
-            capturing: false,
+            hotkeys: current.hotkeys,
+            capturing: None,
             cap: CaptureState::new(),
             hk_unregistered: false,
             done: false,
@@ -1652,7 +1834,16 @@ pub fn show(
     set_text(c.bucket, &current.r2.bucket);
     set_text(c.url, &current.r2.public_base_url);
     set_text(c.dir, &current.save_dir.to_string_lossy());
-    refresh_hotkey_text();
+    for r in HotkeyRole::ALL {
+        let on = current.hotkeys.get(r).enabled;
+        set_checked(c.hk_chk[row(r)], on);
+        apply_row_enabled(&c, r, on);
+        refresh_hotkey_text(r);
+    }
+    set_checked(c.autostart, current.autostart);
+    set_checked(c.notices, current.show_success_notices);
+    set_checked(c.keep_selection, current.keep_selection);
+    set_checked(c.include_cursor, current.include_cursor);
     let labels = Expiry::ALL.map(|e| expiry_label(lang::current(), e));
     // SAFETY: gửi thông điệp tới các điều khiển của cửa sổ này; HSTRING sống suốt lời gọi.
     unsafe {
@@ -1685,12 +1876,6 @@ pub fn show(
             .position(|l| *l == current.language)
             .unwrap_or(0);
         SendMessageW(c.language, CB_SETCURSEL, Some(WPARAM(lang_idx)), None);
-        SendMessageW(
-            c.autostart,
-            BM_SETCHECK,
-            Some(WPARAM(usize::from(current.autostart))),
-            None,
-        );
     }
 
     // Đổi kích thước theo DPI, căn giữa màn hình đang có con trỏ.
@@ -1764,9 +1949,12 @@ fn run_loop(hwnd: HWND, c: Ctl) {
         // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
         let mine = msg.hwnd == hwnd || unsafe { IsChild(hwnd, msg.hwnd).as_bool() };
         if mine {
-            let capturing = with_st(|s| s.capturing).unwrap_or(false);
-            if capturing && capture_msg(&msg, c.hk_btn) {
-                continue;
+            let capturing_row = with_st(|s| s.capturing).flatten();
+            let capturing = capturing_row.is_some();
+            if let Some(r) = capturing_row {
+                if capture_msg(&msg, c.hk_btn[row(r)]) {
+                    continue;
+                }
             }
             if msg.message == WM_KEYDOWN {
                 let vk = msg.wParam.0 as u32;
@@ -1843,6 +2031,7 @@ fn get_class_is_button(h: HWND) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shotme_core::config::HotkeySlot;
     use std::path::Path;
 
     fn base() -> Config {

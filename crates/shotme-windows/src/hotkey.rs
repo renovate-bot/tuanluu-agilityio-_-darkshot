@@ -8,48 +8,68 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_SHIFT, MOD_WIN,
 };
 
-pub const HOTKEY_ID: i32 = 1;
-
 /// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3.
 pub fn id_of(role: HotkeyRole) -> i32 {
-    let _ = role;
-    todo!()
+    match role {
+        HotkeyRole::Region => 1,
+        HotkeyRole::SaveFull => 2,
+        HotkeyRole::UploadFull => 3,
+    }
 }
 
 /// Dòng ứng với mã `id` của `WM_HOTKEY`.
 pub fn role_of(id: i32) -> Option<HotkeyRole> {
-    let _ = id;
-    todo!()
+    HotkeyRole::ALL.into_iter().find(|r| id_of(*r) == id)
 }
 
-/// Hủy đăng ký cả ba dòng.
-#[allow(dead_code)]
+/// Hủy đăng ký cả ba dòng; dòng chưa đăng ký thì bỏ qua.
 pub fn unregister_all(hwnd: HWND) {
-    let _ = hwnd;
-    todo!()
+    for r in HotkeyRole::ALL {
+        // SAFETY: hủy phím đã đăng ký cho cửa sổ này; lỗi (chưa đăng ký) được bỏ qua.
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), id_of(r));
+        }
+    }
 }
 
-/// Đăng ký các dòng đang bật theo `HotkeyRole::ALL`; trả về các dòng không đăng ký được.
-#[allow(dead_code)]
+/// Hủy cả ba dòng rồi đăng ký các dòng đang bật theo `HotkeyRole::ALL`; dòng tắt không bao giờ
+/// được đăng ký. Trả về các dòng đang bật mà không đăng ký được.
 pub fn register_enabled(hwnd: HWND, keys: &Hotkeys) -> Vec<HotkeyRole> {
-    let _ = (hwnd, keys);
-    todo!()
+    // RegisterHotKey với cùng hwnd và id không thay phím cũ mà giữ cả hai: luôn hủy trước.
+    unregister_all(hwnd);
+    HotkeyRole::ALL
+        .into_iter()
+        .filter(|r| {
+            let slot = keys.get(*r);
+            slot.enabled && !register(hwnd, *r, &slot.key)
+        })
+        .collect()
 }
 
-/// Tổ hợp của các dòng đang bật cho Trợ giúp.
+/// Tổ hợp của các dòng đang bật cho Trợ giúp; dòng tắt là `None`.
 pub fn help_keys(keys: &Hotkeys) -> HelpKeys {
-    let _ = keys;
-    todo!()
+    let on = |r: HotkeyRole| {
+        let slot = keys.get(r);
+        slot.enabled.then(|| describe(&slot.key))
+    };
+    HelpKeys {
+        region: on(HotkeyRole::Region),
+        save_full: on(HotkeyRole::SaveFull),
+        upload_full: on(HotkeyRole::UploadFull),
+    }
 }
 
 /// Tên tổ hợp của các dòng `failed`, theo thứ tự `HotkeyRole::ALL`.
 pub fn taken_combos(keys: &Hotkeys, failed: &[HotkeyRole]) -> Vec<String> {
-    let _ = (keys, failed);
-    todo!()
+    HotkeyRole::ALL
+        .into_iter()
+        .filter(|r| failed.contains(r))
+        .map(|r| describe(&keys.get(r).key))
+        .collect()
 }
 
-/// RegisterHotKey với MOD_NOREPEAT. Trả về `false` khi phím đang bị ứng dụng khác chiếm.
-pub fn register(hwnd: HWND, hk: &Hotkey) -> bool {
+/// RegisterHotKey (MOD_NOREPEAT) cho dòng `role`. Trả về `false` khi phím đang bị ứng dụng khác chiếm.
+pub fn register(hwnd: HWND, role: HotkeyRole, hk: &Hotkey) -> bool {
     let mut mods: HOT_KEY_MODIFIERS = MOD_NOREPEAT;
     if hk.ctrl {
         mods |= MOD_CONTROL;
@@ -64,14 +84,7 @@ pub fn register(hwnd: HWND, hk: &Hotkey) -> bool {
         mods |= MOD_WIN;
     }
     // SAFETY: hwnd là cửa sổ của luồng gọi; các tham số là giá trị thuần.
-    unsafe { RegisterHotKey(Some(hwnd), HOTKEY_ID, mods, hk.vk).is_ok() }
-}
-
-pub fn unregister(hwnd: HWND) {
-    // SAFETY: hủy phím đã đăng ký cho cửa sổ này; lỗi (chưa đăng ký) được bỏ qua.
-    unsafe {
-        let _ = UnregisterHotKey(Some(hwnd), HOTKEY_ID);
-    }
+    unsafe { RegisterHotKey(Some(hwnd), id_of(role), mods, hk.vk).is_ok() }
 }
 
 fn key_name(vk: u32) -> String {

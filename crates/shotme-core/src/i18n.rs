@@ -156,11 +156,6 @@ messages! {
     UploadStartFailedTitle => ("Không bắt đầu được việc tải lên", "Could not start the upload"),
     AutostartFailedTitle => ("Không đổi được khởi động cùng Windows", "Could not change the Start with Windows setting"),
     OptionsSaveFailedTitle => ("Không lưu được tùy chọn", "Could not save the options"),
-    HotkeyReregisterFailedBody => (
-        "Không đăng ký lại được phím tắt cũ. Hãy mở Tùy chọn và chọn lại phím tắt.",
-        "Could not register the previous hotkey again. Open Options and pick the hotkey again."
-    ),
-    HotkeyTakenBody => ("Hãy đổi phím tắt trong Tùy chọn.", "Change the hotkey in Options."),
     OptionsTitle => ("Tùy chọn", "Options"),
     ErrAccountChars => (
         "Account ID chỉ gồm chữ cái, chữ số và dấu gạch ngang.",
@@ -376,27 +371,6 @@ pub fn options_save_failed_body(lang: Lang, why: &str) -> String {
     }
 }
 
-pub fn hotkey_inactive_title(lang: Lang, key: &str) -> String {
-    match lang {
-        Lang::Vi => format!("Phím {key} hiện không hoạt động"),
-        Lang::En => format!("The {key} hotkey is not working"),
-    }
-}
-
-pub fn hotkey_taken_title(lang: Lang, key: &str) -> String {
-    match lang {
-        Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm"),
-        Lang::En => format!("Another app is using the {key} hotkey"),
-    }
-}
-
-pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
-    match lang {
-        Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm. Hãy chọn phím khác."),
-        Lang::En => format!("Another app is using the {key} hotkey. Choose a different one."),
-    }
-}
-
 /// Tổ hợp phím của từng dòng phím tắt cho Trợ giúp; `None` là dòng đang tắt.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct HelpKeys {
@@ -408,17 +382,64 @@ pub struct HelpKeys {
 /// Nội dung cửa sổ Trợ giúp: văn bản thuần, các dòng ngăn bằng `\n`, không có địa chỉ web.
 /// `keys` là tổ hợp của các dòng phím tắt đang bật (ví dụ "PrintScreen").
 pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
-    let _ = (lang, keys);
-    todo!()
-}
-
-#[allow(dead_code)]
-fn help_text_old(lang: Lang, hotkey: &str) -> String {
     let change = t(lang, Msg::BtnChange);
+    let options = t(lang, Msg::OptionsTitle);
+    let hotkeys_tab = t(lang, Msg::TabHotkeys);
+    let region_label = t(lang, Msg::LabelHotkey);
+    let save_label = t(lang, Msg::LabelHotkeySaveFull);
+    let upload_label = t(lang, Msg::LabelHotkeyUploadFull);
+    let notices = t(lang, Msg::ChkShowSuccessNotices);
+    let keep = t(lang, Msg::ChkKeepSelection);
+    let cursor = t(lang, Msg::ChkIncludeCursor);
+    let (saved, copied, link) = (
+        t(lang, Msg::SavedTitle),
+        t(lang, Msg::CopiedTitle),
+        t(lang, Msg::UploadedTitle),
+    );
+    // Dòng đang tắt: nói "chưa bật" và chỉ chỗ bật.
+    let off = |label: &str| match lang {
+        Lang::Vi => format!("- {label}: chưa bật. Bật ở {options}, tab {hotkeys_tab}."),
+        Lang::En => {
+            format!("- {label}: not turned on. Turn it on in {options}, {hotkeys_tab} tab.")
+        }
+    };
+    let region = match (lang, &keys.region) {
+        (Lang::Vi, Some(k)) => format!("Bấm {k} hoặc chọn \"Chụp màn hình\" ở menu khay."),
+        (Lang::Vi, None) => format!(
+            "Phím \"{region_label}\" đang tắt: chọn \"Chụp màn hình\" ở menu khay (bật lại phím ở {options}, tab {hotkeys_tab})."
+        ),
+        (Lang::En, Some(k)) => {
+            format!("Press {k} or choose \"Take screenshot\" in the tray menu.")
+        }
+        (Lang::En, None) => format!(
+            "The \"{region_label}\" hotkey is off: choose \"Take screenshot\" in the tray menu (turn the key back on in {options}, {hotkeys_tab} tab)."
+        ),
+    };
+    let save_full = match (lang, &keys.save_full) {
+        (Lang::Vi, Some(k)) => format!(
+            "- {save_label}: bấm {k} để chụp ngay màn hình đang có con trỏ chuột, không chọn vùng, và lưu ảnh vào thư mục lưu."
+        ),
+        (Lang::En, Some(k)) => format!(
+            "- {save_label}: press {k} to capture the screen with the mouse pointer right away, without selecting a region, and save it to the save folder."
+        ),
+        (_, None) => off(save_label),
+    };
+    let upload_full = match (lang, &keys.upload_full) {
+        (Lang::Vi, Some(k)) => format!(
+            "- {upload_label}: bấm {k} để chụp ngay màn hình đang có con trỏ chuột, tải ảnh lên kho R2 và chép link."
+        ),
+        (Lang::En, Some(k)) => format!(
+            "- {upload_label}: press {k} to capture the screen with the mouse pointer right away, upload it to your R2 bucket and copy the link."
+        ),
+        (_, None) => off(upload_label),
+    };
     match lang {
         Lang::Vi => format!(
             "1. Chụp màn hình\n\
-Bấm {hotkey} hoặc chọn \"Chụp màn hình\" ở menu khay. Màn hình đứng yên và tối đi. Kéo chuột để chọn vùng; kéo các tay nắm để đổi cỡ, kéo bên trong khung để di chuyển.\n\
+{region} Màn hình đứng yên và tối đi. Kéo chuột để chọn vùng; kéo các tay nắm để đổi cỡ, kéo bên trong khung để di chuyển.\n\
+Chụp cả màn hình bằng phím tắt:\n\
+{save_full}\n\
+{upload_full}\n\
 \n\
 2. Thanh công cụ và phím tắt\n\
 Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
@@ -429,8 +450,11 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
-- Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ.\n\
-- Phím tắt: phím tắt chụp. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ và ba ô tích:\n\
+\x20\x20+ {notices}: bỏ tích thì không hiện các thông báo \"{saved}\", \"{copied}\", \"{link}\". Thông báo lỗi luôn hiện.\n\
+\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát shotme.\n\
+\x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
+- Phím tắt: ba dòng \"{region_label}\", \"{save_label}\" và \"{upload_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
 \n\
 4. Chuẩn bị Cloudflare R2\n\
@@ -447,7 +471,10 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
-Press {hotkey} or choose \"Take screenshot\" in the tray menu. The screen dims and freezes. Drag to select a region; drag the handles to resize it, or drag inside the frame to move it.\n\
+{region} The screen dims and freezes. Drag to select a region; drag the handles to resize it, or drag inside the frame to move it.\n\
+Full-screen captures with a hotkey:\n\
+{save_full}\n\
+{upload_full}\n\
 \n\
 2. Toolbar and keys\n\
 Once a region is selected, use the toolbar buttons or the keys:\n\
@@ -458,8 +485,11 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
-- General: start with Windows, save folder, language.\n\
-- Hotkeys: the capture hotkey. Click {change}, then press the new combination; Esc skips.\n\
+- General: start with Windows, save folder, language and three check boxes:\n\
+\x20\x20+ {notices}: when unchecked, the \"{saved}\", \"{copied}\" and \"{link}\" notifications are not shown. Error notifications always appear.\n\
+\x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit shotme.\n\
+\x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
+- Hotkeys: three rows, \"{region_label}\", \"{save_label}\" and \"{upload_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
 - R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
 \n\
 4. Setting up Cloudflare R2\n\
@@ -647,29 +677,12 @@ mod tests {
             assert!(reason_try_again(l, "A2").contains("A2"));
             assert!(upload_start_failed_body(l, "A3").contains("A3"));
             assert!(options_save_failed_body(l, "A4").contains("A4"));
-            assert!(hotkey_inactive_title(l, "A5").contains("A5"));
-            assert!(hotkey_taken_title(l, "A6").contains("A6"));
-            assert!(hotkey_taken_choose_other(l, "A7").contains("A7"));
         }
         assert_ne!(reason(Lang::Vi, "x"), reason(Lang::En, "x"));
-        assert_ne!(
-            hotkey_taken_title(Lang::Vi, "x"),
-            hotkey_taken_title(Lang::En, "x")
-        );
         assert_ne!(
             with_error_code(Lang::Vi, "x", "1"),
             with_error_code(Lang::En, "x", "1")
         );
-    }
-
-    #[test]
-    fn hotkey_titles_fit_tray_limit() {
-        let key = "Ctrl+Alt+Shift+Win+PrintScreen";
-        for l in Lang::ALL {
-            for title in [hotkey_taken_title(l, key), hotkey_inactive_title(l, key)] {
-                assert!(title.encode_utf16().count() <= 63, "{l:?} {title}");
-            }
-        }
     }
 
     #[test]

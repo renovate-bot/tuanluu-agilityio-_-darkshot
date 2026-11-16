@@ -144,3 +144,21 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Đổi ngôn ngữ rồi OK: Thông tin và Trợ giúp đang mở tự đóng; mở lại thấy chữ đúng ngôn ngữ mới. Đổi phím tắt rồi OK: cả hai tự đóng. Đổi mục khác (ví dụ Khởi động cùng Windows) rồi OK: hai cửa sổ ở lại. Hủy: ở lại.
 - [ ] Thoát ứng dụng (menu Thoát) khi cả hai cửa sổ đang mở: cả hai đóng, tiến trình thoát, không treo.
 - [ ] Đọc lại toàn bộ lời văn Trợ giúp ở cả hai ngôn ngữ: đúng tên nút, tên tab, tên khóa; các bước R2 đúng với `README.md`.
+
+## Đợt 2: Tùy chọn và phím tắt
+
+- [ ] Tab Phím tắt có ba dòng đúng nhãn ở hai ngôn ngữ: Chụp vùng màn hình / Capture a region, Lưu ảnh (toàn màn hình) / Save screenshot (full screen), Tải lên nhanh (toàn màn hình) / Quick upload (full screen). Không chữ nào bị cắt, ô phím và nút Đổi… không chồng lên nhãn. Thử ở DPI 100% và khác 100%.
+- [ ] Bỏ tích một dòng: ô phím và nút Đổi… của dòng mờ đi; tích lại: sáng lên và tổ hợp còn nguyên.
+- [ ] Đổi phím của từng dòng (bấm Đổi… rồi nhấn tổ hợp mới), OK, mở lại Tùy chọn: đúng tổ hợp mới.
+- [ ] Đang bắt phím ở một dòng mà bấm Đổi… của dòng khác: dòng trước thoát chế độ bắt và hiện lại phím cũ, dòng mới vào chế độ bắt.
+- [ ] Đang bắt phím ở một dòng mà bỏ tích dòng đó: thoát chế độ bắt, ô hiện lại phím cũ, ô và nút mờ đi.
+- [ ] Hai dòng đang bật cùng một tổ hợp: OK báo lỗi nêu tên hai dòng, chuyển sang tab Phím tắt, tiêu điểm ở nút Đổi… của dòng sau; cửa sổ vẫn mở.
+- [ ] Một dòng đang tắt trùng tổ hợp với dòng đang bật: OK được.
+- [ ] Đặt một dòng vào phím mà ứng dụng khác đang giữ: OK báo lỗi nêu tên dòng và tổ hợp, tiêu điểm ở nút Đổi… của dòng đó; sau đó bấm Hủy thì phím cũ vẫn chạy.
+- [ ] Bỏ tích dòng 1 rồi OK: PrintScreen trả về cho Windows (Windows hoặc ứng dụng khác dùng được PrintScreen); menu khay vẫn chụp được.
+- [ ] Khởi động shotme khi hai phím đang bật bị ứng dụng khác chiếm: chỉ một thông báo "Phím tắt chưa hoạt động" liệt kê cả hai tổ hợp; dòng còn lại vẫn chạy.
+- [ ] Tab Thông thường: ba ô tích "Hiện các thông báo lưu và sao chép", "Giữ vị trí vùng đã chọn", "Bao gồm con trỏ chuột vào ảnh chụp màn hình" nằm liền nhau dưới "Khởi động cùng Windows"; đổi từng ô, OK, mở lại: đúng giá trị đã lưu.
+- [ ] Bỏ tích "Hiện các thông báo lưu và sao chép": lưu ảnh, chép ảnh, tải lên thành công không hiện thông báo; lỗi (rút mạng rồi tải lên) vẫn hiện.
+- [ ] Trợ giúp nêu đúng phím của dòng đang bật và "chưa bật" (kèm chỗ bật) cho dòng đang tắt, ở hai ngôn ngữ; nút Trợ giúp trong Tùy chọn theo đúng ô tích và phím đang hiện, kể cả khi chưa bấm OK.
+- [ ] Đổi bất kỳ dòng nào (bật/tắt hoặc tổ hợp) rồi OK: Thông tin và Trợ giúp đang mở tự đóng.
+- [ ] Nâng cấp từ file cấu hình đợt 1: phím chụp vùng cũ còn nguyên, hai dòng mới tắt, ba ô tích mới ở giá trị mặc định, không gì tự bật.

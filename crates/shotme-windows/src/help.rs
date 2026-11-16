@@ -1,11 +1,9 @@
 //! Cửa sổ Trợ giúp: không chặn, tối đa một cửa sổ. Thông điệp do vòng lặp của ứng dụng phân phối;
 //! `pre_translate` lo bàn phím (Tab, Enter, Esc).
 
-use crate::hotkey;
 use crate::lang;
 use crate::winutil;
-use shotme_core::config::Hotkey;
-use shotme_core::i18n::{help_text, Msg};
+use shotme_core::i18n::{help_text, HelpKeys, Msg};
 use std::cell::Cell;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -41,8 +39,8 @@ fn current() -> HWND {
     }
 }
 
-/// Mở cửa sổ Trợ giúp với phím tắt `hotkey`, hoặc đưa cửa sổ đang mở ra trước.
-pub fn show(owner: HWND, hotkey: &Hotkey) {
+/// Mở cửa sổ Trợ giúp với tổ hợp của các dòng phím tắt `keys`, hoặc đưa cửa sổ đang mở ra trước.
+pub fn show(owner: HWND, keys: &HelpKeys) {
     let open = current();
     if !open.is_invalid() {
         winutil::bring_to_front(open);
@@ -58,11 +56,7 @@ pub fn show(owner: HWND, hotkey: &Hotkey) {
     OPEN.with(|o| o.set(hwnd.0 as isize));
 
     // Ô EDIT cần \r\n để xuống dòng.
-    let keys = shotme_core::i18n::HelpKeys {
-        region: Some(hotkey::describe(hotkey)),
-        ..Default::default()
-    };
-    let text = help_text(lang::current(), &keys).replace('\n', "\r\n");
+    let text = help_text(lang::current(), keys).replace('\n', "\r\n");
     let edit_style = WS_BORDER
         | WS_VSCROLL
         | WS_TABSTOP
@@ -198,28 +192,15 @@ mod tests {
         };
         let find = || unsafe { FindWindowW(w!("shotme-help"), None) };
         let mut counts = Vec::new();
+        let keys = HelpKeys {
+            region: Some("PrintScreen".into()),
+            save_full: None,
+            upload_full: Some("Ctrl+PrintScreen".into()),
+        };
         for _ in 0..3 {
-            show(
-                parent,
-                &Hotkey {
-                    ctrl: false,
-                    alt: false,
-                    shift: false,
-                    win: false,
-                    vk: 0x2C,
-                },
-            );
+            show(parent, &keys);
             let first = find().expect("window not created");
-            show(
-                parent,
-                &Hotkey {
-                    ctrl: false,
-                    alt: false,
-                    shift: false,
-                    win: false,
-                    vk: 0x2C,
-                },
-            );
+            show(parent, &keys);
             assert_eq!(
                 find().expect("window vanished"),
                 first,
