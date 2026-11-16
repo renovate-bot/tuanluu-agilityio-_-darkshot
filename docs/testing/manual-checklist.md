@@ -221,3 +221,14 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] (e) File `%APPDATA%\shotme\config.json` hỏng (chưa có cấu hình darkshot): darkshot vẫn chạy với mặc định và hiện thông báo "Chưa chuyển được hết thiết lập từ phiên bản cũ..."; file cũ không bị đổi.
 - [ ] (f) Sau (a): `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` không còn `shotme.exe`, còn `darkshot.exe`.
 - [ ] (g) Cấu hình darkshot hỏng (ví dụ ghi `not json` vào `%APPDATA%\darkshot\config.json`), khởi động cùng Windows đang bật (có giá trị Run `darkshot`, thêm tay `shotme`): chạy darkshot, giá trị Run `darkshot` và `shotme` còn nguyên.
+
+## Đợt 4: giao diện tối (Thông tin, Trợ giúp, menu khay, lớp phủ)
+
+- [ ] Thanh tiêu đề của Thông tin và Trợ giúp tối ở Windows 11 và Windows 10 bản mới.
+- [ ] Thông tin và Trợ giúp không nhá trắng khi mở.
+- [ ] Chữ đọc rõ ở cả hai ngôn ngữ, ở DPI 100% và 150%.
+- [ ] Thanh cuộn của Trợ giúp tối.
+- [ ] Enter, Esc và nút Đóng vẫn đóng Thông tin và Trợ giúp.
+- [ ] Menu khay tối và mục đầu vẫn đậm.
+- [ ] Lớp phủ trên hai màn hình: thanh công cụ tối; nút khi trỏ đổi nền và biểu tượng xanh; chú thích nút tối; viền vùng chọn và tay nắm xanh.
+- [ ] Ảnh lưu ra giống màn hình (không có màu giao diện).

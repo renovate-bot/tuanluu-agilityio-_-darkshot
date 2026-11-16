@@ -6,6 +6,7 @@ pub mod image;
 pub mod migrate;
 pub mod naming;
 pub mod sigv4;
+pub mod theme;
 pub mod upload;
 
 #[cfg(test)]
