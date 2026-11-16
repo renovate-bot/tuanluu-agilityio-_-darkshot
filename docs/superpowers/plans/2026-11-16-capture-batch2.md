@@ -99,7 +99,7 @@ impl Selection {
     pub fn with_rect(bounds: Rect, rect: Option<Rect>) -> Selection;
 }
 /// Khung nhớ (tọa độ màn hình) đổi sang tọa độ ảnh; `None` nếu không nằm trọn trong ảnh
-/// `image_w`×`image_h` hoặc không chạm màn hình nào trong `monitors` (tọa độ ảnh).
+/// `image_w`×`image_h` hoặc không chạm màn hình nào trong `monitors` (tọa độ MÀN HÌNH, cùng hệ với `remembered`; hàm tự trừ `origin` ở cả hai. `Screenshot.monitors` là tọa độ ảnh nên phải đổi bằng `to_screen_coords` trước khi truyền).
 pub fn restore_selection(remembered: Rect, origin: Point, image_w: i32, image_h: i32, monitors: &[Rect]) -> Option<Rect>;
 
 // i18n.rs: chuỗi mới (tên do Task 20 đặt, ghi vào báo cáo), gồm

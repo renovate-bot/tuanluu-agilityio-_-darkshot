@@ -80,7 +80,7 @@ pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Optio
 **Luồng chụp (`capture_flow`).**
 
 - Đọc `config.include_cursor`, gọi `capture_virtual_screen(include_cursor)`.
-- `Region`: `initial` = nếu `config.keep_selection` và có khung nhớ thì `restore_selection(khung, shot.origin, w, h, &shot.monitors)`, không thì `None`. Gọi `pick_region(&shot, initial)`. Sau khi có `(action, rect)`: khung nhớ = `remember_after(prev, action, to_screen_coords(rect, shot.origin))`, cập nhật kể cả khi `keep_selection` đang tắt. Phần còn lại như hiện nay.
+- `Region`: `initial` = nếu `config.keep_selection` và có khung nhớ thì `restore_selection(khung, shot.origin, w, h, &<shot.monitors đã đổi sang tọa độ màn hình bằng to_screen_coords>)` (hàm coi `monitors` là tọa độ màn hình; sửa sau rà soát), không thì `None`. Gọi `pick_region(&shot, initial)`. Sau khi có `(action, rect)`: khung nhớ = `remember_after(prev, action, to_screen_coords(rect, shot.origin))`, cập nhật kể cả khi `keep_selection` đang tắt. Phần còn lại như hiện nay.
 - `SaveFull` / `UploadFull`: không mở lớp phủ, không đặt `overlay_open`. Vùng = `monitor_containing(con trỏ đổi sang tọa độ ảnh, &shot.monitors)`; nếu vùng rỗng (`w` hoặc `h` bằng 0) thì dùng cả ảnh. Cắt ảnh rồi làm đúng nhánh `Action::Save` hoặc `Action::Upload` hiện có. Tách phần "thực hiện hành động trên một ảnh đã cắt" thành một hàm dùng chung cho cả ba loại, không chép mã.
 - Khung nhớ: `thread_local` `LAST_SELECTION: Cell<Option<Rect>>` (tọa độ màn hình), chỉ đọc/ghi ở lượt `Region`.
 - Lỗi chụp: thông báo hiện có.
