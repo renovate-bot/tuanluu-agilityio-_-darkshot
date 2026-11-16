@@ -34,6 +34,42 @@ pub enum AppEvent {
     Quit,
 }
 
+/// Cổng chụp: bảo đảm không bao giờ có hai lớp phủ và menu khay không chen vào lúc chờ chụp.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureGate {
+    Idle,
+    /// Đã chọn "Chụp màn hình" ở menu, đang chờ menu tắt hẳn.
+    PendingMenu,
+    /// Đang chụp hoặc lớp phủ đang mở.
+    Capturing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateEvent {
+    MenuCapture,
+    Hotkey,
+    TimerFired,
+    OverlayClosed,
+    TrayClick,
+}
+
+/// Việc bên gọi phải làm sau một sự kiện.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateAction {
+    /// Không có gì đặc biệt (với `TrayClick`: mở menu như thường).
+    None,
+    StartTimer,
+    /// Hủy bộ hẹn giờ của menu (nếu có) rồi chụp ngay.
+    CaptureNow,
+    Ignore,
+}
+
+/// Hàm chuyển trạng thái thuần của cổng chụp.
+pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction) {
+    let _ = (state, ev);
+    todo!()
+}
+
 thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
@@ -284,5 +320,61 @@ fn main() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use CaptureGate::*;
+    use GateEvent::*;
+
+    #[test]
+    fn capture_gate_transitions() {
+        assert_eq!(
+            gate_step(Idle, MenuCapture),
+            (PendingMenu, GateAction::StartTimer)
+        );
+        assert_eq!(
+            gate_step(PendingMenu, TrayClick),
+            (PendingMenu, GateAction::Ignore)
+        );
+        assert_eq!(
+            gate_step(PendingMenu, Hotkey),
+            (Capturing, GateAction::CaptureNow)
+        );
+        assert_eq!(
+            gate_step(PendingMenu, TimerFired),
+            (Capturing, GateAction::CaptureNow)
+        );
+        assert_eq!(
+            gate_step(Capturing, Hotkey),
+            (Capturing, GateAction::Ignore)
+        );
+        assert_eq!(
+            gate_step(Capturing, TimerFired),
+            (Capturing, GateAction::Ignore)
+        );
+        assert_eq!(
+            gate_step(Capturing, OverlayClosed),
+            (Idle, GateAction::None)
+        );
+        // Thêm: phím tắt khi rảnh chụp ngay; bấm khay khi rảnh mở menu như thường;
+        // menu và khay khi đang chụp bị bỏ qua; hẹn giờ cũ khi rảnh bị bỏ qua.
+        assert_eq!(gate_step(Idle, Hotkey), (Capturing, GateAction::CaptureNow));
+        assert_eq!(gate_step(Idle, TrayClick), (Idle, GateAction::None));
+        assert_eq!(
+            gate_step(Capturing, TrayClick),
+            (Capturing, GateAction::Ignore)
+        );
+        assert_eq!(
+            gate_step(Capturing, MenuCapture),
+            (Capturing, GateAction::Ignore)
+        );
+        assert_eq!(gate_step(Idle, TimerFired), (Idle, GateAction::Ignore));
+        assert_eq!(
+            gate_step(PendingMenu, MenuCapture),
+            (PendingMenu, GateAction::Ignore)
+        );
     }
 }

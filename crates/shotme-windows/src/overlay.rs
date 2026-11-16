@@ -82,6 +82,12 @@ pub fn button_at(toolbar: Rect, p: Point) -> Option<Action> {
     ACTIONS.get(i).copied()
 }
 
+/// Vùng `r` nằm trọn trong ảnh BGRA `img_w`×`img_h` và bộ đệm dài `len` đủ chứa ảnh.
+fn blit_in_bounds(r: Rect, img_w: i32, img_h: i32, len: usize) -> bool {
+    let _ = (r, img_w, img_h, len);
+    todo!()
+}
+
 /// `v` pixel ở 96 DPI đổi sang pixel vật lý ở `dpi`, làm tròn, tối thiểu 1.
 fn scaled(v: i32, dpi: u32) -> i32 {
     let dpi = i64::from(dpi.max(1));
@@ -1268,6 +1274,28 @@ mod tests {
         assert_eq!(at(190, 110), Some(Action::Copy));
         assert_eq!(at(230, 110), Some(Action::Cancel));
         assert_eq!(at(300, 110), None);
+    }
+
+    #[test]
+    fn blit_bounds_are_checked() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let full = 100 * 50 * 4;
+        assert!(blit_in_bounds(r(0, 0, 100, 50), 100, 50, full));
+        assert!(blit_in_bounds(r(10, 20, 90, 30), 100, 50, full));
+        // vượt phải, vượt dưới
+        assert!(!blit_in_bounds(r(10, 0, 91, 10), 100, 50, full));
+        assert!(!blit_in_bounds(r(0, 45, 10, 6), 100, 50, full));
+        // âm
+        assert!(!blit_in_bounds(r(-1, 0, 10, 10), 100, 50, full));
+        assert!(!blit_in_bounds(r(0, -1, 10, 10), 100, 50, full));
+        assert!(!blit_in_bounds(r(0, 0, -5, 10), 100, 50, full));
+        // rỗng
+        assert!(!blit_in_bounds(r(0, 0, 0, 10), 100, 50, full));
+        assert!(!blit_in_bounds(r(0, 0, 10, 0), 100, 50, full));
+        // bộ đệm ngắn
+        assert!(!blit_in_bounds(r(0, 0, 10, 10), 100, 50, full - 1));
+        // tràn số khi cộng
+        assert!(!blit_in_bounds(r(i32::MAX, 0, 10, 10), 100, 50, full));
     }
 
     /// Mở lớp phủ thật, giả lập kéo khung rồi bấm nút Lưu (hoặc Esc), kiểm kết quả và
