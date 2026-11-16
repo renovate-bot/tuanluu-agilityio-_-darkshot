@@ -17,6 +17,8 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 - Trước khi gộp nhánh: `powershell -File scripts/check.ps1` phải in `ALL CHECKS PASSED`.
 - Sau mỗi task: ghi token vào `memory-bank/progress.md`, cập nhật `memory-bank/activeContext.md`.
 - Spec `docs/superpowers/specs/2026-11-16-shotme-design.md` đã duyệt, không sửa. Thay đổi về sau ghi vào `memory-bank/decisions.md`.
+- Đợt 1 (menu mới, Tùy chọn dạng tab, hai ngôn ngữ): thiết kế `docs/superpowers/specs/2026-11-16-options-tabs-i18n-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`. Thiết kế đã duyệt cũng không sửa.
+- Mọi chữ người dùng nhìn thấy lấy từ bảng `shotme_core::i18n` (Tiếng Việt và English), không viết cứng trong mã.
 - Không bàn lại quyết định đã có trong `memory-bank/decisions.md` nếu chủ dự án không yêu cầu.
 - Chỉ đẩy mã lên remote `origin` (repo GitHub riêng tư của chủ dự án). Không gửi dữ liệu dự án ra dịch vụ nào khác.
 - Không bao giờ yêu cầu, đọc hay ghi lại khóa R2 của chủ dự án.
@@ -25,4 +27,4 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 
 ## Ràng buộc kỹ thuật
 
-Danh sách đầy đủ ở mục "Global Constraints" của `docs/superpowers/plans/2026-11-16-shotme.md`; mỗi gói task đã chép sẵn mục này.
+Danh sách đầy đủ ở mục "Global Constraints" của `docs/superpowers/plans/2026-11-16-shotme.md`; từ Task 15 dùng mục cùng tên của `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`. Mỗi gói task đã chép sẵn mục này.

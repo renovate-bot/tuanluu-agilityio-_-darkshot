@@ -10,7 +10,7 @@ Chạy task kế tiếp của dự án shotme. Bạn là phiên điều phối: 
 4. `git switch -c task/NN-ten-ngan main`.
 5. Giao việc cho agent ghi ở cột Agent của `progress.md`, lời giao: "Thực hiện gói task `docs/tasks/NN-ten-ngan.md`. Bạn đang ở nhánh `task/NN-ten-ngan`." Nếu loại agent đó chưa có trong phiên, dùng agent `general-purpose` với model ở cột Model và dán nội dung file `.claude/agents/<tên>.md` vào đầu lời giao.
 6. Khi agent báo xong, ghi lại số token nó báo (dòng `subagent_tokens`). Nếu agent báo vướng, xử lý: trả lời nếu gói task hoặc spec có đáp án, hỏi chủ dự án nếu không.
-7. Giao rà soát cho `reviewer` (Task 4, 8, 9 và rà soát toàn bộ: `specialist`), lời giao: "Rà soát nhánh `task/NN-ten-ngan` theo gói task `docs/tasks/NN-ten-ngan.md`." Ghi số token.
+7. Giao rà soát cho `reviewer` (Task 4, 8, 9, 17 và rà soát toàn bộ: `specialist`), lời giao: "Rà soát nhánh `task/NN-ten-ngan` theo gói task `docs/tasks/NN-ten-ngan.md`." Ghi số token.
 8. Nếu kết quả là `CẦN SỬA` với lỗi `chặn`: giao lại cho agent làm kèm danh sách lỗi, ghi token vào cột "Token sửa", rồi rà soát lại. Tối đa ba vòng; quá thì dừng và báo chủ dự án.
 9. Chạy `powershell -File scripts/check.ps1`. Phải thấy `ALL CHECKS PASSED`.
 10. `git switch main` rồi `git merge --no-ff task/NN-ten-ngan`.
@@ -18,4 +18,6 @@ Chạy task kế tiếp của dự án shotme. Bạn là phiên điều phối: 
 12. Đẩy lên GitHub: `git push origin main task/NN-ten-ngan`. Trước khi đẩy, xác nhận repo vẫn riêng tư (`gh repo view --json visibility`); nếu không còn riêng tư thì dừng và hỏi chủ dự án. Chạy lệnh đẩy một mình, đúng dạng `git push origin ...`, không ghép với `cd` hay lệnh khác bằng `&&`: quy tắc quyền `Bash(git push origin:*)` chỉ khớp khi lệnh bắt đầu bằng `git push origin`. Nếu vẫn bị chặn quyền, nhờ chủ dự án tự chạy.
 13. Báo chủ dự án bằng tiếng Việt, ngắn gọn: task nào xong, kết quả kiểm tra, token đã dùng, việc cần họ thử bằng tay nếu có, task kế tiếp là gì.
 
-Sau Task 8 và Task 12, dừng lại để chủ dự án thử theo `docs/testing/manual-checklist.md` trước khi chạy task tiếp theo.
+Sau Task 8, Task 12 và Task 18, dừng lại để chủ dự án thử theo `docs/testing/manual-checklist.md` trước khi chạy task tiếp theo.
+
+Task 15–19 (đợt 1) theo kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md` và thiết kế `docs/superpowers/specs/2026-11-16-options-tabs-i18n-design.md`. Rà soát các task này đối chiếu thêm mục "Review Focus" của kế hoạch đó.

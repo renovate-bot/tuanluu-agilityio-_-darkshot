@@ -24,8 +24,15 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | xong, chờ nghiệm thu | 97.632 | 53.365 | 0 (phiên chính sửa README) | 150.997 |
 | Rà soát toàn bộ sau Task 12 | main | specialist | opus | xong (DUYỆT) | | 189.767 | | 189.767 |
 | 13 Gia cố sau rà soát toàn bộ | task/13-hardening | specialist | opus | xong | 199.988 | 93.033 | 0 | 293.021 |
+| 15 Bảng chuỗi và ngôn ngữ ở core | task/15-i18n-core | builder | sonnet | chờ | | | | |
+| 16 Lớp Windows dùng bảng chuỗi | task/16-i18n-windows | builder | sonnet | chờ | | | | |
+| 17 Cửa sổ Tùy chọn dạng tab | task/17-options-tabs | specialist | opus | chờ | | | | |
+| 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | chờ | | | | |
+| 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | chờ (sau khi chủ dự án thử tay Task 18) | | | | |
 
-Rà soát Task 4, 8, 9 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
+Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`).
+
+Rà soát Task 4, 8, 9, 17 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
 Ghi chú về "Token sửa": khi một agent được gọi tiếp để sửa, công cụ báo một con số duy nhất cho agent đó (Task 3: 69.217 sau lượt sửa, so với 66.710 sau lượt làm). Sổ này coi con số đó là cộng dồn và ghi phần chênh lệch vào cột "Token sửa". Đây là giả định, chưa kiểm chứng; nếu con số là riêng của lượt sửa thì Token sửa của Task 3 là 69.217. Task 4: agent làm báo 58.879 (lượt bị dừng vì không truy cập được tài liệu AWS), 73.515 (sau khi làm xong), 79.057 (sau lượt sửa); mức tăng nhỏ giữa các lượt cho thấy con số có thể là kích thước ngữ cảnh cuối của agent, thấp hơn lượng token thực tính tiền. Coi bảng này là số tương đối giữa các task.
 
