@@ -1,6 +1,10 @@
 //! AWS Signature Version 4 (header-based, payload in a single chunk).
 
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::{Digest, Sha256};
 
 /// Access key pair. `Debug` never prints the secret.
 pub struct Credentials<'a> {
@@ -33,25 +37,105 @@ pub struct SignInput<'a> {
     pub service: &'a str,
 }
 
+type HmacSha256 = Hmac<Sha256>;
+
+fn to_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        s.push(DIGITS[(b >> 4) as usize] as char);
+        s.push(DIGITS[(b & 0x0f) as usize] as char);
+    }
+    s
+}
+
+fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
+    // HMAC accepts keys of any length, so this cannot fail.
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
 pub fn sha256_hex(data: &[u8]) -> String {
-    let _ = data;
-    todo!()
+    to_hex(&Sha256::digest(data))
 }
 
 pub fn authorization_header(c: &Credentials, i: &SignInput) -> String {
-    let _ = (c, i);
-    todo!()
+    // Canonical headers: lowercase names, trimmed values, sorted by name.
+    let mut headers: Vec<(String, &str)> = i
+        .headers
+        .iter()
+        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim()))
+        .collect();
+    headers.sort();
+
+    let mut canonical_headers = String::new();
+    for (k, v) in &headers {
+        canonical_headers.push_str(k);
+        canonical_headers.push(':');
+        canonical_headers.push_str(v);
+        canonical_headers.push('\n');
+    }
+    let signed_headers = headers
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect::<Vec<_>>()
+        .join(";");
+
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        i.method, i.path, i.query, canonical_headers, signed_headers, i.payload_sha256_hex
+    );
+
+    let date = i.amz_date.get(..8).unwrap_or(i.amz_date);
+    let scope = format!("{date}/{}/{}/aws4_request", i.region, i.service);
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+        i.amz_date,
+        scope,
+        sha256_hex(canonical_request.as_bytes())
+    );
+
+    let k_secret = format!("AWS4{}", c.secret_access_key);
+    let k_date = hmac(k_secret.as_bytes(), date.as_bytes());
+    let k_region = hmac(&k_date, i.region.as_bytes());
+    let k_service = hmac(&k_region, i.service.as_bytes());
+    let k_signing = hmac(&k_service, b"aws4_request");
+    let signature = to_hex(&hmac(&k_signing, string_to_sign.as_bytes()));
+
+    format!(
+        "AWS4-HMAC-SHA256 Credential={}/{scope},SignedHeaders={signed_headers},Signature={signature}",
+        c.access_key_id
+    )
 }
 
 /// Current UTC time as "YYYYMMDDTHHMMSSZ", from `SystemTime`.
 pub fn amz_date_now() -> String {
-    todo!()
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    amz_date_from_unix(secs)
 }
 
 /// Unix seconds (UTC) to "YYYYMMDDTHHMMSSZ".
 fn amz_date_from_unix(secs: u64) -> String {
-    let _ = secs;
-    todo!()
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // civil_from_days (H. Hinnant), proleptic Gregorian calendar.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+
+    format!("{y:04}{mo:02}{d:02}T{h:02}{m:02}{s:02}Z")
 }
 
 #[cfg(test)]
@@ -79,9 +163,15 @@ mod tests {
         let p: Vec<&str> = rest.split(',').map(str::trim).collect();
         assert_eq!(p.len(), 3, "three comma-separated parts: {h}");
         (
-            p[0].strip_prefix("Credential=").expect("Credential").to_string(),
-            p[1].strip_prefix("SignedHeaders=").expect("SignedHeaders").to_string(),
-            p[2].strip_prefix("Signature=").expect("Signature").to_string(),
+            p[0].strip_prefix("Credential=")
+                .expect("Credential")
+                .to_string(),
+            p[1].strip_prefix("SignedHeaders=")
+                .expect("SignedHeaders")
+                .to_string(),
+            p[2].strip_prefix("Signature=")
+                .expect("Signature")
+                .to_string(),
         )
     }
 
@@ -105,7 +195,10 @@ mod tests {
             service: "s3",
         };
         let (cred, signed, sig) = parts(&authorization_header(&creds(), &input));
-        assert_eq!(cred, "AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request");
+        assert_eq!(
+            cred,
+            "AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request"
+        );
         assert_eq!(signed, "host;range;x-amz-content-sha256;x-amz-date");
         assert_eq!(
             sig,
@@ -139,7 +232,10 @@ mod tests {
             service: "s3",
         };
         let (cred, signed, sig) = parts(&authorization_header(&creds(), &input));
-        assert_eq!(cred, "AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request");
+        assert_eq!(
+            cred,
+            "AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request"
+        );
         assert_eq!(
             signed,
             "date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class"
