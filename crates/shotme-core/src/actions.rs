@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::Expiry;
+use crate::i18n::{self, t, Lang, Msg};
 use crate::image::{encode_png, Image};
 use crate::naming::{local_file_name, random_object_name, LocalTime};
 use crate::upload::{object_key, UploadError, Uploader};
@@ -38,6 +39,7 @@ pub struct Ctx<'a> {
     pub uploader: Option<&'a dyn Uploader>,
     pub clipboard: &'a dyn Clipboard,
     pub notifier: &'a dyn Notifier,
+    pub lang: Lang,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,8 +59,8 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
     if !img.is_valid() {
         ctx.notifier.notify(
             NoticeKind::Error,
-            "Không có ảnh để xử lý",
-            "Vùng chọn trống hoặc ảnh không hợp lệ.",
+            t(ctx.lang, Msg::NoImageTitle),
+            t(ctx.lang, Msg::NoImageBody),
         );
         return Outcome::Failed;
     }
@@ -66,8 +68,11 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         Action::Cancel => Outcome::Cancelled,
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
-                ctx.notifier
-                    .notify(NoticeKind::Info, "Đã lưu ảnh", &path.display().to_string());
+                ctx.notifier.notify(
+                    NoticeKind::Info,
+                    t(ctx.lang, Msg::SavedTitle),
+                    &path.display().to_string(),
+                );
                 Outcome::Saved(path)
             }
             Err(e) => save_failed(ctx, img, &e),
@@ -76,16 +81,16 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
             Ok(()) => {
                 ctx.notifier.notify(
                     NoticeKind::Info,
-                    "Đã chép ảnh",
-                    "Ảnh đã nằm trong clipboard.",
+                    t(ctx.lang, Msg::CopiedTitle),
+                    t(ctx.lang, Msg::CopiedBody),
                 );
                 Outcome::Copied
             }
             Err(e) => {
                 ctx.notifier.notify(
                     NoticeKind::Error,
-                    "Không chép được ảnh",
-                    &format!("Không đưa được ảnh vào clipboard: {e}"),
+                    t(ctx.lang, Msg::CopyFailedTitle),
+                    &i18n::copy_failed_body(ctx.lang, &e),
                 );
                 Outcome::Failed
             }
@@ -96,16 +101,14 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
 
 fn upload(ctx: &Ctx, img: &Image) -> Outcome {
     let Some(uploader) = ctx.uploader else {
-        return fallback(
-            ctx,
-            img,
-            "Chưa cấu hình kho lưu trữ. Hãy nhập đủ thông tin trong cài đặt.",
-            true,
-        );
+        return fallback(ctx, img, t(ctx.lang, Msg::UploadNotConfigured), true);
     };
     let png = match encode_png(img) {
         Ok(p) => p,
-        Err(e) => return fallback(ctx, img, &format!("Không mã hóa được ảnh: {e}"), false),
+        Err(e) => {
+            let reason = i18n::encode_failed(ctx.lang, &e.message(ctx.lang));
+            return fallback(ctx, img, &reason, false);
+        }
     };
     let key = object_key(ctx.expiry, &random_object_name());
     match uploader.upload(&key, &png) {
@@ -113,17 +116,18 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
             if let Err(e) = ctx.clipboard.set_text(&link) {
                 ctx.notifier.notify(
                     NoticeKind::Error,
-                    "Đã tải lên nhưng chưa chép được link",
+                    t(ctx.lang, Msg::UploadedNoCopyTitle),
                     &format!("{link}\n{e}"),
                 );
             } else {
-                ctx.notifier.notify(NoticeKind::Info, "Đã chép link", &link);
+                ctx.notifier
+                    .notify(NoticeKind::Info, t(ctx.lang, Msg::UploadedTitle), &link);
             }
             Outcome::Uploaded(link)
         }
         Err(e) => {
             let needs_settings = e == UploadError::NotConfigured;
-            fallback(ctx, img, &e.message_vi(), needs_settings)
+            fallback(ctx, img, &e.message(ctx.lang), needs_settings)
         }
     }
 }
@@ -134,8 +138,8 @@ fn fallback(ctx: &Ctx, img: &Image, reason: &str, needs_settings: bool) -> Outco
         Ok(path) => {
             ctx.notifier.notify(
                 NoticeKind::Error,
-                "Không tải lên được",
-                &format!("{reason}\nẢnh đã được lưu tại {}", path.display()),
+                t(ctx.lang, Msg::UploadFailedTitle),
+                &i18n::upload_failed_body(ctx.lang, reason, &path.display().to_string()),
             );
             Outcome::UploadFailedSaved {
                 path,
@@ -149,12 +153,12 @@ fn fallback(ctx: &Ctx, img: &Image, reason: &str, needs_settings: bool) -> Outco
 fn save_failed(ctx: &Ctx, img: &Image, err: &str) -> Outcome {
     let in_clipboard = ctx.clipboard.set_image(img).is_ok();
     let body = if in_clipboard {
-        format!("Không lưu được ảnh ({err}). Ảnh đã được đặt trong clipboard, hãy dán ra ngay.")
+        i18n::save_failed_in_clipboard(ctx.lang, err)
     } else {
-        format!("Không lưu được ảnh ({err}) và cũng không đưa được vào clipboard.")
+        i18n::save_failed_no_clipboard(ctx.lang, err)
     };
     ctx.notifier
-        .notify(NoticeKind::Error, "Không lưu được ảnh", &body);
+        .notify(NoticeKind::Error, t(ctx.lang, Msg::SaveFailedTitle), &body);
     Outcome::Failed
 }
 
@@ -163,7 +167,7 @@ const MAX_NAME_ATTEMPTS: u32 = 10_000;
 
 /// Chiếm một tên chưa có trong `dir` bằng cách tạo file rỗng với `create_new` (nguyên tử),
 /// thử `name`, rồi `stem_2.ext`, `stem_3.ext`... Hai lượt lưu đồng thời không bao giờ nhận cùng tên.
-fn claim_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+fn claim_path(dir: &Path, name: &str, lang: Lang) -> std::io::Result<PathBuf> {
     let (stem, ext) = match name.rfind('.') {
         Some(i) => name.split_at(i),
         None => (name, ""),
@@ -187,16 +191,17 @@ fn claim_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     }
     Err(std::io::Error::new(
         std::io::ErrorKind::AlreadyExists,
-        "quá nhiều ảnh trùng tên trong cùng một giây",
+        t(lang, Msg::ClaimTooMany),
     ))
 }
 
 /// Ghi PNG an toàn: chiếm tên đích, ghi vào file tạm cùng thư mục rồi đổi tên đè lên file giữ chỗ;
 /// lỗi thì xóa file tạm và file giữ chỗ, nên không bao giờ để lại PNG dở dang dưới tên cuối cùng.
 fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
-    let png = encode_png(img)?;
+    let png = encode_png(img).map_err(|e| e.message(ctx.lang))?;
     std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
-    let path = claim_path(ctx.save_dir, &local_file_name(&ctx.now)).map_err(|e| e.to_string())?;
+    let path = claim_path(ctx.save_dir, &local_file_name(&ctx.now), ctx.lang)
+        .map_err(|e| e.to_string())?;
     let tmp = path.with_extension("png.tmp");
     let result = std::fs::write(&tmp, &png).and_then(|_| std::fs::rename(&tmp, &path));
     if let Err(e) = result {
@@ -309,6 +314,7 @@ mod tests {
             uploader: up,
             clipboard: cb,
             notifier: n,
+            lang: Lang::Vi,
         }
     }
 
@@ -434,7 +440,9 @@ mod tests {
             }
         );
         assert!(path.exists());
-        assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Error);
+        let notes = n.notes.lock().unwrap();
+        assert_eq!(notes[0].0, NoticeKind::Error);
+        assert!(notes[0].2.contains("Tùy chọn"));
     }
 
     #[test]
@@ -463,6 +471,28 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn notices_follow_ctx_lang() {
+        let link = "https://img.example.com/d7/x.png";
+        let title_for = |lang: Lang, action: Action| {
+            let d = temp_dir();
+            let up = FakeUploader::new(Ok(link.to_string()));
+            let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+            let mut c = ctx(&d, Some(&up), &cb, &n);
+            c.lang = lang;
+            run_action(&c, action, &img());
+            let t = n.notes.lock().unwrap()[0].1.clone();
+            t
+        };
+        assert_eq!(title_for(Lang::En, Action::Upload), "Link copied");
+        assert_eq!(title_for(Lang::Vi, Action::Upload), "Đã chép link");
+        let (vi, en) = (
+            title_for(Lang::Vi, Action::Save),
+            title_for(Lang::En, Action::Save),
+        );
+        assert!(!vi.is_empty() && !en.is_empty() && vi != en);
     }
 
     #[test]

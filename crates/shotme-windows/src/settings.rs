@@ -7,6 +7,7 @@
 
 use crate::hotkey;
 use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
+use shotme_core::i18n::Lang;
 use shotme_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -113,7 +114,7 @@ pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
     let public_base_url = if url.is_empty() {
         String::new()
     } else {
-        normalize_public_base_url(url)?
+        normalize_public_base_url(url).map_err(|e| e.message(Lang::Vi))?
     };
     if save_dir.is_empty() {
         return Err("Hãy chọn thư mục lưu ảnh.".into());
@@ -135,6 +136,7 @@ pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
         hotkey: form.hotkey,
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
+        language: current.language,
     })
 }
 
@@ -615,7 +617,7 @@ fn on_test(hwnd: HWND) {
         .spawn(move || {
             let msg = match R2Uploader::new(&r2).test_connection() {
                 Ok(()) => "Thành công: tải lên được và link mở được.".to_string(),
-                Err(e) => e.message_vi(),
+                Err(e) => e.message(Lang::Vi),
             };
             if let Ok(mut slot) = TEST_RESULT.lock() {
                 // Cửa sổ đã đóng (thế hệ đã đổi): bỏ kết quả, không đè lên kết quả của cửa sổ mới.
@@ -1284,7 +1286,7 @@ mod tests {
     use std::path::Path;
 
     fn base() -> Config {
-        let mut c = Config::defaults(Path::new("C:/pics"));
+        let mut c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         c.r2 = R2Config {
             account_id: "acc".into(),
             access_key_id: "kid".into(),
@@ -1333,7 +1335,7 @@ mod tests {
 
     #[test]
     fn empty_url_allowed_when_r2_not_filled() {
-        let c = Config::defaults(Path::new("C:/pics"));
+        let c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         let mut f = form_of(&c);
         f.save_dir = "C:/pics".into();
         let out = apply_form(&c, &f).unwrap();
@@ -1609,7 +1611,7 @@ mod tests {
             )
             .unwrap()
         };
-        let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"));
+        let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"), Lang::Vi);
         for use_command in [false, true] {
             let closer = std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));

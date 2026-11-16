@@ -1,6 +1,7 @@
 //! Ảnh chụp trong bộ nhớ và mã hóa PNG.
 
 use crate::geometry::Rect;
+use crate::i18n::{self, Lang, Msg};
 
 /// Ảnh từ trên xuống, 4 byte mỗi pixel: B, G, R, A.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,10 +57,25 @@ impl Image {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum EncodeError {
+    InvalidImage,
+    Encoder(String),
+}
+
+impl EncodeError {
+    pub fn message(&self, lang: Lang) -> String {
+        match self {
+            EncodeError::InvalidImage => i18n::t(lang, Msg::EncodeInvalidImage).to_string(),
+            EncodeError::Encoder(e) => i18n::encoder_error(lang, e),
+        }
+    }
+}
+
 /// PNG RGB 8 bit, bỏ kênh alpha.
-pub fn encode_png(img: &Image) -> Result<Vec<u8>, String> {
+pub fn encode_png(img: &Image) -> Result<Vec<u8>, EncodeError> {
     if !img.is_valid() {
-        return Err("ảnh rỗng hoặc sai độ dài dữ liệu".to_string());
+        return Err(EncodeError::InvalidImage);
     }
     let mut rgb = Vec::with_capacity(img.width as usize * img.height as usize * 3);
     for p in img.bgra.as_chunks::<4>().0 {
@@ -70,8 +86,11 @@ pub fn encode_png(img: &Image) -> Result<Vec<u8>, String> {
         let mut enc = png::Encoder::new(&mut out, img.width, img.height);
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
-        let mut w = enc.write_header().map_err(|e| e.to_string())?;
-        w.write_image_data(&rgb).map_err(|e| e.to_string())?;
+        let mut w = enc
+            .write_header()
+            .map_err(|e| EncodeError::Encoder(e.to_string()))?;
+        w.write_image_data(&rgb)
+            .map_err(|e| EncodeError::Encoder(e.to_string()))?;
     }
     Ok(out)
 }
@@ -161,15 +180,29 @@ mod tests {
             height: 0,
             bgra: vec![],
         };
-        assert!(encode_png(&empty).is_err());
+        assert_eq!(encode_png(&empty), Err(EncodeError::InvalidImage));
         let short = Image {
             width: 2,
             height: 2,
             bgra: vec![1, 2, 3],
         };
-        assert!(encode_png(&short).is_err());
+        assert_eq!(encode_png(&short), Err(EncodeError::InvalidImage));
         assert!(!empty.is_valid() && !short.is_valid());
         assert!(gradient(2, 2).is_valid());
+    }
+
+    #[test]
+    fn encode_error_messages() {
+        for e in [
+            EncodeError::InvalidImage,
+            EncodeError::Encoder("boom".into()),
+        ] {
+            let (vi, en) = (e.message(Lang::Vi), e.message(Lang::En));
+            assert!(!vi.is_empty() && !en.is_empty() && vi != en, "{e:?}");
+        }
+        assert!(EncodeError::Encoder("boom".into())
+            .message(Lang::En)
+            .contains("boom"));
     }
 
     #[test]
