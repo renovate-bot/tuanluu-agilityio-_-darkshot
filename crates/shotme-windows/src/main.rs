@@ -2,6 +2,7 @@
 
 // Task 10 và 11 mới nối autostart, clipboard, secret vào luồng chạy; ở task này chỉ có kiểm thử gọi chúng.
 #[allow(dead_code)]
+mod app;
 mod autostart;
 mod capture;
 #[allow(dead_code)]
@@ -52,6 +53,8 @@ pub enum CaptureGate {
     PendingMenu,
     /// Đang chụp hoặc lớp phủ đang mở.
     Capturing,
+    /// Cửa sổ Cài đặt đang mở.
+    SettingsOpen,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +64,8 @@ pub enum GateEvent {
     TimerFired,
     OverlayClosed,
     TrayClick,
+    OpenSettings,
+    SettingsClosed,
 }
 
 /// Việc bên gọi phải làm sau một sự kiện.
@@ -71,6 +76,8 @@ pub enum GateAction {
     StartTimer,
     /// Hủy bộ hẹn giờ của menu (nếu có) rồi chụp ngay.
     CaptureNow,
+    /// Mở cửa sổ Cài đặt.
+    OpenSettings,
     Ignore,
 }
 
@@ -212,7 +219,7 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
             let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::OverlayClosed);
             GATE.with(|g| g.set(next));
         }
-        GateAction::None | GateAction::Ignore => {}
+        GateAction::OpenSettings | GateAction::None | GateAction::Ignore => {}
     }
     act
 }
@@ -441,6 +448,45 @@ mod tests {
         assert_eq!(
             gate_step(PendingMenu, MenuCapture),
             (PendingMenu, GateAction::Ignore)
+        );
+    }
+
+    #[test]
+    fn settings_gate_transitions() {
+        assert_eq!(
+            gate_step(Idle, OpenSettings),
+            (SettingsOpen, GateAction::OpenSettings)
+        );
+        // Đang mở Cài đặt: bỏ qua mọi yêu cầu chụp và mở thêm.
+        for ev in [MenuCapture, Hotkey, TimerFired, TrayClick, OpenSettings] {
+            assert_eq!(
+                gate_step(SettingsOpen, ev),
+                (SettingsOpen, GateAction::Ignore),
+                "{ev:?}"
+            );
+        }
+        assert_eq!(
+            gate_step(SettingsOpen, OverlayClosed),
+            (SettingsOpen, GateAction::None)
+        );
+        assert_eq!(
+            gate_step(SettingsOpen, SettingsClosed),
+            (Idle, GateAction::None)
+        );
+        // Đang chụp hoặc chờ menu: không mở Cài đặt.
+        assert_eq!(
+            gate_step(Capturing, OpenSettings),
+            (Capturing, GateAction::Ignore)
+        );
+        assert_eq!(
+            gate_step(PendingMenu, OpenSettings),
+            (PendingMenu, GateAction::Ignore)
+        );
+        // Đóng Cài đặt khi không ở trạng thái đó: không đổi.
+        assert_eq!(gate_step(Idle, SettingsClosed), (Idle, GateAction::None));
+        assert_eq!(
+            gate_step(Capturing, SettingsClosed),
+            (Capturing, GateAction::None)
         );
     }
 }
