@@ -122,6 +122,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Ctrl+Tab lúc đang bắt phím được nhận làm phím tắt (ô hiện "Ctrl+Tab"), không đổi tab.
 - [ ] Phím tắt mới bị ứng dụng khác chiếm: bấm OK chuyển sang tab Phím tắt và hiện lỗi; Hủy thì phím cũ hoạt động lại.
 - [ ] Bấm Kiểm tra kết nối rồi sang tab khác và quay lại: kết quả nằm ở dòng kết quả của tab Lưu trữ R2, nút bật lại.
+- [ ] Bấm Kiểm tra kết nối rồi Hủy ngay; mở lại Tùy chọn và bấm Kiểm tra kết nối: nó chạy (hiện "Đang kiểm tra…"), và kết quả của lần bị hủy không hiện ra trong cửa sổ mới.
 - [ ] Lần chạy đầu (xóa `%APPDATA%\shotme\config.json`) cửa sổ mở ở tab Lưu trữ R2, con trỏ ở Account ID; mở từ menu "Tùy chọn..." thì ở tab Thông thường.
 - [ ] Đổi ngôn ngữ rồi OK: menu khay, thông báo, chữ rê chuột trên thanh công cụ lớp phủ và cửa sổ Tùy chọn mở lại đều đổi theo.
 - [ ] Đổi ngôn ngữ rồi Hủy: không đổi gì.

@@ -1,8 +1,9 @@
-//! Cửa sổ Cài đặt (Win32 thuần, Common Controls v6 qua manifest).
+//! Cửa sổ Tùy chọn ba tab (Win32 thuần, Common Controls v6 qua manifest).
 //!
-//! Phần logic (`apply_form`, `capture_hotkey`) là hàm thuần có kiểm thử; phần cửa sổ mỏng.
+//! Phần logic (`apply_form`, `capture_hotkey`, `key_route`, `tab_of`, `initial_tab`) là hàm thuần
+//! có kiểm thử; phần cửa sổ mỏng.
 //! `show` chạy vòng lặp thông điệp riêng (hộp thoại kiểu modal) và bảo đảm khi trả về:
-//! Lưu thì phím tắt mới (nếu đổi) đã được đăng ký cho `parent`; Hủy thì phím tắt cũ đã đăng ký lại.
+//! OK thì phím tắt mới (nếu đổi) đã được đăng ký cho `parent`; Hủy thì phím tắt cũ đã đăng ký lại.
 //! Việc ghi `Config` ra đĩa và bật/tắt khởi động cùng Windows do bên gọi (Task 11) làm.
 
 use crate::hotkey;
@@ -435,7 +436,7 @@ struct St {
     hotkey: Hotkey,
     capturing: bool,
     cap: CaptureState,
-    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần Lưu lỗi) và cần đăng ký lại nếu Hủy.
+    /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần OK lỗi) và cần đăng ký lại nếu Hủy.
     hk_unregistered: bool,
     done: bool,
     result: Option<Config>,
@@ -445,8 +446,9 @@ struct St {
 }
 
 thread_local! {
-    /// HWND của cửa sổ đang mở (0 = không có).
+    /// Một lần Kiểm tra kết nối đang chạy ở luồng nền (nút đang bị làm mờ).
     static TEST_RUNNING: Cell<bool> = const { Cell::new(false) };
+    /// HWND của cửa sổ đang mở (0 = không có).
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static CTL: Cell<Option<Ctl>> = const { Cell::new(None) };
     static ST: RefCell<Option<St>> = const { RefCell::new(None) };
@@ -654,6 +656,18 @@ fn cancel() {
     finish(None);
 }
 
+/// Chuyển sang tab chứa ô sai, đặt tiêu điểm vào ô đó và hiện câu lỗi; giá trị ở mọi tab giữ nguyên.
+fn show_form_error(e: &FormError) {
+    select_tab(tab_of(e.field));
+    if let Some(c) = ctl() {
+        // SAFETY: ô thuộc khung vừa hiện của cửa sổ đang mở ở luồng này.
+        unsafe {
+            let _ = SetFocus(Some(field_ctl(&c, e.field)));
+        }
+    }
+    show_error(&e.message);
+}
+
 fn save() {
     let Some(form) = read_form() else { return };
     let Some(current) = with_st(|s| s.current.clone()) else {
@@ -662,15 +676,7 @@ fn save() {
     let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            // Chuyển sang tab chứa ô sai và đặt tiêu điểm vào ô đó; giá trị ở mọi tab giữ nguyên.
-            select_tab(tab_of(e.field));
-            if let Some(c) = ctl() {
-                // SAFETY: ô thuộc khung vừa hiện của cửa sổ đang mở ở luồng này.
-                unsafe {
-                    let _ = SetFocus(Some(field_ctl(&c, e.field)));
-                }
-            }
-            show_error(&e.message);
+            show_form_error(&e);
             return;
         }
     };
@@ -853,7 +859,8 @@ fn on_test(hwnd: HWND) {
     let cfg = match apply_form(&current, &form, lang::current()) {
         Ok(c) => c,
         Err(e) => {
-            show_error(&e.message);
+            // Ô sai có thể ở tab khác (ví dụ Thư mục lưu trống): đưa người dùng tới đúng ô.
+            show_form_error(&e);
             return;
         }
     };
@@ -1050,7 +1057,7 @@ impl Builder {
         (x, y, w, h): (i32, i32, i32, i32),
         id: i32,
     ) -> HWND {
-        // SAFETY: tạo cửa sổ con của cửa sổ Cài đặt ở luồng chính; lỗi thì trả cửa sổ rỗng (các hàm sau chịu được).
+        // SAFETY: tạo cửa sổ con của cửa sổ Tùy chọn ở luồng chính; lỗi thì trả cửa sổ rỗng (các hàm sau chịu được).
         let hwnd = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE(0),
@@ -1489,14 +1496,14 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     (y, Some(ctl))
 }
 
-/// Đưa cửa sổ Cài đặt đang mở (nếu có) ra trước; không làm gì khác.
+/// Đưa cửa sổ Tùy chọn đang mở (nếu có) ra trước; không làm gì khác.
 pub fn focus_existing() {
     let open = OPEN.with(|o| o.get());
     if open == 0 {
         return;
     }
     let h = HWND(open as *mut c_void);
-    // SAFETY: `h` là cửa sổ Cài đặt của luồng này, OPEN chỉ khác 0 khi cửa sổ còn sống.
+    // SAFETY: `h` là cửa sổ Tùy chọn của luồng này, OPEN chỉ khác 0 khi cửa sổ còn sống.
     unsafe {
         if IsIconic(h).as_bool() {
             let _ = ShowWindow(h, SW_RESTORE);
@@ -1505,7 +1512,7 @@ pub fn focus_existing() {
     }
 }
 
-/// Mở cửa sổ Cài đặt và chờ đến khi người dùng Lưu hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
+/// Mở cửa sổ Tùy chọn và chờ đến khi người dùng bấm OK hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
 pub fn show(
     parent: HWND,
     current: &Config,
@@ -1515,7 +1522,7 @@ pub fn show(
     let open = OPEN.with(|o| o.get());
     if open != 0 {
         let h = HWND(open as *mut c_void);
-        // SAFETY: đưa cửa sổ Cài đặt đang có ra trước.
+        // SAFETY: đưa cửa sổ Tùy chọn đang có ra trước.
         unsafe {
             if IsIconic(h).as_bool() {
                 let _ = ShowWindow(h, SW_RESTORE);
@@ -1586,7 +1593,9 @@ pub fn show(
         }
         hwnd
     };
+    // Cửa sổ mới chưa có lần kiểm tra nào: bỏ kết quả và cờ của cửa sổ trước (nếu còn sót).
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    TEST_RUNNING.with(|r| r.set(false));
     if let Ok(mut s) = TEST_RESULT.lock() {
         *s = None;
     }
@@ -1734,7 +1743,10 @@ pub fn show(
     }
     CTL.with(|x| x.set(None));
     OPEN.with(|o| o.set(0));
+    // Thế hệ mới: kết quả muộn của luồng kiểm tra đang chạy sẽ bị bỏ. Hẹn giờ dự phòng đã chết
+    // theo cửa sổ, nên cờ phải hạ ở đây, không thì nút Kiểm tra kết nối của lần mở sau bị khóa.
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    TEST_RUNNING.with(|r| r.set(false));
     result.map(|config| SettingsResult { config })
 }
 
@@ -2315,7 +2327,13 @@ mod tests {
                 };
                 assert_eq!(sel, want, "{reason:?}");
             });
+            // Giả lập lần Kiểm tra kết nối trước bị bỏ dở (Hủy ngay sau khi bấm): cờ kẹt ở true.
+            TEST_RUNNING.with(|r| r.set(true));
             assert!(show(parent, &cfg, Some("Thông báo thử"), reason).is_none());
+            assert!(
+                !TEST_RUNNING.with(|r| r.get()),
+                "TEST_RUNNING must be cleared when the window closes"
+            );
             closer.join().unwrap();
             // SAFETY: tìm lại cửa sổ sau khi show trả về.
             assert!(unsafe { FindWindowW(w!("shotme-settings"), None) }.is_err());
