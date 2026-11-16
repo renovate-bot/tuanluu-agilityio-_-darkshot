@@ -2,25 +2,27 @@
 //! `pre_translate` lo bàn phím (Tab, Enter, Esc).
 
 use crate::lang;
+use crate::theme;
 use crate::winutil;
 use darkshot_core::i18n::{about_version, Msg};
+use darkshot_core::theme::{BG, TEXT, TEXT_MUTED};
 use std::cell::Cell;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    DeleteObject, GetSysColorBrush, SetBkMode, COLOR_BTNFACE, HDC, HFONT, HGDIOBJ, TRANSPARENT,
-};
+use windows::Win32::Graphics::Gdi::{DeleteObject, HDC, HFONT, HGDIOBJ};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, DestroyWindow, IsWindow, SendMessageW, BS_DEFPUSHBUTTON, MSG, STM_SETICON,
-    WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WS_GROUP, WS_TABSTOP,
+    DefWindowProcW, DestroyWindow, GetDlgCtrlID, IsWindow, SendMessageW, BS_DEFPUSHBUTTON, MSG,
+    STM_SETICON, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WM_SETFONT,
+    WS_GROUP, WS_TABSTOP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-about");
 /// Nút Đóng mang ID của IDOK để Enter trong hộp thoại bấm đúng nút này.
 const ID_CLOSE: i32 = 1;
 const ID_CANCEL: i32 = 2;
+const ID_NAME: i32 = 102;
 /// Kiểu của STATIC: biểu tượng, và chữ căn giữa.
 const SS_ICON: WINDOW_STYLE = WINDOW_STYLE(0x3);
 const SS_CENTER: WINDOW_STYLE = WINDOW_STYLE(0x1);
@@ -29,6 +31,8 @@ thread_local! {
     /// HWND của cửa sổ đang mở (0 = không có).
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static FONT: Cell<Option<HFONT>> = const { Cell::new(None) };
+    /// Phông đậm, lớn hơn, của tên ứng dụng.
+    static NAME_FONT: Cell<Option<HFONT>> = const { Cell::new(None) };
 }
 
 fn current() -> HWND {
@@ -68,7 +72,26 @@ pub fn show(owner: HWND) {
             SendMessageW(icon, STM_SETICON, Some(WPARAM(i.0 as usize)), None);
         }
     }
-    child(w!("STATIC"), "darkshot", SS_CENTER, (12, 72, 296, 20), -1);
+    let name = child(
+        w!("STATIC"),
+        "darkshot",
+        SS_CENTER,
+        (12, 66, 296, 28),
+        ID_NAME,
+    );
+    let name_font = winutil::system_font_styled(dpi, 150, true);
+    NAME_FONT.with(|f| f.set(name_font));
+    if let (Some(f), false) = (name_font, name.is_invalid()) {
+        // SAFETY: phông sống đến WM_NCDESTROY của cửa sổ này.
+        unsafe {
+            SendMessageW(
+                name,
+                WM_SETFONT,
+                Some(WPARAM(f.0 as usize)),
+                Some(LPARAM(1)),
+            );
+        }
+    }
     child(
         w!("STATIC"),
         &about_version(lang::current(), env!("CARGO_PKG_VERSION")),
@@ -90,6 +113,8 @@ pub fn show(owner: HWND) {
         (120, 184, 80, 28),
         ID_CLOSE,
     );
+    theme::set_dark_control_theme(close, theme::DarkClass::Explorer);
+    theme::apply_dark_title_bar(hwnd);
     winutil::finish_popup(hwnd, 320, 224, dpi);
     // SAFETY: nút vừa tạo trong cửa sổ này.
     unsafe {
@@ -127,16 +152,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_CTLCOLORSTATIC => {
-            // Nhãn trùng màu nền cửa sổ (mặc định của cửa sổ thường là nền trắng).
-            // SAFETY: hdc do hệ thống cấp cho lần vẽ này; chổi màu hệ thống không phải giải phóng.
-            unsafe {
-                SetBkMode(HDC(wp.0 as *mut std::ffi::c_void), TRANSPARENT);
-                LRESULT(GetSysColorBrush(COLOR_BTNFACE).0 as isize)
-            }
+            // Nhãn trùng màu nền cửa sổ; tên ứng dụng chữ chính, còn lại chữ phụ.
+            // SAFETY: lp là HWND của nhãn đang vẽ.
+            let id = unsafe { GetDlgCtrlID(HWND(lp.0 as *mut std::ffi::c_void)) };
+            let fg = if id == ID_NAME { TEXT } else { TEXT_MUTED };
+            theme::ctl_color(HDC(wp.0 as *mut std::ffi::c_void), fg, BG)
         }
         WM_NCDESTROY => {
             // Cửa sổ đã mất hết con: giải phóng phông và quên handle, dù đóng bằng đường nào.
             OPEN.with(|o| o.set(0));
+            if let Some(f) = NAME_FONT.with(|f| f.take()) {
+                // SAFETY: như phông thường bên dưới.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(f.0));
+                }
+            }
             if let Some(f) = FONT.with(|f| f.take()) {
                 // SAFETY: phông do CreateFontIndirectW tạo, không còn điều khiển nào dùng.
                 unsafe {

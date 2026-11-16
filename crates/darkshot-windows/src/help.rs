@@ -2,18 +2,20 @@
 //! `pre_translate` lo bàn phím (Tab, Enter, Esc).
 
 use crate::lang;
+use crate::theme;
 use crate::winutil;
 use darkshot_core::i18n::{help_text, HelpKeys, Msg};
+use darkshot_core::theme::{INPUT, TEXT};
 use std::cell::Cell;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{DeleteObject, HFONT, HGDIOBJ};
+use windows::Win32::Graphics::Gdi::{DeleteObject, HDC, HFONT, HGDIOBJ};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, DestroyWindow, IsWindow, BS_DEFPUSHBUTTON, ES_AUTOVSCROLL, ES_MULTILINE,
-    ES_READONLY, MSG, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_NCDESTROY, WS_BORDER, WS_GROUP,
-    WS_TABSTOP, WS_VSCROLL,
+    ES_READONLY, MSG, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
+    WM_NCDESTROY, WS_BORDER, WS_GROUP, WS_TABSTOP, WS_VSCROLL,
 };
 
 const CLASS: PCWSTR = w!("darkshot-help");
@@ -61,7 +63,7 @@ pub fn show(owner: HWND, keys: &HelpKeys) {
         | WS_VSCROLL
         | WS_TABSTOP
         | WINDOW_STYLE((ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32);
-    winutil::create_child(
+    let edit = winutil::create_child(
         hwnd,
         font,
         dpi,
@@ -81,6 +83,9 @@ pub fn show(owner: HWND, keys: &HelpKeys) {
         (428, 382, 80, 28),
         ID_CLOSE,
     );
+    theme::set_dark_control_theme(edit, theme::DarkClass::Explorer);
+    theme::set_dark_control_theme(close, theme::DarkClass::Explorer);
+    theme::apply_dark_title_bar(hwnd);
     winutil::finish_popup(hwnd, 520, 420, dpi);
     // Tiêu điểm ở nút Đóng để chữ không bị bôi chọn sẵn.
     // SAFETY: nút vừa tạo trong cửa sổ này.
@@ -117,6 +122,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CLOSE => {
             close();
             LRESULT(0)
+        }
+        // Ô chữ chỉ đọc gửi WM_CTLCOLORSTATIC, ô sửa được gửi WM_CTLCOLOREDIT: cùng chữ TEXT, nền INPUT.
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT => {
+            theme::ctl_color(HDC(wp.0 as *mut std::ffi::c_void), TEXT, INPUT)
         }
         WM_NCDESTROY => {
             // Cửa sổ đã mất hết con: giải phóng phông và quên handle, dù đóng bằng đường nào.

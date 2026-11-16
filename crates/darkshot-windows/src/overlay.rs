@@ -10,6 +10,10 @@ use darkshot_core::geometry::{
     monitor_containing, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
 use darkshot_core::i18n::Msg;
+use darkshot_core::theme::{
+    Rgb, ACCENT, OVERLAY_BORDER, OVERLAY_HOVER, OVERLAY_ICON, OVERLAY_LABEL, OVERLAY_TIP, SURFACE,
+    TEXT, WHITE,
+};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
@@ -18,11 +22,10 @@ use windows::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDIBSection,
     CreateFontIndirectW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint,
     FillRect, GetStockObject, GetTextExtentPoint32W, IntersectClipRect, InvalidateRect,
-    MonitorFromPoint, Rectangle, RoundRect, SelectClipRgn, SelectObject, SetBkColor, SetBkMode,
-    SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-    DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, HFONT,
-    HGDIOBJ, LOGFONTW, MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_DASH,
-    PS_SOLID, SRCCOPY, TRANSPARENT,
+    MonitorFromPoint, Rectangle, RoundRect, SelectClipRgn, SelectObject, SetBkMode, SetTextColor,
+    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DT_CENTER,
+    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTW,
+    MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::Graphics::GdiPlus::{
     DashCapFlat, FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure,
@@ -73,15 +76,17 @@ const FOCUS_TIMER_ID: usize = 1;
 const FOCUS_RETRY_MS: u32 = 100;
 const MAX_FOCUS_RETRIES: u32 = 5;
 
-// COLORREF là 0x00BBGGRR.
-const WHITE: COLORREF = COLORREF(0x00FF_FFFF);
-const BLACK: COLORREF = COLORREF(0x0000_0000);
-const INK: COLORREF = COLORREF(0x0011_1111);
-const BAR_BORDER: COLORREF = COLORREF(0x00C8_C8C8);
-const SEPARATOR: COLORREF = COLORREF(0x00E3_E3E3);
-const HOVER_BG: COLORREF = COLORREF(0x00FE_F0E8); // #e8f0fe
-const ICON_ARGB: u32 = 0xFF22_2222;
-const ICON_HOVER_ARGB: u32 = 0xFF1D_4ED8;
+// Màu lấy từ `darkshot_core::theme`; biểu tượng GDI+ dùng ARGB (0xFF + RGB).
+const ICON_ARGB: u32 = argb(OVERLAY_ICON);
+const ICON_HOVER_ARGB: u32 = argb(ACCENT);
+
+const fn argb(c: Rgb) -> u32 {
+    0xFF00_0000 | ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | c.2 as u32
+}
+
+fn cr(c: Rgb) -> COLORREF {
+    crate::theme::colorref(c)
+}
 
 /// Nút của thanh công cụ dưới điểm `p`; bốn nút vuông xếp ngang theo thứ tự tải lên, lưu, chép, hủy.
 pub fn button_at(toolbar: Rect, p: Point) -> Option<Action> {
@@ -706,14 +711,28 @@ impl State {
         }
         if let Some((rect, mut text, dpi)) = self.label() {
             let font = self.font(dpi);
-            p.bubble(rect, scaled(4, dpi), &mut text, font);
+            p.bubble(
+                rect,
+                scaled(4, dpi),
+                &mut text,
+                font,
+                OVERLAY_LABEL,
+                OVERLAY_LABEL,
+            );
         }
         if let Some((bar, dpi)) = self.toolbar() {
             p.toolbar(bar, dpi, self.hover, self.gdiplus);
         }
         if let Some((rect, mut text, dpi)) = self.tooltip() {
             let font = self.font(dpi);
-            p.bubble(rect, scaled(4, dpi), &mut text, font);
+            p.bubble(
+                rect,
+                scaled(4, dpi),
+                &mut text,
+                font,
+                OVERLAY_TIP,
+                OVERLAY_BORDER,
+            );
         }
     }
 }
@@ -771,11 +790,10 @@ impl Painter {
         let rc = self.rc(r);
         // SAFETY: bút tạo và xóa trong khối; đối tượng cũ được chọn lại trước khi xóa.
         unsafe {
-            let pen = CreatePen(PS_DASH, 1, WHITE);
+            let pen = CreatePen(PS_SOLID, 1, cr(ACCENT));
             let old_pen = SelectObject(self.dc, pen.into());
             let old_brush = SelectObject(self.dc, GetStockObject(NULL_BRUSH));
             SetBkMode(self.dc, OPAQUE);
-            SetBkColor(self.dc, BLACK);
             let _ = Rectangle(
                 self.dc,
                 rc.left - 1,
@@ -794,8 +812,8 @@ impl Painter {
         let half = size / 2;
         // SAFETY: như `border`.
         unsafe {
-            let pen = CreatePen(PS_SOLID, 1, INK);
-            let brush = CreateSolidBrush(WHITE);
+            let pen = CreatePen(PS_SOLID, 1, cr(ACCENT));
+            let brush = CreateSolidBrush(cr(WHITE));
             let old_pen = SelectObject(self.dc, pen.into());
             let old_brush = SelectObject(self.dc, brush.into());
             let _ = Rectangle(
@@ -812,12 +830,12 @@ impl Painter {
         }
     }
 
-    fn round_rect(&self, r: Rect, radius: i32, fill: COLORREF, edge: COLORREF) {
+    fn round_rect(&self, r: Rect, radius: i32, fill: Rgb, edge: Rgb) {
         let rc = self.rc(r);
         // SAFETY: như `border`.
         unsafe {
-            let pen = CreatePen(PS_SOLID, 1, edge);
-            let brush = CreateSolidBrush(fill);
+            let pen = CreatePen(PS_SOLID, 1, cr(edge));
+            let brush = CreateSolidBrush(cr(fill));
             let old_pen = SelectObject(self.dc, pen.into());
             let old_brush = SelectObject(self.dc, brush.into());
             let _ = RoundRect(
@@ -836,25 +854,25 @@ impl Painter {
         }
     }
 
-    fn fill(&self, r: Rect, color: COLORREF) {
+    fn fill(&self, r: Rect, color: Rgb) {
         let rc = self.rc(r);
         // SAFETY: chổi tạo và xóa trong khối, không được chọn vào DC.
         unsafe {
-            let brush = CreateSolidBrush(color);
+            let brush = CreateSolidBrush(cr(color));
             FillRect(self.dc, &rc, brush);
             let _ = DeleteObject(brush.into());
         }
     }
 
-    /// Ô chữ trắng trên nền tối bo góc (nhãn kích thước, chú thích).
-    fn bubble(&self, r: Rect, radius: i32, text: &mut [u16], font: HFONT) {
-        self.round_rect(r, radius, INK, INK);
+    /// Ô chữ sáng trên nền tối bo góc (nhãn kích thước, chú thích) với nền `fill` và viền `edge`.
+    fn bubble(&self, r: Rect, radius: i32, text: &mut [u16], font: HFONT, fill: Rgb, edge: Rgb) {
+        self.round_rect(r, radius, fill, edge);
         let mut rc = self.rc(r);
         // SAFETY: font còn sống (State giữ); đối tượng cũ được chọn lại.
         unsafe {
             let old = SelectObject(self.dc, font.into());
             SetBkMode(self.dc, TRANSPARENT);
-            SetTextColor(self.dc, WHITE);
+            SetTextColor(self.dc, cr(TEXT));
             DrawTextW(
                 self.dc,
                 text,
@@ -867,7 +885,7 @@ impl Painter {
 
     fn toolbar(&self, bar: Rect, dpi: u32, hover: Option<Action>, gdiplus: bool) {
         let b = bar.h;
-        self.round_rect(bar, scaled(6, dpi), WHITE, BAR_BORDER);
+        self.round_rect(bar, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
         if let Some(a) = hover {
             let i = action_index(a) as i32;
             self.fill(
@@ -877,7 +895,7 @@ impl Painter {
                     w: b - 2,
                     h: b - 2,
                 },
-                HOVER_BG,
+                OVERLAY_HOVER,
             );
         }
         for i in 1..ACTIONS.len() as i32 {
@@ -888,7 +906,7 @@ impl Painter {
                     w: 1,
                     h: b - 2,
                 },
-                SEPARATOR,
+                OVERLAY_BORDER,
             );
         }
         if !gdiplus {

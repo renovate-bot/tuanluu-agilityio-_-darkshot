@@ -59,6 +59,7 @@ pub fn enable_dark_menus() {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)] // Cfd do Task 30 dùng cho hộp chọn.
 pub enum DarkClass {
     /// `DarkMode_Explorer`: nút, ô chữ, thanh cuộn.
     Explorer,

@@ -6,13 +6,12 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 impl Rgb {
     /// `0xRRGGBB`.
     pub const fn hex(v: u32) -> Rgb {
-        let _ = v;
-        Rgb(0, 0, 0)
+        Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8)
     }
 
     /// `0x00BBGGRR` cho GDI.
     pub const fn colorref(self) -> u32 {
-        0
+        ((self.2 as u32) << 16) | ((self.1 as u32) << 8) | self.0 as u32
     }
 }
 
@@ -32,8 +31,9 @@ pub fn relative_luminance(c: Rgb) -> f64 {
 
 /// Tỉ lệ tương phản `(L1 + 0.05) / (L2 + 0.05)` với `L1 >= L2`.
 pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
-    let _ = (a, b);
-    todo!()
+    let (la, lb) = (relative_luminance(a), relative_luminance(b));
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
 }
 
 pub const WHITE: Rgb = Rgb::hex(0xFFFFFF);

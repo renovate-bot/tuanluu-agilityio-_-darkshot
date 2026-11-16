@@ -4,8 +4,8 @@ use std::ffi::c_void;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, GetMonitorInfoW, GetSysColorBrush, MonitorFromPoint, COLOR_BTNFACE, HFONT,
-    MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    CreateFontIndirectW, GetMonitorInfoW, MonitorFromPoint, HFONT, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, SystemParametersInfoForDpi};
@@ -22,6 +22,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// Phông thông báo của hệ thống ở DPI `dpi`. Người gọi phải `DeleteObject` khi xong.
 pub fn system_font(dpi: u32) -> Option<HFONT> {
+    system_font_styled(dpi, 100, false)
+}
+
+/// Phông thông báo của hệ thống, cỡ `percent`% so với thường, đậm nếu `bold` (weight 600; hệ thống
+/// chọn kiểu gần nhất, thường là 700). Người gọi phải `DeleteObject` khi xong.
+pub fn system_font_styled(dpi: u32, percent: i32, bold: bool) -> Option<HFONT> {
     let mut ncm = NONCLIENTMETRICSW {
         cbSize: std::mem::size_of::<NONCLIENTMETRICSW>() as u32,
         ..Default::default()
@@ -36,7 +42,12 @@ pub fn system_font(dpi: u32) -> Option<HFONT> {
             dpi,
         )
         .ok()?;
-        let f = CreateFontIndirectW(&ncm.lfMessageFont);
+        let mut lf = ncm.lfMessageFont;
+        lf.lfHeight = lf.lfHeight * percent / 100;
+        if bold {
+            lf.lfWeight = 600;
+        }
+        let f = CreateFontIndirectW(&lf);
         if f.is_invalid() {
             None
         } else {
@@ -127,7 +138,7 @@ pub fn create_popup(
             lpfnWndProc: Some(proc),
             hInstance: hinst.into(),
             lpszClassName: class,
-            hbrBackground: GetSysColorBrush(COLOR_BTNFACE),
+            hbrBackground: crate::theme::brush(darkshot_core::theme::BG),
             ..Default::default()
         };
         RegisterClassW(&wc);

@@ -798,6 +798,8 @@ fn main() {
     // Không để Windows gửi bản kết xuất bộ nhớ (có thể chứa khóa, ảnh) đi khi sự cố.
     wer::exclude_from_error_reporting();
 
+    // Menu khay và menu hệ thống theo chế độ tối; phải gọi trước khi tạo cửa sổ.
+    theme::enable_dark_menus();
     let Ok(hwnd) = create_window() else { return };
     // SAFETY: chuỗi hằng kết thúc bằng 0.
     TASKBAR_CREATED.with(|c| c.set(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }));
