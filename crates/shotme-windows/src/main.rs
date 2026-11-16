@@ -23,7 +23,7 @@ use shotme_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
 use shotme_core::config::{Config, HotkeyRole, Hotkeys};
-use shotme_core::geometry::Rect;
+use shotme_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
@@ -48,7 +48,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Sự kiện nội bộ; Task 11 mở rộng.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEvent {
-    Capture,
+    /// Phím tắt chụp (một trong ba loại).
+    Capture(CaptureKind),
     OpenSettings,
     Quit,
 }
@@ -135,18 +136,43 @@ pub enum CaptureKind {
 
 /// Loại chụp của một dòng phím tắt.
 pub fn kind_of(role: HotkeyRole) -> CaptureKind {
-    todo!()
+    match role {
+        HotkeyRole::Region => CaptureKind::Region,
+        HotkeyRole::SaveFull => CaptureKind::SaveFull,
+        HotkeyRole::UploadFull => CaptureKind::UploadFull,
+    }
 }
 
 /// Loại chụp sau một bước của cổng: chỉ yêu cầu được nhận (`StartTimer`, `CaptureNow`) mới đổi loại.
 pub fn next_kind(current: CaptureKind, requested: CaptureKind, act: GateAction) -> CaptureKind {
-    todo!()
+    match act {
+        GateAction::StartTimer | GateAction::CaptureNow => requested,
+        _ => current,
+    }
 }
 
 /// Khung nhớ (tọa độ màn hình) sau một lượt chụp vùng kết thúc bằng `action` với khung `picked`:
 /// tải lên, lưu, chép thì nhớ khung mới; hủy thì giữ khung cũ.
 pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Option<Rect> {
-    todo!()
+    match action {
+        Action::Upload | Action::Save | Action::Copy => Some(picked),
+        Action::Cancel => prev,
+    }
+}
+
+/// Vùng (tọa độ ảnh) của lượt chụp toàn màn hình: màn hình chứa con trỏ (`cursor`, tọa độ màn
+/// hình), không chứa thì màn hình gần nhất; vùng rỗng thì cả ảnh `w`×`h`.
+fn full_screen_rect(cursor: Point, origin: Point, monitors: &[Rect], w: i32, h: i32) -> Rect {
+    let p = Point {
+        x: cursor.x - origin.x,
+        y: cursor.y - origin.y,
+    };
+    let m = monitor_containing(p, monitors);
+    if m.w <= 0 || m.h <= 0 {
+        Rect { x: 0, y: 0, w, h }
+    } else {
+        m
+    }
 }
 
 /// Gộp lý do của hai yêu cầu mở Tùy chọn đang chờ: `NeedsR2` thắng.
@@ -183,6 +209,10 @@ thread_local! {
     static ADD_ATTEMPTS: Cell<u32> = const { Cell::new(0) };
     static APP: RefCell<Option<AppState>> = const { RefCell::new(None) };
     static GATE: Cell<CaptureGate> = const { Cell::new(CaptureGate::Idle) };
+    /// Loại của lượt chụp đã được cổng nhận (đang chờ menu hoặc đang chạy); chỉ `request` đổi nó.
+    static CAPTURE_KIND: Cell<CaptureKind> = const { Cell::new(CaptureKind::Region) };
+    /// Khung đã chọn ở lượt chụp vùng gần nhất (tọa độ màn hình); chỉ nhớ trong phiên.
+    static LAST_SELECTION: Cell<Option<Rect>> = const { Cell::new(None) };
     /// Lý do của yêu cầu mở Tùy chọn đang chờ (gộp bằng `merge_reason`); `run_settings` lấy ra.
     static OPEN_REASON: Cell<OpenReason> = const { Cell::new(OpenReason::User) };
     /// Menu khay đang hiện.
@@ -282,9 +312,11 @@ fn notify_hotkeys_taken(keys: &Hotkeys, failed: &[HotkeyRole], notifier: &dyn No
     }
 }
 
-/// Chụp, mở lớp phủ rồi thực hiện hành động đã chọn.
-/// Chỉ gọi qua `gate` (trạng thái `Capturing`), nên không bao giờ có hai lớp phủ.
+/// Chụp theo loại `CAPTURE_KIND` rồi thực hiện hành động: chụp vùng mở lớp phủ, hai loại toàn
+/// màn hình cắt lấy màn hình chứa con trỏ. Chỉ gọi qua `request` (trạng thái `Capturing`), nên
+/// không bao giờ có hai lớp phủ; mọi đường ra đều trả về để `request` đóng cổng.
 fn capture_flow(hwnd: HWND) {
+    let kind = CAPTURE_KIND.with(|k| k.get());
     let notifier: Option<Arc<dyn Notifier>> =
         current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>);
     let notify = |kind: NoticeKind, title: &str, body: &str| {
@@ -292,7 +324,9 @@ fn capture_flow(hwnd: HWND) {
             n.notify(kind, title, body);
         }
     };
-    let shot = match capture::capture_virtual_screen() {
+    let (include_cursor, keep_selection) =
+        with_app(|a| (a.config.include_cursor, a.config.keep_selection)).unwrap_or((false, false));
+    let shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
             notify(
@@ -303,25 +337,71 @@ fn capture_flow(hwnd: HWND) {
             return;
         }
     };
-    with_app(|a| a.overlay_open = true);
-    let picked = overlay::pick_region(&shot);
-    with_app(|a| a.overlay_open = false);
-    let (action, rect) = match picked {
-        Ok(Some(p)) => p,
-        Ok(None) => return,
-        Err(e) => {
-            notify(
-                NoticeKind::Error,
-                lang::tr(Msg::OverlayFailedTitle),
-                &i18n::reason_try_again(lang::current(), &e),
-            );
-            return;
+    let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
+    let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
+    let (action, rect) = match kind {
+        CaptureKind::Region => {
+            let prev = LAST_SELECTION.with(|s| s.get());
+            let initial = if keep_selection {
+                // `restore_selection` nhận màn hình theo tọa độ màn hình.
+                let screens: Vec<Rect> = shot
+                    .monitors
+                    .iter()
+                    .map(|m| capture::to_screen_coords(*m, shot.origin))
+                    .collect();
+                prev.and_then(|r| restore_selection(r, shot.origin, img_w, img_h, &screens))
+            } else {
+                None
+            };
+            with_app(|a| a.overlay_open = true);
+            let picked = overlay::pick_region(&shot, initial);
+            with_app(|a| a.overlay_open = false);
+            match picked {
+                Ok(Some((action, rect))) => {
+                    // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
+                    let screen = capture::to_screen_coords(rect, shot.origin);
+                    LAST_SELECTION.with(|s| s.set(remember_after(prev, action, screen)));
+                    (action, rect)
+                }
+                Ok(None) => return,
+                Err(e) => {
+                    notify(
+                        NoticeKind::Error,
+                        lang::tr(Msg::OverlayFailedTitle),
+                        &i18n::reason_try_again(lang::current(), &e),
+                    );
+                    return;
+                }
+            }
+        }
+        CaptureKind::SaveFull | CaptureKind::UploadFull => {
+            let rect = full_screen_rect(shot.cursor, shot.origin, &shot.monitors, img_w, img_h);
+            let action = if kind == CaptureKind::SaveFull {
+                Action::Save
+            } else {
+                Action::Upload
+            };
+            (action, rect)
         }
     };
     let image = shot.image.crop(rect);
     // Giải phóng ảnh chụp ngay khi đã cắt xong.
     drop(shot);
-    let (Some(notifier), Some(config)) = (notifier, with_app(|a| a.config.clone())) else {
+    let Some(notifier) = notifier else {
+        return;
+    };
+    run_on_image(hwnd, action, image, notifier);
+}
+
+/// Thực hiện `action` trên ảnh đã cắt; chung cho cả ba loại chụp. Tải lên dùng sổ `PENDING`,
+/// lưu dự phòng khi không tạo được luồng và mở Tùy chọn khi thiếu cấu hình R2.
+fn run_on_image(
+    hwnd: HWND,
+    action: Action,
+    image: shotme_core::image::Image,
+    notifier: Arc<dyn Notifier>,
+) {
+    let Some(config) = with_app(|a| a.config.clone()) else {
         return;
     };
     let clipboard: Arc<dyn Clipboard> = Arc::new(clipboard::WinClipboard);
@@ -464,10 +544,20 @@ fn run_settings(hwnd: HWND) {
     GATE.with(|g| g.set(next));
 }
 
-/// Đưa một sự kiện qua cổng chụp và làm việc mà cổng yêu cầu.
+/// Đưa một sự kiện không phải yêu cầu chụp (hẹn giờ, bấm khay, mở Tùy chọn) qua cổng:
+/// loại chụp đang có giữ nguyên.
 fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
+    let current = CAPTURE_KIND.with(|k| k.get());
+    request(hwnd, ev, current)
+}
+
+/// Lối vào duy nhất của cổng chụp: tính `gate_step`, đặt loại chụp theo `next_kind` (chỉ đổi khi
+/// yêu cầu `requested` được nhận), rồi làm việc mà cổng yêu cầu. Mọi yêu cầu chụp (ba phím tắt,
+/// "Chụp màn hình" ở menu) gọi thẳng hàm này với loại của mình.
+fn request(hwnd: HWND, ev: GateEvent, requested: CaptureKind) -> GateAction {
     let (next, act) = gate_step(GATE.with(|g| g.get()), ev);
     GATE.with(|g| g.set(next));
+    CAPTURE_KIND.with(|k| k.set(next_kind(k.get(), requested, act)));
     match act {
         GateAction::StartTimer => {
             // Chờ menu khay tắt hẳn (hiệu ứng mờ dần) để nó không lọt vào ảnh.
@@ -514,8 +604,8 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
 
 fn handle_event(hwnd: HWND, ev: AppEvent) {
     match ev {
-        AppEvent::Capture => {
-            gate(hwnd, GateEvent::Hotkey);
+        AppEvent::Capture(kind) => {
+            request(hwnd, GateEvent::Hotkey, kind);
         }
         AppEvent::OpenSettings => {
             gate(hwnd, GateEvent::OpenSettings);
@@ -547,21 +637,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         return LRESULT(0);
     }
     match msg {
-        WM_HOTKEY if hotkey::role_of(wp.0 as i32) == Some(HotkeyRole::Region) => {
+        WM_HOTKEY if hotkey::role_of(wp.0 as i32).is_some() => {
+            // Cả ba phím (chụp vùng, lưu và tải lên toàn màn hình) dùng chung một luật.
+            let kind = hotkey::role_of(wp.0 as i32)
+                .map(kind_of)
+                .unwrap_or(CaptureKind::Region);
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi chụp sau khi menu tắt hẳn, như chọn từ menu.
                 // SAFETY: đóng menu đang hiện của luồng này.
                 unsafe {
                     let _ = EndMenu();
                 }
-                gate(hwnd, GateEvent::MenuCapture);
+                request(hwnd, GateEvent::MenuCapture, kind);
             } else {
-                handle_event(hwnd, AppEvent::Capture);
+                handle_event(hwnd, AppEvent::Capture(kind));
             }
-            LRESULT(0)
-        }
-        WM_HOTKEY if hotkey::role_of(wp.0 as i32).is_some() => {
-            // Task 22: Lưu ảnh và Tải lên nhanh (toàn màn hình) nối vào luồng chụp ở đây.
             LRESULT(0)
         }
         WM_TRAY => {
@@ -575,7 +665,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 MENU_OPEN.with(|m| m.set(false));
                 match cmd {
                     Some(MenuCommand::Capture) => {
-                        gate(hwnd, GateEvent::MenuCapture);
+                        request(hwnd, GateEvent::MenuCapture, CaptureKind::Region);
                     }
                     Some(MenuCommand::Options) => {
                         note_open_reason(OpenReason::User);
@@ -994,6 +1084,54 @@ mod tests {
         assert_eq!(
             step(SettingsOpen, Hotkey, Region, UploadFull),
             (SettingsOpen, GateAction::FocusSettings, Region)
+        );
+    }
+
+    #[test]
+    fn full_screen_takes_the_monitor_under_the_cursor() {
+        // Màn hình phụ 1280×1024 bên trái, chính 1920×1080; gốc màn hình ảo (-1280, 0).
+        let o = Point { x: -1280, y: 0 };
+        let left = Rect {
+            x: 0,
+            y: 0,
+            w: 1280,
+            h: 1024,
+        };
+        let main = Rect {
+            x: 1280,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        };
+        let mons = [left, main];
+        assert_eq!(
+            full_screen_rect(Point { x: -5, y: 500 }, o, &mons, 3200, 1080),
+            left
+        );
+        assert_eq!(
+            full_screen_rect(Point { x: 0, y: 0 }, o, &mons, 3200, 1080),
+            main
+        );
+        // vùng chết dưới màn hình trái: màn hình gần nhất
+        assert_eq!(
+            full_screen_rect(Point { x: -100, y: 1060 }, o, &mons, 3200, 1080),
+            left
+        );
+        // không có màn hình hợp lệ: cả ảnh
+        let empty = [Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        }];
+        assert_eq!(
+            full_screen_rect(Point { x: 0, y: 0 }, o, &empty, 3200, 1080),
+            Rect {
+                x: 0,
+                y: 0,
+                w: 3200,
+                h: 1080
+            }
         );
     }
 

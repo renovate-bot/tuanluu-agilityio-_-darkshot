@@ -4,7 +4,7 @@ use shotme_core::geometry::{Point, Rect};
 use shotme_core::image::Image;
 use std::ffi::c_void;
 use windows::core::{Error, BOOL};
-use windows::Win32::Foundation::{E_FAIL, LPARAM, RECT};
+use windows::Win32::Foundation::{E_FAIL, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors,
     GdiFlush, GetDC, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT,
@@ -14,7 +14,9 @@ use windows::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    DrawIconEx, GetCursorInfo, GetCursorPos, GetIconInfo, GetSystemMetrics, CURSORINFO,
+    CURSOR_SHOWING, DI_NORMAL, HICON, ICONINFO, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
 pub struct Screenshot {
@@ -24,6 +26,8 @@ pub struct Screenshot {
     pub origin: Point,
     /// Từng màn hình, đã đổi sang tọa độ ảnh (trừ origin).
     pub monitors: Vec<Rect>,
+    /// Vị trí con trỏ chuột lúc chụp, tọa độ màn hình; không lấy được thì tâm màn hình ảo.
+    pub cursor: Point,
 }
 
 /// Đổi một hình chữ nhật từ tọa độ màn hình sang tọa độ ảnh của màn hình ảo.
@@ -38,13 +42,20 @@ pub fn to_image_coords(screen: Rect, origin: Point) -> Rect {
 /// Đổi một hình chữ nhật từ tọa độ ảnh của màn hình ảo sang tọa độ màn hình (ngược của
 /// `to_image_coords`).
 pub fn to_screen_coords(image: Rect, origin: Point) -> Rect {
-    todo!()
+    Rect {
+        x: image.x + origin.x,
+        y: image.y + origin.y,
+        ..image
+    }
 }
 
 /// Góc trên trái để vẽ con trỏ vào ảnh: vị trí con trỏ (tọa độ màn hình) trừ điểm nóng,
 /// rồi đổi sang tọa độ ảnh của màn hình ảo có gốc `origin`.
 pub fn cursor_draw_origin(pos: Point, hotspot: Point, origin: Point) -> Point {
-    todo!()
+    Point {
+        x: pos.x - hotspot.x - origin.x,
+        y: pos.y - hotspot.y - origin.y,
+    }
 }
 
 /// Lỗi Win32 của luồng hiện tại; nếu luồng không ghi mã lỗi thì dùng `E_FAIL`.
@@ -125,6 +136,69 @@ impl Drop for Selected {
     }
 }
 
+/// Hai bitmap mà `GetIconInfo` tạo ra cho bên gọi; xóa cả hai khi drop (`hbmColor` rỗng với
+/// con trỏ đơn sắc).
+struct IconBitmaps(ICONINFO);
+impl Drop for IconBitmaps {
+    fn drop(&mut self) {
+        for bmp in [self.0.hbmMask, self.0.hbmColor] {
+            if !bmp.is_invalid() {
+                // SAFETY: bitmap do GetIconInfo tạo cho ta, không được chọn vào DC nào; xóa một lần.
+                unsafe {
+                    let _ = DeleteObject(bmp.into());
+                }
+            }
+        }
+    }
+}
+
+/// Vị trí con trỏ (tọa độ màn hình) bằng `GetCursorPos`.
+fn cursor_pos() -> Option<Point> {
+    let mut pt = POINT::default();
+    // SAFETY: chỉ ghi vào `pt`.
+    unsafe { GetCursorPos(&mut pt) }.ok()?;
+    Some(Point { x: pt.x, y: pt.y })
+}
+
+/// Vẽ con trỏ đang hiện vào `dc` (DC bộ nhớ đang chọn DIB của ảnh có gốc `origin`).
+/// Trả về vị trí con trỏ nếu đọc được. Con trỏ ẩn hoặc lời gọi nào thất bại thì không vẽ.
+fn draw_cursor(dc: HDC, origin: Point) -> Option<Point> {
+    let mut ci = CURSORINFO {
+        cbSize: std::mem::size_of::<CURSORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `ci` có cbSize đúng; hàm chỉ ghi vào `ci`.
+    unsafe { GetCursorInfo(&mut ci) }.ok()?;
+    let pos = Point {
+        x: ci.ptScreenPos.x,
+        y: ci.ptScreenPos.y,
+    };
+    // hCursor là handle dùng chung của hệ thống: không hủy.
+    if ci.flags.0 & CURSOR_SHOWING.0 == 0 || ci.hCursor.is_invalid() {
+        return Some(pos);
+    }
+    let icon: HICON = ci.hCursor.into();
+    let mut info = ICONINFO::default();
+    // SAFETY: icon hợp lệ vừa đọc; hàm chỉ ghi vào `info`. Guard xóa mọi bitmap nó tạo ra,
+    // kể cả khi lời gọi thất bại (khi đó các trường vẫn rỗng).
+    let ok = unsafe { GetIconInfo(icon, &mut info) }.is_ok();
+    let bitmaps = IconBitmaps(info);
+    if !ok {
+        return Some(pos);
+    }
+    let hotspot = Point {
+        x: i32::try_from(bitmaps.0.xHotspot).unwrap_or(0),
+        y: i32::try_from(bitmaps.0.yHotspot).unwrap_or(0),
+    };
+    let at = cursor_draw_origin(pos, hotspot, origin);
+    // SAFETY: `dc` còn sống và đang chọn DIB; cỡ 0 không kèm DI_DEFAULTSIZE = cỡ thật của con trỏ.
+    unsafe {
+        let _ = DrawIconEx(dc, at.x, at.y, icon, 0, 0, 0, None, DI_NORMAL);
+    }
+    drop(bitmaps);
+    Some(pos)
+}
+
 unsafe extern "system" fn collect_monitor(
     _m: HMONITOR,
     _dc: HDC,
@@ -161,8 +235,8 @@ fn clip_to_image(r: Rect, w: i32, h: i32) -> Option<Rect> {
     })
 }
 
-/// Chụp toàn bộ màn hình ảo (mọi màn hình), không có con trỏ chuột.
-pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
+/// Chụp toàn bộ màn hình ảo (mọi màn hình). `include_cursor`: vẽ con trỏ đang hiện vào ảnh.
+pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Screenshot> {
     let _dpi = DpiScope::per_monitor_v2();
     // SAFETY: GetSystemMetrics chỉ đọc giá trị hệ thống.
     let (x, y, w, h) = unsafe {
@@ -211,6 +285,8 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
     if bits.is_null() {
         return Err(Error::from_hresult(E_FAIL));
     }
+    let origin = Point { x, y };
+    let cursor;
     {
         // SAFETY: chọn DIB vào DC bộ nhớ; guard chọn lại đối tượng cũ trước khi DIB bị xóa.
         let _sel = Selected {
@@ -231,6 +307,19 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
                 y,
                 ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
             )?;
+        }
+        // Con trỏ vẽ khi DIB còn được chọn trong DC bộ nhớ; ô tắt thì chỉ đọc vị trí.
+        let pos = if include_cursor {
+            draw_cursor(mem.0, origin)
+        } else {
+            None
+        };
+        cursor = pos.or_else(cursor_pos).unwrap_or(Point {
+            x: x + w / 2,
+            y: y + h / 2,
+        });
+        // SAFETY: đẩy mọi lệnh vẽ GDI còn chờ vào DIB trước khi đọc pixel.
+        unsafe {
             let _ = GdiFlush();
         }
     }
@@ -245,7 +334,6 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
         px[3] = 255;
     }
 
-    let origin = Point { x, y };
     let mut screens: Vec<Rect> = Vec::new();
     // SAFETY: callback chỉ ghi vào `screens`, sống đến hết lời gọi đồng bộ này.
     unsafe {
@@ -273,6 +361,7 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
         },
         origin,
         monitors,
+        cursor,
     })
 }
 
@@ -369,7 +458,7 @@ mod tests {
     #[test]
     fn capture_matches_virtual_screen() {
         let _gdi = GDI_TEST_LOCK.lock();
-        let s = capture_virtual_screen().unwrap();
+        let s = capture_virtual_screen(false).unwrap();
         assert!(s.image.width > 0 && s.image.height > 0);
         assert_eq!(
             s.image.bgra.len(),
@@ -381,5 +470,36 @@ mod tests {
             && m.y >= 0
             && m.right() <= s.image.width as i32
             && m.bottom() <= s.image.height as i32));
+    }
+
+    /// Chụp nhiều lần có vẽ con trỏ: số đối tượng GDI của tiến trình không tăng (hai bitmap của
+    /// `GetIconInfo` được xóa), ảnh hợp lệ và cùng cỡ với lượt không có con trỏ.
+    #[test]
+    #[ignore = "chạm màn hình thật; chạy tay: cargo test -p shotme-windows -- --ignored capture_with_cursor --test-threads=1"]
+    fn capture_with_cursor_does_not_leak_gdi() {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        let _gdi = GDI_TEST_LOCK.lock();
+        // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
+        let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        let plain = capture_virtual_screen(false).unwrap();
+        let mut after_second = 0;
+        for i in 1..=50 {
+            let s = capture_virtual_screen(true).unwrap();
+            assert!(s.image.is_valid());
+            assert_eq!(
+                (s.image.width, s.image.height),
+                (plain.image.width, plain.image.height)
+            );
+            if i == 2 {
+                after_second = gdi();
+            }
+        }
+        let last = gdi();
+        assert!(
+            last <= after_second,
+            "GDI tăng từ {after_second} lên {last}"
+        );
     }
 }

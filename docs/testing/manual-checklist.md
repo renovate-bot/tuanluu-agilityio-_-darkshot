@@ -164,3 +164,27 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Nâng cấp từ file cấu hình đợt 1: phím chụp vùng cũ còn nguyên, hai dòng mới tắt, ba ô tích mới ở giá trị mặc định, không gì tự bật.
 - [ ] Tab Phím tắt: tổ hợp dài nhất (`Ctrl+Alt+Shift+Win+PrintScreen`) và lời nhắc bắt phím ("Nhấn tổ hợp phím mới… (Esc để bỏ qua)", "Press the new key combination... (Esc to skip)") hiện đủ trong ô phím ở cả hai ngôn ngữ.
 - [ ] Đặt một dòng vào phím ứng dụng khác đang giữ, bấm OK (báo lỗi), rồi trong lúc cửa sổ còn mở cho ứng dụng khác chiếm luôn phím cũ của một dòng, rồi bấm Hủy: một thông báo "Phím tắt chưa hoạt động" nêu tổ hợp bị chiếm. Hủy bình thường (không có phím bị chiếm): không có thông báo.
+
+## Đợt 2: chụp
+
+- [ ] Phím lưu toàn màn hình lưu đúng màn hình đang có con trỏ: trên một màn hình; trên hai màn hình (con trỏ ở từng màn hình); hai màn hình có DPI khác nhau; màn hình phụ đặt ở bên trái màn hình chính.
+- [ ] Phím tải lên nhanh chép link; mở link ra đúng ảnh màn hình đang có con trỏ.
+- [ ] Tải lên nhanh khi chưa cấu hình R2: ảnh được lưu vào thư mục lưu, Tùy chọn mở ở tab Lưu trữ R2.
+- [ ] Tải lên nhanh khi mất mạng: ảnh được lưu vào thư mục lưu, có thông báo lỗi.
+- [ ] Bấm hai phím toàn màn hình lúc lớp phủ đang mở: không gì xảy ra (lớp phủ vẫn chạy như cũ).
+- [ ] Bấm hai phím toàn màn hình lúc Tùy chọn đang mở: Tùy chọn ra trước, không chụp.
+- [ ] Bấm hai phím toàn màn hình lúc menu khay đang mở: menu đóng, ảnh không có menu.
+- [ ] Bấm nhanh nhiều lần liên tiếp mỗi phím (và xen kẽ ba phím): không treo, không có hai lớp phủ, mỗi lượt toàn màn hình cho một ảnh.
+- [ ] Thoát ứng dụng ngay sau khi bấm tải lên nhanh: ảnh có trong thư mục lưu.
+- [ ] Con trỏ: bật ô rồi chụp vùng: con trỏ đóng băng thấy trên lớp phủ; nằm trong vùng chọn thì có trong ảnh, ngoài vùng thì không.
+- [ ] Con trỏ: bật ô rồi chụp toàn màn hình (lưu và tải lên): con trỏ có trong ảnh đúng chỗ.
+- [ ] Con trỏ mũi tên, chữ I (trong ô nhập chữ), bàn tay (trên link): đúng hình, đúng điểm nóng.
+- [ ] Con trỏ đang ẩn (đang gõ trong ứng dụng ẩn con trỏ, phim toàn màn hình): ảnh không có con trỏ, không báo lỗi.
+- [ ] Con trỏ phóng to trong Cài đặt Windows (Trợ năng): con trỏ trong ảnh có thể ra cỡ thường (giới hạn đã biết, không co giãn).
+- [ ] Tắt ô con trỏ: ảnh không có con trỏ ở cả ba kiểu chụp.
+- [ ] Giữ vị trí: bật ô, chụp và lưu một vùng; chụp lại thấy khung cũ đúng chỗ kèm tay nắm, nhãn kích thước, thanh công cụ; con trỏ chuột đúng hình theo chỗ đứng ngay khi mở; Ctrl+S (và Ctrl+D, Ctrl+C) dùng được ngay; kéo tay nắm, kéo bên trong và kéo bên ngoài chọn lại đều được.
+- [ ] Giữ vị trí: Esc không đổi khung đang nhớ (lần sau vẫn mở khung trước đó).
+- [ ] Giữ vị trí: khung trên màn hình phụ rồi rút màn hình đó: lớp phủ mở trống.
+- [ ] Giữ vị trí: thoát ứng dụng rồi mở lại: lớp phủ mở trống.
+- [ ] Giữ vị trí: tắt ô: lớp phủ mở trống; bật lại: khung của lượt chụp vùng gần nhất xuất hiện.
+- [ ] Hai phím toàn màn hình không đổi khung đang nhớ.
