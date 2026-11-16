@@ -43,6 +43,8 @@ thread_local! {
 }
 
 const RETRY_TIMER_ID: usize = 1;
+const MENU_CAPTURE_TIMER_ID: usize = 2;
+const MENU_CAPTURE_DELAY_MS: u32 = 250;
 const RETRY_INTERVAL_MS: u32 = 2000;
 
 fn on_retry_timer(hwnd: HWND) {
@@ -154,7 +156,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if ev == WM_RBUTTONUP || ev == WM_LBUTTONUP {
                 let cmd = current_tray().and_then(|t| t.show_menu());
                 match cmd {
-                    Some(MenuCommand::Capture) => handle_event(hwnd, AppEvent::Capture),
+                    Some(MenuCommand::Capture) => {
+                        // Chờ menu khay tắt hẳn (hiệu ứng mờ dần) để nó không lọt vào ảnh.
+                        // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
+                        unsafe {
+                            SetTimer(
+                                Some(hwnd),
+                                MENU_CAPTURE_TIMER_ID,
+                                MENU_CAPTURE_DELAY_MS,
+                                None,
+                            );
+                        }
+                    }
                     Some(MenuCommand::Settings) => handle_event(hwnd, AppEvent::OpenSettings),
                     Some(MenuCommand::Quit) => handle_event(hwnd, AppEvent::Quit),
                     None => {}
@@ -168,6 +181,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if let Some(t) = current_tray() {
                 t.show_notice(&notice);
             }
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == MENU_CAPTURE_TIMER_ID => {
+            // SAFETY: hủy bộ hẹn giờ một lần của chính cửa sổ này.
+            unsafe {
+                let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
+            }
+            handle_event(hwnd, AppEvent::Capture);
             LRESULT(0)
         }
         WM_TIMER if wp.0 == RETRY_TIMER_ID => {
