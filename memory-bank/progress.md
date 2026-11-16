@@ -15,8 +15,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 4 Chữ ký SigV4 | task/04-sigv4 | specialist | opus | xong | 73.515 | 56.402 | 5.542 | 135.459 |
 | 5 Tải lên R2 | task/05-upload | builder | sonnet | xong | 72.426 | 33.228 | 6.043 | 111.697 |
 | 6 PNG và luồng hành động | task/06-image-actions | builder | sonnet | xong | 63.192 | 35.413 | 8.253 | 106.858 |
-| 7 Vỏ ứng dụng Windows | task/07-win-shell | builder | sonnet | đang làm | | | | |
-| 8 Chụp màn hình và lớp phủ | task/08-capture-overlay | specialist | opus | chờ | | | | |
+| 7 Vỏ ứng dụng Windows | task/07-win-shell | builder | sonnet | xong | 74.617 | 36.916 | 15.158 | 126.691 |
+| 8 Chụp màn hình và lớp phủ | task/08-capture-overlay | specialist | opus | đang làm | | | | |
 | 9 Dịch vụ Windows | task/09-win-services | specialist | opus | chờ | | | | |
 | 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | chờ | | | | |
 | 11 Nối toàn bộ | task/11-integration | builder | sonnet | chờ | | | | |

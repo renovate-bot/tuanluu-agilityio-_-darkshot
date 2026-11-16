@@ -46,4 +46,5 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 
 - Task 3: `serde`, `serde_json`, `base64`, `getrandom`. Task 4: `sha2` 0.11, `hmac` 0.13.
 - Task 5: `ureq` 3.5.2 với `default-features = false, features = ["rustls"]` (provider `ring`, `webpki-roots`). Agent HTTP đặt `proxy(None)`, `max_redirects(0)`, `http_status_as_error(false)`, thời hạn kết nối 10 giây, toàn bộ 60 giây.
+- Task 6: `png` 0.18. Task 7: `windows` 0.62.2 (features: Win32_Foundation, Win32_UI_WindowsAndMessaging, Win32_UI_Shell, Win32_UI_Input_KeyboardAndMouse, Win32_System_LibraryLoader, Win32_System_Threading, Win32_System_SystemInformation, Win32_System_Com, Win32_Graphics_Gdi, Win32_Security), `embed-resource` 3.0.12 (build).
 - Cổng kiểm tra có thêm `cargo fmt --all --check` (từ sau Task 5).

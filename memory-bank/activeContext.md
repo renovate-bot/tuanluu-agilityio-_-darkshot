@@ -5,8 +5,8 @@ Cập nhật: 2026-11-16
 ## Đang ở đâu
 
 - Giai đoạn: 5. Xây dựng.
-- Task vừa xong: Task 6 (PNG và luồng hành động), đã gộp vào `main`. Phần lõi (Task 2 đến 6) đã xong, 57 kiểm thử.
-- Task đang làm: **Task 7, `docs/tasks/07-win-shell.md`**, nhánh `task/07-win-shell`, agent `builder`, trạng thái `đang làm`.
+- Task vừa xong: Task 7 (vỏ ứng dụng Windows), đã gộp vào `main`. Phần lõi (Task 2 đến 6) đã xong, 57 kiểm thử; lớp Windows có 5 kiểm thử.
+- Task đang làm: **Task 8, `docs/tasks/08-capture-overlay.md`**, nhánh `task/08-capture-overlay`, agent `specialist`, trạng thái `đang làm`. Sau task này DỪNG để chủ dự án thử tay.
 
 ## Bước kế tiếp
 
@@ -32,6 +32,8 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 - Từ Task 5, `scripts/check.ps1` chạy thêm `cargo fmt --all --check`; agent phải chạy `cargo fmt --all` trước khi commit.
 - Trong bash của máy này `cargo` không có trong PATH; chạy cargo qua PowerShell hoặc qua `scripts/check.ps1`.
 - Task 6, khác gói task: `image::encode_png` trả `Result<Vec<u8>, String>`; có thêm `Image::is_valid()`. `run_action` với ảnh không hợp lệ trả `Failed` kèm một thông báo Error. Sao chép lỗi clipboard trả `Failed`; tải lên xong mà không chép được link vẫn trả `Uploaded(link)` với thông báo Error chứa link. Bản release dùng `panic = "abort"`: mã chạy thật không được `unwrap`/`expect` trên dữ liệu đầu vào.
+- Task 7: `windows` 0.62.2, `embed-resource` 3.0.12; có thêm `res/app.rc`. Cửa sổ ẩn là top-level `WS_EX_TOOLWINDOW` (để nhận "TaskbarCreated"). `Tray` có `try_add()`, `is_added()`; thêm biểu tượng thất bại thì thử lại mỗi 2 giây, tối đa 30 lần. `mod paths` đang có `#[allow(dead_code)]`, Task 11 bỏ đi. Phím tắt đang dùng `Hotkey::default()`, Task 11 đọc từ cấu hình. Chưa ai nhìn thấy giao diện bằng mắt: chờ chủ dự án thử theo checklist.
+- Sau khi chạy thử `shotme.exe`, luôn kết thúc mọi tiến trình `shotme`, nếu không lần build sau không ghi đè được file exe.
 - Việc để sau (ngoài bản đầu): xóa trắng vùng nhớ chứa khóa sau khi ký (cần crate `zeroize`).
 - Sửa nhỏ sau rà soát: gọi tiếp chính agent đã làm bằng SendMessage (còn nguyên ngữ cảnh), không tạo agent mới.
 - Task 2, lựa chọn của agent đã được rà soát chấp nhận: tay nắm nhận trên cả dải cạnh; `release` bỏ khung khi một chiều nhỏ hơn 3; `place_toolbar` kẹp cả hai chiều. Task 8 (lớp phủ) cần biết: khung nhỏ hơn hai lần bán kính tay nắm thì không còn vùng "Inside" để di chuyển.
