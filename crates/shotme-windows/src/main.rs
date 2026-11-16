@@ -13,6 +13,9 @@ mod overlay;
 mod paths;
 #[allow(dead_code)]
 mod secret;
+// Task 11 nối cửa sổ Cài đặt vào luồng chạy.
+#[allow(dead_code)]
+mod settings;
 mod tray;
 
 use shotme_core::actions::{Action, NoticeKind, Notifier};
