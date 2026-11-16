@@ -40,10 +40,11 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 - Định dạng PNG, thư mục mặc định `Pictures\shotme` (đổi được trong Tùy chọn, tab Thông thường; thư mục chưa có thì được tạo).
 - Tên file: `shotme_YYYY-MM-DD_HH-MM-SS.png` theo giờ máy. Nếu trùng tên thì thêm `_2`, `_3`.
+- Ảnh lưu vào máy luôn là PNG, kể cả khi chọn JPEG cho ảnh tải lên và kể cả bản lưu dự phòng sau khi tải lên thất bại.
 
 ### Tải lên
 
-- Ảnh được đưa vào thư mục hạn trên kho. Link có dạng `{địa chỉ công khai}/{thư mục hạn}/{tên}.png`, ví dụ `https://img.example.com/d30/k3X9f2abQ7mZp1Lw.png`.
+- Ảnh được đưa vào thư mục hạn trên kho. Link có dạng `{địa chỉ công khai}/{thư mục hạn}/{tên}.png`, ví dụ `https://img.example.com/d30/k3X9f2abQ7mZp1Lw.png`. Khi chọn JPEG trong tab Định dạng, đuôi là `.jpg`.
 - Tên ảnh gồm 16 ký tự chữ và số, sinh từ bộ sinh số ngẫu nhiên của Windows.
 - Tải lên thành công: link được chép vào clipboard, thông báo "Đã chép link" (có thể tắt, xem mục "Thông báo").
 - Tải lên thất bại (mất mạng, khóa sai, kho không tồn tại, địa chỉ công khai không mở được): ảnh vẫn được lưu vào thư mục lưu. Thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh đã lưu.
@@ -64,10 +65,11 @@ Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạ
 
 ### Tùy chọn
 
-Cửa sổ Tùy chọn có ba tab:
+Cửa sổ Tùy chọn có bốn tab:
 
 - **Thông thường:** **Khởi động cùng Windows**, ba ô tích **Hiện các thông báo lưu và sao chép**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
 - **Phím tắt:** ba dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
+- **Định dạng:** hai nút chọn **PNG** (mặc định) và **JPEG**, thanh trượt **Chất lượng JPEG** từ 50 đến 100 (mặc định 90). Thanh trượt và số mờ khi chọn PNG. Chỉ áp dụng cho ảnh tải lên; ảnh lưu vào máy luôn là PNG. JPEG vẫn là nén có mất mát, kể cả ở mức 100.
 - **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
 
 Nút **OK** ghi cài đặt rồi đóng cửa sổ. Nút **Hủy** bỏ thay đổi. Nút **Trợ giúp** mở cửa sổ Trợ giúp và không đóng Tùy chọn.
@@ -248,3 +250,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của sho
 ## Phạm vi
 
 Ứng dụng làm một việc: chụp vùng màn hình, lưu hoặc tải lên và chép link. Không có chức năng vẽ lên ảnh, lịch sử ảnh, hay xóa ảnh từ ứng dụng.
+
+## Thư viện bên thứ ba
+
+Ảnh JPEG được nén bằng crate `jpeg-encoder`; phần mềm này dựa một phần trên công trình của Independent JPEG Group.

@@ -77,7 +77,7 @@ Mọi trait có ràng buộc `Send + Sync`.
 
 - Bề rộng lấy từ `Layout` (`settings.rs`), tính một lần trong `build_controls` từ nhãn dài nhất của dòng phím tắt và lưu ở `Builder.layout`. Ô mới dùng `b.layout.client_w` và `b.layout.ew`, không ghi số cứng.
 - Ô trong tab có sẵn (`settings.rs`):
-  1. Thêm `const ID_...` (dãy hiện có 101 đến 117; khung tab là 120 đến 122; dòng phím tắt là `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135)). Tạo điều khiển trong `build_general` (trả `GeneralCtl`), `build_hotkeys` (trả `HotkeysCtl`) hoặc `build_r2` (trả `R2Ctl`) bằng `row_edit`, `combo` hoặc `b.button`. Ô tích là `b.button` với `BS_AUTOCHECKBOX`, như `check` trong `build_general`.
+  1. Thêm `const ID_...` (dãy đang dùng: 101 đến 119 cho ô, nút và nút chọn; khung tab là 120 đến 123; dòng phím tắt là `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135); thanh trượt và ô số của tab Định dạng là 140 và 141). Tạo điều khiển trong `build_general` (trả `GeneralCtl`), `build_hotkeys` (trả `HotkeysCtl`), `build_format` (trả `FormatCtl`) hoặc `build_r2` (trả `R2Ctl`) bằng `row_edit`, `combo` hoặc `b.button`. Ô tích là `b.button` với `BS_AUTOCHECKBOX`, như `check` trong `build_general`.
   2. Thêm HWND vào `struct Ctl` và gán trong `build_controls`: trong chỗ dựng `let ctl = Ctl { ... }`, và thêm vào mảng `all` (kiểm HWND rỗng) phía trên. Lưu ý: các ô của dòng phím tắt không nằm trong `all`; `build_controls` kiểm chúng riêng qua `hk.chk`, `hk.edit` và `hk.btn`.
   3. Điền giá trị ban đầu trong `show` (ô nhập bằng `set_text(c.account, ...)`, ô tích bằng `set_checked`), và đọc giá trị trong `read_form` vào trường mới của `Form` (ô tích bằng `is_checked`).
   4. Kiểm trong `apply_form`; trường cấu hình thêm vào `Config` ở core, rồi vào `FileConfig` và hai chiều trong `config::load`/`save`.
@@ -89,10 +89,20 @@ Mọi trait có ràng buộc `Send + Sync`.
 - ID của dòng là dãy liền nhau: `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135). Khi số dòng tăng, dãy nút "Đổi…" sẽ đè lên ô tích, nên phải dời `ID_HK_CHECK0` (hoặc đổi cả hai) trước khi thêm dòng.
 - Nếu dòng là loại chụp mới: thêm vào `CaptureKind` và `kind_of` trong `crates/shotme-windows/src/main.rs`, rồi thêm nhánh trong `capture_flow`.
 - Tab mới (`settings.rs`):
-  1. Thêm biến thể vào `Tab`, rồi `Tab::ALL` (`[Tab; 3]`, đổi độ dài), `index` và `label` (kèm `Msg` mới).
-  2. Đổi độ dài mảng `frames: [HWND; 3]` trong `struct Ctl`. Trong `build_controls`, thêm `b.frame(ID_FRAME0 + n)` vào mảng `frames`, thêm `frames[n]` vào mảng `all`, và đặt `b.parent = frames[Tab::X.index()]` trước khi gọi `build_*`.
+  1. Thêm biến thể vào `Tab`, rồi `Tab::ALL` (hiện `[Tab; 4]`: Thông thường, Phím tắt, Định dạng, Lưu trữ R2; đổi độ dài), `index` và `label` (kèm `Msg` mới).
+  2. Đổi độ dài mảng `frames: [HWND; 4]` trong `struct Ctl`. Trong `build_controls`, thêm `b.frame(ID_FRAME0 + n)` vào mảng `frames`, thêm `frames[n]` vào mảng `all`, và đặt `b.parent = frames[Tab::X.index()]` trước khi gọi `build_*`.
   3. `show_frame` duyệt mảng `frames` để ẩn và tắt các khung còn lại, nên không cần sửa.
   4. Thêm hàm `build_*` cho tab, và nhánh trong `first_ctl`. Trình biên dịch báo các `match` còn thiếu nhánh.
+- Nút chọn (đợt 3, `build_format`, `fmt_png` và `fmt_jpeg`): tạo bằng `BS_AUTORADIOBUTTON`. Nút đầu của nhóm dựng bằng `b.button` nên có `WS_GROUP | WS_TABSTOP`; nút sau trong cùng nhóm dựng bằng `b.make` không có hai cờ này. Ô kế sau có `WS_GROUP` để khép nhóm. Chỉ nút đang được chọn có điểm dừng Tab: `first_ctl` trả đúng nút đó. Đọc và đặt bằng `is_checked` và `set_checked`.
+- Thanh trượt (đợt 3, `TRACKBAR_CLASSW`, trường `Ctl.quality`): cần lớp `ICC_BAR_CLASSES` trong `InitCommonControlsEx`, cùng `ICC_TAB_CLASSES`. Đặt khoảng bằng `TBM_SETRANGE` (wParam 0, lParam = max << 16 | min), rồi `TBM_SETLINESIZE`, `TBM_SETPAGESIZE`, `TBM_SETPOS`. Đọc bằng `TBM_GETPOS`, hằng tự định nghĩa vì crate `windows` không có. Thanh trượt gửi `WM_HSCROLL` cho khung cha; `frame_proc` chuyển lên cửa sổ chính, và `wndproc` nhận HWND thanh trượt trong `lp`. Ô số cập nhật trong nhánh `WM_HSCROLL` đó.
+- Làm mờ (đợt 3, `apply_quality_enabled`): nhãn, thanh trượt và ô số gọi `EnableWindow` theo `quality_enabled(format)`. Gọi khi mở cửa sổ và khi đổi nút chọn. Điều khiển mờ không nhận Tab, và giá trị vẫn được đọc khi lưu.
+
+## Mẫu của đợt 3 (định dạng tải lên)
+
+- Đường tải lên: `Config.upload_format` và `jpeg_quality` → `main.rs` (`capture_flow`) chép vào `UploadJob` từ bản sao `Config` của lượt đó → `app::spawn_upload` đưa vào `actions::Ctx` → `actions::upload` gọi `image::encode_for_upload(img, format, quality)`. Khóa đi qua `upload::object_key(expiry, name, format)`, content type lấy từ `format.content_type()`.
+- Lỗi nén (kể cả ảnh có cạnh quá 65.535 pixel) đi vào `fallback`: lưu PNG và báo lỗi, không tự tải PNG.
+- Mọi đường lưu vào máy dùng `save_png`: `Action::Save`, lưu dự phòng trong `fallback`, và `app::save_pending` (đi qua `Action::Save`). Các `Ctx` lưu đặt `upload_format: Png`.
+- `encode_jpeg` đặt 4:4:4 tường minh (`set_sampling_factor(R_4_4_4)`). Crate `jpeg-encoder` 0.7.1 tự chọn 4:2:0 khi chất lượng dưới 90, nên không được bỏ dòng này.
 
 ## Mẫu của đợt 2 (phím tắt, chụp, thông báo)
 

@@ -31,6 +31,7 @@ Cập nhật: 2026-11-16
 | `sha2`, `hmac` | core | chữ ký SigV4 |
 | `ureq` (chỉ `rustls` + `webpki-roots`) | core | HTTPS tới R2 |
 | `png` | core | mã hóa ảnh |
+| `jpeg-encoder` | core | nén JPEG cho ảnh tải lên (ghim `=0.7.1`, không bật `simd`) |
 | `windows` | windows | Win32 |
 | `embed-resource` hoặc tương đương | windows | nhúng biểu tượng và manifest |
 
@@ -53,3 +54,4 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 - Đợt 1 (Task 16): `scripts/check.ps1` có bước `no hard-coded Vietnamese strings`. Bước này quét `crates/*/src/*.rs`, bỏ qua `i18n.rs`, tìm chuỗi có chữ Latin có dấu (U+00C0–U+024F, U+1E00–U+1EFF) viết thẳng trong mã, và dừng ở `#[cfg(test)]` đứng trước `mod`. Chuỗi English viết thẳng không bị bắt. Crate `windows` bật thêm `Win32_Globalization` (Task 16, `lang::os_default`) và `Win32_UI_Controls` (Task 17, dải tab `SysTabControl32`).
 - Đợt 2 (Task 20–22): không thêm crate hay feature Win32 nào; `crates/shotme-windows/Cargo.toml` giữ nguyên so với trước đợt 2. Con trỏ chuột lấy bằng `GetCursorInfo`, `GetIconInfo`, `DrawIconEx` (đã có trong feature `Win32_UI_WindowsAndMessaging` và `Win32_Graphics_Gdi`).
 - Lệnh kiểm thử chạy tay: `cargo test -p shotme-windows -- --ignored about_window help_window settings_window --test-threads=1` chạy `about_window_opens_and_closes`, `help_window_opens_and_closes`, `settings_window_opens_and_cancels`. Các kiểm thử này mở cửa sổ thật trên máy, nên không nằm trong `scripts/check.ps1`.
+- Đợt 3 (Task 24): thêm crate `jpeg-encoder` `=0.7.1` vào `shotme-core`, không bật `simd`, không phụ thuộc crate nào khác, giấy phép `(MIT OR Apache-2.0) AND IJG`. Đây là ngoại lệ duy nhất của luật không thêm crate (`memory-bank/decisions.md` mục 40). Không thêm feature Win32 nào trong đợt 3. Kiểm thử `capture::tests::jpeg_decodes_with_gdiplus` giải nén JPEG bằng GDI+ (feature `Win32_Graphics_GdiPlus` có từ trước) và chạy thường, không `#[ignore]`, nên không có lệnh `--ignored` mới.
