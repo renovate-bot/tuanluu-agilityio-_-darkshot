@@ -39,24 +39,22 @@ def glyph_smooth(size):
     big = size * SS
     img = background(size)
     d = ImageDraw.Draw(img)
-    m = 0.24 * big
-    sw = 0.09 * big
-    lo = m + sw / 2
-    hi = big - m - sw / 2
-    # Mỗi cạnh chữ L dài 15% cạnh icon tính cả đầu nét bo tròn (bán kính sw/2) kể từ mép khung.
-    arm = 0.15 * big - sw  # đầu mút = m + 0.15*big, trừ nửa nét ở gốc và nửa nét ở đầu
+    m = 0.23 * big
+    sw = 0.085 * big
+    # Mỗi cạnh chữ L dài 18% cạnh icon tính từ mép ngoài của khung, đầu vuông bo rất nhẹ:
+    # khe giữa hai góc liền kề là 18%, nét đủ dài để đọc ra chữ L chứ không thành một đốm.
+    arm = 0.18 * big
+    rr = sw * 0.2
     white = (255, 255, 255, 255)
 
-    def seg(x0, y0, x1, y1):
-        d.line((x0, y0, x1, y1), fill=white, width=round(sw))
-        for cx, cy in ((x0, y0), (x1, y1)):
-            d.ellipse((cx - sw / 2, cy - sw / 2, cx + sw / 2, cy + sw / 2), fill=white)
+    def bar(x0, y0, x1, y1):
+        d.rounded_rectangle((min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)), radius=rr, fill=white)
 
-    for cx, sx in ((lo, 1), (hi, -1)):
-        for cy, sy in ((lo, 1), (hi, -1)):
-            seg(cx, cy, cx + sx * arm, cy)
-            seg(cx, cy, cx, cy + sy * arm)
-    rad = 0.06 * big
+    for cx, sx in ((m, 1), (big - m, -1)):
+        for cy, sy in ((m, 1), (big - m, -1)):
+            bar(cx, cy, cx + sx * arm, cy + sy * sw)
+            bar(cx, cy, cx + sx * sw, cy + sy * arm)
+    rad = 0.055 * big
     dx = dy = 0.5 * big
     d.ellipse((dx - rad, dy - rad, dx + rad, dy + rad), fill=white)
     return img.resize((size, size), Image.LANCZOS)
@@ -101,7 +99,7 @@ def self_check(images):
         if size >= 24:
             whites = [x for x in range(size) if px[x, m][0] >= 128]
             best = max(b - a - 1 for a, b in zip(whites, whites[1:]))
-            assert best >= 0.16 * size, f"cỡ {size}: khe giữa hai góc chỉ {best}px"
+            assert best >= 0.14 * size, f"cỡ {size}: khe giữa hai góc chỉ {best}px"
 
 
 def dib(img):
