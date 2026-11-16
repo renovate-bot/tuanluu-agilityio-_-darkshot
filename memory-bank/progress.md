@@ -41,7 +41,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 28 Chuyển dữ liệu từ shotme | task/28-legacy-migration | specialist | opus | xong | 133.605 | 89.121 | 6.665 | 229.391 |
 | 29 Lõi giao diện tối, Thông tin, Trợ giúp, menu khay, lớp phủ | task/29-dark-theme-core | builder | sonnet | xong | 95.280 | 44.739 | 2.387 | 142.406 |
 | 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | xong | 308.654 | 146.553 | 3.810 | 459.017 |
-| 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | đang làm | | | | |
+| 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | xong | 171.829 | 50.900 | 0 (phiên điều phối sửa một câu README) | 222.729 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -49,7 +49,7 @@ Task 20–23 là đợt 2 (kế hoạch `docs/superpowers/plans/2026-11-16-captu
 
 Task 24–26 là đợt 3 (kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md`). Trước khi xây: đọc soát thiết kế đợt 3 (general-purpose) 129.579. Cộng Task 24–26: 685.912 (làm 468.503; rà soát 209.688; sửa 7.721); kể cả đọc soát thiết kế: 815.491. Theo model: opus (Task 25) 307.399; sonnet (Task 24 và rà soát 26) 237.934; haiku (Task 26) 140.579. Chủ dự án báo "đã duyệt. Đúng yêu cầu" (2026-11-16).
 
-Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075.
+Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075. Cộng Task 27–31: 1.162.436 (làm 781.735; rà soát 367.839; sửa 12.862); kể cả đọc soát thiết kế: 1.227.511. Theo model: opus (Task 28, 30) 688.408; sonnet (Task 27, 29 và rà soát 31) 302.199; haiku (Task 31) 171.829. Chưa thử tay, chưa nghiệm thu.
 
 Rà soát Task 4, 8, 9, 17, 21, 22, 25, 28, 30 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
