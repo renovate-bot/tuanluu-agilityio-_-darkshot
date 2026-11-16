@@ -1,5 +1,6 @@
-//! Ảnh chụp trong bộ nhớ và mã hóa PNG.
+//! Ảnh chụp trong bộ nhớ và mã hóa PNG, JPEG.
 
+use crate::config::{clamp_jpeg_quality, UploadFormat};
 use crate::geometry::Rect;
 use crate::i18n::{self, Lang, Msg};
 
@@ -61,12 +62,15 @@ impl Image {
 pub enum EncodeError {
     InvalidImage,
     Encoder(String),
+    /// Một cạnh vượt 65.535 pixel, không nén JPEG được.
+    TooLarge,
 }
 
 impl EncodeError {
     pub fn message(&self, lang: Lang) -> String {
         match self {
             EncodeError::InvalidImage => i18n::t(lang, Msg::EncodeInvalidImage).to_string(),
+            EncodeError::TooLarge => i18n::t(lang, Msg::EncodeTooLargeForJpeg).to_string(),
             EncodeError::Encoder(e) => i18n::encoder_error(lang, e),
         }
     }
@@ -95,9 +99,171 @@ pub fn encode_png(img: &Image) -> Result<Vec<u8>, EncodeError> {
     Ok(out)
 }
 
+/// JPEG baseline 8 bit, 4:4:4, không EXIF, không bình luận.
+pub fn encode_jpeg(img: &Image, quality: u8) -> Result<Vec<u8>, EncodeError> {
+    if !img.is_valid() {
+        return Err(EncodeError::InvalidImage);
+    }
+    let (w, h) = match (u16::try_from(img.width), u16::try_from(img.height)) {
+        (Ok(w), Ok(h)) => (w, h),
+        _ => return Err(EncodeError::TooLarge),
+    };
+    let mut out = Vec::new();
+    let mut enc = jpeg_encoder::Encoder::new(&mut out, clamp_jpeg_quality(i64::from(quality)));
+    enc.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_4_4);
+    enc.set_progressive(false);
+    enc.encode(&img.bgra, w, h, jpeg_encoder::ColorType::Bgra)
+        .map_err(|e| EncodeError::Encoder(e.to_string()))?;
+    Ok(out)
+}
+
+pub fn encode_for_upload(
+    img: &Image,
+    format: UploadFormat,
+    quality: u8,
+) -> Result<Vec<u8>, EncodeError> {
+    match format {
+        UploadFormat::Png => encode_png(img),
+        UploadFormat::Jpeg => encode_jpeg(img, quality),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Duyệt các đoạn marker từ SOI đến hết SOS; trả (marker, nội dung) từng đoạn.
+    fn segments(data: &[u8]) -> Vec<(u8, Vec<u8>)> {
+        assert_eq!(&data[..2], &[0xFF, 0xD8]);
+        let mut out = Vec::new();
+        let mut i = 2;
+        while i + 4 <= data.len() {
+            assert_eq!(data[i], 0xFF, "marker tại {i}");
+            let m = data[i + 1];
+            let len = usize::from(u16::from_be_bytes([data[i + 2], data[i + 3]]));
+            out.push((m, data[i + 4..i + 2 + len].to_vec()));
+            i += 2 + len;
+            if m == 0xDA {
+                break;
+            }
+        }
+        out
+    }
+
+    fn colorful(w: u32, h: u32) -> Image {
+        let mut bgra = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                bgra.extend_from_slice(&[
+                    (x * 37 + y * 11) as u8,
+                    (x * 5 + y * 71) as u8,
+                    (x * y * 13) as u8,
+                    255,
+                ]);
+            }
+        }
+        Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    #[test]
+    fn jpeg_structure() {
+        let img = colorful(37, 21);
+        for q in [50u8, 89, 90, 100] {
+            let data = encode_jpeg(&img, q).unwrap();
+            assert_eq!(&data[..2], &[0xFF, 0xD8], "q {q}");
+            assert_eq!(&data[data.len() - 2..], &[0xFF, 0xD9], "q {q}");
+            let segs = segments(&data);
+            let sof0: Vec<_> = segs.iter().filter(|(m, _)| *m == 0xC0).collect();
+            assert_eq!(sof0.len(), 1, "q {q}");
+            let p = &sof0[0].1;
+            assert_eq!(p[0], 8);
+            assert_eq!(u16::from_be_bytes([p[1], p[2]]), 21);
+            assert_eq!(u16::from_be_bytes([p[3], p[4]]), 37);
+            assert_eq!(p[5], 3);
+            for c in 0..3 {
+                assert_eq!(p[6 + c * 3 + 1], 0x11, "q {q} thành phần {c}");
+            }
+            assert!(!segs.iter().any(|(m, _)| *m == 0xC2), "progressive q {q}");
+            assert!(!segs.iter().any(|(m, _)| *m == 0xE1), "APP1 q {q}");
+            assert!(!segs.iter().any(|(m, _)| *m == 0xFE), "COM q {q}");
+        }
+    }
+
+    #[test]
+    fn jpeg_quality_changes_size() {
+        let mut state: u32 = 12345;
+        let mut bgra = Vec::new();
+        for _ in 0..64 * 64 {
+            for _ in 0..3 {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                bgra.push((state >> 24) as u8);
+            }
+            bgra.push(255);
+        }
+        let img = Image {
+            width: 64,
+            height: 64,
+            bgra,
+        };
+        let lo = encode_jpeg(&img, 50).unwrap().len();
+        let hi = encode_jpeg(&img, 100).unwrap().len();
+        assert!(hi > lo, "{hi} <= {lo}");
+    }
+
+    #[test]
+    fn jpeg_rejects_oversized_and_invalid() {
+        let empty = Image {
+            width: 0,
+            height: 0,
+            bgra: vec![],
+        };
+        assert_eq!(encode_jpeg(&empty, 90), Err(EncodeError::InvalidImage));
+        let short = Image {
+            width: 2,
+            height: 2,
+            bgra: vec![1, 2, 3],
+        };
+        assert_eq!(encode_jpeg(&short, 90), Err(EncodeError::InvalidImage));
+        let wide = Image {
+            width: 65_536,
+            height: 1,
+            bgra: vec![0; 65_536 * 4],
+        };
+        assert!(wide.is_valid());
+        assert_eq!(encode_jpeg(&wide, 90), Err(EncodeError::TooLarge));
+        let ok = Image {
+            width: 65_535,
+            height: 1,
+            bgra: vec![0; 65_535 * 4],
+        };
+        assert!(encode_jpeg(&ok, 90).is_ok());
+    }
+
+    #[test]
+    fn encode_for_upload_picks_encoder() {
+        let img = colorful(9, 7);
+        assert_eq!(
+            encode_for_upload(&img, UploadFormat::Png, 80).unwrap(),
+            encode_png(&img).unwrap()
+        );
+        assert_eq!(
+            encode_for_upload(&img, UploadFormat::Jpeg, 80).unwrap(),
+            encode_jpeg(&img, 80).unwrap()
+        );
+    }
+
+    #[test]
+    fn too_large_message_in_both_languages() {
+        let (vi, en) = (
+            EncodeError::TooLarge.message(Lang::Vi),
+            EncodeError::TooLarge.message(Lang::En),
+        );
+        assert!(!vi.is_empty() && !en.is_empty() && vi != en);
+    }
 
     fn gradient(w: u32, h: u32) -> Image {
         let mut bgra = Vec::new();

@@ -30,6 +30,58 @@ impl Expiry {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UploadFormat {
+    #[default]
+    Png,
+    Jpeg,
+}
+
+impl UploadFormat {
+    pub const ALL: [UploadFormat; 2] = [UploadFormat::Png, UploadFormat::Jpeg];
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            UploadFormat::Png => "png",
+            UploadFormat::Jpeg => "jpg",
+        }
+    }
+
+    pub fn content_type(self) -> &'static str {
+        match self {
+            UploadFormat::Png => "image/png",
+            UploadFormat::Jpeg => "image/jpeg",
+        }
+    }
+
+    pub fn label(self) -> Msg {
+        match self {
+            UploadFormat::Png => Msg::RadioPng,
+            UploadFormat::Jpeg => Msg::RadioJpeg,
+        }
+    }
+
+    fn code(self) -> &'static str {
+        match self {
+            UploadFormat::Png => "png",
+            UploadFormat::Jpeg => "jpeg",
+        }
+    }
+
+    fn from_code(s: &str) -> Option<UploadFormat> {
+        UploadFormat::ALL.into_iter().find(|f| f.code() == s)
+    }
+}
+
+pub const JPEG_QUALITY_MIN: u8 = 50;
+pub const JPEG_QUALITY_MAX: u8 = 100;
+pub const JPEG_QUALITY_DEFAULT: u8 = 90;
+
+pub fn clamp_jpeg_quality(v: i64) -> u8 {
+    let c = v.clamp(i64::from(JPEG_QUALITY_MIN), i64::from(JPEG_QUALITY_MAX));
+    u8::try_from(c).unwrap_or(JPEG_QUALITY_DEFAULT)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hotkey {
     pub ctrl: bool,
@@ -193,6 +245,8 @@ pub struct Config {
     pub show_success_notices: bool,
     pub keep_selection: bool,
     pub include_cursor: bool,
+    pub upload_format: UploadFormat,
+    pub jpeg_quality: u8,
 }
 
 impl Config {
@@ -207,6 +261,8 @@ impl Config {
             show_success_notices: true,
             keep_selection: false,
             include_cursor: false,
+            upload_format: UploadFormat::Png,
+            jpeg_quality: JPEG_QUALITY_DEFAULT,
         }
     }
 }
@@ -311,6 +367,8 @@ struct FileConfig {
     notify_success: bool,
     keep_selection: bool,
     include_cursor: bool,
+    upload_format: String,
+    jpeg_quality: i64,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -328,6 +386,8 @@ impl Default for FileConfig {
             notify_success: true,
             keep_selection: false,
             include_cursor: false,
+            upload_format: UploadFormat::default().code().to_string(),
+            jpeg_quality: i64::from(JPEG_QUALITY_DEFAULT),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -408,6 +468,8 @@ pub fn load(
         show_success_notices: f.notify_success,
         keep_selection: f.keep_selection,
         include_cursor: f.include_cursor,
+        upload_format: UploadFormat::from_code(&f.upload_format).unwrap_or_default(),
+        jpeg_quality: clamp_jpeg_quality(f.jpeg_quality),
     };
     Ok(Loaded {
         config,
@@ -446,6 +508,8 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         notify_success: cfg.show_success_notices,
         keep_selection: cfg.keep_selection,
         include_cursor: cfg.include_cursor,
+        upload_format: cfg.upload_format.code().to_string(),
+        jpeg_quality: i64::from(clamp_jpeg_quality(i64::from(cfg.jpeg_quality))),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
@@ -922,6 +986,85 @@ mod tests {
             load(&p, &XorStore, Path::new("C:/pics"), Lang::Vi),
             Err(ConfigError::Corrupt(_))
         ));
+    }
+
+    #[test]
+    fn old_file_uploads_png() {
+        let l = load_text(r#"{"language":"vi","expiry":"d7"}"#);
+        assert_eq!(l.config.upload_format, UploadFormat::Png);
+        assert_eq!(l.config.jpeg_quality, 90);
+    }
+
+    #[test]
+    fn upload_format_round_trip() {
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.upload_format = UploadFormat::Jpeg;
+        c.jpeg_quality = 75;
+        save(&path, &c, &XorStore).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["upload_format"], "jpeg");
+        assert_eq!(v["jpeg_quality"], 75);
+        let back = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+            .unwrap()
+            .config;
+        assert_eq!(back.upload_format, UploadFormat::Jpeg);
+        assert_eq!(back.jpeg_quality, 75);
+        assert_eq!(back, c);
+    }
+
+    #[test]
+    fn jpeg_quality_is_clamped_on_load() {
+        for (input, want) in [
+            (-1, 50),
+            (0, 50),
+            (49, 50),
+            (101, 100),
+            (255, 100),
+            (300, 100),
+            (50, 50),
+            (90, 90),
+            (100, 100),
+        ] {
+            let l = load_text(&format!(r#"{{"jpeg_quality":{input}}}"#));
+            assert_eq!(l.config.jpeg_quality, want, "input {input}");
+        }
+    }
+
+    #[test]
+    fn unknown_format_is_png() {
+        let l = load_text(r#"{"upload_format":"webp"}"#);
+        assert_eq!(l.config.upload_format, UploadFormat::Png);
+    }
+
+    #[test]
+    fn wrong_type_quality_is_corrupt() {
+        for text in [
+            r#"{"jpeg_quality":"90"}"#,
+            r#"{"jpeg_quality":90.5}"#,
+            r#"{"upload_format":1}"#,
+        ] {
+            let p = temp_dir().join("config.json");
+            std::fs::write(&p, text).unwrap();
+            assert!(
+                matches!(
+                    load(&p, &XorStore, Path::new("C:/pics"), Lang::Vi),
+                    Err(ConfigError::Corrupt(_))
+                ),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_extension_and_content_type() {
+        assert_eq!(UploadFormat::Png.extension(), "png");
+        assert_eq!(UploadFormat::Png.content_type(), "image/png");
+        assert_eq!(UploadFormat::Jpeg.extension(), "jpg");
+        assert_eq!(UploadFormat::Jpeg.content_type(), "image/jpeg");
+        assert_eq!(UploadFormat::Png.label(), Msg::RadioPng);
+        assert_eq!(UploadFormat::Jpeg.label(), Msg::RadioJpeg);
     }
 
     #[test]

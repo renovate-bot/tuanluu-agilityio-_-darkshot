@@ -2,7 +2,7 @@
 
 use crate::lang;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
-use shotme_core::config::{Config, ConfigError, SecretStore};
+use shotme_core::config::{Config, ConfigError, SecretStore, UploadFormat, JPEG_QUALITY_DEFAULT};
 use shotme_core::i18n::{t, Lang, Msg};
 use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
@@ -160,6 +160,8 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
                 clipboard: &NoClipboard,
                 notifier: &SilentNotifier,
                 lang: lang::current(),
+                upload_format: UploadFormat::Png,
+                jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
             matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
         })
@@ -181,6 +183,8 @@ pub struct UploadJob {
     pub pending: Option<(Arc<PendingUploads>, u64)>,
     /// Ngôn ngữ của thông báo, chốt lúc tạo lượt.
     pub lang: Lang,
+    pub upload_format: UploadFormat,
+    pub jpeg_quality: u8,
 }
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
@@ -196,6 +200,8 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 clipboard: job.clipboard.as_ref(),
                 notifier: job.notifier.as_ref(),
                 lang: job.lang,
+                upload_format: job.upload_format,
+                jpeg_quality: job.jpeg_quality,
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
             // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
@@ -365,7 +371,7 @@ mod tests {
     }
     struct SlowUploader(String);
     impl Uploader for SlowUploader {
-        fn upload(&self, _key: &str, _png: &[u8]) -> Result<String, UploadError> {
+        fn upload(&self, _key: &str, _body: &[u8], _ct: &str) -> Result<String, UploadError> {
             std::thread::sleep(Duration::from_millis(200));
             Ok(self.0.clone())
         }
@@ -404,6 +410,8 @@ mod tests {
             on_needs_settings: cb,
             pending: None,
             lang: Lang::Vi,
+            upload_format: UploadFormat::Png,
+            jpeg_quality: JPEG_QUALITY_DEFAULT,
         }
     }
 

@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::Expiry;
+use crate::config::{Expiry, UploadFormat};
 use crate::i18n::{self, t, Lang, Msg};
-use crate::image::{encode_png, Image};
+use crate::image::{encode_for_upload, encode_png, Image};
 use crate::naming::{local_file_name, random_object_name, LocalTime};
 use crate::upload::{object_key, UploadError, Uploader};
 
@@ -49,6 +49,8 @@ pub struct Ctx<'a> {
     pub clipboard: &'a dyn Clipboard,
     pub notifier: &'a dyn Notifier,
     pub lang: Lang,
+    pub upload_format: UploadFormat,
+    pub jpeg_quality: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,15 +114,15 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
     let Some(uploader) = ctx.uploader else {
         return fallback(ctx, img, t(ctx.lang, Msg::UploadNotConfigured), true);
     };
-    let png = match encode_png(img) {
+    let body = match encode_for_upload(img, ctx.upload_format, ctx.jpeg_quality) {
         Ok(p) => p,
         Err(e) => {
             let reason = i18n::encode_failed(ctx.lang, &e.message(ctx.lang));
             return fallback(ctx, img, &reason, false);
         }
     };
-    let key = object_key(ctx.expiry, &random_object_name());
-    match uploader.upload(&key, &png) {
+    let key = object_key(ctx.expiry, &random_object_name(), ctx.upload_format);
+    match uploader.upload(&key, &body, ctx.upload_format.content_type()) {
         Ok(link) => {
             if let Err(e) = ctx.clipboard.set_text(&link) {
                 ctx.notifier.notify(
@@ -224,6 +226,7 @@ fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image::encode_jpeg;
     use crate::upload::UploadError;
     use std::sync::Mutex;
 
@@ -268,18 +271,24 @@ mod tests {
     struct FakeUploader {
         result: Result<String, UploadError>,
         keys: Mutex<Vec<String>>,
+        calls: Mutex<Vec<(String, Vec<u8>, String)>>,
     }
     impl FakeUploader {
         fn new(result: Result<String, UploadError>) -> Self {
             FakeUploader {
                 result,
                 keys: Mutex::new(vec![]),
+                calls: Mutex::new(vec![]),
             }
         }
     }
     impl Uploader for FakeUploader {
-        fn upload(&self, key: &str, _png: &[u8]) -> Result<String, UploadError> {
+        fn upload(&self, key: &str, body: &[u8], ct: &str) -> Result<String, UploadError> {
             self.keys.lock().unwrap().push(key.to_string());
+            self.calls
+                .lock()
+                .unwrap()
+                .push((key.to_string(), body.to_vec(), ct.to_string()));
             match &self.result {
                 Ok(s) => Ok(s.clone()),
                 Err(UploadError::Network(m)) => Err(UploadError::Network(m.clone())),
@@ -324,6 +333,8 @@ mod tests {
             clipboard: cb,
             notifier: n,
             lang: Lang::Vi,
+            upload_format: UploadFormat::Png,
+            jpeg_quality: 90,
         }
     }
 
@@ -483,6 +494,96 @@ mod tests {
     }
 
     #[test]
+    fn png_upload_is_unchanged() {
+        let d = temp_dir();
+        let up = FakeUploader::new(Ok("https://x/y.png".to_string()));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let c = ctx(&d, Some(&up), &cb, &n);
+        run_action(&c, Action::Upload, &img());
+        let calls = up.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].0.ends_with(".png"));
+        assert_eq!(calls[0].2, "image/png");
+        assert_eq!(calls[0].1, encode_png(&img()).unwrap());
+    }
+
+    #[test]
+    fn jpeg_upload_sends_jpeg() {
+        let d = temp_dir();
+        let link = "https://x/y.jpg";
+        let up = FakeUploader::new(Ok(link.to_string()));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let mut c = ctx(&d, Some(&up), &cb, &n);
+        c.upload_format = UploadFormat::Jpeg;
+        c.jpeg_quality = 80;
+        let out = run_action(&c, Action::Upload, &img());
+        assert_eq!(out, Outcome::Uploaded(link.to_string()));
+        let calls = up.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].0.ends_with(".jpg"));
+        assert_eq!(calls[0].2, "image/jpeg");
+        assert_eq!(calls[0].1, encode_jpeg(&img(), 80).unwrap());
+        assert_eq!(*cb.texts.lock().unwrap(), vec![link.to_string()]);
+        assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Success);
+    }
+
+    #[test]
+    fn jpeg_upload_failure_saves_png() {
+        let d = temp_dir();
+        let up = FakeUploader::new(Err(UploadError::Network("x".into())));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let mut c = ctx(&d, Some(&up), &cb, &n);
+        c.upload_format = UploadFormat::Jpeg;
+        let out = run_action(&c, Action::Upload, &img());
+        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        assert_eq!(
+            out,
+            Outcome::UploadFailedSaved {
+                path: path.clone(),
+                needs_settings: false
+            }
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), encode_png(&img()).unwrap());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn jpeg_encode_failure_falls_back() {
+        let d = temp_dir();
+        let up = FakeUploader::new(Ok("https://x/y.jpg".to_string()));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let mut c = ctx(&d, Some(&up), &cb, &n);
+        c.upload_format = UploadFormat::Jpeg;
+        let wide = Image {
+            width: 65_536,
+            height: 1,
+            bgra: vec![0; 65_536 * 4],
+        };
+        let out = run_action(&c, Action::Upload, &wide);
+        assert!(matches!(out, Outcome::UploadFailedSaved { .. }), "{out:?}");
+        assert!(up.calls.lock().unwrap().is_empty());
+        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        assert!(path.exists());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        let notes = n.notes.lock().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].0, NoticeKind::Error);
+    }
+
+    #[test]
+    fn save_ignores_upload_format() {
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let mut c = ctx(&d, None, &cb, &n);
+        c.upload_format = UploadFormat::Jpeg;
+        let out = run_action(&c, Action::Save, &img());
+        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        assert_eq!(out, Outcome::Saved(path.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), encode_png(&img()).unwrap());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+    }
+
+    #[test]
     fn notices_follow_ctx_lang() {
         let link = "https://img.example.com/d7/x.png";
         let title_for = |lang: Lang, action: Action| {
@@ -625,6 +726,8 @@ mod tests {
             clipboard: cb,
             notifier: &n,
             lang: Lang::Vi,
+            upload_format: UploadFormat::Png,
+            jpeg_quality: 90,
         };
         run_action(&c, action, &img());
         let kinds = n.notes.lock().unwrap().iter().map(|x| x.0).collect();

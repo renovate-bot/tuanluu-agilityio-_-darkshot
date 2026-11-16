@@ -249,6 +249,8 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
         language: form.language,
+        upload_format: current.upload_format,
+        jpeg_quality: current.jpeg_quality,
     })
 }
 

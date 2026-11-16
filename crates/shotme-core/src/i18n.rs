@@ -236,6 +236,22 @@ messages! {
         "Include the mouse pointer in screenshots"
     ),
     HotkeysNotWorkingTitle => ("Phím tắt chưa hoạt động", "Hotkeys are not working"),
+    TabFormat => ("Định dạng", "Format"),
+    LabelUploadFormat => ("Định dạng ảnh tải lên", "Upload image format"),
+    RadioPng => (
+        "PNG (nét nguyên gốc, file nặng hơn)",
+        "PNG (original sharpness, larger file)"
+    ),
+    RadioJpeg => (
+        "JPEG (file nhẹ hơn, giảm chút chất lượng)",
+        "JPEG (smaller file, slightly lower quality)"
+    ),
+    LabelJpegQuality => ("Chất lượng JPEG", "JPEG quality"),
+    NoteSavedAlwaysPng => ("Ảnh lưu vào máy luôn là PNG.", "Images saved to disk are always PNG."),
+    EncodeTooLargeForJpeg => (
+        "Ảnh quá lớn để nén JPEG (mỗi cạnh tối đa 65.535 pixel)",
+        "The image is too large for JPEG (each side at most 65,535 pixels)"
+    ),
     AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
 }
 
@@ -290,8 +306,8 @@ pub fn encode_failed(lang: Lang, err: &str) -> String {
 
 pub fn encoder_error(lang: Lang, err: &str) -> String {
     match lang {
-        Lang::Vi => format!("lỗi bộ mã hóa PNG: {err}"),
-        Lang::En => format!("PNG encoder error: {err}"),
+        Lang::Vi => format!("lỗi bộ mã hóa ảnh: {err}"),
+        Lang::En => format!("Image encoder error: {err}"),
     }
 }
 
