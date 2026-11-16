@@ -162,3 +162,5 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Trợ giúp nêu đúng phím của dòng đang bật và "chưa bật" (kèm chỗ bật) cho dòng đang tắt, ở hai ngôn ngữ; nút Trợ giúp trong Tùy chọn theo đúng ô tích và phím đang hiện, kể cả khi chưa bấm OK.
 - [ ] Đổi bất kỳ dòng nào (bật/tắt hoặc tổ hợp) rồi OK: Thông tin và Trợ giúp đang mở tự đóng.
 - [ ] Nâng cấp từ file cấu hình đợt 1: phím chụp vùng cũ còn nguyên, hai dòng mới tắt, ba ô tích mới ở giá trị mặc định, không gì tự bật.
+- [ ] Tab Phím tắt: tổ hợp dài nhất (`Ctrl+Alt+Shift+Win+PrintScreen`) và lời nhắc bắt phím ("Nhấn tổ hợp phím mới… (Esc để bỏ qua)", "Press the new key combination... (Esc to skip)") hiện đủ trong ô phím ở cả hai ngôn ngữ.
+- [ ] Đặt một dòng vào phím ứng dụng khác đang giữ, bấm OK (báo lỗi), rồi trong lúc cửa sổ còn mở cho ứng dụng khác chiếm luôn phím cũ của một dòng, rồi bấm Hủy: một thông báo "Phím tắt chưa hoạt động" nêu tổ hợp bị chiếm. Hủy bình thường (không có phím bị chiếm): không có thông báo.

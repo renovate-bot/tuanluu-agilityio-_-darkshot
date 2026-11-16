@@ -417,19 +417,19 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
     };
     let save_full = match (lang, &keys.save_full) {
         (Lang::Vi, Some(k)) => format!(
-            "- {save_label}: bấm {k} để chụp ngay màn hình đang có con trỏ chuột, không chọn vùng, và lưu ảnh vào thư mục lưu."
+            "- {save_label}: bấm {k} để chụp ngay màn hình đang chứa con trỏ chuột, không chọn vùng, và lưu ảnh vào thư mục lưu."
         ),
         (Lang::En, Some(k)) => format!(
-            "- {save_label}: press {k} to capture the screen with the mouse pointer right away, without selecting a region, and save it to the save folder."
+            "- {save_label}: press {k} to immediately capture the screen the mouse pointer is on, without selecting a region, and save it to the save folder."
         ),
         (_, None) => off(save_label),
     };
     let upload_full = match (lang, &keys.upload_full) {
         (Lang::Vi, Some(k)) => format!(
-            "- {upload_label}: bấm {k} để chụp ngay màn hình đang có con trỏ chuột, tải ảnh lên kho R2 và chép link."
+            "- {upload_label}: bấm {k} để chụp ngay màn hình đang chứa con trỏ chuột, tải ảnh lên kho R2 và chép link."
         ),
         (Lang::En, Some(k)) => format!(
-            "- {upload_label}: press {k} to capture the screen with the mouse pointer right away, upload it to your R2 bucket and copy the link."
+            "- {upload_label}: press {k} to immediately capture the screen the mouse pointer is on, upload it to your R2 bucket and copy the link."
         ),
         (_, None) => off(upload_label),
     };

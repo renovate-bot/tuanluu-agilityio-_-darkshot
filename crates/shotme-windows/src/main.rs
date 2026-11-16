@@ -232,12 +232,28 @@ fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
 /// ký được thì báo **một** thông báo lỗi liệt kê mọi tổ hợp bị chiếm.
 fn register_hotkeys_or_notify(hwnd: HWND, keys: &Hotkeys, notifier: &dyn Notifier) {
     let failed = hotkey::register_enabled(hwnd, keys);
-    if !failed.is_empty() {
-        notifier.notify(
-            NoticeKind::Error,
-            lang::tr(Msg::HotkeysNotWorkingTitle),
-            &i18n::hotkeys_taken_body(lang::current(), &hotkey::taken_combos(keys, &failed)),
-        );
+    notify_hotkeys_taken(keys, &failed, notifier);
+}
+
+/// Tiêu đề và nội dung của thông báo gộp "Phím tắt chưa hoạt động"; `None` khi không có dòng lỗi.
+pub fn hotkeys_taken_notice(
+    lang: Lang,
+    keys: &Hotkeys,
+    failed: &[HotkeyRole],
+) -> Option<(&'static str, String)> {
+    if failed.is_empty() {
+        return None;
+    }
+    Some((
+        i18n::t(lang, Msg::HotkeysNotWorkingTitle),
+        i18n::hotkeys_taken_body(lang, &hotkey::taken_combos(keys, failed)),
+    ))
+}
+
+/// Báo **một** thông báo lỗi cho các dòng `failed` (nếu có).
+fn notify_hotkeys_taken(keys: &Hotkeys, failed: &[HotkeyRole], notifier: &dyn Notifier) {
+    if let Some((title, body)) = hotkeys_taken_notice(lang::current(), keys, failed) {
+        notifier.notify(NoticeKind::Error, title, &body);
     }
 }
 
@@ -355,6 +371,11 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
         notice.map(|n| n.message(lang::current())).as_deref(),
         reason,
     ) else {
+        // Hủy: `show` đã đăng ký lại các dòng của cấu hình cũ; dòng nào lỗi thì báo gộp một lần.
+        let failed = settings::take_cancel_failures();
+        if let Some(t) = current_tray() {
+            notify_hotkeys_taken(&config.hotkeys, &failed, &t.notifier());
+        }
         return;
     };
     let notify = |kind: NoticeKind, title: &str, body: &str| {
@@ -860,6 +881,22 @@ mod tests {
         let mut b = a.clone();
         b.show_success_notices = !b.show_success_notices;
         assert!(!info_windows_stale(&a, &b));
+    }
+
+    #[test]
+    fn hotkeys_taken_notice_only_when_rows_failed() {
+        use shotme_core::config::HotkeyRole::*;
+        let keys = Hotkeys::default();
+        assert_eq!(hotkeys_taken_notice(Lang::Vi, &keys, &[]), None);
+        let (title, body) = hotkeys_taken_notice(Lang::Vi, &keys, &[UploadFull, Region]).unwrap();
+        assert_eq!(title, i18n::t(Lang::Vi, Msg::HotkeysNotWorkingTitle));
+        assert_eq!(
+            body,
+            i18n::hotkeys_taken_body(
+                Lang::Vi,
+                &["PrintScreen".to_string(), "Ctrl+PrintScreen".to_string()]
+            )
+        );
     }
 
     #[test]

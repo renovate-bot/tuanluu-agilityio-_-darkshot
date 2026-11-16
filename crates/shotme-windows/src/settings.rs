@@ -491,6 +491,8 @@ thread_local! {
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static CTL: Cell<Option<Ctl>> = const { Cell::new(None) };
     static ST: RefCell<Option<St>> = const { RefCell::new(None) };
+    /// Các dòng không đăng ký lại được ở lượt Hủy vừa rồi; bên gọi lấy bằng `take_cancel_failures`.
+    static CANCEL_FAILED: RefCell<Vec<HotkeyRole>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Thế hệ cửa sổ: kết quả của luồng nền thuộc cửa sổ đã đóng sẽ bị bỏ.
@@ -734,9 +736,10 @@ fn finish(result: Option<Config>) {
 fn cancel() {
     with_st(|s| {
         if s.hk_unregistered {
-            // Đăng ký lại các dòng đang bật của cấu hình cũ (dòng tắt không đăng ký); nếu bị chiếm
-            // giữa chừng thì không còn cách nào hơn.
-            let _ = hotkey::register_enabled(s.parent, &s.current.hotkeys);
+            // Đăng ký lại các dòng đang bật của cấu hình cũ (dòng tắt không đăng ký). Dòng bị chiếm
+            // giữa chừng được giữ lại để bên gọi báo bằng thông báo gộp.
+            let failed = hotkey::register_enabled(s.parent, &s.current.hotkeys);
+            CANCEL_FAILED.with(|f| *f.borrow_mut() = failed);
             s.hk_unregistered = false;
         }
     });
@@ -1163,6 +1166,45 @@ struct Builder {
     parent: HWND,
     dpi: i32,
     font: Option<HFONT>,
+    /// Bố cục theo bề rộng (DIP), tính một lần bằng `Layout::measure` trước khi dựng ô.
+    layout: Layout,
+}
+
+/// Bề rộng (DIP) suy ra từ nhãn dài nhất của tab Phím tắt: cửa sổ nới ra vừa đủ để ô phím của
+/// mỗi dòng rộng ít nhất `HK_EDIT_MIN_W`; mọi tab và hàng nút giãn theo `client_w`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Layout {
+    /// Bề rộng vùng client của cửa sổ.
+    client_w: i32,
+    /// Bề rộng ô nhập ở các tab (cột bắt đầu từ `EX`).
+    ew: i32,
+    /// Bề rộng ô tích mang nhãn của dòng phím tắt.
+    hk_chk_w: i32,
+}
+
+/// Bề rộng tối thiểu của vùng client (bố cục đợt 1) và của ô phím trên tab Phím tắt.
+const CLIENT_MIN_W: i32 = 480;
+const HK_EDIT_MIN_W: i32 = 194;
+/// Lề phải từ mép ô nhập tới mép vùng client (dải tab, viền khung, lề trong).
+const RIGHT_MARGIN: i32 = 50;
+/// Ô vuông của ô tích và khoảng cách tới chữ; bề rộng nút "Đổi…"; khe giữa các ô trong một dòng.
+const HK_BOX: i32 = 24;
+const HK_BTN_W: i32 = 70;
+const HK_GAP: i32 = 6;
+
+impl Layout {
+    /// `label_w`: bề rộng chữ (DIP) của nhãn dài nhất trong mọi ngôn ngữ, `None` khi không đo được.
+    fn from_label_width(label_w: Option<i32>) -> Layout {
+        let hk_chk_w = (label_w.unwrap_or(176) + HK_BOX).clamp(142, 240);
+        // Mép phải của nút "Đổi…" khi ô phím rộng đúng `HK_EDIT_MIN_W`.
+        let need_right = LX + hk_chk_w + HK_GAP + HK_EDIT_MIN_W + HK_GAP + HK_BTN_W;
+        let ew = (CLIENT_MIN_W - RIGHT_MARGIN - EX).max(need_right - EX);
+        Layout {
+            client_w: EX + ew + RIGHT_MARGIN,
+            ew,
+            hk_chk_w,
+        }
+    }
 }
 
 impl Builder {
@@ -1263,7 +1305,6 @@ impl Builder {
 /// Lề trái nhãn, lề trái ô nhập và bề rộng ô nhập trong một khung (DIP, tính từ góc khung).
 const LX: i32 = 12;
 const EX: i32 = 160;
-const EW: i32 = 270;
 
 /// Dòng nhãn + ô nhập một dòng trong khung; trả về ô nhập.
 fn row_edit(b: &mut Builder, label: &str, y: i32, w: i32, style: WINDOW_STYLE, id: i32) -> HWND {
@@ -1303,7 +1344,8 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
     // Ba ô tích của đợt 2, liền nhau ngay dưới "Khởi động cùng Windows".
     let mut check = |b: &mut Builder, msg: Msg, id: i32| {
         y += 26;
-        b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), (LX, y, 420, 22), id)
+        let w = b.layout.client_w - 60;
+        b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), (LX, y, w, 22), id)
     };
     let notices = check(b, Msg::ChkShowSuccessNotices, ID_NOTICES);
     let keep_selection = check(b, Msg::ChkKeepSelection, ID_KEEP_SELECTION);
@@ -1313,14 +1355,14 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         b,
         lang::tr(Msg::LabelSaveDir),
         y,
-        EW - 76,
+        b.layout.ew - 76,
         WINDOW_STYLE(0),
         ID_DIR,
     );
     b.button(
         lang::tr(Msg::BtnChoose),
         ws(BS_PUSHBUTTON),
-        (EX + EW - 70, y - 1, 70, 26),
+        (EX + b.layout.ew - 70, y - 1, 70, 26),
         ID_BROWSE,
     );
     y += 34;
@@ -1372,17 +1414,10 @@ fn max_text_width_dip(b: &Builder, texts: &[&str]) -> Option<i32> {
 /// Ô của tab Phím tắt: mỗi dòng theo `HotkeyRole::ALL` có ô tích (nhãn của dòng), ô chỉ đọc, nút "Đổi…".
 /// Cột nhãn đủ rộng cho nhãn dài nhất của mọi ngôn ngữ; ô phím lấy phần còn lại.
 fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
-    // Ô vuông của ô tích và khoảng cách tới chữ.
-    const BOX: i32 = 24;
-    const BTN_W: i32 = 70;
-    let right = EX + EW;
-    let labels: Vec<&str> = HotkeyRole::ALL
-        .iter()
-        .flat_map(|r| Lang::ALL.map(|l| t(l, r.label())))
-        .collect();
-    let chk_w = (max_text_width_dip(b, &labels).unwrap_or(176) + BOX).clamp(150, 240);
-    let edit_x = LX + chk_w + 6;
-    let edit_w = right - BTN_W - 6 - edit_x;
+    let right = EX + b.layout.ew;
+    let chk_w = b.layout.hk_chk_w;
+    let edit_x = LX + chk_w + HK_GAP;
+    let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
     let mut y = 12;
     let (mut chk, mut edit, mut btn) = (
         [HWND::default(); 3],
@@ -1404,7 +1439,7 @@ fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
         btn[i] = b.button(
             lang::tr(Msg::BtnChange),
             ws(BS_PUSHBUTTON),
-            (right - BTN_W, y - 1, BTN_W, 26),
+            (right - HK_BTN_W, y - 1, HK_BTN_W, 26),
             ID_HK_CHANGE0 + i as i32,
         );
         y += 34;
@@ -1431,16 +1466,17 @@ struct R2Ctl {
 
 /// Ô của tab Lưu trữ R2. "Account ID", "Access Key ID", "Secret Access Key" là tên riêng, không dịch.
 fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
+    let ew = b.layout.ew;
     let mut y = 12;
-    let account = row_edit(b, "Account ID", y, EW, WINDOW_STYLE(0), ID_ACCOUNT);
+    let account = row_edit(b, "Account ID", y, ew, WINDOW_STYLE(0), ID_ACCOUNT);
     y += 28;
-    let keyid = row_edit(b, "Access Key ID", y, EW, WINDOW_STYLE(0), ID_KEYID);
+    let keyid = row_edit(b, "Access Key ID", y, ew, WINDOW_STYLE(0), ID_KEYID);
     y += 28;
     let secret = row_edit(
         b,
         "Secret Access Key",
         y,
-        EW,
+        ew,
         WINDOW_STYLE(ES_PASSWORD as u32),
         ID_SECRET,
     );
@@ -1450,13 +1486,13 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
     } else {
         lang::tr(Msg::SecretSaved)
     };
-    b.label(hint, EX, y - 2, EW, 18);
+    b.label(hint, EX, y - 2, ew, 18);
     y += 20;
     let bucket = row_edit(
         b,
         lang::tr(Msg::LabelBucket),
         y,
-        EW,
+        ew,
         WINDOW_STYLE(0),
         ID_BUCKET,
     );
@@ -1465,7 +1501,7 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
         b,
         lang::tr(Msg::LabelPublicUrl),
         y,
-        EW,
+        ew,
         WINDOW_STYLE(0),
         ID_URL,
     );
@@ -1479,7 +1515,7 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
         (LX, y, 140, 26),
         ID_TEST,
     );
-    let test_res = b.label("", EX, y + 4, EW, 36);
+    let test_res = b.label("", EX, y + 4, ew, 36);
     y += 44;
     R2Ctl {
         account,
@@ -1501,9 +1537,15 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
 /// `WS_CLIPSIBLINGS` và nằm dưới các khung nên không vẽ đè lên chúng.
 fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i32, Option<Ctl>) {
     let main = b.parent;
+    let labels: Vec<&str> = HotkeyRole::ALL
+        .iter()
+        .flat_map(|r| Lang::ALL.map(|l| t(l, r.label())))
+        .collect();
+    b.layout = Layout::from_label_width(max_text_width_dip(b, &labels));
+    let inner_w = b.layout.client_w - 24;
     let mut y = 12;
     if let Some(n) = notice {
-        b.label(n, 12, y, 456, 34);
+        b.label(n, 12, y, inner_w, 34);
         y += 42;
     }
     let tab_top = y;
@@ -1513,7 +1555,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         WC_TABCONTROLW,
         "",
         WS_GROUP | WS_TABSTOP | WS_CLIPSIBLINGS,
-        (12, tab_top, 456, 300),
+        (12, tab_top, inner_w, 300),
         ID_TABS,
     );
     for (i, t) in Tab::ALL.iter().enumerate() {
@@ -1554,7 +1596,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     let frame_h = g.height.max(hk.height).max(r2.height);
 
     // Vùng hiển thị của dải tab cao đúng bằng tab cao nhất; khung phủ kín vùng đó.
-    let (left, top, width) = (b.s(12), b.s(tab_top), b.s(456));
+    let (left, top, width) = (b.s(12), b.s(tab_top), b.s(inner_w));
     let probe_h = b.s(300);
     let mut probe = RECT {
         left,
@@ -1605,7 +1647,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
 
     // Dòng lỗi và hàng nút, dưới dải tab. Nút Trợ giúp ở x = 12; OK và Hủy ở bên phải.
     y = (tab_bottom * 96 + b.dpi - 1) / b.dpi.max(1) + 8;
-    let err = b.label("", 12, y, 456, 36);
+    let err = b.label("", 12, y, inner_w, 36);
     y += 40;
     // Nút Trợ giúp tạo ngay trước OK để đứng liền trước OK trong thứ tự Tab; không phải nút mặc định.
     b.button(
@@ -1617,7 +1659,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     b.button(
         i18n::OK_LABEL,
         ws(BS_DEFPUSHBUTTON),
-        (300, y, 80, 28),
+        (b.layout.client_w - 180, y, 80, 28),
         ID_OK,
     );
     // Hủy không có WS_GROUP: OK và Hủy cùng một nhóm mũi tên.
@@ -1625,7 +1667,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         w!("BUTTON"),
         lang::tr(Msg::BtnCancel),
         WS_TABSTOP | ws(BS_PUSHBUTTON),
-        (388, y, 80, 28),
+        (b.layout.client_w - 92, y, 80, 28),
         ID_CANCEL,
     );
     y += 40;
@@ -1714,6 +1756,12 @@ pub fn focus_existing() {
     }
 }
 
+/// Các dòng phím tắt không đăng ký lại được khi lượt `show` vừa rồi kết thúc bằng Hủy (rỗng nếu lượt
+/// đó không phải đăng ký lại, hoặc đăng ký lại đủ). Lấy ra một lần.
+pub fn take_cancel_failures() -> Vec<HotkeyRole> {
+    CANCEL_FAILED.with(|f| std::mem::take(&mut *f.borrow_mut()))
+}
+
 /// Mở cửa sổ Tùy chọn và chờ đến khi người dùng bấm OK hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
 pub fn show(
     parent: HWND,
@@ -1733,6 +1781,7 @@ pub fn show(
         }
         return None;
     }
+    CANCEL_FAILED.with(|f| f.borrow_mut().clear());
 
     let title = HSTRING::from(lang::tr(Msg::OptionsTitle));
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; mọi handle được giải phóng ở cuối hàm.
@@ -1793,6 +1842,7 @@ pub fn show(
         parent: hwnd,
         dpi: dpi as i32,
         font,
+        layout: Layout::from_label_width(None),
     };
     let (client_h, controls) = build_controls(&mut b, current, notice);
     let Some(c) = controls else {
@@ -1884,7 +1934,7 @@ pub fn show(
         let mut rc = RECT {
             left: 0,
             top: 0,
-            right: b.s(480),
+            right: b.s(b.layout.client_w),
             bottom: b.s(client_h),
         };
         let _ = AdjustWindowRectExForDpi(
@@ -2177,6 +2227,21 @@ mod tests {
         for f in [Field::AccountId, Field::Bucket, Field::PublicUrl] {
             assert_eq!(tab_of(f), Tab::R2);
         }
+    }
+
+    #[test]
+    fn layout_keeps_hotkey_edit_wide_enough() {
+        for label_w in [None, Some(0), Some(100), Some(168), Some(250), Some(400)] {
+            let l = Layout::from_label_width(label_w);
+            let edit_x = LX + l.hk_chk_w + HK_GAP;
+            let edit_w = EX + l.ew - HK_BTN_W - HK_GAP - edit_x;
+            assert!(edit_w >= HK_EDIT_MIN_W, "{label_w:?}: {edit_w}");
+            assert!(l.client_w >= CLIENT_MIN_W, "{label_w:?}");
+            assert_eq!(l.client_w, EX + l.ew + RIGHT_MARGIN);
+        }
+        // Nhãn ngắn: giữ bố cục cũ 480 DIP, ô nhập 270 DIP.
+        let l = Layout::from_label_width(Some(50));
+        assert_eq!((l.client_w, l.ew), (CLIENT_MIN_W, 270));
     }
 
     #[test]
