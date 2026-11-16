@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WS_GROUP, WS_TABSTOP,
 };
 
-const CLASS: PCWSTR = w!("shotme-about");
+const CLASS: PCWSTR = w!("darkshot-about");
 /// Nút Đóng mang ID của IDOK để Enter trong hộp thoại bấm đúng nút này.
 const ID_CLOSE: i32 = 1;
 const ID_CANCEL: i32 = 2;
@@ -68,7 +68,7 @@ pub fn show(owner: HWND) {
             SendMessageW(icon, STM_SETICON, Some(WPARAM(i.0 as usize)), None);
         }
     }
-    child(w!("STATIC"), "shotme", SS_CENTER, (12, 72, 296, 20), -1);
+    child(w!("STATIC"), "darkshot", SS_CENTER, (12, 72, 296, 20), -1);
     child(
         w!("STATIC"),
         &about_version(lang::current(), env!("CARGO_PKG_VERSION")),
@@ -182,7 +182,7 @@ mod tests {
         // SAFETY: cửa sổ cha ẩn riêng của kiểm thử, hủy ở cuối.
         let parent = unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
-            let class = w!("shotme-about-test-parent");
+            let class = w!("darkshot-about-test-parent");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(proc_),
                 hInstance: hinst.into(),

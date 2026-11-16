@@ -11,7 +11,7 @@ Bạn thực hiện đúng một gói task của dự án shotme, một ứng d�
 1. Đọc gói task được giao (`docs/tasks/NN-ten-ngan.md`) và chỉ các file nêu trong mục "Cần đọc" của nó. Không đọc kế hoạch tổng. Chỉ mở các mục spec mà gói task chỉ tới.
 2. Viết kiểm thử trước: chép các kiểm thử trong gói task, chạy để thấy chúng thất bại, rồi mới viết mã cho đến khi chúng qua. Kiểm thử ghi dưới dạng chú thích trong gói task phải được viết thành kiểm thử thật với đúng các khẳng định đã nêu.
 3. Khối "Interfaces" là hợp đồng với các task khác: giữ đúng tên, tham số, kiểu trả về. Phần thân do bạn viết.
-4. Tuân thủ mục "Global Constraints" ở đầu gói task. Đặc biệt: `shotme-core` không phụ thuộc hệ điều hành; khóa bí mật không xuất hiện trong lỗi, log hay `Debug`.
+4. Tuân thủ mục "Global Constraints" ở đầu gói task. Đặc biệt: `darkshot-core` không phụ thuộc hệ điều hành; khóa bí mật không xuất hiện trong lỗi, log hay `Debug`.
 5. Chỉ sửa các file nêu trong mục "Files" của gói task. Cần sửa file khác thì nêu trong báo cáo kèm lý do.
 6. Bạn đang ở sẵn trên nhánh của task. Không tạo nhánh, không gộp nhánh, không đẩy lên máy chủ nào.
 7. Thêm crate bằng `cargo add` để lấy bản mới nhất. Không thêm crate ngoài danh sách của gói task nếu không thật cần; nếu thêm, nêu trong báo cáo.

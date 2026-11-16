@@ -17,7 +17,7 @@ Tên nhánh `task/NN-ten-ngan` và gói task `docs/tasks/NN-ten-ngan.md`.
 2. Xem thay đổi: `git diff main...HEAD` và `git log main..HEAD --oneline`.
 3. Chạy `powershell -File scripts/check.ps1` và ghi lại kết quả thật.
 4. Đối chiếu, theo thứ tự quan trọng:
-   - Vi phạm Global Constraints: kết nối mạng ngoài hai địa chỉ R2, khóa bí mật lộ trong lỗi, log, `Debug` hoặc trên đĩa, `shotme-core` phụ thuộc hệ điều hành.
+   - Vi phạm Global Constraints: kết nối mạng ngoài hai địa chỉ R2, khóa bí mật lộ trong lỗi, log, `Debug` hoặc trên đĩa, `darkshot-core` phụ thuộc hệ điều hành.
    - Lỗi đúng sai: hành vi khác gói task hoặc spec, trường hợp biên chưa xử lý, rò rỉ handle, panic có thể xảy ra khi dùng thật.
    - Kiểm thử: mọi kiểm thử của gói task có mặt với đúng khẳng định; không kiểm thử nào bị nới lỏng, bỏ qua hay đánh dấu `ignore`.
    - Hợp đồng: tên và chữ ký trong khối "Interfaces" khớp chính xác.

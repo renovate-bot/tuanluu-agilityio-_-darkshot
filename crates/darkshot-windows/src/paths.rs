@@ -19,20 +19,20 @@ fn known_folder(id: &GUID) -> Option<PathBuf> {
     }
 }
 
-/// `%APPDATA%\shotme\config.json`
+/// `%APPDATA%\darkshot\config.json`
 pub fn config_path() -> PathBuf {
     let base = known_folder(&FOLDERID_RoamingAppData)
         .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
         .unwrap_or_else(std::env::temp_dir);
-    base.join("shotme").join("config.json")
+    base.join("darkshot").join("config.json")
 }
 
-/// `Pictures\shotme`
+/// `Pictures\darkshot`
 pub fn default_save_dir() -> PathBuf {
     let base = known_folder(&FOLDERID_Pictures)
         .or_else(|| std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("Pictures")))
         .unwrap_or_else(std::env::temp_dir);
-    base.join("shotme")
+    base.join("darkshot")
 }
 
 pub fn local_now() -> LocalTime {

@@ -51,7 +51,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
-const CLASS: PCWSTR = w!("shotme-overlay");
+const CLASS: PCWSTR = w!("darkshot-overlay");
 const ACTIONS: [Action; 4] = [Action::Upload, Action::Save, Action::Copy, Action::Cancel];
 const TIPS: [Msg; 4] = [
     Msg::OverlayUpload,
@@ -1235,7 +1235,7 @@ fn create_window(origin: Point, w: i32, h: i32) -> Option<HWND> {
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             CLASS,
-            w!("shotme"),
+            w!("darkshot"),
             WS_POPUP,
             origin.x,
             origin.y,

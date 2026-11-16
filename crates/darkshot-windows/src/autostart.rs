@@ -14,9 +14,9 @@ use windows::Win32::System::Registry::{
 /// Khóa Run của người dùng hiện tại (dưới `HKEY_CURRENT_USER`).
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 /// Tên giá trị thật của ứng dụng.
-const VALUE_NAME: &str = "shotme";
+const VALUE_NAME: &str = "darkshot";
 
-/// Đúng khi giá trị `shotme` có trong khóa Run.
+/// Đúng khi giá trị `darkshot` có trong khóa Run.
 pub fn is_enabled() -> bool {
     is_enabled_as(VALUE_NAME)
 }
@@ -179,7 +179,7 @@ mod tests {
     fn launch_command_quotes_path_with_spaces() {
         assert_eq!(
             launch_command(Path::new(r"D:\2026 - Tuan\darkshot\darkshot.exe")),
-            "\"D:\\2026 - Tuan\\shotme\\shotme.exe\""
+            "\"D:\\2026 - Tuan\\darkshot\\darkshot.exe\""
         );
     }
 

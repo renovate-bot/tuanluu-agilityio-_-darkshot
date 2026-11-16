@@ -16,7 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_TABSTOP, WS_VSCROLL,
 };
 
-const CLASS: PCWSTR = w!("shotme-help");
+const CLASS: PCWSTR = w!("darkshot-help");
 /// Nút Đóng mang ID của IDOK để Enter trong hộp thoại bấm đúng nút này.
 const ID_CLOSE: i32 = 1;
 const ID_CANCEL: i32 = 2;
@@ -166,7 +166,7 @@ mod tests {
         // SAFETY: cửa sổ cha ẩn riêng của kiểm thử, hủy ở cuối.
         let parent = unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
-            let class = w!("shotme-help-test-parent");
+            let class = w!("darkshot-help-test-parent");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(proc_),
                 hInstance: hinst.into(),
@@ -190,7 +190,7 @@ mod tests {
             )
             .unwrap()
         };
-        let find = || unsafe { FindWindowW(w!("shotme-help"), None) };
+        let find = || unsafe { FindWindowW(w!("darkshot-help"), None) };
         let mut counts = Vec::new();
         let keys = HelpKeys {
             region: Some("PrintScreen".into()),

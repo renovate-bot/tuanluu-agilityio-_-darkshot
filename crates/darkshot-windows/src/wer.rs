@@ -1,4 +1,4 @@
-//! Báo cáo lỗi của Windows (WER): không gửi bản kết xuất bộ nhớ của shotme đi đâu khi sự cố.
+//! Báo cáo lỗi của Windows (WER): không gửi bản kết xuất bộ nhớ của darkshot đi đâu khi sự cố.
 //!
 //! Tài liệu: learn.microsoft.com/windows/win32/api/werapi/nf-werapi-weraddexcludedapplication
 //! và .../nf-werapi-wersetflags.
@@ -9,13 +9,13 @@ use windows::Win32::System::ErrorReporting::{
     WerAddExcludedApplication, WerSetFlags, WER_FAULT_REPORTING_FLAG_NOHEAP,
 };
 
-/// Tên file exe đang chạy (mặc định `shotme.exe`).
+/// Tên file exe đang chạy (mặc định `darkshot.exe`).
 fn exe_name() -> HSTRING {
     let path = std::env::current_exe().ok();
     let name = path
         .as_deref()
         .and_then(|p| p.file_name())
-        .unwrap_or(OsStr::new("shotme.exe"));
+        .unwrap_or(OsStr::new("darkshot.exe"));
     HSTRING::from(name)
 }
 

@@ -270,12 +270,12 @@ impl R2Uploader {
         if self.s3.is_none() || !self.complete {
             return Err(UploadError::NotConfigured);
         }
-        let key = format!("d1/shotme-test-{}.txt", random_object_name());
-        let status = self.s3_request("PUT", &key, Some("text/plain"), b"shotme")?;
+        let key = format!("d1/darkshot-test-{}.txt", random_object_name());
+        let status = self.s3_request("PUT", &key, Some("text/plain"), b"darkshot")?;
         Self::check_status(status)?;
 
         let got = match self.fetch_public(&key) {
-            Ok(body) if body == b"shotme" => Ok(()),
+            Ok(body) if body == b"darkshot" => Ok(()),
             Ok(_) => Err(UploadError::PublicUrl("content mismatch".to_string())),
             Err(e) => Err(e),
         };

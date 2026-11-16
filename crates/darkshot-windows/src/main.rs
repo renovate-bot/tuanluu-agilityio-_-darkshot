@@ -758,7 +758,7 @@ fn create_window() -> windows::core::Result<HWND> {
     // SAFETY: đăng ký lớp và tạo cửa sổ ẩn (không bao giờ ShowWindow) ở luồng chính.
     unsafe {
         let hinst = GetModuleHandleW(None)?;
-        let class = w!("shotme-hidden-window");
+        let class = w!("darkshot-hidden-window");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: hinst.into(),
@@ -770,7 +770,7 @@ fn create_window() -> windows::core::Result<HWND> {
         CreateWindowExW(
             WS_EX_TOOLWINDOW,
             class,
-            w!("shotme"),
+            w!("darkshot"),
             WS_OVERLAPPED,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -787,7 +787,7 @@ fn create_window() -> windows::core::Result<HWND> {
 fn main() {
     // SAFETY: mutex được giữ đến khi tiến trình thoát (biến `_instance`).
     let _instance = unsafe {
-        let h = CreateMutexW(None, false, w!("Local\\shotme-single-instance"));
+        let h = CreateMutexW(None, false, w!("Local\\darkshot-single-instance"));
         if h.is_ok() && GetLastError() == ERROR_ALREADY_EXISTS {
             return;
         }

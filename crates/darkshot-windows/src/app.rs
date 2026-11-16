@@ -190,7 +190,7 @@ pub struct UploadJob {
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
 pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
     std::thread::Builder::new()
-        .name("shotme-upload".into())
+        .name("darkshot-upload".into())
         .spawn(move || {
             let ctx = Ctx {
                 save_dir: &job.save_dir,

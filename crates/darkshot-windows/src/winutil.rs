@@ -113,7 +113,7 @@ pub fn bring_to_front(hwnd: HWND) {
 const POPUP_STYLE: WINDOW_STYLE = WINDOW_STYLE(WS_CAPTION.0 | WS_SYSMENU.0);
 const POPUP_EX: WINDOW_EX_STYLE = WINDOW_EX_STYLE(WS_EX_APPWINDOW.0 | WS_EX_CONTROLPARENT.0);
 
-/// Tạo cửa sổ phụ cố định cỡ (chưa hiện): có tiêu đề, nút đóng, biểu tượng shotme, thuộc `owner`.
+/// Tạo cửa sổ phụ cố định cỡ (chưa hiện): có tiêu đề, nút đóng, biểu tượng darkshot, thuộc `owner`.
 pub fn create_popup(
     owner: HWND,
     class: PCWSTR,

@@ -221,7 +221,7 @@ messages! {
     SecretEncryptFailed => ("Không mã hóa được khóa bí mật", "Could not encrypt the secret key"),
     SecretDecryptFailed => ("Không giải mã được khóa bí mật", "Could not decrypt the secret key"),
     SecretTooLarge => ("Dữ liệu quá lớn để mã hóa", "The data is too large to encrypt"),
-    AutostartExePath => ("Không xác định được đường dẫn của shotme", "Could not determine the path of shotme"),
+    AutostartExePath => ("Không xác định được đường dẫn của darkshot", "Could not determine the path of darkshot"),
     AutostartEnableFailed => ("Không bật được khởi động cùng Windows", "Could not enable starting with Windows"),
     AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not disable starting with Windows"),
     LabelHotkeySaveFull => ("Lưu ảnh (toàn màn hình)", "Save screenshot (full screen)"),
@@ -469,7 +469,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
 - Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ và ba ô tích:\n\
 \x20\x20+ {notices}: bỏ tích thì không hiện các thông báo \"{saved}\", \"{copied}\", \"{link}\". Thông báo lỗi luôn hiện.\n\
-\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát shotme.\n\
+\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát darkshot.\n\
 \x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
 - Phím tắt: ba dòng \"{region_label}\", \"{save_label}\" và \"{upload_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - {format_tab}: chọn định dạng cho ảnh tải lên, PNG (mặc định) hoặc JPEG, và chất lượng JPEG từ 50 đến 100. Ảnh lưu vào máy luôn là PNG. Chất lượng càng cao thì file càng nặng.\n\
@@ -505,7 +505,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
 - General: start with Windows, save folder, language and three check boxes:\n\
 \x20\x20+ {notices}: when unchecked, the \"{saved}\", \"{copied}\" and \"{link}\" notifications are not shown. Error notifications always appear.\n\
-\x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit shotme.\n\
+\x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit darkshot.\n\
 \x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
 - Hotkeys: three rows, \"{region_label}\", \"{save_label}\" and \"{upload_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
 - {format_tab}: choose the format for uploaded images, PNG (the default) or JPEG, and the JPEG quality from 50 to 100. Images saved to disk are always PNG. Higher quality means a larger file.\n\

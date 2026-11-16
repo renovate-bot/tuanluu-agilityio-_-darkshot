@@ -84,7 +84,7 @@ impl Tray {
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         nid.uCallbackMessage = WM_TRAY;
         nid.hIcon = self.icon;
-        fill_wide(&mut nid.szTip, "shotme");
+        fill_wide(&mut nid.szTip, "darkshot");
         nid
     }
 

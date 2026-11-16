@@ -14,7 +14,7 @@ pub struct LocalTime {
 
 pub fn local_file_name(t: &LocalTime) -> String {
     format!(
-        "shotme_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.png",
+        "darkshot_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.png",
         t.year, t.month, t.day, t.hour, t.minute, t.second
     )
 }

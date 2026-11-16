@@ -453,7 +453,7 @@ const ID_HK_CHANGE0: i32 = 130;
 const ID_HK_CHECK0: i32 = 133;
 /// Khung của tab thứ i có ID `ID_FRAME0 + i` (120 đến 123).
 const ID_FRAME0: i32 = 120;
-const FRAME_CLASS: PCWSTR = w!("shotme-settings-frame");
+const FRAME_CLASS: PCWSTR = w!("darkshot-settings-frame");
 
 const fn ws(v: i32) -> WINDOW_STYLE {
     WINDOW_STYLE(v as u32)
@@ -1085,7 +1085,7 @@ fn on_test(hwnd: HWND) {
     let target = hwnd.0 as isize;
     let r2 = cfg.r2;
     let spawned = std::thread::Builder::new()
-        .name("shotme-test-connection".into())
+        .name("darkshot-test-connection".into())
         .spawn(move || {
             let msg = match R2Uploader::new(&r2).test_connection() {
                 Ok(()) => lang::tr(Msg::TestSuccess).to_string(),
@@ -1998,7 +1998,7 @@ pub fn show(
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; mọi handle được giải phóng ở cuối hàm.
     let hwnd = unsafe {
         let hinst = GetModuleHandleW(None).ok()?;
-        let class = w!("shotme-settings");
+        let class = w!("darkshot-settings");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: hinst.into(),
@@ -2899,7 +2899,7 @@ mod tests {
         // Cửa sổ cha ẩn riêng của kiểm thử (phím tắt toàn cục gắn với nó, không đụng ứng dụng thật).
         let parent = unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
-            let class = w!("shotme-settings-test-parent");
+            let class = w!("darkshot-settings-test-parent");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(proc_),
                 hInstance: hinst.into(),
@@ -2923,7 +2923,10 @@ mod tests {
             )
             .unwrap()
         };
-        let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"), Lang::Vi);
+        let cfg = Config::defaults(
+            std::path::Path::new("C:/darkshot-test-not-created"),
+            Lang::Vi,
+        );
         for (use_command, reason) in [
             (false, OpenReason::User),
             (true, OpenReason::NeedsR2),
@@ -2934,7 +2937,7 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 // SAFETY: tìm cửa sổ theo tên lớp, hỏi tab đang chọn rồi đăng thông điệp; HWND chỉ dùng như số.
                 let sel = unsafe {
-                    let h = FindWindowW(w!("shotme-settings"), None)
+                    let h = FindWindowW(w!("darkshot-settings"), None)
                         .expect("settings window not found");
                     let tab = windows::Win32::UI::WindowsAndMessaging::FindWindowExW(
                         Some(h),
@@ -2989,7 +2992,7 @@ mod tests {
             );
             closer.join().unwrap();
             // SAFETY: tìm lại cửa sổ sau khi show trả về.
-            assert!(unsafe { FindWindowW(w!("shotme-settings"), None) }.is_err());
+            assert!(unsafe { FindWindowW(w!("darkshot-settings"), None) }.is_err());
         }
         // SAFETY: dọn cửa sổ cha.
         unsafe {

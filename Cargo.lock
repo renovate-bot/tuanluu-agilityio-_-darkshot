@@ -100,6 +100,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "darkshot-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.4.3",
+ "hmac",
+ "jpeg-encoder",
+ "png",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+]
+
+[[package]]
+name = "darkshot-windows"
+version = "0.1.0"
+dependencies = [
+ "darkshot-core",
+ "embed-resource",
+ "windows",
+]
+
+[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -460,30 +484,6 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
-
-[[package]]
-name = "shotme-core"
-version = "0.1.0"
-dependencies = [
- "base64",
- "getrandom 0.4.3",
- "hmac",
- "jpeg-encoder",
- "png",
- "serde",
- "serde_json",
- "sha2",
- "ureq",
-]
-
-[[package]]
-name = "shotme-windows"
-version = "0.1.0"
-dependencies = [
- "embed-resource",
- "shotme-core",
- "windows",
-]
 
 [[package]]
 name = "simd-adler32"

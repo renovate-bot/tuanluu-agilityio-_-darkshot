@@ -1,6 +1,6 @@
 # darkshot-windows
 
-File chạy `shotme.exe`: hiện thực các trait của core bằng Win32.
+File chạy `darkshot.exe`: hiện thực các trait của core bằng Win32.
 
 - Chỉ vẽ, nhận sự kiện và gọi core. Logic tính toán thuộc về `darkshot-core`.
 - Ứng dụng khai báo DPI `PerMonitorV2`; mọi tọa độ là pixel vật lý.
