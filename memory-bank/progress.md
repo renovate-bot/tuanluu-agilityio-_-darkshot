@@ -26,11 +26,12 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 13 Gia cố sau rà soát toàn bộ | task/13-hardening | specialist | opus | xong | 199.988 | 93.033 | 0 | 293.021 |
 | 15 Bảng chuỗi và ngôn ngữ ở core | task/15-i18n-core | builder | sonnet | xong | 109.936 | 53.801 | 0 | 163.737 |
 | 16 Lớp Windows dùng bảng chuỗi | task/16-i18n-windows | builder | sonnet | xong | 148.870 | 78.526 | 7.629 | 235.025 |
-| 17 Cửa sổ Tùy chọn dạng tab | task/17-options-tabs | specialist | opus | xong, chưa thử tay | 233.114 | 168.494 | 11.798 | 413.406 |
-| 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | xong, chờ thử tay | 178.194 | 72.826 | 0 | 251.020 |
-| 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | đang làm | | | | |
+| 17 Cửa sổ Tùy chọn dạng tab | task/17-options-tabs | specialist | opus | xong | 233.114 | 168.494 | 11.798 | 413.406 |
+| 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | xong | 178.194 | 72.826 | 0 | 251.020 |
+| 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | xong | 177.000 | 74.920 | 11.776 | 263.696 |
+| 19b Kiểm thử chập chờn, chữ "Đổi…" trong Trợ giúp | task/19b-flaky-test-help-text | builder | sonnet | đang làm | | | | |
 
-Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`).
+Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
 Rà soát Task 4, 8, 9, 17 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
