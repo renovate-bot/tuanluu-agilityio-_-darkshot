@@ -17,7 +17,7 @@ Một người: chủ dự án, trên Windows 11, đang quen dùng Lightshot.
   - Lưu trữ R2: Account ID, Access Key ID, Secret Access Key, Tên kho, Địa chỉ công khai, Hạn của link, nút Kiểm tra kết nối.
 - Hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy chọn › Thông thường, có hiệu lực ngay khi bấm OK. Mặc định: chưa có file cấu hình hoặc file hỏng thì theo ngôn ngữ giao diện Windows (tiếng Việt nếu là tiếng Việt, còn lại English); file cũ không có mục ngôn ngữ thì là Tiếng Việt.
 - Đợt 2 đã có trong mã: phím lưu và tải lên toàn màn hình (màn hình đang có con trỏ chuột, không mở lớp phủ), chụp kèm con trỏ chuột, giữ vị trí vùng chọn (trong lúc ứng dụng chạy), bật/tắt thông báo lưu và sao chép. Chủ dự án đã nghiệm thu đợt 2 qua thử tay (2026-11-16).
-- Đợt 3 đã có trong mã: tải lên bằng PNG hoặc JPEG (chất lượng JPEG 50 đến 100), chọn ở tab Định dạng. Chủ dự án chưa thử tay đợt 3. Proxy không làm ở mọi đợt.
+- Đợt 3 đã có trong mã: tải lên bằng PNG hoặc JPEG (chất lượng JPEG 50 đến 100), chọn ở tab Định dạng. Chủ dự án báo "đã duyệt. Đúng yêu cầu" sau khi có bản thử (2026-11-16). Proxy không làm ở mọi đợt.
 - Bấm `PrintScreen` (đổi được): màn hình đứng yên và tối đi, kéo chuột chọn vùng, có nhãn kích thước. Chỉnh khung bằng 8 tay nắm, kéo bên trong để di chuyển, kéo bên ngoài để chọn lại. Ảnh nền có con trỏ chuột nếu ô "Bao gồm con trỏ chuột" đang bật.
 - Phím toàn màn hình (tắt mặc định): `Shift+PrintScreen` lưu, `Ctrl+PrintScreen` tải lên; không mở lớp phủ, không có vùng chọn.
 - Thanh công cụ bốn nút chỉ có biểu tượng; rê chuột hiện tên và phím tắt:
