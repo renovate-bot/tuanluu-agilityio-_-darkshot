@@ -1,6 +1,7 @@
 pub mod config;
 pub mod geometry;
 pub mod naming;
+pub mod sigv4;
 
 #[cfg(test)]
 mod tests {
