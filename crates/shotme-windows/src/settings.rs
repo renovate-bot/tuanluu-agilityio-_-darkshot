@@ -8,7 +8,9 @@
 
 use crate::hotkey;
 use crate::lang;
-use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
+use shotme_core::config::{
+    normalize_public_base_url, Config, Expiry, Hotkey, HotkeySlot, Hotkeys, R2Config,
+};
 use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
@@ -219,7 +221,16 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
             public_base_url,
         },
         expiry: form.expiry,
-        hotkey: form.hotkey,
+        hotkeys: Hotkeys {
+            region: HotkeySlot {
+                key: form.hotkey,
+                ..current.hotkeys.region
+            },
+            ..current.hotkeys
+        },
+        show_success_notices: current.show_success_notices,
+        keep_selection: current.keep_selection,
+        include_cursor: current.include_cursor,
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
         language: form.language,
@@ -645,7 +656,7 @@ fn cancel() {
     with_st(|s| {
         if s.hk_unregistered {
             // Đăng ký lại phím tắt cũ; nếu bị chiếm giữa chừng thì không còn cách nào hơn.
-            let _ = hotkey::register(s.parent, &s.current.hotkey);
+            let _ = hotkey::register(s.parent, &s.current.hotkeys.region.key);
             s.hk_unregistered = false;
         }
     });
@@ -677,12 +688,12 @@ fn save() {
         }
     };
     let need_rereg =
-        with_st(|s| s.hk_unregistered || s.hotkey != s.current.hotkey).unwrap_or(false);
+        with_st(|s| s.hk_unregistered || s.hotkey != s.current.hotkeys.region.key).unwrap_or(false);
     if need_rereg {
         let parent = with_st(|s| s.parent);
         if let Some(p) = parent {
             hotkey::unregister(p);
-            if !hotkey::register(p, &cfg.hotkey) {
+            if !hotkey::register(p, &cfg.hotkeys.region.key) {
                 with_st(|s| s.hk_unregistered = true);
                 select_tab(Tab::Hotkeys);
                 if let Some(c) = ctl() {
@@ -693,7 +704,7 @@ fn save() {
                 }
                 show_error(&i18n::hotkey_taken_choose_other(
                     lang::current(),
-                    &hotkey::describe(&cfg.hotkey),
+                    &hotkey::describe(&cfg.hotkeys.region.key),
                 ));
                 return;
             }
@@ -1599,7 +1610,7 @@ pub fn show(
         *s.borrow_mut() = Some(St {
             current: current.clone(),
             parent,
-            hotkey: current.hotkey,
+            hotkey: current.hotkeys.region.key,
             capturing: false,
             cap: CaptureState::new(),
             hk_unregistered: false,
@@ -1835,7 +1846,7 @@ mod tests {
             bucket: c.r2.bucket.clone(),
             public_base_url: c.r2.public_base_url.clone(),
             expiry: c.expiry,
-            hotkey: c.hotkey,
+            hotkey: c.hotkeys.region.key,
             save_dir: c.save_dir.to_string_lossy().into_owned(),
             autostart: c.autostart,
             language: c.language,
@@ -1921,7 +1932,7 @@ mod tests {
         let out = apply_form(&c, &f, Lang::Vi).unwrap();
         assert_eq!(out.expiry, Expiry::Keep);
         assert!(out.autostart);
-        assert_eq!(out.hotkey, f.hotkey);
+        assert_eq!(out.hotkeys.region.key, f.hotkey);
     }
 
     #[test]

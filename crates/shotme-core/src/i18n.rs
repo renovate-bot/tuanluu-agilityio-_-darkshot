@@ -450,6 +450,21 @@ The image is always saved to the save folder, so it is not lost. Check your netw
     }
 }
 
+pub fn hotkeys_conflict(lang: Lang, first_label: &str, second_label: &str, combo: &str) -> String {
+    let _ = (lang, first_label, second_label, combo);
+    todo!()
+}
+
+pub fn hotkey_row_taken(lang: Lang, row_label: &str, combo: &str) -> String {
+    let _ = (lang, row_label, combo);
+    todo!()
+}
+
+pub fn hotkeys_taken_body(lang: Lang, combos: &[String]) -> String {
+    let _ = (lang, combos);
+    todo!()
+}
+
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
@@ -630,6 +645,25 @@ mod tests {
     fn about_version_contains_version() {
         for l in Lang::ALL {
             assert!(about_version(l, "1.2.3").contains("1.2.3"));
+        }
+    }
+
+    #[test]
+    fn batch2_strings_insert_their_parameters() {
+        use crate::config::HotkeyRole;
+        for l in Lang::ALL {
+            let s = hotkeys_conflict(l, "AAA", "BBB", "Ctrl+X");
+            assert!(s.contains("AAA") && s.contains("BBB") && s.contains("Ctrl+X"));
+            let s = hotkey_row_taken(l, "AAA", "Ctrl+X");
+            assert!(s.contains("AAA") && s.contains("Ctrl+X"));
+            assert!(hotkeys_taken_body(l, &["F8".into()]).contains("F8"));
+            let s = hotkeys_taken_body(l, &["F8".into(), "Ctrl+X".into()]);
+            assert!(s.contains("F8") && s.contains("Ctrl+X"));
+            assert_ne!(s, hotkeys_taken_body(l, &["F8".into()]));
+            assert_eq!(hotkeys_taken_body(l, &[]), "");
+        }
+        for r in HotkeyRole::ALL {
+            assert_ne!(t(Lang::Vi, r.label()), t(Lang::En, r.label()));
         }
     }
 }

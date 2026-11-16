@@ -142,7 +142,7 @@ pub fn lang_after_save(old: Lang, new: Lang, saved: bool) -> Lang {
 
 /// Chữ trong cửa sổ Thông tin và Trợ giúp đã cũ sau khi lưu cấu hình mới (ngôn ngữ hoặc phím tắt đổi).
 pub fn info_windows_stale(old: &Config, new: &Config) -> bool {
-    old.language != new.language || old.hotkey != new.hotkey
+    old.language != new.language || old.hotkeys != new.hotkeys
 }
 
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
@@ -375,7 +375,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
         Err(e) => {
             // Không ghi được: giữ cấu hình cũ và phím cũ.
             hotkey::unregister(hwnd);
-            let key_ok = hotkey::register(hwnd, &config.hotkey);
+            let key_ok = hotkey::register(hwnd, &config.hotkeys.region.key);
             let why = match e {
                 shotme_core::config::ConfigError::Io(m)
                 | shotme_core::config::ConfigError::Corrupt(m)
@@ -391,7 +391,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                     NoticeKind::Error,
                     &i18n::hotkey_inactive_title(
                         lang::current(),
-                        &hotkey::describe(&config.hotkey),
+                        &hotkey::describe(&config.hotkeys.region.key),
                     ),
                     lang::tr(Msg::HotkeyReregisterFailedBody),
                 );
@@ -525,7 +525,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
-                        if let Some(hk) = with_app(|a| a.config.hotkey) {
+                        if let Some(hk) = with_app(|a| a.config.hotkeys.region.key) {
                             help::show(hwnd, &hk);
                         }
                     }
@@ -665,7 +665,7 @@ fn main() {
     );
     lang::set(state.config.language);
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
-    let hk: Hotkey = state.config.hotkey;
+    let hk: Hotkey = state.config.hotkeys.region.key;
     APP.with(|a| *a.borrow_mut() = Some(state));
     // Ghi lại đường dẫn exe hiện tại phòng khi file đã được chuyển chỗ; lỗi thì bỏ qua.
     if autostart::is_enabled() {
@@ -820,7 +820,7 @@ mod tests {
         b.language = Lang::En;
         assert!(info_windows_stale(&a, &b));
         let mut b = a.clone();
-        b.hotkey.ctrl = true;
+        b.hotkeys.region.key.ctrl = true;
         assert!(info_windows_stale(&a, &b));
         let mut b = a.clone();
         b.autostart = true;

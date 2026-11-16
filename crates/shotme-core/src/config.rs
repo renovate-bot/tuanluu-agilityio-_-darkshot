@@ -86,14 +86,89 @@ impl R2Config {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HotkeyRole {
+    Region,
+    SaveFull,
+    UploadFull,
+}
+
+impl HotkeyRole {
+    pub const ALL: [HotkeyRole; 3] = [
+        HotkeyRole::Region,
+        HotkeyRole::SaveFull,
+        HotkeyRole::UploadFull,
+    ];
+
+    pub fn label(self) -> Msg {
+        todo!()
+    }
+
+    pub fn default_slot(self) -> HotkeySlot {
+        todo!()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HotkeySlot {
+    pub enabled: bool,
+    pub key: Hotkey,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hotkeys {
+    pub region: HotkeySlot,
+    pub save_full: HotkeySlot,
+    pub upload_full: HotkeySlot,
+}
+
+impl Default for Hotkeys {
+    fn default() -> Self {
+        let pre = Hotkey::default();
+        Hotkeys {
+            region: HotkeySlot {
+                enabled: true,
+                key: pre,
+            },
+            save_full: HotkeySlot {
+                enabled: false,
+                key: Hotkey { shift: true, ..pre },
+            },
+            upload_full: HotkeySlot {
+                enabled: false,
+                key: Hotkey { ctrl: true, ..pre },
+            },
+        }
+    }
+}
+
+impl Hotkeys {
+    pub fn get(&self, role: HotkeyRole) -> HotkeySlot {
+        let _ = role;
+        todo!()
+    }
+
+    pub fn set(&mut self, role: HotkeyRole, slot: HotkeySlot) {
+        let _ = (role, slot);
+        todo!()
+    }
+
+    pub fn first_conflict(&self) -> Option<(HotkeyRole, HotkeyRole)> {
+        todo!()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub r2: R2Config,
     pub expiry: Expiry,
-    pub hotkey: Hotkey,
+    pub hotkeys: Hotkeys,
     pub save_dir: PathBuf,
     pub autostart: bool,
     pub language: Lang,
+    pub show_success_notices: bool,
+    pub keep_selection: bool,
+    pub include_cursor: bool,
 }
 
 impl Config {
@@ -101,10 +176,13 @@ impl Config {
         Config {
             r2: R2Config::default(),
             expiry: Expiry::default(),
-            hotkey: Hotkey::default(),
+            hotkeys: Hotkeys::default(),
             save_dir: default_save_dir.to_path_buf(),
             autostart: false,
             language,
+            show_success_notices: true,
+            keep_selection: false,
+            include_cursor: false,
         }
     }
 }
@@ -230,16 +308,25 @@ pub fn load(
             public_base_url: f.r2.public_base_url,
         },
         expiry: Expiry::from_prefix(&f.expiry).unwrap_or_default(),
-        hotkey: Hotkey {
-            ctrl: f.hotkey.ctrl,
-            alt: f.hotkey.alt,
-            shift: f.hotkey.shift,
-            win: f.hotkey.win,
-            vk: f.hotkey.vk,
+        hotkeys: Hotkeys {
+            region: HotkeySlot {
+                enabled: true,
+                key: Hotkey {
+                    ctrl: f.hotkey.ctrl,
+                    alt: f.hotkey.alt,
+                    shift: f.hotkey.shift,
+                    win: f.hotkey.win,
+                    vk: f.hotkey.vk,
+                },
+            },
+            ..Hotkeys::default()
         },
         save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
         autostart: f.autostart,
         language: Lang::from_code(&f.language).unwrap_or(Lang::Vi),
+        show_success_notices: true,
+        keep_selection: false,
+        include_cursor: false,
     };
     Ok(Loaded {
         config,
@@ -266,11 +353,11 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         },
         expiry: cfg.expiry.prefix().to_string(),
         hotkey: FileHotkey {
-            ctrl: cfg.hotkey.ctrl,
-            alt: cfg.hotkey.alt,
-            shift: cfg.hotkey.shift,
-            win: cfg.hotkey.win,
-            vk: cfg.hotkey.vk,
+            ctrl: cfg.hotkeys.region.key.ctrl,
+            alt: cfg.hotkeys.region.key.alt,
+            shift: cfg.hotkeys.region.key.shift,
+            win: cfg.hotkeys.region.key.win,
+            vk: cfg.hotkeys.region.key.vk,
         },
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
@@ -416,7 +503,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(l.config, Config::defaults(Path::new("C:/pics"), Lang::Vi));
-        assert_eq!(l.config.hotkey.vk, 0x2C);
+        assert_eq!(l.config.hotkeys.region.key.vk, 0x2C);
         assert!(!l.config.r2.is_complete() && !l.secret_lost && !l.config.autostart);
     }
 
@@ -583,6 +670,195 @@ mod tests {
                 .config
                 .language,
             Lang::En
+        );
+    }
+
+    fn load_text(text: &str) -> Loaded {
+        let p = temp_dir().join("config.json");
+        std::fs::write(&p, text).unwrap();
+        load(&p, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap()
+    }
+
+    #[test]
+    fn default_slots() {
+        let h = Hotkeys::default();
+        assert!(h.region.enabled && !h.save_full.enabled && !h.upload_full.enabled);
+        assert_eq!(h.region.key, Hotkey::default());
+        assert_eq!(
+            h.save_full.key,
+            Hotkey {
+                shift: true,
+                ..Hotkey::default()
+            }
+        );
+        assert_eq!(
+            h.upload_full.key,
+            Hotkey {
+                ctrl: true,
+                ..Hotkey::default()
+            }
+        );
+        for r in HotkeyRole::ALL {
+            assert_eq!(h.get(r), r.default_slot());
+        }
+    }
+
+    #[test]
+    fn get_and_set_address_the_right_row() {
+        let slot = HotkeySlot {
+            enabled: true,
+            key: Hotkey {
+                alt: true,
+                vk: 0x70,
+                ..Hotkey::default()
+            },
+        };
+        for r in HotkeyRole::ALL {
+            let mut h = Hotkeys::default();
+            let before = h;
+            h.set(r, slot);
+            assert_eq!(h.get(r), slot);
+            for o in HotkeyRole::ALL.into_iter().filter(|o| *o != r) {
+                assert_eq!(h.get(o), before.get(o));
+            }
+        }
+    }
+
+    #[test]
+    fn old_file_keeps_behaviour() {
+        let l = load_text(
+            r#"{"hotkey":{"ctrl":true,"alt":false,"shift":true,"win":false,"vk":83},"language":"vi"}"#,
+        );
+        assert_eq!(
+            l.config.hotkeys.region,
+            HotkeySlot {
+                enabled: true,
+                key: Hotkey {
+                    ctrl: true,
+                    alt: false,
+                    shift: true,
+                    win: false,
+                    vk: 83
+                }
+            }
+        );
+        assert_eq!(
+            l.config.hotkeys.save_full,
+            HotkeyRole::SaveFull.default_slot()
+        );
+        assert_eq!(
+            l.config.hotkeys.upload_full,
+            HotkeyRole::UploadFull.default_slot()
+        );
+        assert!(
+            l.config.show_success_notices && !l.config.keep_selection && !l.config.include_cursor
+        );
+    }
+
+    #[test]
+    fn new_fields_round_trip() {
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.hotkeys.region = HotkeySlot {
+            enabled: false,
+            key: Hotkey {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                win: false,
+                vk: 0x70,
+            },
+        };
+        c.hotkeys.save_full = HotkeySlot {
+            enabled: true,
+            key: Hotkey {
+                win: true,
+                vk: 0x71,
+                ..Hotkey::default()
+            },
+        };
+        c.hotkeys.upload_full = HotkeySlot {
+            enabled: true,
+            key: Hotkey {
+                alt: true,
+                vk: 0x72,
+                ..Hotkey::default()
+            },
+        };
+        c.show_success_notices = false;
+        c.keep_selection = true;
+        c.include_cursor = true;
+        save(&path, &c, &XorStore).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["hotkey"]["vk"], 0x70);
+        assert_eq!(v["hotkey"]["ctrl"], true);
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+    }
+
+    #[test]
+    fn partial_slot_uses_that_rows_defaults() {
+        let l = load_text(r#"{"hotkey_save_full":{"enabled":true}}"#);
+        assert_eq!(
+            l.config.hotkeys.save_full,
+            HotkeySlot {
+                enabled: true,
+                key: Hotkey {
+                    shift: true,
+                    ..Hotkey::default()
+                }
+            }
+        );
+        let l = load_text(r#"{"hotkey_upload_full":{"enabled":true}}"#);
+        assert_eq!(
+            l.config.hotkeys.upload_full,
+            HotkeySlot {
+                enabled: true,
+                key: Hotkey {
+                    ctrl: true,
+                    ..Hotkey::default()
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn wrong_type_is_corrupt() {
+        let p = temp_dir().join("config.json");
+        std::fs::write(&p, r#"{"notify_success":"yes"}"#).unwrap();
+        assert!(matches!(
+            load(&p, &XorStore, Path::new("C:/pics"), Lang::Vi),
+            Err(ConfigError::Corrupt(_))
+        ));
+    }
+
+    #[test]
+    fn conflict_only_between_enabled_rows() {
+        let mut h = Hotkeys::default();
+        assert_eq!(h.first_conflict(), None);
+        h.save_full.key = h.region.key;
+        assert_eq!(h.first_conflict(), None);
+        h.save_full.enabled = true;
+        assert_eq!(
+            h.first_conflict(),
+            Some((HotkeyRole::Region, HotkeyRole::SaveFull))
+        );
+        h.region.enabled = false;
+        assert_eq!(h.first_conflict(), None);
+        h.upload_full = h.save_full;
+        assert_eq!(
+            h.first_conflict(),
+            Some((HotkeyRole::SaveFull, HotkeyRole::UploadFull))
+        );
+        h.region.enabled = true;
+        assert_eq!(
+            h.first_conflict(),
+            Some((HotkeyRole::Region, HotkeyRole::SaveFull))
         );
     }
 }
