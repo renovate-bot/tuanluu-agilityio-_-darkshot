@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::time::Duration;
 
-use crate::config::{Expiry, R2Config};
+use crate::config::{normalize_public_base_url, Expiry, R2Config};
 use crate::naming::random_object_name;
 use crate::sigv4::{amz_date_now, authorization_header, sha256_hex, Credentials, SignInput};
 
@@ -85,6 +85,11 @@ fn bucket_is_safe(b: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_'))
 }
 
+/// The account id becomes part of the host name, so only `[A-Za-z0-9-]` is accepted.
+fn account_id_is_safe(a: &str) -> bool {
+    !a.is_empty() && a.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+}
+
 pub struct R2Uploader {
     agent: ureq::Agent,
     access_key_id: String,
@@ -99,7 +104,12 @@ pub struct R2Uploader {
 impl R2Uploader {
     pub fn new(cfg: &R2Config) -> Self {
         let endpoint = format!("https://{}.r2.cloudflarestorage.com", cfg.account_id);
-        Self::with_endpoints(cfg, &endpoint, &cfg.public_base_url)
+        let public = normalize_public_base_url(&cfg.public_base_url);
+        let mut up = Self::with_endpoints(cfg, &endpoint, public.as_deref().unwrap_or(""));
+        if public.is_err() {
+            up.complete = false;
+        }
+        up
     }
 
     pub fn with_endpoints(cfg: &R2Config, s3_endpoint: &str, public_base: &str) -> Self {
@@ -132,7 +142,9 @@ impl R2Uploader {
             access_key_id: cfg.access_key_id.clone(),
             secret_access_key: cfg.secret_access_key.clone(),
             bucket: cfg.bucket.clone(),
-            complete: cfg.is_complete() && bucket_is_safe(&cfg.bucket),
+            complete: cfg.is_complete()
+                && bucket_is_safe(&cfg.bucket)
+                && account_id_is_safe(&cfg.account_id),
             s3: parse_endpoint(s3_endpoint),
             public_base: public_base.to_string(),
         }
@@ -523,7 +535,7 @@ mod tests {
 
     #[test]
     fn bad_account_id_is_not_configured() {
-        for id in ["a/b", "a@evil.com", "a:1", "a\\b","a.b", ""] {
+        for id in ["a/b", "a@evil.com", "a:1", "a\\b", "a.b", ""] {
             let mut c = cfg();
             c.account_id = id.into();
             let up = R2Uploader::new(&c);
