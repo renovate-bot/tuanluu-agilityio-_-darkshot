@@ -1,6 +1,7 @@
 //! Biểu tượng khay, menu và thông báo.
 
 use shotme_core::actions::{NoticeKind, Notifier};
+use std::cell::Cell;
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
@@ -42,6 +43,7 @@ pub struct Notice {
 pub struct Tray {
     hwnd: HWND,
     icon: HICON,
+    added: Cell<bool>,
 }
 
 fn hwnd_from(v: isize) -> HWND {
@@ -87,11 +89,28 @@ impl Tray {
                 Err(_) => LoadIconW(None, IDI_APPLICATION)?,
             }
         };
-        let tray = Tray { hwnd, icon };
-        let nid = tray.full_data();
-        // SAFETY: nid được khởi tạo đầy đủ ở trên.
-        unsafe { Shell_NotifyIconW(NIM_ADD, &nid).ok()? };
+        let tray = Tray {
+            hwnd,
+            icon,
+            added: Cell::new(false),
+        };
+        // Explorer có thể chưa sẵn sàng (tự khởi động cùng Windows): không phải lỗi chết.
+        tray.try_add();
         Ok(tray)
+    }
+
+    /// Biểu tượng đã nằm trong khay chưa.
+    pub fn is_added(&self) -> bool {
+        self.added.get()
+    }
+
+    /// Thử thêm biểu tượng; trả về `true` nếu đã có trong khay.
+    pub fn try_add(&self) -> bool {
+        let nid = self.full_data();
+        // SAFETY: nid được khởi tạo đầy đủ.
+        let ok = unsafe { Shell_NotifyIconW(NIM_ADD, &nid).as_bool() };
+        self.added.set(ok);
+        ok
     }
 
     /// Hiện menu tại con trỏ chuột và trả về mục được chọn.
@@ -128,15 +147,14 @@ impl Tray {
 
     /// Thêm lại biểu tượng khi Explorer khởi động lại ("TaskbarCreated").
     pub fn readd(&self) {
-        let nid = self.full_data();
-        // SAFETY: nid được khởi tạo đầy đủ; lỗi được bỏ qua (thử lại ở lần sau).
-        unsafe {
-            let _ = Shell_NotifyIconW(NIM_ADD, &nid);
-        }
+        self.try_add();
     }
 
     /// Hiện bong bóng thông báo. Chỉ gọi ở luồng chính.
     pub fn show_notice(&self, n: &Notice) {
+        if !self.added.get() {
+            return; // chưa có biểu tượng thì bỏ qua thông báo
+        }
         let mut nid = self.base_data();
         nid.uFlags = NIF_INFO;
         nid.dwInfoFlags = match n.kind {
@@ -202,8 +220,8 @@ impl Notifier for TrayNotifier {
 pub const MAX_ADD_RETRIES: u32 = 30;
 
 /// Có nên thử thêm lại biểu tượng khay không (`attempts` là số lần đã thử lại).
-pub fn should_retry(_added: bool, _attempts: u32) -> bool {
-    todo!()
+pub fn should_retry(added: bool, attempts: u32) -> bool {
+    !added && attempts < MAX_ADD_RETRIES
 }
 
 #[cfg(test)]

@@ -9,3 +9,4 @@
 - [ ] Chạy `shotme.exe` lần thứ hai: bản thứ hai thoát ngay, chỉ còn một tiến trình.
 - [ ] Khởi động lại Explorer (Task Manager, Restart): biểu tượng khay hiện lại.
 - [ ] Chọn "Thoát": biểu tượng biến mất khỏi khay và tiến trình kết thúc.
+- [ ] Bật tùy chọn khởi động cùng Windows, đăng xuất rồi đăng nhập lại: biểu tượng shotme xuất hiện ở khay (kể cả khi Explorer khởi động chậm).

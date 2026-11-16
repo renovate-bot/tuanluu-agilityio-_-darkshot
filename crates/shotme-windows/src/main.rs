@@ -18,9 +18,10 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, TranslateMessage, CW_USEDEFAULT, MSG, WM_DESTROY,
-    WM_HOTKEY, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
+    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetTimer, TranslateMessage,
+    CW_USEDEFAULT, MSG, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+    WS_EX_TOOLWINDOW, WS_OVERLAPPED,
 };
 
 /// Sự kiện nội bộ; Task 11 mở rộng.
@@ -34,6 +35,32 @@ pub enum AppEvent {
 thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
+    static ADD_ATTEMPTS: Cell<u32> = const { Cell::new(0) };
+}
+
+const RETRY_TIMER_ID: usize = 1;
+const RETRY_INTERVAL_MS: u32 = 2000;
+
+fn on_retry_timer(hwnd: HWND) {
+    let attempts = ADD_ATTEMPTS.with(|c| c.get());
+    let added = match current_tray() {
+        Some(t) => {
+            if tray::should_retry(t.is_added(), attempts) {
+                ADD_ATTEMPTS.with(|c| c.set(attempts + 1));
+                t.try_add()
+            } else {
+                t.is_added()
+            }
+        }
+        None => true,
+    };
+    let attempts = ADD_ATTEMPTS.with(|c| c.get());
+    if !tray::should_retry(added, attempts) {
+        // SAFETY: hủy bộ hẹn giờ của chính cửa sổ này.
+        unsafe {
+            let _ = KillTimer(Some(hwnd), RETRY_TIMER_ID);
+        }
+    }
 }
 
 fn current_tray() -> Option<Rc<Tray>> {
@@ -88,6 +115,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if let Some(t) = current_tray() {
                 t.show_notice(&notice);
             }
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == RETRY_TIMER_ID => {
+            on_retry_timer(hwnd);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -154,6 +185,12 @@ fn main() {
         return;
     };
     let notifier = tray.notifier();
+    if !tray.is_added() {
+        // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
+        unsafe {
+            SetTimer(Some(hwnd), RETRY_TIMER_ID, RETRY_INTERVAL_MS, None);
+        }
+    }
     TRAY.with(|t| *t.borrow_mut() = Some(Rc::new(tray)));
 
     let hk = Hotkey::default();
