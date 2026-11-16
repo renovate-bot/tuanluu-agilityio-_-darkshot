@@ -5,11 +5,11 @@
 
 use crate::capture::Screenshot;
 use crate::lang;
-use shotme_core::actions::Action;
-use shotme_core::geometry::{
+use darkshot_core::actions::Action;
+use darkshot_core::geometry::{
     monitor_containing, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
-use shotme_core::i18n::Msg;
+use darkshot_core::i18n::Msg;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
@@ -1496,7 +1496,7 @@ mod tests {
     /// số đối tượng GDI không tăng sau nhiều lần mở. Bỏ qua mặc định vì lớp phủ hiện
     /// lên màn hình của người đang dùng máy.
     #[test]
-    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p shotme-windows -- --ignored"]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored"]
     fn overlay_round_trip_without_gdi_leaks() {
         use crate::capture::{capture_virtual_screen, GDI_TEST_LOCK};
         use std::time::Duration;

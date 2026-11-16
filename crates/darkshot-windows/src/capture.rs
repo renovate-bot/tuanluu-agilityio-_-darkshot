@@ -1,7 +1,7 @@
 //! Chụp toàn bộ màn hình ảo vào bộ nhớ.
 
-use shotme_core::geometry::{Point, Rect};
-use shotme_core::image::Image;
+use darkshot_core::geometry::{Point, Rect};
+use darkshot_core::image::Image;
 use std::ffi::c_void;
 use windows::core::{Error, BOOL};
 use windows::Win32::Foundation::{E_FAIL, LPARAM, POINT, RECT};
@@ -475,7 +475,7 @@ mod tests {
     /// Chụp nhiều lần có vẽ con trỏ: số đối tượng GDI của tiến trình không tăng (hai bitmap của
     /// `GetIconInfo` được xóa), ảnh hợp lệ và cùng cỡ với lượt không có con trỏ.
     #[test]
-    #[ignore = "chạm màn hình thật; chạy tay: cargo test -p shotme-windows -- --ignored capture_with_cursor --test-threads=1"]
+    #[ignore = "chạm màn hình thật; chạy tay: cargo test -p darkshot-windows -- --ignored capture_with_cursor --test-threads=1"]
     fn capture_with_cursor_does_not_leak_gdi() {
         use windows::Win32::System::Threading::{
             GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
@@ -505,7 +505,7 @@ mod tests {
 
     /// Ảnh 64×48 gồm bốn ô màu phẳng 32×24 (đỏ, lục, lam, xám); kèm tâm và màu [R, G, B] của mỗi ô.
     type Tiles = [(i32, i32, [u8; 3]); 4];
-    fn four_tiles() -> (shotme_core::image::Image, Tiles) {
+    fn four_tiles() -> (darkshot_core::image::Image, Tiles) {
         let tiles: Tiles = [
             (16, 12, [220, 30, 30]),
             (48, 12, [30, 200, 40]),
@@ -521,7 +521,7 @@ mod tests {
                 bgra.extend_from_slice(&[b, g, r, 255]);
             }
         }
-        let img = shotme_core::image::Image {
+        let img = darkshot_core::image::Image {
             width: w,
             height: h,
             bgra,
@@ -570,7 +570,7 @@ mod tests {
 
         let (img, tiles) = four_tiles();
         for (quality, tol) in [(90u8, 6i32), (50, 12), (100, 6)] {
-            let jpeg = shotme_core::image::encode_jpeg(&img, quality).unwrap();
+            let jpeg = darkshot_core::image::encode_jpeg(&img, quality).unwrap();
             // SAFETY: SHCreateMemStream chép dữ liệu vào stream của nó; IStream tự Release khi drop.
             let stream = unsafe { SHCreateMemStream(Some(&jpeg)) }.expect("SHCreateMemStream");
             let mut raw: *mut GpBitmap = std::ptr::null_mut();

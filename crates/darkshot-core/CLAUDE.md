@@ -1,4 +1,4 @@
-# shotme-core
+# darkshot-core
 
 Thư viện logic, không phụ thuộc hệ điều hành.
 

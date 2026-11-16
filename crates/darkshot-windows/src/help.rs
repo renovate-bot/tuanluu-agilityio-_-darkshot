@@ -1,29 +1,26 @@
-//! Cửa sổ Thông tin: không chặn, tối đa một cửa sổ. Thông điệp do vòng lặp của ứng dụng phân phối;
+//! Cửa sổ Trợ giúp: không chặn, tối đa một cửa sổ. Thông điệp do vòng lặp của ứng dụng phân phối;
 //! `pre_translate` lo bàn phím (Tab, Enter, Esc).
 
 use crate::lang;
 use crate::winutil;
-use shotme_core::i18n::{about_version, Msg};
+use darkshot_core::i18n::{help_text, HelpKeys, Msg};
 use std::cell::Cell;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    DeleteObject, GetSysColorBrush, SetBkMode, COLOR_BTNFACE, HDC, HFONT, HGDIOBJ, TRANSPARENT,
-};
+use windows::Win32::Graphics::Gdi::{DeleteObject, HFONT, HGDIOBJ};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, DestroyWindow, IsWindow, SendMessageW, BS_DEFPUSHBUTTON, MSG, STM_SETICON,
-    WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WS_GROUP, WS_TABSTOP,
+    DefWindowProcW, DestroyWindow, IsWindow, BS_DEFPUSHBUTTON, ES_AUTOVSCROLL, ES_MULTILINE,
+    ES_READONLY, MSG, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_NCDESTROY, WS_BORDER, WS_GROUP,
+    WS_TABSTOP, WS_VSCROLL,
 };
 
-const CLASS: PCWSTR = w!("shotme-about");
+const CLASS: PCWSTR = w!("shotme-help");
 /// Nút Đóng mang ID của IDOK để Enter trong hộp thoại bấm đúng nút này.
 const ID_CLOSE: i32 = 1;
 const ID_CANCEL: i32 = 2;
-/// Kiểu của STATIC: biểu tượng, và chữ căn giữa.
-const SS_ICON: WINDOW_STYLE = WINDOW_STYLE(0x3);
-const SS_CENTER: WINDOW_STYLE = WINDOW_STYLE(0x1);
+const ID_TEXT: i32 = 101;
 
 thread_local! {
     /// HWND của cửa sổ đang mở (0 = không có).
@@ -42,14 +39,14 @@ fn current() -> HWND {
     }
 }
 
-/// Mở cửa sổ Thông tin, hoặc đưa cửa sổ đang mở ra trước.
-pub fn show(owner: HWND) {
+/// Mở cửa sổ Trợ giúp với tổ hợp của các dòng phím tắt `keys`, hoặc đưa cửa sổ đang mở ra trước.
+pub fn show(owner: HWND, keys: &HelpKeys) {
     let open = current();
     if !open.is_invalid() {
         winutil::bring_to_front(open);
         return;
     }
-    let Some(hwnd) = winutil::create_popup(owner, CLASS, lang::tr(Msg::AboutTitle), wndproc) else {
+    let Some(hwnd) = winutil::create_popup(owner, CLASS, lang::tr(Msg::HelpTitle), wndproc) else {
         return;
     };
     // SAFETY: hwnd vừa tạo ở luồng này.
@@ -58,39 +55,34 @@ pub fn show(owner: HWND) {
     FONT.with(|f| f.set(font));
     OPEN.with(|o| o.set(hwnd.0 as isize));
 
-    let child = |class, text: &str, style, rect, id| {
-        winutil::create_child(hwnd, font, dpi, class, text, style, rect, id)
-    };
-    let icon = child(w!("STATIC"), "", SS_ICON, (136, 16, 48, 48), -1);
-    if let Some(i) = winutil::load_app_icon(winutil::scale(48, dpi)) {
-        // SAFETY: biểu tượng dùng chung, sống suốt tiến trình; icon là STATIC của cửa sổ này.
-        unsafe {
-            SendMessageW(icon, STM_SETICON, Some(WPARAM(i.0 as usize)), None);
-        }
-    }
-    child(w!("STATIC"), "shotme", SS_CENTER, (12, 72, 296, 20), -1);
-    child(
-        w!("STATIC"),
-        &about_version(lang::current(), env!("CARGO_PKG_VERSION")),
-        SS_CENTER,
-        (12, 94, 296, 18),
-        -1,
+    // Ô EDIT cần \r\n để xuống dòng.
+    let text = help_text(lang::current(), keys).replace('\n', "\r\n");
+    let edit_style = WS_BORDER
+        | WS_VSCROLL
+        | WS_TABSTOP
+        | WINDOW_STYLE((ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32);
+    winutil::create_child(
+        hwnd,
+        font,
+        dpi,
+        w!("EDIT"),
+        &text,
+        edit_style,
+        (12, 12, 496, 360),
+        ID_TEXT,
     );
-    child(
-        w!("STATIC"),
-        lang::tr(Msg::AboutDescription),
-        SS_CENTER,
-        (12, 120, 296, 54),
-        -1,
-    );
-    let close = child(
+    let close = winutil::create_child(
+        hwnd,
+        font,
+        dpi,
         w!("BUTTON"),
         lang::tr(Msg::BtnClose),
         WS_GROUP | WS_TABSTOP | WINDOW_STYLE(BS_DEFPUSHBUTTON as u32),
-        (120, 184, 80, 28),
+        (428, 382, 80, 28),
         ID_CLOSE,
     );
-    winutil::finish_popup(hwnd, 320, 224, dpi);
+    winutil::finish_popup(hwnd, 520, 420, dpi);
+    // Tiêu điểm ở nút Đóng để chữ không bị bôi chọn sẵn.
     // SAFETY: nút vừa tạo trong cửa sổ này.
     unsafe {
         let _ = SetFocus(Some(close));
@@ -101,7 +93,7 @@ pub fn show(owner: HWND) {
 pub fn close() {
     let h = current();
     if !h.is_invalid() {
-        // SAFETY: h là cửa sổ Thông tin còn sống của luồng này; dọn dẹp ở WM_NCDESTROY.
+        // SAFETY: h là cửa sổ Trợ giúp còn sống của luồng này; dọn dẹp ở WM_NCDESTROY.
         unsafe {
             let _ = DestroyWindow(h);
         }
@@ -125,14 +117,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CLOSE => {
             close();
             LRESULT(0)
-        }
-        WM_CTLCOLORSTATIC => {
-            // Nhãn trùng màu nền cửa sổ (mặc định của cửa sổ thường là nền trắng).
-            // SAFETY: hdc do hệ thống cấp cho lần vẽ này; chổi màu hệ thống không phải giải phóng.
-            unsafe {
-                SetBkMode(HDC(wp.0 as *mut std::ffi::c_void), TRANSPARENT);
-                LRESULT(GetSysColorBrush(COLOR_BTNFACE).0 as isize)
-            }
         }
         WM_NCDESTROY => {
             // Cửa sổ đã mất hết con: giải phóng phông và quên handle, dù đóng bằng đường nào.
@@ -175,14 +159,14 @@ mod tests {
     }
 
     /// Mở, mở lần hai, đóng; ba vòng, số đối tượng GDI không tăng dần.
-    /// Chạy tay: `cargo test -p shotme-windows -- --ignored about_window`.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored help_window`.
     #[test]
     #[ignore]
-    fn about_window_opens_and_closes() {
+    fn help_window_opens_and_closes() {
         // SAFETY: cửa sổ cha ẩn riêng của kiểm thử, hủy ở cuối.
         let parent = unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
-            let class = w!("shotme-about-test-parent");
+            let class = w!("shotme-help-test-parent");
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(proc_),
                 hInstance: hinst.into(),
@@ -206,12 +190,17 @@ mod tests {
             )
             .unwrap()
         };
-        let find = || unsafe { FindWindowW(w!("shotme-about"), None) };
+        let find = || unsafe { FindWindowW(w!("shotme-help"), None) };
         let mut counts = Vec::new();
+        let keys = HelpKeys {
+            region: Some("PrintScreen".into()),
+            save_full: None,
+            upload_full: Some("Ctrl+PrintScreen".into()),
+        };
         for _ in 0..3 {
-            show(parent);
+            show(parent, &keys);
             let first = find().expect("window not created");
-            show(parent);
+            show(parent, &keys);
             assert_eq!(
                 find().expect("window vanished"),
                 first,

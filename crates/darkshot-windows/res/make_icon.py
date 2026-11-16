@@ -1,4 +1,4 @@
-"""Sinh res/shotme.ico (và ảnh xem trước tùy chọn). Cần Pillow.
+"""Sinh res/darkshot.ico (và ảnh xem trước tùy chọn). Cần Pillow.
 
 Chạy:  python make_icon.py [thư_mục_xem_trước]
 Cỡ 16 và 20 vẽ tay theo lưới pixel; cỡ khác vẽ ở độ phân giải gấp 8 rồi thu nhỏ.
@@ -163,7 +163,7 @@ def main():
         print("LỖI tự kiểm:", e)
         sys.exit(1)
     here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "shotme.ico"), "wb") as f:
+    with open(os.path.join(here, "darkshot.ico"), "wb") as f:
         f.write(build_ico(images))
     if len(sys.argv) > 1:
         os.makedirs(sys.argv[1], exist_ok=True)

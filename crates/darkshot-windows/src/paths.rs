@@ -1,6 +1,6 @@
 //! Đường dẫn và giờ địa phương. Không panic: thiếu thư mục hệ thống thì dùng phương án dự phòng.
 
-use shotme_core::naming::LocalTime;
+use darkshot_core::naming::LocalTime;
 use std::path::PathBuf;
 use windows::core::GUID;
 use windows::Win32::System::Com::CoTaskMemFree;
@@ -53,9 +53,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paths_end_correctly() {
-        assert!(config_path().ends_with("shotme/config.json"));
-        assert!(default_save_dir().ends_with("shotme"));
+    fn names_are_darkshot() {
+        assert!(config_path().ends_with("darkshot/config.json"));
+        assert!(default_save_dir().ends_with("darkshot"));
     }
 
     #[test]

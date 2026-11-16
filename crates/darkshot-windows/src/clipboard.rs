@@ -1,9 +1,9 @@
 //! Clipboard của Windows: chép link (văn bản) và ảnh.
 
 use crate::lang;
-use shotme_core::actions::Clipboard;
-use shotme_core::i18n::Msg;
-use shotme_core::image::Image;
+use darkshot_core::actions::Clipboard;
+use darkshot_core::i18n::Msg;
+use darkshot_core::image::Image;
 use std::time::Duration;
 use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p shotme-windows clipboard -- --ignored"]
+    #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p darkshot-windows clipboard -- --ignored"]
     fn clipboard_text_round_trip() {
         let _g = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let link = "https://img.example.com/d30/Ab12.png";
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p shotme-windows clipboard -- --ignored"]
+    #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p darkshot-windows clipboard -- --ignored"]
     fn clipboard_image_round_trip() {
         let _g = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Hàng trên: đỏ, xanh lá, xanh dương; hàng dưới: trắng, đen, xám. BGRA.

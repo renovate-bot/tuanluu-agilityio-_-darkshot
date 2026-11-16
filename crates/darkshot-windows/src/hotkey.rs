@@ -1,7 +1,7 @@
 //! Đăng ký phím tắt toàn cục.
 
-use shotme_core::config::{Hotkey, HotkeyRole, Hotkeys};
-use shotme_core::i18n::HelpKeys;
+use darkshot_core::config::{Hotkey, HotkeyRole, Hotkeys};
+use darkshot_core::i18n::HelpKeys;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,

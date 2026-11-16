@@ -1,8 +1,8 @@
 //! Biểu tượng khay, menu và thông báo.
 
 use crate::lang;
-use shotme_core::actions::{NoticeKind, Notifier};
-use shotme_core::i18n::Msg;
+use darkshot_core::actions::{NoticeKind, Notifier};
+use darkshot_core::i18n::Msg;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
@@ -297,10 +297,10 @@ pub fn should_retry(added: bool, attempts: u32) -> bool {
 mod tests {
     use super::*;
 
-    /// Phân tích ICONDIR của `res/shotme.ico`: đủ tám cỡ, 32 bit, offset/kích thước hợp lệ.
+    /// Phân tích ICONDIR của `res/darkshot.ico`: đủ tám cỡ, 32 bit, offset/kích thước hợp lệ.
     #[test]
     fn ico_has_all_sizes_32bit_within_file() {
-        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        let ico: &[u8] = include_bytes!("../res/darkshot.ico");
         assert!(ico.len() >= 6, "file quá ngắn");
         let u16at = |o: usize| u16::from_le_bytes([ico[o], ico[o + 1]]) as usize;
         let u32at =
@@ -332,7 +332,7 @@ mod tests {
     /// Khung phải là bốn góc chữ L rời nhau: điểm giữa cạnh trên và cạnh trái (cỡ 32) là nền xanh.
     #[test]
     fn ico_32_frame_edges_are_open_at_midpoints() {
-        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        let ico: &[u8] = include_bytes!("../res/darkshot.ico");
         let u32at =
             |o: usize| u32::from_le_bytes([ico[o], ico[o + 1], ico[o + 2], ico[o + 3]]) as usize;
         let count = u16::from_le_bytes([ico[4], ico[5]]) as usize;

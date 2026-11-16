@@ -1,7 +1,7 @@
 //! Khởi động cùng Windows qua `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 
 use crate::lang;
-use shotme_core::i18n::Msg;
+use darkshot_core::i18n::Msg;
 use std::path::Path;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
@@ -171,16 +171,21 @@ mod tests {
     }
 
     #[test]
+    fn value_name_is_darkshot() {
+        assert_eq!(VALUE_NAME, "darkshot");
+    }
+
+    #[test]
     fn launch_command_quotes_path_with_spaces() {
         assert_eq!(
-            launch_command(Path::new(r"D:\2026 - Tuan\shotme\shotme.exe")),
+            launch_command(Path::new(r"D:\2026 - Tuan\darkshot\darkshot.exe")),
             "\"D:\\2026 - Tuan\\shotme\\shotme.exe\""
         );
     }
 
     #[test]
     fn autostart_round_trip_with_test_value_name() {
-        let name = format!("shotme-test-{}", std::process::id());
+        let name = format!("darkshot-test-{}", std::process::id());
         assert_ne!(name, VALUE_NAME);
         let _cleanup = Cleanup(name.clone());
 

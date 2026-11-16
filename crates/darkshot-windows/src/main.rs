@@ -17,15 +17,15 @@ mod wer;
 mod winutil;
 
 use app::{AppState, UploadJob};
-use secret::DpapiStore;
-use settings::OpenReason;
-use shotme_core::actions::{
+use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
-use shotme_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
-use shotme_core::geometry::{monitor_containing, restore_selection, Point, Rect};
-use shotme_core::i18n::{self, Lang, Msg};
-use shotme_core::upload::{R2Uploader, Uploader};
+use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
+use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
+use darkshot_core::i18n::{self, Lang, Msg};
+use darkshot_core::upload::{R2Uploader, Uploader};
+use secret::DpapiStore;
+use settings::OpenReason;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::rc::Rc;
@@ -399,7 +399,7 @@ fn capture_flow(hwnd: HWND) {
 fn run_on_image(
     hwnd: HWND,
     action: Action,
-    image: shotme_core::image::Image,
+    image: darkshot_core::image::Image,
     notifier: Arc<dyn Notifier>,
 ) {
     let Some(config) = with_app(|a| a.config.clone()) else {
@@ -497,7 +497,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
     };
     // `show` đã đăng ký phím mới cho hwnd; ở đây chỉ ghi đĩa.
     let new = result.config;
-    let saved = shotme_core::config::save(&paths::config_path(), &new, &DpapiStore);
+    let saved = darkshot_core::config::save(&paths::config_path(), &new, &DpapiStore);
     // Ghi thất bại thì ngôn ngữ giữ nguyên, cùng với cấu hình cũ và phím cũ.
     lang::set(lang_after_save(
         config.language,
@@ -524,9 +524,9 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
             // Không ghi được: giữ cấu hình cũ và phím cũ (chỉ các dòng đang bật của cấu hình cũ).
             hotkey::unregister_all(hwnd);
             let why = match e {
-                shotme_core::config::ConfigError::Io(m)
-                | shotme_core::config::ConfigError::Corrupt(m)
-                | shotme_core::config::ConfigError::Secret(m) => m,
+                darkshot_core::config::ConfigError::Io(m)
+                | darkshot_core::config::ConfigError::Corrupt(m)
+                | darkshot_core::config::ConfigError::Secret(m) => m,
             };
             notify(
                 NoticeKind::Error,
@@ -985,7 +985,7 @@ mod tests {
         use std::path::Path;
         let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
         // Bật/tắt một dòng: stale.
-        for r in shotme_core::config::HotkeyRole::ALL {
+        for r in darkshot_core::config::HotkeyRole::ALL {
             let mut b = a.clone();
             let mut slot = b.hotkeys.get(r);
             slot.enabled = !slot.enabled;
@@ -1007,7 +1007,7 @@ mod tests {
 
     #[test]
     fn hotkeys_taken_notice_only_when_rows_failed() {
-        use shotme_core::config::HotkeyRole::*;
+        use darkshot_core::config::HotkeyRole::*;
         let keys = Hotkeys::default();
         assert_eq!(hotkeys_taken_notice(Lang::Vi, &keys, &[]), None);
         let (title, body) = hotkeys_taken_notice(Lang::Vi, &keys, &[UploadFull, Region]).unwrap();

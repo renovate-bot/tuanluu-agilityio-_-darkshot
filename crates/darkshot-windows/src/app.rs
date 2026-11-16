@@ -1,12 +1,12 @@
 //! Trạng thái ứng dụng và luồng tải lên. Phần lớn là hàm thuần để kiểm thử được.
 
 use crate::lang;
-use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
-use shotme_core::config::{Config, ConfigError, SecretStore, UploadFormat, JPEG_QUALITY_DEFAULT};
-use shotme_core::i18n::{t, Lang, Msg};
-use shotme_core::image::Image;
-use shotme_core::naming::LocalTime;
-use shotme_core::upload::Uploader;
+use darkshot_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
+use darkshot_core::config::{Config, ConfigError, SecretStore, UploadFormat, JPEG_QUALITY_DEFAULT};
+use darkshot_core::i18n::{t, Lang, Msg};
+use darkshot_core::image::Image;
+use darkshot_core::naming::LocalTime;
+use darkshot_core::upload::Uploader;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -44,7 +44,7 @@ pub fn startup(
 ) -> AppState {
     let defaults = || Config::defaults(default_save_dir, os_lang);
     let (config, config_notice) =
-        match shotme_core::config::load(path, store, default_save_dir, os_lang) {
+        match darkshot_core::config::load(path, store, default_save_dir, os_lang) {
             Ok(l) if l.secret_lost => (l.config, Some(ConfigNotice::SecretLost)),
             Ok(l) => (l.config, None),
             Err(ConfigError::Corrupt(_)) => (defaults(), Some(ConfigNotice::Corrupt)),
@@ -132,7 +132,7 @@ impl PendingUploads {
 /// Bỏ qua mọi thông báo: lúc thoát hoặc tắt máy không còn ai để báo.
 struct SilentNotifier;
 impl Notifier for SilentNotifier {
-    fn notify(&self, _: shotme_core::actions::NoticeKind, _: &str, _: &str) {}
+    fn notify(&self, _: darkshot_core::actions::NoticeKind, _: &str, _: &str) {}
 }
 
 /// Không đụng clipboard của người dùng khi lưu lúc thoát.
@@ -154,7 +154,7 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
         .filter(|p| {
             let ctx = Ctx {
                 save_dir: &p.save_dir,
-                expiry: shotme_core::config::Expiry::Keep,
+                expiry: darkshot_core::config::Expiry::Keep,
                 now,
                 uploader: None,
                 clipboard: &NoClipboard,
@@ -171,7 +171,7 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
 /// Mọi thứ một lượt tải lên cần; đã là bản chụp riêng, không tham chiếu trạng thái luồng chính.
 pub struct UploadJob {
     pub save_dir: PathBuf,
-    pub expiry: shotme_core::config::Expiry,
+    pub expiry: darkshot_core::config::Expiry,
     pub uploader: Option<Arc<dyn Uploader>>,
     pub clipboard: Arc<dyn Clipboard>,
     pub notifier: Arc<dyn Notifier>,
@@ -222,9 +222,9 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shotme_core::actions::NoticeKind;
-    use shotme_core::config::{Expiry, R2Config};
-    use shotme_core::upload::UploadError;
+    use darkshot_core::actions::NoticeKind;
+    use darkshot_core::config::{Expiry, R2Config};
+    use darkshot_core::upload::UploadError;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::Mutex;
     use std::time::Duration;
@@ -255,7 +255,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let d = std::env::temp_dir().join(format!("shotme_app_{}_{t}_{n}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("darkshot_app_{}_{t}_{n}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn lost_secret_opens_settings_with_notice() {
         let path = temp_dir().join("config.json");
-        shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
+        darkshot_core::config::save(&path, &complete_config(), &XorStore).unwrap();
         let s = startup(&path, &FailStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config_notice, Some(ConfigNotice::SecretLost));
         assert!(s
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn complete_config_starts_quietly() {
         let path = temp_dir().join("config.json");
-        shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
+        darkshot_core::config::save(&path, &complete_config(), &XorStore).unwrap();
         let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config, complete_config());
         assert!(!needs_settings_on_start(&s, true));
@@ -485,9 +485,9 @@ mod tests {
             },
         ];
         assert_eq!(save_pending(items, fixed_now()), 3);
-        assert!(d1.join("shotme_2026-11-16_01-02-03.png").exists());
-        assert!(d1.join("shotme_2026-11-16_01-02-03_2.png").exists());
-        assert!(d2.join("shotme_2026-11-16_01-02-03.png").exists());
+        assert!(d1.join("darkshot_2026-11-16_01-02-03.png").exists());
+        assert!(d1.join("darkshot_2026-11-16_01-02-03_2.png").exists());
+        assert!(d2.join("darkshot_2026-11-16_01-02-03.png").exists());
         assert_eq!(std::fs::read_dir(&d1).unwrap().count(), 2);
     }
 
@@ -545,7 +545,7 @@ mod tests {
         .unwrap();
         h.join().unwrap();
         assert!(called.load(Ordering::SeqCst));
-        assert!(dir.join("shotme_2026-11-16_01-02-03.png").exists());
+        assert!(dir.join("darkshot_2026-11-16_01-02-03.png").exists());
     }
 
     #[test]

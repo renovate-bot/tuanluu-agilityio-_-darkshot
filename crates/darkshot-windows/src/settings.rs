@@ -8,12 +8,12 @@
 
 use crate::hotkey;
 use crate::lang;
-use shotme_core::config::{
+use darkshot_core::config::{
     clamp_jpeg_quality, normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys,
     R2Config, UploadFormat, JPEG_QUALITY_MAX, JPEG_QUALITY_MIN,
 };
-use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
-use shotme_core::upload::R2Uploader;
+use darkshot_core::i18n::{self, expiry_label, t, Lang, Msg};
+use darkshot_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -2315,7 +2315,7 @@ fn get_class_is_button(h: HWND) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shotme_core::config::HotkeySlot;
+    use darkshot_core::config::HotkeySlot;
     use std::path::Path;
 
     fn base() -> Config {
@@ -2885,7 +2885,7 @@ mod tests {
     }
 
     /// Mở cửa sổ thật, đóng bằng WM_CLOSE rồi bằng nút Hủy. Không ghi đĩa, không gọi mạng.
-    /// Chạy tay: `cargo test -p shotme-windows -- --ignored settings_window`.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored settings_window`.
     #[test]
     #[ignore]
     fn settings_window_opens_and_cancels() {

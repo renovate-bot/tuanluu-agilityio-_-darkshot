@@ -735,6 +735,29 @@ mod tests {
     }
 
     #[test]
+    fn no_legacy_name_in_strings() {
+        let old = ["shot", "me"].concat();
+        let all = HelpKeys {
+            region: Some("A".into()),
+            save_full: Some("B".into()),
+            upload_full: Some("C".into()),
+        };
+        for l in Lang::ALL {
+            for m in Msg::ALL {
+                assert!(!t(l, *m).to_lowercase().contains(&old), "{m:?} {l:?}");
+            }
+            for h in [
+                help_text(l, &all),
+                help_text(l, &HelpKeys::default()),
+                about_version(l, "1.0.0"),
+            ] {
+                assert!(!h.to_lowercase().contains(&old), "{l:?}");
+            }
+            assert!(help_text(l, &all).contains("darkshot"), "{l:?}");
+        }
+    }
+
+    #[test]
     fn help_text_lists_enabled_and_disabled_hotkeys() {
         for l in Lang::ALL {
             let all = HelpKeys {

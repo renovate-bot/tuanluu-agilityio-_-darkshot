@@ -601,18 +601,20 @@ mod tests {
 
     #[test]
     fn test_connection_put_get_delete() {
-        let m = spawn_mock(vec![(200, ""), (200, "shotme"), (204, "")], false);
+        let m = spawn_mock(vec![(200, ""), (200, "darkshot"), (204, "")], false);
         let up = R2Uploader::with_endpoints(&cfg(), &m.url(), &m.url());
         up.test_connection().unwrap();
         let reqs = m.requests();
         assert_eq!(reqs.len(), 3);
         let path = |r: &Recorded| r.request_line.split(' ').nth(1).unwrap().to_string();
-        assert!(reqs[0].request_line.starts_with("PUT /bkt/d1/shotme-test-"));
-        assert_eq!(reqs[0].body, b"shotme");
-        assert!(reqs[1].request_line.starts_with("GET /d1/shotme-test-"));
+        assert!(reqs[0]
+            .request_line
+            .starts_with("PUT /bkt/d1/darkshot-test-"));
+        assert_eq!(reqs[0].body, b"darkshot");
+        assert!(reqs[1].request_line.starts_with("GET /d1/darkshot-test-"));
         assert!(reqs[2]
             .request_line
-            .starts_with("DELETE /bkt/d1/shotme-test-"));
+            .starts_with("DELETE /bkt/d1/darkshot-test-"));
         let key = path(&reqs[0]).trim_start_matches("/bkt/").to_string();
         assert_eq!(path(&reqs[1]), format!("/{key}"));
         assert_eq!(path(&reqs[2]), format!("/bkt/{key}"));

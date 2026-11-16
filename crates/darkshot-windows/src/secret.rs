@@ -1,8 +1,8 @@
 //! Khóa bí mật được mã hóa bằng DPAPI, gắn với tài khoản Windows hiện tại.
 
 use crate::lang;
-use shotme_core::config::SecretStore;
-use shotme_core::i18n::Msg;
+use darkshot_core::config::SecretStore;
+use darkshot_core::i18n::Msg;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Cryptography::{

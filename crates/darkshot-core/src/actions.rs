@@ -234,7 +234,7 @@ mod tests {
         let mut b = [0u8; 8];
         getrandom::fill(&mut b).unwrap();
         let name: String = b.iter().map(|x| format!("{x:02x}")).collect();
-        let d = std::env::temp_dir().join(format!("shotme_act_{name}"));
+        let d = std::env::temp_dir().join(format!("darkshot_act_{name}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -382,7 +382,7 @@ mod tests {
         let d = temp_dir().join("sub");
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &img());
-        let expected = d.join("shotme_2026-11-16_14-03-05.png");
+        let expected = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(out, Outcome::Saved(expected.clone()));
         let bytes = std::fs::read(&expected).unwrap();
         assert_eq!(bytes[..8], SIG);
@@ -429,7 +429,7 @@ mod tests {
         let up = FakeUploader::new(Err(UploadError::Network("x".into())));
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(
             out,
             Outcome::UploadFailedSaved {
@@ -451,7 +451,7 @@ mod tests {
         let d = temp_dir();
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Upload, &img());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(
             out,
             Outcome::UploadFailedSaved {
@@ -471,7 +471,7 @@ mod tests {
         let up = FakeUploader::new(Err(UploadError::NotConfigured));
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(
             out,
             Outcome::UploadFailedSaved {
@@ -535,7 +535,7 @@ mod tests {
         let mut c = ctx(&d, Some(&up), &cb, &n);
         c.upload_format = UploadFormat::Jpeg;
         let out = run_action(&c, Action::Upload, &img());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(
             out,
             Outcome::UploadFailedSaved {
@@ -562,7 +562,7 @@ mod tests {
         let out = run_action(&c, Action::Upload, &wide);
         assert!(matches!(out, Outcome::UploadFailedSaved { .. }), "{out:?}");
         assert!(up.calls.lock().unwrap().is_empty());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert!(path.exists());
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
         let notes = n.notes.lock().unwrap();
@@ -577,7 +577,7 @@ mod tests {
         let mut c = ctx(&d, None, &cb, &n);
         c.upload_format = UploadFormat::Jpeg;
         let out = run_action(&c, Action::Save, &img());
-        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        let path = d.join("darkshot_2026-11-16_14-03-05.png");
         assert_eq!(out, Outcome::Saved(path.clone()));
         assert_eq!(std::fs::read(&path).unwrap(), encode_png(&img()).unwrap());
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
@@ -647,13 +647,13 @@ mod tests {
     #[test]
     fn save_skips_existing_file_without_touching_it() {
         let d = temp_dir();
-        let first = d.join("shotme_2026-11-16_14-03-05.png");
+        let first = d.join("darkshot_2026-11-16_14-03-05.png");
         std::fs::write(&first, b"old").unwrap();
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &img());
         assert_eq!(
             out,
-            Outcome::Saved(d.join("shotme_2026-11-16_14-03-05_2.png"))
+            Outcome::Saved(d.join("darkshot_2026-11-16_14-03-05_2.png"))
         );
         assert_eq!(std::fs::read(&first).unwrap(), b"old");
     }

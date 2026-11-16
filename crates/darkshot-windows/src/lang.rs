@@ -1,6 +1,6 @@
 //! Ngôn ngữ hiện hành của lớp Windows; đọc được từ mọi luồng.
 
-use shotme_core::i18n::{t, with_error_code, Lang, Msg};
+use darkshot_core::i18n::{t, with_error_code, Lang, Msg};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);

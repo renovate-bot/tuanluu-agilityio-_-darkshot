@@ -66,7 +66,7 @@ mod tests {
         let mut b = [0u8; 8];
         getrandom::fill(&mut b).unwrap();
         let name: String = b.iter().map(|x| format!("{x:02x}")).collect();
-        let d = std::env::temp_dir().join(format!("shotme_test_{name}"));
+        let d = std::env::temp_dir().join(format!("darkshot_test_{name}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -81,23 +81,23 @@ mod tests {
             minute: 3,
             second: 5,
         };
-        assert_eq!(local_file_name(&t), "shotme_2026-11-16_14-03-05.png");
+        assert_eq!(local_file_name(&t), "darkshot_2026-11-16_14-03-05.png");
     }
 
     #[test]
     fn unique_path_adds_suffix() {
         let d = temp_dir();
-        let n = "shotme_2026-11-16_14-03-05.png";
+        let n = "darkshot_2026-11-16_14-03-05.png";
         assert_eq!(unique_path(&d, n), d.join(n));
         std::fs::write(d.join(n), b"x").unwrap();
         assert_eq!(
             unique_path(&d, n),
-            d.join("shotme_2026-11-16_14-03-05_2.png")
+            d.join("darkshot_2026-11-16_14-03-05_2.png")
         );
-        std::fs::write(d.join("shotme_2026-11-16_14-03-05_2.png"), b"x").unwrap();
+        std::fs::write(d.join("darkshot_2026-11-16_14-03-05_2.png"), b"x").unwrap();
         assert_eq!(
             unique_path(&d, n),
-            d.join("shotme_2026-11-16_14-03-05_3.png")
+            d.join("darkshot_2026-11-16_14-03-05_3.png")
         );
     }
 

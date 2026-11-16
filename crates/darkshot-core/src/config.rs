@@ -599,7 +599,7 @@ mod tests {
         let mut b = [0u8; 8];
         getrandom::fill(&mut b).unwrap();
         let name: String = b.iter().map(|x| format!("{x:02x}")).collect();
-        let d = std::env::temp_dir().join(format!("shotme_test_{name}"));
+        let d = std::env::temp_dir().join(format!("darkshot_test_{name}"));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
