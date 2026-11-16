@@ -51,6 +51,17 @@ pub enum Outcome {
 }
 
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
+    if action == Action::Cancel {
+        return Outcome::Cancelled;
+    }
+    if !img.is_valid() {
+        ctx.notifier.notify(
+            NoticeKind::Error,
+            "Không có ảnh để xử lý",
+            "Vùng chọn trống hoặc ảnh không hợp lệ.",
+        );
+        return Outcome::Failed;
+    }
     match action {
         Action::Cancel => Outcome::Cancelled,
         Action::Save => match save_png(ctx, img) {
@@ -92,7 +103,10 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
             true,
         );
     };
-    let png = encode_png(img).unwrap_or_default();
+    let png = match encode_png(img) {
+        Ok(p) => p,
+        Err(e) => return fallback(ctx, img, &format!("Không mã hóa được ảnh: {e}"), false),
+    };
     let key = object_key(ctx.expiry, &random_object_name());
     match uploader.upload(&key, &png) {
         Ok(link) => {

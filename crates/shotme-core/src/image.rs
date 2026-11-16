@@ -11,12 +11,25 @@ pub struct Image {
 }
 
 impl Image {
+    /// Đúng khi kích thước dương và `bgra` dài đúng `width * height * 4`.
     pub fn is_valid(&self) -> bool {
-        true
+        self.width > 0
+            && self.height > 0
+            && (self.width as usize)
+                .checked_mul(self.height as usize)
+                .and_then(|n| n.checked_mul(4))
+                == Some(self.bgra.len())
     }
 
     /// Cắt theo `r`; `r` được kẹp vào ảnh.
     pub fn crop(&self, r: Rect) -> Image {
+        if !self.is_valid() {
+            return Image {
+                width: 0,
+                height: 0,
+                bgra: Vec::new(),
+            };
+        }
         let x0 = i64::from(r.x).max(0);
         let y0 = i64::from(r.y).max(0);
         let x1 = (i64::from(r.x) + i64::from(r.w)).min(i64::from(self.width));
@@ -45,6 +58,9 @@ impl Image {
 
 /// PNG RGB 8 bit, bỏ kênh alpha.
 pub fn encode_png(img: &Image) -> Result<Vec<u8>, String> {
+    if !img.is_valid() {
+        return Err("ảnh rỗng hoặc sai độ dài dữ liệu".to_string());
+    }
     let mut rgb = Vec::with_capacity(img.width as usize * img.height as usize * 3);
     for p in img.bgra.as_chunks::<4>().0 {
         rgb.extend_from_slice(&[p[2], p[1], p[0]]);
@@ -54,8 +70,8 @@ pub fn encode_png(img: &Image) -> Result<Vec<u8>, String> {
         let mut enc = png::Encoder::new(&mut out, img.width, img.height);
         enc.set_color(png::ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
-        let mut w = enc.write_header().expect("PNG header to memory");
-        w.write_image_data(&rgb).expect("PNG data to memory");
+        let mut w = enc.write_header().map_err(|e| e.to_string())?;
+        w.write_image_data(&rgb).map_err(|e| e.to_string())?;
     }
     Ok(out)
 }
