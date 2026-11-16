@@ -10,7 +10,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 |---|---|---|---|---|---|---|---|---|
 | 0 Môi trường, git, khung AI-first | main | phiên chính | fable | xong | không đo | | | |
 | 1 Khung workspace | task/01-workspace | scaffolder | haiku | xong | 55.218 | 16.463 | 0 | 71.681 |
-| 2 Hình học vùng chọn | task/02-geometry | builder | sonnet | chờ | | | | |
+| 2 Hình học vùng chọn | task/02-geometry | builder | sonnet | đang làm | | | | |
 | 3 Đặt tên và cấu hình | task/03-naming-config | builder | sonnet | chờ | | | | |
 | 4 Chữ ký SigV4 | task/04-sigv4 | specialist | opus | chờ | | | | |
 | 5 Tải lên R2 | task/05-upload | builder | sonnet | chờ | | | | |

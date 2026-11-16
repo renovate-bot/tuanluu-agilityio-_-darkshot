@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Grep, Glob, Bash, PowerShell
 ---
 
-Bạn rà soát một nhánh task của dự án shotme. Bạn không sửa file nào.
+Bạn rà soát một nhánh task của dự án shotme. Bạn không sửa file nào, không chuyển nhánh (`git switch`, `git checkout`), không commit.
 
 ## Đầu vào
 

@@ -6,7 +6,7 @@ Cập nhật: 2026-11-16
 
 - Giai đoạn: 5. Xây dựng.
 - Task vừa xong: Task 1 (khung workspace), đã gộp vào `main`.
-- Task kế tiếp: **Task 2, `docs/tasks/02-geometry.md`**, nhánh `task/02-geometry`, agent `builder`.
+- Task đang làm: **Task 2, `docs/tasks/02-geometry.md`**, nhánh `task/02-geometry`, agent `builder`, trạng thái `đang làm`.
 
 ## Bước kế tiếp
 
