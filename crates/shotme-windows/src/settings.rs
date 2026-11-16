@@ -1,4 +1,4 @@
-//! Cửa sổ Tùy chọn ba tab (Win32 thuần, Common Controls v6 qua manifest).
+//! Cửa sổ Tùy chọn bốn tab (Win32 thuần, Common Controls v6 qua manifest).
 //!
 //! Phần logic (`apply_form`, `capture_hotkey`, `key_route`, `tab_of`, `initial_tab`) là hàm thuần
 //! có kiểm thử; phần cửa sổ mỏng.
@@ -9,7 +9,8 @@
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{
-    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys, R2Config, UploadFormat,
+    clamp_jpeg_quality, normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys,
+    R2Config, UploadFormat, JPEG_QUALITY_MAX, JPEG_QUALITY_MIN,
 };
 use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
@@ -31,9 +32,10 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    InitCommonControlsEx, IsAppThemed, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX, NMHDR, TCIF_TEXT,
+    InitCommonControlsEx, IsAppThemed, ICC_BAR_CLASSES, ICC_TAB_CLASSES, INITCOMMONCONTROLSEX,
+    NMHDR, TBM_SETLINESIZE, TBM_SETPAGESIZE, TBM_SETPOS, TBM_SETRANGE, TBS_HORZ, TCIF_TEXT,
     TCITEMW, TCM_ADJUSTRECT, TCM_GETCURSEL, TCM_INSERTITEMW, TCM_SETCURSEL, TCN_SELCHANGE,
-    TCN_SELCHANGING, WC_TABCONTROLW,
+    TCN_SELCHANGING, TRACKBAR_CLASSW, WC_TABCONTROLW,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -48,14 +50,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetParent, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild, IsDialogMessageW,
     IsIconic, KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW,
     SetForegroundWindow, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
-    BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON,
-    CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL,
+    BM_CLICK, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON,
+    BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL,
     CB_SHOWDROPDOWN, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD, ES_READONLY, GWL_STYLE, HMENU,
     HWND_BOTTOM, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_RESTORE,
     SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN,
-    WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NOTIFY, WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_SETFONT,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_HSCROLL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NOTIFY, WM_PRINTCLIENT, WM_RBUTTONDOWN,
+    WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
     WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU,
     WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
@@ -152,14 +154,14 @@ pub fn tab_of(field: Field) -> Tab {
 
 impl Tab {
     /// Thứ tự trên dải tab.
-    const ALL: [Tab; 3] = [Tab::General, Tab::Hotkeys, Tab::R2];
+    const ALL: [Tab; 4] = [Tab::General, Tab::Hotkeys, Tab::Format, Tab::R2];
 
     fn index(self) -> usize {
         match self {
             Tab::General => 0,
             Tab::Hotkeys => 1,
-            Tab::Format => todo!(),
-            Tab::R2 => 2,
+            Tab::Format => 2,
+            Tab::R2 => 3,
         }
     }
 
@@ -180,14 +182,13 @@ impl Tab {
 
 /// Ba ô chất lượng (nhãn, thanh trượt, số) chỉ sáng khi tải lên bằng JPEG.
 pub fn quality_enabled(format: UploadFormat) -> bool {
-    let _ = format;
-    todo!()
+    format == UploadFormat::Jpeg
 }
 
 /// Dải tab vừa một hàng: tổng bề rộng các tab không vượt `client_w` (cùng đơn vị).
 fn tabs_fit(tab_widths: &[i32], client_w: i32) -> bool {
-    let _ = (tab_widths, client_w);
-    todo!()
+    let total: i64 = tab_widths.iter().map(|w| i64::from(*w)).sum();
+    total <= i64::from(client_w)
 }
 
 /// Lý do mở cửa sổ Tùy chọn.
@@ -268,8 +269,8 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         save_dir: PathBuf::from(save_dir),
         autostart: form.autostart,
         language: form.language,
-        upload_format: current.upload_format,
-        jpeg_quality: current.jpeg_quality,
+        upload_format: form.upload_format,
+        jpeg_quality: clamp_jpeg_quality(i64::from(form.jpeg_quality)),
     })
 }
 
@@ -440,10 +441,17 @@ const ID_HELP: i32 = 114;
 const ID_NOTICES: i32 = 115;
 const ID_KEEP_SELECTION: i32 = 116;
 const ID_INCLUDE_CURSOR: i32 = 117;
+/// Tab Định dạng: hai nút chọn PNG/JPEG, thanh trượt chất lượng và ô số cạnh nó.
+const ID_FMT_PNG: i32 = 118;
+const ID_FMT_JPEG: i32 = 119;
+const ID_QUALITY: i32 = 140;
+const ID_QUALITY_VALUE: i32 = 141;
+/// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
+const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
 const ID_HK_CHANGE0: i32 = 130;
 const ID_HK_CHECK0: i32 = 133;
-/// Khung của tab thứ i có ID `ID_FRAME0 + i`.
+/// Khung của tab thứ i có ID `ID_FRAME0 + i` (120 đến 123).
 const ID_FRAME0: i32 = 120;
 const FRAME_CLASS: PCWSTR = w!("shotme-settings-frame");
 
@@ -461,8 +469,13 @@ const VK_CONTROL_U: i32 = VK_CONTROL.0 as i32;
 struct Ctl {
     tabs: HWND,
     /// Khung của từng tab, theo `Tab::index`.
-    frames: [HWND; 3],
+    frames: [HWND; 4],
     language: HWND,
+    fmt_png: HWND,
+    fmt_jpeg: HWND,
+    quality_label: HWND,
+    quality: HWND,
+    quality_value: HWND,
     account: HWND,
     keyid: HWND,
     secret: HWND,
@@ -563,14 +576,12 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (mut hotkeys, old_lang, cur_fmt, cur_q) = with_st(|s| {
-        (
-            s.hotkeys,
-            s.current.language,
-            s.current.upload_format,
-            s.current.jpeg_quality,
-        )
-    })?;
+    let (mut hotkeys, old_lang) = with_st(|s| (s.hotkeys, s.current.language))?;
+    let upload_format = if is_checked(c.fmt_jpeg) {
+        UploadFormat::Jpeg
+    } else {
+        UploadFormat::Png
+    };
     // Ô tích là nguồn đúng của trạng thái bật/tắt.
     for r in HotkeyRole::ALL {
         let mut slot = hotkeys.get(r);
@@ -595,9 +606,38 @@ fn read_form() -> Option<Form> {
         show_success_notices: is_checked(c.notices),
         keep_selection: is_checked(c.keep_selection),
         include_cursor: is_checked(c.include_cursor),
-        upload_format: cur_fmt,
-        jpeg_quality: cur_q,
+        upload_format,
+        // Đọc cả khi đang chọn PNG: giá trị được giữ cho lần chọn lại JPEG.
+        jpeg_quality: trackbar_pos(c.quality),
     })
+}
+
+/// Vị trí thanh trượt chất lượng, kẹp vào khoảng JPEG cho phép.
+fn trackbar_pos(h: HWND) -> u8 {
+    // SAFETY: h là thanh trượt của cửa sổ đang mở ở luồng này; chỉ đọc vị trí.
+    let pos = unsafe { SendMessageW(h, TBM_GETPOS, None, None).0 };
+    clamp_jpeg_quality(pos as i64)
+}
+
+/// Ô số cạnh thanh trượt hiện vị trí hiện tại.
+fn refresh_quality_text(c: &Ctl) {
+    set_text(c.quality_value, &trackbar_pos(c.quality).to_string());
+}
+
+/// Nhãn, thanh trượt và ô số chất lượng sáng khi chọn JPEG, mờ khi chọn PNG; giá trị giữ nguyên.
+fn apply_quality_enabled(c: &Ctl) {
+    let format = if is_checked(c.fmt_jpeg) {
+        UploadFormat::Jpeg
+    } else {
+        UploadFormat::Png
+    };
+    let on = quality_enabled(format);
+    // SAFETY: ba điều khiển thuộc cửa sổ đang mở ở luồng này.
+    unsafe {
+        for h in [c.quality_label, c.quality, c.quality_value] {
+            let _ = EnableWindow(h, on);
+        }
+    }
 }
 
 fn is_checked(h: HWND) -> bool {
@@ -617,7 +657,14 @@ fn first_ctl(c: &Ctl, t: Tab) -> HWND {
     match t {
         Tab::General => c.autostart,
         Tab::Hotkeys => c.hk_chk[0],
-        Tab::Format => todo!(),
+        // Nút chọn đang được chọn: đặt tiêu điểm vào nút kia sẽ tự chọn nó (BS_AUTORADIOBUTTON).
+        Tab::Format => {
+            if is_checked(c.fmt_jpeg) {
+                c.fmt_jpeg
+            } else {
+                c.fmt_png
+            }
+        }
         Tab::R2 => c.account,
     }
 }
@@ -632,7 +679,7 @@ fn field_ctl(c: &Ctl, f: Field) -> HWND {
     }
 }
 
-/// Hiện khung của tab `t`, ẩn và tắt hai khung còn lại. Tiêu điểm đang nằm trong khung sắp ẩn
+/// Hiện khung của tab `t`, ẩn và tắt các khung còn lại. Tiêu điểm đang nằm trong khung sắp ẩn
 /// thì chuyển sang ô đầu của khung mới trước khi ẩn, nên ô của khung ẩn không bao giờ giữ tiêu điểm.
 /// Không gửi thông điệp tới dải tab (bên gọi tự đặt lựa chọn của dải tab).
 fn show_frame(c: &Ctl, t: Tab) {
@@ -691,11 +738,11 @@ fn body_brush() -> HBRUSH {
     }
 }
 
-/// Thủ tục cửa sổ của khung: ô con báo WM_COMMAND và WM_CTLCOLORSTATIC cho khung (cha trực tiếp),
+/// Thủ tục cửa sổ của khung: ô con báo WM_COMMAND, WM_CTLCOLORSTATIC và WM_HSCROLL (thanh trượt) cho khung (cha trực tiếp),
 /// nên khung chuyển nguyên chúng lên cửa sổ chính. Nền khung tô bằng `body_brush`.
 unsafe extern "system" fn frame_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
-        WM_COMMAND | WM_CTLCOLORSTATIC => {
+        WM_COMMAND | WM_CTLCOLORSTATIC | WM_HSCROLL => {
             // SAFETY: cha của khung là cửa sổ chính cùng luồng; SendMessageW gọi thẳng thủ tục của nó.
             unsafe {
                 match GetParent(hwnd) {
@@ -846,6 +893,11 @@ fn on_command(hwnd: HWND, id: i32) {
         ID_TEST => on_test(hwnd),
         ID_BROWSE => on_browse(hwnd),
         ID_HELP => on_help(),
+        ID_FMT_PNG | ID_FMT_JPEG => {
+            if let Some(c) = ctl() {
+                apply_quality_enabled(&c);
+            }
+        }
         _ => {
             for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
                 if id == ID_HK_CHANGE0 + i as i32 {
@@ -1118,6 +1170,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             cancel();
             LRESULT(0)
         }
+        WM_HSCROLL => {
+            // Thanh trượt chất lượng (do khung chuyển lên): số đổi theo ngay khi kéo và khi bấm phím.
+            let from = HWND(lp.0 as *mut c_void);
+            if let Some(c) = ctl() {
+                if from == c.quality {
+                    refresh_quality_text(&c);
+                }
+            }
+            LRESULT(0)
+        }
         WM_APP_TEST_DONE => {
             on_test_done(hwnd);
             LRESULT(0)
@@ -1222,6 +1284,10 @@ const RIGHT_MARGIN: i32 = 50;
 const HK_BOX: i32 = 24;
 const HK_BTN_W: i32 = 70;
 const HK_GAP: i32 = 6;
+/// Phần cộng thêm vào bề rộng chữ của mỗi tab (lề trong của mục tab, rộng rãi hơn mức mặc định
+/// 2 × 6 của Common Controls) và phần dải tab không dùng cho mục (tab đang chọn nhô ra hai bên).
+const TAB_ITEM_PAD: i32 = 24;
+const TAB_STRIP_SLACK: i32 = 8;
 
 impl Layout {
     /// `label_w`: bề rộng chữ (DIP) của nhãn dài nhất trong mọi ngôn ngữ, `None` khi không đo được.
@@ -1238,14 +1304,24 @@ impl Layout {
     }
 
     /// Bề rộng dành cho các mục của dải tab.
+    /// Dải tab rộng `client_w - 24` (lề 12 mỗi bên); trừ thêm `TAB_STRIP_SLACK` cho phần nhô của tab
+    /// đang chọn và lề trong của dải.
     fn tab_strip_w(self) -> i32 {
-        todo!()
+        self.client_w - 24 - TAB_STRIP_SLACK
     }
 
     /// Nới `client_w` (và ô nhập theo cùng lượng) khi `tab_widths` không vừa một hàng.
     fn widen_for_tabs(self, tab_widths: &[i32]) -> Layout {
-        let _ = tab_widths;
-        todo!()
+        if tabs_fit(tab_widths, self.tab_strip_w()) {
+            return self;
+        }
+        let total: i32 = tab_widths.iter().sum();
+        let extra = total - self.tab_strip_w();
+        Layout {
+            client_w: self.client_w + extra,
+            ew: self.ew + extra,
+            hk_chk_w: self.hk_chk_w,
+        }
     }
 }
 
@@ -1494,6 +1570,74 @@ fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
     }
 }
 
+struct FormatCtl {
+    png: HWND,
+    jpeg: HWND,
+    quality_label: HWND,
+    quality: HWND,
+    quality_value: HWND,
+    height: i32,
+}
+
+/// Ô của tab Định dạng. Thứ tự Tab: nhóm nút chọn (một điểm dừng, mũi tên đổi giữa hai nút), rồi
+/// thanh trượt. Nhãn chất lượng đứng ngay trước thanh trượt để trình đọc màn hình lấy làm tên.
+fn build_format(b: &mut Builder) -> FormatCtl {
+    let w = b.layout.client_w - 60;
+    let mut y = 12;
+    b.label(lang::tr(Msg::LabelUploadFormat), LX, y, w, 20);
+    y += 24;
+    let png = b.button(
+        lang::tr(UploadFormat::Png.label()),
+        ws(BS_AUTORADIOBUTTON),
+        (LX + 12, y, w - 12, 22),
+        ID_FMT_PNG,
+    );
+    y += 26;
+    // Nút thứ hai cùng nhóm: không WS_GROUP, không WS_TABSTOP.
+    let jpeg = b.make(
+        w!("BUTTON"),
+        lang::tr(UploadFormat::Jpeg.label()),
+        ws(BS_AUTORADIOBUTTON),
+        (LX + 12, y, w - 12, 22),
+        ID_FMT_JPEG,
+    );
+    y += 36;
+    // WS_GROUP khép nhóm nút chọn ở trên.
+    let quality_label = b.make(
+        w!("STATIC"),
+        lang::tr(Msg::LabelJpegQuality),
+        WS_GROUP,
+        (LX, y + 5, EX - LX - 4, 20),
+        -1,
+    );
+    let value_w = 40;
+    let quality = b.make(
+        TRACKBAR_CLASSW,
+        "",
+        WS_GROUP | WS_TABSTOP | ws(TBS_HORZ as i32),
+        (EX, y, b.layout.ew - value_w - HK_GAP, 30),
+        ID_QUALITY,
+    );
+    let quality_value = b.make(
+        w!("STATIC"),
+        "",
+        WINDOW_STYLE(0),
+        (EX + b.layout.ew - value_w, y + 5, value_w, 20),
+        ID_QUALITY_VALUE,
+    );
+    y += 40;
+    b.label(lang::tr(Msg::NoteSavedAlwaysPng), LX, y, w, 20);
+    y += 28;
+    FormatCtl {
+        png,
+        jpeg,
+        quality_label,
+        quality,
+        quality_value,
+        height: y + 4,
+    }
+}
+
 struct R2Ctl {
     account: HWND,
     keyid: HWND,
@@ -1583,7 +1727,18 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         .iter()
         .flat_map(|r| Lang::ALL.map(|l| t(l, r.label())))
         .collect();
-    b.layout = Layout::from_label_width(max_text_width_dip(b, &labels));
+    let mut layout = Layout::from_label_width(max_text_width_dip(b, &labels));
+    // Dải tab bốn mục phải vừa một hàng ở mọi ngôn ngữ: đo nhãn tab của từng ngôn ngữ và nới nếu cần.
+    for l in Lang::ALL {
+        let widths: Option<Vec<i32>> = Tab::ALL
+            .iter()
+            .map(|tab| max_text_width_dip(b, &[t(l, tab.label())]).map(|w| w + TAB_ITEM_PAD))
+            .collect();
+        if let Some(tw) = widths {
+            layout = layout.widen_for_tabs(&tw);
+        }
+    }
+    b.layout = layout;
     let inner_w = b.layout.client_w - 24;
     let mut y = 12;
     if let Some(n) = notice {
@@ -1621,21 +1776,24 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         }
     }
 
-    // Ba khung (ẩn, tắt) và ô của chúng; kích thước khung đặt sau khi biết tab cao nhất.
+    // Bốn khung (ẩn, tắt) và ô của chúng; kích thước khung đặt sau khi biết tab cao nhất.
     let frames = [
         b.frame(ID_FRAME0),
         b.frame(ID_FRAME0 + 1),
         b.frame(ID_FRAME0 + 2),
+        b.frame(ID_FRAME0 + 3),
     ];
     b.parent = frames[Tab::General.index()];
     let g = build_general(b);
     b.parent = frames[Tab::Hotkeys.index()];
     let hk = build_hotkeys(b);
+    b.parent = frames[Tab::Format.index()];
+    let fmt = build_format(b);
     b.parent = frames[Tab::R2.index()];
     let r2 = build_r2(b, current);
     b.parent = main;
     // Cửa sổ cao theo tab cao nhất.
-    let frame_h = g.height.max(hk.height).max(r2.height);
+    let frame_h = g.height.max(hk.height).max(fmt.height).max(r2.height);
 
     // Vùng hiển thị của dải tab cao đúng bằng tab cao nhất; khung phủ kín vùng đó.
     let (left, top, width) = (b.s(12), b.s(tab_top), b.s(inner_w));
@@ -1732,6 +1890,12 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         frames[0],
         frames[1],
         frames[2],
+        frames[3],
+        fmt.png,
+        fmt.jpeg,
+        fmt.quality_label,
+        fmt.quality,
+        fmt.quality_value,
         g.language,
         r2.account,
         r2.keyid,
@@ -1761,6 +1925,11 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         tabs,
         frames,
         language: g.language,
+        fmt_png: fmt.png,
+        fmt_jpeg: fmt.jpeg,
+        quality_label: fmt.quality_label,
+        quality: fmt.quality,
+        quality_value: fmt.quality_value,
         account: r2.account,
         keyid: r2.keyid,
         secret: r2.secret,
@@ -1847,10 +2016,10 @@ pub fn show(
             ..Default::default()
         };
         RegisterClassW(&frame_wc);
-        // Đăng ký lớp dải tab của Common Controls v6.
+        // Đăng ký lớp dải tab và thanh trượt của Common Controls v6.
         let icc = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-            dwICC: ICC_TAB_CLASSES,
+            dwICC: ICC_TAB_CLASSES | ICC_BAR_CLASSES,
         };
         let _ = InitCommonControlsEx(&icc);
         let hwnd = CreateWindowExW(
@@ -1936,6 +2105,29 @@ pub fn show(
     set_checked(c.notices, current.show_success_notices);
     set_checked(c.keep_selection, current.keep_selection);
     set_checked(c.include_cursor, current.include_cursor);
+    set_checked(c.fmt_png, current.upload_format == UploadFormat::Png);
+    set_checked(c.fmt_jpeg, current.upload_format == UploadFormat::Jpeg);
+    let range = (usize::from(JPEG_QUALITY_MAX) << 16) | usize::from(JPEG_QUALITY_MIN);
+    let pos = clamp_jpeg_quality(i64::from(current.jpeg_quality));
+    // SAFETY: gửi thông điệp tới thanh trượt của cửa sổ này; tham số là số nguyên.
+    unsafe {
+        SendMessageW(
+            c.quality,
+            TBM_SETRANGE,
+            Some(WPARAM(0)),
+            Some(LPARAM(range as isize)),
+        );
+        SendMessageW(c.quality, TBM_SETLINESIZE, None, Some(LPARAM(1)));
+        SendMessageW(c.quality, TBM_SETPAGESIZE, None, Some(LPARAM(10)));
+        SendMessageW(
+            c.quality,
+            TBM_SETPOS,
+            Some(WPARAM(1)),
+            Some(LPARAM(isize::from(pos))),
+        );
+    }
+    refresh_quality_text(&c);
+    apply_quality_enabled(&c);
     let labels = Expiry::ALL.map(|e| expiry_label(lang::current(), e));
     // SAFETY: gửi thông điệp tới các điều khiển của cửa sổ này; HSTRING sống suốt lời gọi.
     unsafe {
@@ -2859,14 +3051,26 @@ mod tests {
                     let sel =
                         SendMessageW(tab, windows::Win32::UI::Controls::TCM_GETCURSEL, None, None)
                             .0;
+                    // Mép phải của tab cuối và bề rộng dải tab: tab cuối phải nằm trọn trong dải.
+                    let mut last = RECT::default();
+                    SendMessageW(
+                        tab,
+                        windows::Win32::UI::Controls::TCM_GETITEMRECT,
+                        Some(WPARAM(Tab::ALL.len() - 1)),
+                        Some(LPARAM(&mut last as *mut RECT as isize)),
+                    );
+                    let mut client = RECT::default();
+                    let _ = GetClientRect(tab, &mut client);
+                    let rows = (last.right, client.right);
                     if use_command {
                         PostMessageW(Some(h), WM_COMMAND, WPARAM(ID_CANCEL as usize), LPARAM(0))
                             .unwrap();
                     } else {
                         PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
                     }
-                    sel
+                    (sel, rows)
                 };
+                let (sel, rows) = sel;
                 let want = match initial_tab(reason) {
                     Tab::General => 0,
                     Tab::Hotkeys => 1,
@@ -2874,6 +3078,12 @@ mod tests {
                     Tab::R2 => 3,
                 };
                 assert_eq!(sel, want, "{reason:?}");
+                // Bốn tab nằm trọn trên một hàng (không cần nút cuộn của dải tab).
+                let (last_right, strip_right) = rows;
+                assert!(
+                    last_right > 0 && last_right <= strip_right,
+                    "{reason:?}: {last_right} > {strip_right}"
+                );
             });
             // Giả lập lần Kiểm tra kết nối trước bị bỏ dở (Hủy ngay sau khi bấm): cờ kẹt ở true.
             TEST_RUNNING.with(|r| r.set(true));
