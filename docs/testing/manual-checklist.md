@@ -91,3 +91,16 @@
 - [ ] Menu khay đang mở mà một lượt tải lên báo cần Cài đặt: menu đóng rồi Cài đặt mở, không treo.
 - [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\shotme` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím … hiện không hoạt động" kèm hướng dẫn mở Cài đặt chọn lại.
 - [ ] Bật "Khởi động cùng Windows" rồi Lưu: mục `shotme` xuất hiện trong `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; tắt rồi Lưu thì mất.
+
+## Nghiệm thu với R2 thật
+
+Chủ dự án tự làm các bước này với kho thật. Agent không nhận và không ghi khóa.
+
+- [ ] Nhập Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai theo README (mục "Chuẩn bị Cloudflare R2"), bấm "Kiểm tra kết nối": hiện "Thành công: tải lên được và link mở được."
+- [ ] Mở `%APPDATA%\shotme\config.json` bằng Notepad, tìm chuỗi Secret Access Key: không thấy khóa ở dạng đọc được.
+- [ ] Chụp một vùng, bấm `Ctrl+D`: thông báo "Đã chép link", dán ra link nguyên văn.
+- [ ] Mở link ở trình duyệt khác (cửa sổ ẩn danh, không đăng nhập Cloudflare): ảnh hiện đúng vùng đã chọn.
+- [ ] Link của hạn mặc định có thư mục `/d30/`. Đổi "Hạn của link" sang "1 ngày", tải lên một ảnh: link có `/d1/`.
+- [ ] Rút mạng rồi bấm `Ctrl+D`: ảnh được lưu vào thư mục lưu, thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh; Cài đặt không tự mở. Nối mạng lại.
+- [ ] Trong lúc `shotme.exe` chạy và tải lên, mở Resource Monitor (tab Network): các kết nối của `shotme.exe` chỉ tới địa chỉ `{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho.
+- [ ] Kiểm tra quy tắc xóa theo README (mục "Kiểm tra quy tắc xóa"): ảnh `d1/` biến mất sau hạn cộng độ trễ xóa.
