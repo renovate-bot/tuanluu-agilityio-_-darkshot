@@ -5,8 +5,8 @@ Cập nhật: 2026-11-16
 ## Đang ở đâu
 
 - Giai đoạn: 5. Xây dựng.
-- Task vừa xong: Task 7 (vỏ ứng dụng Windows), đã gộp vào `main`. Phần lõi (Task 2 đến 6) đã xong, 57 kiểm thử; lớp Windows có 5 kiểm thử.
-- Task đang làm: **Task 8, `docs/tasks/08-capture-overlay.md`**, nhánh `task/08-capture-overlay`, agent `specialist`, trạng thái `đang làm`. Sau task này DỪNG để chủ dự án thử tay.
+- Task vừa xong: Task 8 (chụp màn hình và lớp phủ), đã gộp vào `main`. Lõi 57 kiểm thử; lớp Windows 10 kiểm thử và 1 kiểm thử chạy tay (`overlay_round_trip_without_gdi_leaks`, `-- --ignored`). Rà soát hai lượt (lượt hai chỉ rà phần sửa).
+- Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay. Task kế tiếp sau khi họ báo: Task 9, `docs/tasks/09-win-services.md`, agent `specialist`.
 
 ## Bước kế tiếp
 
@@ -14,7 +14,7 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 
 ## Đang chờ chủ dự án
 
-- Chưa có.
+- Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md`, mục "Vỏ ứng dụng" và "Lớp phủ". Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
 
 ## Điểm dừng sắp tới cần chủ dự án
 
@@ -33,6 +33,8 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 - Trong bash của máy này `cargo` không có trong PATH; chạy cargo qua PowerShell hoặc qua `scripts/check.ps1`.
 - Task 6, khác gói task: `image::encode_png` trả `Result<Vec<u8>, String>`; có thêm `Image::is_valid()`. `run_action` với ảnh không hợp lệ trả `Failed` kèm một thông báo Error. Sao chép lỗi clipboard trả `Failed`; tải lên xong mà không chép được link vẫn trả `Uploaded(link)` với thông báo Error chứa link. Bản release dùng `panic = "abort"`: mã chạy thật không được `unwrap`/`expect` trên dữ liệu đầu vào.
 - Task 7: `windows` 0.62.2, `embed-resource` 3.0.12; có thêm `res/app.rc`. Cửa sổ ẩn là top-level `WS_EX_TOOLWINDOW` (để nhận "TaskbarCreated"). `Tray` có `try_add()`, `is_added()`; thêm biểu tượng thất bại thì thử lại mỗi 2 giây, tối đa 30 lần. `mod paths` đang có `#[allow(dead_code)]`, Task 11 bỏ đi. Phím tắt đang dùng `Hotkey::default()`, Task 11 đọc từ cấu hình. Chưa ai nhìn thấy giao diện bằng mắt: chờ chủ dự án thử theo checklist.
+- Task 8: `overlay::pick_region(&Screenshot) -> Result<Option<(Action, Rect)>, String>` (khác kế hoạch: `Err` là lỗi mở lớp phủ, `Ok(None)` là hủy). `main.rs` có cổng chụp `CaptureGate`/`gate_step` (Idle, PendingMenu, Capturing) thay cho cờ; mọi lối chụp phải đi qua `gate()`. Chụp từ menu khay hoãn 250 ms. Esc là phím tắt toàn cục tạm trong lúc lớp phủ mở. Lớp phủ dùng bộ đệm vẽ cố định cỡ màn hình ảo (thêm w×h×4 byte). Hiện sau khi chọn vùng chỉ có thông báo "Đã chọn ..."; Task 11 nối vào `run_action`.
+- Chưa kiểm được bằng máy: phím PrintScreen thật (Lightshot và Snipping Tool trên máy giữ phím), lớp phủ khi không giành được tiêu điểm, mọi phần hiển thị.
 - Sau khi chạy thử `shotme.exe`, luôn kết thúc mọi tiến trình `shotme`, nếu không lần build sau không ghi đè được file exe.
 - Việc để sau (ngoài bản đầu): xóa trắng vùng nhớ chứa khóa sau khi ký (cần crate `zeroize`).
 - Sửa nhỏ sau rà soát: gọi tiếp chính agent đã làm bằng SendMessage (còn nguyên ngữ cảnh), không tạo agent mới.
