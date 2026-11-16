@@ -1081,7 +1081,8 @@ fn paint_tabs(hwnd: HWND) {
     }
 }
 
-/// Độ dày (px) phần viền tự vẽ quanh ô nhập: đủ cho viền 1 px và gạch dưới 2 DIP.
+/// Độ dày (px) phần viền tự vẽ quanh ô nhập: đủ cho viền 1 DIP và gạch dưới 2 DIP (ở 150%: 3 px,
+/// viền 2 px, gạch dưới 3 px).
 fn edit_inset() -> i32 {
     scale(2, dpi())
 }
@@ -1122,8 +1123,9 @@ unsafe extern "system" fn edit_proc(
             paint_edit_frame(hwnd);
             LRESULT(0)
         }
+        // Ô bí mật không bao giờ tự vẽ (không đọc chữ thật của nó): để Windows vẽ ký tự che.
         // SAFETY: chỉ đọc trạng thái bật/tắt của ô.
-        WM_PAINT if !unsafe { IsWindowEnabled(hwnd) }.as_bool() => {
+        WM_PAINT if !unsafe { IsWindowEnabled(hwnd) }.as_bool() && !is_password(hwnd) => {
             paint_disabled_edit(hwnd);
             LRESULT(0)
         }
@@ -1164,7 +1166,14 @@ fn paint_edit_frame(hwnd: HWND) {
             bottom: h,
         };
         theme::fill(dc, &all, SURFACE);
-        theme::round_rect(dc, &all, scale(theme::RADIUS, dpi), INPUT, INPUT_BORDER, 1);
+        theme::round_rect(
+            dc,
+            &all,
+            scale(theme::RADIUS, dpi),
+            INPUT,
+            INPUT_BORDER,
+            scale(1, dpi).max(1),
+        );
         if thick > 1 {
             let ul = RECT {
                 left: scale(2, dpi),
@@ -1179,7 +1188,18 @@ fn paint_edit_frame(hwnd: HWND) {
 }
 
 /// Vùng client của ô nhập bị vô hiệu: nền `INPUT`, chữ `TEXT_DISABLED` ở đúng vùng chữ của ô.
+/// `true` khi `hwnd` là ô nhập có `ES_PASSWORD`.
+fn is_password(hwnd: HWND) -> bool {
+    // SAFETY: chỉ đọc kiểu cửa sổ.
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32;
+    style & ES_PASSWORD as u32 != 0
+}
+
+/// Không bao giờ dùng cho ô bí mật (`edit_proc` đã loại), và tự kiểm lại để không đọc chữ thật của nó.
 fn paint_disabled_edit(hwnd: HWND) {
+    if is_password(hwnd) {
+        return;
+    }
     let mut ps = PAINTSTRUCT::default();
     let mut rc = RECT::default();
     let mut text_rc = RECT::default();
@@ -1276,7 +1296,14 @@ fn paint_combo(hwnd: HWND) {
         let font = theme::control_font(hwnd);
         theme::buffered(hdc, &rc, |dc| {
             theme::fill(dc, &rc, bg_under(hwnd));
-            theme::round_rect(dc, &rc, scale(theme::RADIUS, dpi), INPUT, INPUT_BORDER, 1);
+            theme::round_rect(
+                dc,
+                &rc,
+                scale(theme::RADIUS, dpi),
+                INPUT,
+                INPUT_BORDER,
+                scale(1, dpi).max(1),
+            );
             let (border, thick) = theme::edit_border(focused, enabled);
             if thick > 1 {
                 let ul = RECT {
