@@ -1,6 +1,6 @@
 //! Trạng thái ứng dụng và luồng tải lên. Phần lớn là hàm thuần để kiểm thử được.
 
-use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier};
+use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
 use shotme_core::config::{Config, ConfigError, SecretStore};
 use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
@@ -24,18 +24,22 @@ pub struct AppState {
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
 pub fn startup(path: &Path, store: &dyn SecretStore, default_save_dir: &Path) -> AppState {
-    let _ = (
-        path,
-        store,
-        default_save_dir,
-        ConfigError::Io(String::new()),
-    );
-    todo!()
+    let defaults = || Config::defaults(default_save_dir);
+    let (config, config_notice) = match shotme_core::config::load(path, store, default_save_dir) {
+        Ok(l) if l.secret_lost => (l.config, Some(NOTICE_SECRET_LOST.to_string())),
+        Ok(l) => (l.config, None),
+        Err(ConfigError::Corrupt(_)) => (defaults(), Some(NOTICE_CORRUPT.to_string())),
+        Err(_) => (defaults(), Some(NOTICE_UNREADABLE.to_string())),
+    };
+    AppState {
+        config,
+        config_notice,
+        overlay_open: false,
+    }
 }
 
 pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool {
-    let _ = (s, config_file_exists);
-    todo!()
+    !config_file_exists || s.config_notice.is_some()
 }
 
 /// Mọi thứ một lượt tải lên cần; đã là bản chụp riêng, không tham chiếu trạng thái luồng chính.
@@ -53,8 +57,27 @@ pub struct UploadJob {
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
 pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
-    let _ = (job, run_action as fn(&Ctx, Action, &Image) -> _);
-    todo!()
+    std::thread::Builder::new()
+        .name("shotme-upload".into())
+        .spawn(move || {
+            let ctx = Ctx {
+                save_dir: &job.save_dir,
+                expiry: job.expiry,
+                now: (job.clock)(),
+                uploader: job.uploader.as_deref(),
+                clipboard: job.clipboard.as_ref(),
+                notifier: job.notifier.as_ref(),
+            };
+            let outcome = run_action(&ctx, Action::Upload, &job.image);
+            if let Outcome::UploadFailedSaved {
+                needs_settings: true,
+                ..
+            } = outcome
+            {
+                (job.on_needs_settings)();
+            }
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
