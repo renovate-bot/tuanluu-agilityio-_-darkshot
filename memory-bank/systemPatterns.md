@@ -73,7 +73,7 @@ Mọi trait có ràng buộc `Send + Sync`.
 - `winutil::dialog_pre_translate` lo Enter và Esc (đóng cửa sổ) và `IsDialogMessageW` lo Tab.
 - Phải gọi `pre_translate` ở mọi vòng lặp thông điệp, trừ lớp phủ (lớp phủ có vòng riêng). Hiện có hai nơi gọi: `main.rs` (vòng chính) và `settings.rs` (vòng của Tùy chọn). Thiếu một nơi thì phím Tab và Enter không hoạt động trong cửa sổ đó.
 
-### Thêm một ô hoặc một tab (đợt 2, 3)
+### Thêm một ô hoặc một tab (đợt 2, 3, 4)
 
 - Bề rộng lấy từ `Layout` (`settings.rs`), tính một lần trong `build_controls` từ nhãn dài nhất của dòng phím tắt và lưu ở `Builder.layout`. Ô mới dùng `b.layout.client_w` và `b.layout.ew`, không ghi số cứng.
 - Ô trong tab có sẵn (`settings.rs`):
@@ -96,6 +96,25 @@ Mọi trait có ràng buộc `Send + Sync`.
 - Nút chọn (đợt 3, `build_format`, `fmt_png` và `fmt_jpeg`): tạo bằng `BS_AUTORADIOBUTTON`. Nút đầu của nhóm dựng bằng `b.button` nên có `WS_GROUP | WS_TABSTOP`; nút sau trong cùng nhóm dựng bằng `b.make` không có hai cờ này. Ô kế sau có `WS_GROUP` để khép nhóm. Chỉ nút đang được chọn có điểm dừng Tab: `first_ctl` trả đúng nút đó. Đọc và đặt bằng `is_checked` và `set_checked`.
 - Thanh trượt (đợt 3, `TRACKBAR_CLASSW`, trường `Ctl.quality`): cần lớp `ICC_BAR_CLASSES` trong `InitCommonControlsEx`, cùng `ICC_TAB_CLASSES`. Đặt khoảng bằng `TBM_SETRANGE` (wParam 0, lParam = max << 16 | min), rồi `TBM_SETLINESIZE`, `TBM_SETPAGESIZE`, `TBM_SETPOS`. Đọc bằng `TBM_GETPOS`, hằng tự định nghĩa vì crate `windows` không có. Thanh trượt gửi `WM_HSCROLL` cho khung cha; `frame_proc` chuyển lên cửa sổ chính, và `wndproc` nhận HWND thanh trượt trong `lp`. Ô số cập nhật trong nhánh `WM_HSCROLL` đó.
 - Làm mờ (đợt 3, `apply_quality_enabled`): nhãn, thanh trượt và ô số gọi `EnableWindow` theo `quality_enabled(format)`. Gọi khi mở cửa sổ và khi đổi nút chọn. Điều khiển mờ không nhận Tab, và giá trị vẫn được đọc khi lưu.
+- Tô màu (đợt 4): ô mới không dùng màu mặc định của Windows. Làm theo mục "Giao diện tối (đợt 4)" dưới đây; mỗi loại điều khiển có một cách vẽ đã chọn.
+
+## Giao diện tối (đợt 4)
+
+- Hằng màu ở `darkshot_core::theme` (`crates/darkshot-core/src/theme.rs`): chỉ là số (`Rgb`, `Rgb::hex(0xRRGGBB)`), không phụ thuộc Windows. `contrast_ratio` tính theo WCAG 2.x.
+- Mọi cặp chữ và nền mới thêm vào `TEXT_PAIRS` (phải đạt 4,5:1). Thành phần giao diện (viền, tiêu điểm, ô tích) thêm vào `UI_PAIRS` (đạt 3:1). Kiểm thử của core đọc hai bảng này nên cặp không đạt sẽ làm hỏng `cargo test`.
+- `crates/darkshot-windows/src/theme.rs` (lớp Windows) là chỗ chung của mọi cửa sổ:
+  - `apply_dark_title_bar(hwnd)`: gọi cho mọi cửa sổ cấp cao trước khi hiện, để không nhá trắng.
+  - `enable_dark_menus()`: gọi một lần lúc khởi động (menu khay tối, chế độ không công khai của `uxtheme`).
+  - `set_dark_control_theme(hwnd, DarkClass::Explorer | Cfd)`: thanh cuộn và danh sách thả xuống của hộp chọn.
+  - `brush(c)`: chổi dùng chung, tạo lười, cache trong `static` và sống suốt tiến trình. Không tạo chổi mới trong `WM_CTLCOLOR*`.
+  - `ctl_color(hdc, fg, bg)`: xử lý `WM_CTLCOLOR*`, đặt màu chữ và nền rồi trả chổi nền.
+- Cách vẽ đã chọn ở `settings.rs` (báo cáo Task 30):
+  - Nút bấm, ô tích, nút chọn và thanh trượt vẽ bằng `NM_CUSTOMDRAW` (`custom_draw_button`, `custom_draw_trackbar` trong `theme.rs`), giữ kiểu điều khiển gốc. Không dùng `BS_OWNERDRAW`, để giữ Tab, phím gạch dưới và tên đọc được.
+  - Dải tab, hộp chọn và nhãn bị vô hiệu: subclass `WM_PAINT` (`SetWindowSubclass`, `SUBCLASS_ID` = 0xDA5, gỡ ở `WM_NCDESTROY`).
+  - Ô nhập: subclass `WM_NCCALCSIZE` và `WM_NCPAINT` (viền 2 DIP, gạch dưới ACCENT khi có tiêu điểm).
+  - Ô `ES_PASSWORD` không bao giờ tự vẽ chữ.
+- Kích thước vẽ tay (viền, bo góc, thanh trượt, ô tích) tính theo DPI của cửa sổ.
+- GDI: chổi dùng chung sống suốt tiến trình; mọi handle khác (bút, phông, DC) giải phóng trên mọi đường đi. Kiểm thử `*_no_gdi_leak` đếm đối tượng GDI sau khi mở đóng cửa sổ.
 
 ## Mẫu của đợt 3 (định dạng tải lên)
 

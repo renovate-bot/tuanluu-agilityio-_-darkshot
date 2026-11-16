@@ -22,7 +22,7 @@ Một người: chủ dự án, trên Windows 11, đang quen dùng Lightshot.
 - Phím toàn màn hình (tắt mặc định): `Shift+PrintScreen` lưu, `Ctrl+PrintScreen` tải lên; không mở lớp phủ, không có vùng chọn.
 - Thanh công cụ bốn nút chỉ có biểu tượng; rê chuột hiện tên và phím tắt:
   - Tải lên (`Ctrl+D`): tải lên R2, chép link vào clipboard, thông báo "Đã chép link".
-  - Lưu (`Ctrl+S`): lưu PNG vào `Pictures\shotme`, tên `shotme_YYYY-MM-DD_HH-MM-SS.png`, không hỏi lại.
+  - Lưu (`Ctrl+S`): lưu PNG vào `Pictures\darkshot`, tên `darkshot_YYYY-MM-DD_HH-MM-SS.png`, không hỏi lại.
   - Chép (`Ctrl+C`): chép ảnh vào clipboard.
   - Hủy (`Esc`).
 - Tải lên thất bại hoặc R2 chưa cấu hình: ảnh được lưu local, thông báo nêu lý do và nơi lưu. Chưa cấu hình thì mở Tùy chọn.

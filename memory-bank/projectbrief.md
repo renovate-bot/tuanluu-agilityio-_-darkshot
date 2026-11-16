@@ -4,7 +4,7 @@ Nguồn đầy đủ: `docs/superpowers/specs/2026-11-16-shotme-design.md`, mụ
 
 ## Mục đích
 
-shotme thay Lightshot cho riêng chủ dự án. Lightshot tải ảnh lên máy chủ của hãng; chủ dự án muốn ảnh chia sẻ nằm trong kho lưu trữ đứng tên mình, vì lý do an toàn và bảo mật.
+darkshot thay Lightshot cho riêng chủ dự án. Lightshot tải ảnh lên máy chủ của hãng; chủ dự án muốn ảnh chia sẻ nằm trong kho lưu trữ đứng tên mình, vì lý do an toàn và bảo mật.
 
 ## Mục tiêu bản đầu
 

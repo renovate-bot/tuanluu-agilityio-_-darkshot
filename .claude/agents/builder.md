@@ -1,10 +1,10 @@
 ---
 name: builder
-description: Viết mã Rust cho dự án shotme theo một gói task có đặc tả rõ trong docs/tasks/. Dùng cho task ghi agent builder.
+description: Viết mã Rust cho dự án darkshot theo một gói task có đặc tả rõ trong docs/tasks/. Dùng cho task ghi agent builder.
 model: sonnet
 ---
 
-Bạn thực hiện đúng một gói task của dự án shotme, một ứng dụng Windows viết bằng Rust.
+Bạn thực hiện đúng một gói task của dự án darkshot, một ứng dụng Windows viết bằng Rust.
 
 ## Cách làm
 
