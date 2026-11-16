@@ -232,6 +232,7 @@ mod tests {
             match &self.result {
                 Ok(s) => Ok(s.clone()),
                 Err(UploadError::Network(m)) => Err(UploadError::Network(m.clone())),
+                Err(UploadError::NotConfigured) => Err(UploadError::NotConfigured),
                 Err(_) => Err(UploadError::Auth),
             }
         }
@@ -397,6 +398,87 @@ mod tests {
         );
         assert!(path.exists());
         assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Error);
+    }
+
+    #[test]
+    fn uploader_not_configured_error_asks_for_settings() {
+        let d = temp_dir();
+        let up = FakeUploader::new(Err(UploadError::NotConfigured));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
+        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        assert_eq!(
+            out,
+            Outcome::UploadFailedSaved {
+                path: path.clone(),
+                needs_settings: true
+            }
+        );
+        assert!(path.exists());
+        // Lỗi khác vẫn không đòi mở Cài đặt.
+        let up = FakeUploader::new(Err(UploadError::Auth));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
+        assert!(matches!(
+            out,
+            Outcome::UploadFailedSaved {
+                needs_settings: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn same_second_saves_never_overwrite_each_other() {
+        // Nhiều lượt lưu cùng `LocalTime` chạy đồng thời: mỗi lượt một file riêng, nội dung còn nguyên.
+        const N: usize = 8;
+        for _round in 0..5 {
+            let d = temp_dir();
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
+            let handles: Vec<_> = (0..N)
+                .map(|i| {
+                    let d = d.clone();
+                    let barrier = barrier.clone();
+                    std::thread::spawn(move || {
+                        let image = Image {
+                            width: 1,
+                            height: 1,
+                            bgra: vec![i as u8, 0, 0, 255],
+                        };
+                        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+                        barrier.wait();
+                        let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &image);
+                        (image, out)
+                    })
+                })
+                .collect();
+            let results: Vec<(Image, Outcome)> =
+                handles.into_iter().map(|h| h.join().unwrap()).collect();
+            let mut paths = std::collections::HashSet::new();
+            for (image, out) in &results {
+                let Outcome::Saved(p) = out else {
+                    panic!("lưu thất bại: {out:?}");
+                };
+                assert!(paths.insert(p.clone()), "trùng đường dẫn {}", p.display());
+                assert_eq!(std::fs::read(p).unwrap(), encode_png(image).unwrap());
+            }
+            // Không còn file tạm hay file giữ chỗ thừa.
+            assert_eq!(std::fs::read_dir(&d).unwrap().count(), N);
+        }
+    }
+
+    #[test]
+    fn save_skips_existing_file_without_touching_it() {
+        let d = temp_dir();
+        let first = d.join("shotme_2026-11-16_14-03-05.png");
+        std::fs::write(&first, b"old").unwrap();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &img());
+        assert_eq!(
+            out,
+            Outcome::Saved(d.join("shotme_2026-11-16_14-03-05_2.png"))
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"old");
     }
 
     #[test]

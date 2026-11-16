@@ -438,4 +438,26 @@ mod tests {
         assert!(normalize_public_base_url("https://").is_err());
         assert!(normalize_public_base_url("https://img.exa mple.com").is_err());
     }
+
+    #[test]
+    fn public_base_url_rejects_query_fragment_userinfo_and_empty_host() {
+        for bad in [
+            "https://img.example.com/?x=1",
+            "https://img.example.com?x",
+            "https://img.example.com/#top",
+            "https://img.example.com#top",
+            "https://user@img.example.com",
+            "https://evil.com@img.example.com",
+            "https:///path",
+            "https://:443",
+            "https://:443/path",
+        ] {
+            assert!(normalize_public_base_url(bad).is_err(), "{bad:?}");
+        }
+        // Có đường dẫn con và cổng thì vẫn hợp lệ.
+        assert_eq!(
+            normalize_public_base_url("https://img.example.com:8443/shots/").unwrap(),
+            "https://img.example.com:8443/shots"
+        );
+    }
 }
