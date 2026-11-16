@@ -198,9 +198,25 @@ impl Notifier for TrayNotifier {
     }
 }
 
+/// Số lần thử lại tối đa khi chưa thêm được biểu tượng.
+pub const MAX_ADD_RETRIES: u32 = 30;
+
+/// Có nên thử thêm lại biểu tượng khay không (`attempts` là số lần đã thử lại).
+pub fn should_retry(_added: bool, _attempts: u32) -> bool {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tray_add_retry_policy() {
+        assert!(!should_retry(true, 0));
+        assert!(should_retry(false, 0));
+        assert!(should_retry(false, 29));
+        assert!(!should_retry(false, 30));
+    }
 
     #[test]
     fn fill_wide_truncates_and_terminates() {
