@@ -263,7 +263,16 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         Some(d) => d.join(tmp_name),
         None => PathBuf::from(tmp_name),
     };
-    std::fs::write(&tmp, json).map_err(io)?;
+    let write_tmp = || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(json.as_bytes())?;
+        f.sync_all()
+    };
+    if let Err(e) = write_tmp() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(io(e));
+    }
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         io(e)
@@ -352,6 +361,17 @@ mod tests {
         save(&path, &c, &XorStore).unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("TOP-SECRET-VALUE"));
         assert_eq!(load(&path, &XorStore, Path::new("C:/pics")).unwrap().config, c);
+    }
+
+    #[test]
+    fn save_leaves_no_temp_file() {
+        let dir = temp_dir();
+        save(&dir.join("config.json"), &sample(), &XorStore).unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["config.json".to_string()]);
     }
 
     #[test]

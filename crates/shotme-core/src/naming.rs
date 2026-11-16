@@ -41,6 +41,8 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
 const ALPHABET: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /// 16 ký tự `[A-Za-z0-9]`; lấy mẫu loại trừ (bỏ byte >= 248) để không lệch phân phối.
+///
+/// Panic nếu nguồn ngẫu nhiên của hệ điều hành lỗi.
 pub fn random_object_name() -> String {
     let mut out = String::with_capacity(16);
     let mut buf = [0u8; 32];
