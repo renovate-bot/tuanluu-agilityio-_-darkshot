@@ -1269,4 +1269,103 @@ mod tests {
         assert_eq!(at(230, 110), Some(Action::Cancel));
         assert_eq!(at(300, 110), None);
     }
+
+    /// Mở lớp phủ thật, giả lập kéo khung rồi bấm nút Lưu (hoặc Esc), kiểm kết quả và
+    /// số đối tượng GDI không tăng sau nhiều lần mở. Bỏ qua mặc định vì lớp phủ hiện
+    /// lên màn hình của người đang dùng máy.
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p shotme-windows -- --ignored"]
+    fn overlay_round_trip_without_gdi_leaks() {
+        use crate::capture::{capture_virtual_screen, GDI_TEST_LOCK};
+        use std::time::Duration;
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
+
+        let _gdi = GDI_TEST_LOCK.lock();
+        // SAFETY: như ứng dụng thật (manifest PerMonitorV2), áp cho luồng kiểm thử.
+        unsafe {
+            SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        let shot = capture_virtual_screen().unwrap();
+        let m0 = shot.monitors[0];
+        let (a, b) = (
+            Point {
+                x: m0.x + 100,
+                y: m0.y + 100,
+            },
+            Point {
+                x: m0.x + 400,
+                y: m0.y + 300,
+            },
+        );
+        let sel = Rect::from_points(a, b);
+        // Vị trí nút Lưu, tính như State::toolbar.
+        let corner = Point {
+            x: sel.right() - 1,
+            y: sel.bottom() - 1,
+        };
+        let mon = monitor_containing(corner, &shot.monitors);
+        let dpi = monitor_dpi_at(POINT {
+            x: shot.origin.x + mon.x + mon.w / 2,
+            y: shot.origin.y + mon.y + mon.h / 2,
+        });
+        let btn = scaled(BUTTON, dpi);
+        let bar = place_toolbar(sel, (4 * btn, btn), scaled(GAP, dpi), mon);
+        let save = Point {
+            x: bar.x + btn + btn / 2,
+            y: bar.y + btn / 2,
+        };
+
+        let run = |finish_with_save: bool| {
+            let driver = std::thread::spawn(move || {
+                let lp =
+                    |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
+                for _ in 0..50 {
+                    std::thread::sleep(Duration::from_millis(100));
+                    // SAFETY: tìm cửa sổ lớp phủ theo tên lớp, chỉ đăng thông điệp vào nó.
+                    let Ok(h) = (unsafe { FindWindowW(CLASS, None) }) else {
+                        continue;
+                    };
+                    let post = |m: u32, wp: usize, l: LPARAM| {
+                        // SAFETY: đăng thông điệp vào hàng đợi của cửa sổ còn sống.
+                        let _ = unsafe { PostMessageW(Some(h), m, WPARAM(wp), l) };
+                    };
+                    post(WM_LBUTTONDOWN, 1, lp(a));
+                    post(WM_MOUSEMOVE, 1, lp(b));
+                    post(WM_LBUTTONUP, 0, lp(b));
+                    std::thread::sleep(Duration::from_millis(300));
+                    post(WM_MOUSEMOVE, 0, lp(save));
+                    std::thread::sleep(Duration::from_millis(300));
+                    if finish_with_save {
+                        post(WM_LBUTTONDOWN, 1, lp(save));
+                        post(WM_LBUTTONUP, 0, lp(save));
+                    } else {
+                        post(WM_KEYDOWN, usize::from(VK_ESCAPE.0), LPARAM(0));
+                    }
+                    return true;
+                }
+                false
+            });
+            let r = pick_region(&shot);
+            assert!(driver.join().unwrap(), "không thấy cửa sổ lớp phủ");
+            r
+        };
+        // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
+        let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+
+        assert_eq!(run(true), Some((Action::Save, sel)));
+        let after_first = gdi();
+        assert_eq!(run(false), None);
+        assert_eq!(run(true), Some((Action::Save, sel)));
+        let after_third = gdi();
+        assert!(
+            after_third <= after_first,
+            "GDI tăng từ {after_first} lên {after_third}"
+        );
+    }
 }

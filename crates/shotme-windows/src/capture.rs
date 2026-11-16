@@ -264,6 +264,10 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
     })
 }
 
+/// Kiểm thử dùng GDI chạy lần lượt để đếm được đối tượng GDI của tiến trình.
+#[cfg(test)]
+pub static GDI_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +314,7 @@ mod tests {
 
     #[test]
     fn capture_matches_virtual_screen() {
+        let _gdi = GDI_TEST_LOCK.lock();
         let s = capture_virtual_screen().unwrap();
         assert!(s.image.width > 0 && s.image.height > 0);
         assert_eq!(
