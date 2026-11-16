@@ -122,7 +122,7 @@ Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích b�
 
 - Bật **Bao gồm con trỏ chuột vào ảnh chụp màn hình** (mặc định tắt): con trỏ được vẽ vào ảnh ngay lúc chụp, nên ảnh nền của lớp phủ cũng có con trỏ đứng yên.
 - Con trỏ đang ẩn thì không được vẽ.
-- Con trỏ được vẽ ở cỡ mặc định của hệ thống, không co giãn theo DPI của màn hình và không theo độ phóng to trong Trợ năng. Trên màn hình có DPI khác 100% hoặc khi con trỏ được phóng to, con trỏ trong ảnh có thể nhỏ hơn trên màn hình.
+- Con trỏ được vẽ ở cỡ mà Windows trả về lúc chụp. Trên màn hình có DPI khác 100%, hoặc khi con trỏ được phóng to trong Cài đặt Windows, con trỏ trong ảnh có thể nhỏ hơn trên màn hình.
 
 ### Menu khay
 

@@ -15,7 +15,7 @@ Một người: chủ dự án, trên Windows 11, đang quen dùng Lightshot.
   - Phím tắt: ba dòng, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút Đổi…: Chụp vùng màn hình (bật, PrintScreen), Lưu ảnh (toàn màn hình) (tắt, Shift+PrintScreen), Tải lên nhanh (toàn màn hình) (tắt, Ctrl+PrintScreen).
   - Lưu trữ R2: Account ID, Access Key ID, Secret Access Key, Tên kho, Địa chỉ công khai, Hạn của link, nút Kiểm tra kết nối.
 - Hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy chọn › Thông thường, có hiệu lực ngay khi bấm OK. Mặc định: chưa có file cấu hình hoặc file hỏng thì theo ngôn ngữ giao diện Windows (tiếng Việt nếu là tiếng Việt, còn lại English); file cũ không có mục ngôn ngữ thì là Tiếng Việt.
-- Đợt 2 đã có trong mã: phím lưu và tải lên toàn màn hình (màn hình đang có con trỏ chuột, không mở lớp phủ), chụp kèm con trỏ chuột, giữ vị trí vùng chọn (trong lúc ứng dụng chạy), bật/tắt thông báo lưu và sao chép. Chủ dự án tự thử tay đợt này.
+- Đợt 2 đã có trong mã: phím lưu và tải lên toàn màn hình (màn hình đang có con trỏ chuột, không mở lớp phủ), chụp kèm con trỏ chuột, giữ vị trí vùng chọn (trong lúc ứng dụng chạy), bật/tắt thông báo lưu và sao chép. Chủ dự án đã nghiệm thu đợt 2 qua thử tay (2026-11-16).
 - Chưa làm (đợt 3): tải lên bằng PNG hoặc JPEG, chất lượng JPEG. Chưa có thiết kế. Proxy không làm ở mọi đợt.
 - Bấm `PrintScreen` (đổi được): màn hình đứng yên và tối đi, kéo chuột chọn vùng, có nhãn kích thước. Chỉnh khung bằng 8 tay nắm, kéo bên trong để di chuyển, kéo bên ngoài để chọn lại. Ảnh nền có con trỏ chuột nếu ô "Bao gồm con trỏ chuột" đang bật.
 - Phím toàn màn hình (tắt mặc định): `Shift+PrintScreen` lưu, `Ctrl+PrintScreen` tải lên; không mở lớp phủ, không có vùng chọn.
