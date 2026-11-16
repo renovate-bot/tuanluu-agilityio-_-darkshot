@@ -32,6 +32,9 @@ Tạm thời (đến Task 11) chọn xong một hành động chỉ hiện thôn
 - [ ] Phím: `Ctrl+D`, `Ctrl+S`, `Ctrl+C` đóng lớp phủ và báo đúng hành động khi đã có khung; khi chưa có khung thì không có tác dụng. `Esc` đóng lớp phủ ở mọi lúc, kể cả đang kéo.
 - [ ] Alt+Tab (hoặc phím Windows) khi lớp phủ đang mở: lớp phủ đóng.
 - [ ] Bấm PrintScreen khi lớp phủ đang mở: không có gì xảy ra (không mở lớp phủ thứ hai).
+- [ ] Bấm PrintScreen khi đang ở một ứng dụng khác rồi bấm `Esc` ngay, không bấm chuột: lớp phủ đóng (phím Esc toàn cục tạm thời).
+- [ ] Chọn "Chụp màn hình" ở menu khay rồi mở lại menu khay ngay: menu không mở, lớp phủ mở một lần sau khoảng 1/4 giây.
+- [ ] Bấm PrintScreen khi menu khay đang mở: menu đóng, lớp phủ mở đúng một lần và menu không lọt vào ảnh nền.
 - [ ] Hai màn hình: lớp phủ phủ cả hai; kéo một khung qua ranh giới hai màn hình được.
 - [ ] Màn hình phụ đặt bên trái (hoặc phía trên) màn hình chính: lớp phủ khớp đúng từng màn hình, khung chọn và nhãn đúng vị trí dưới con trỏ.
 - [ ] Hai màn hình khác tỉ lệ phóng to (ví dụ 100% và 150%): nút, nhãn, chú thích, tay nắm trên mỗi màn hình to theo tỉ lệ của màn hình đó; ảnh nền không bị lệch.
