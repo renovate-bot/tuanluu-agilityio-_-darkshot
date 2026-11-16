@@ -308,6 +308,17 @@ pub fn normalize_public_base_url(input: &str) -> Result<String, String> {
     if s.chars().any(char::is_whitespace) {
         return Err("Địa chỉ công khai không được chứa khoảng trắng".into());
     }
+    if rest.contains(['?', '#', '@']) {
+        return Err("Địa chỉ công khai không được chứa các ký tự ?, # hoặc @".into());
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = match authority.rsplit_once(':') {
+        Some((h, _port)) => h,
+        None => authority,
+    };
+    if host.is_empty() {
+        return Err("Địa chỉ công khai thiếu tên miền sau https://".into());
+    }
     Ok(s.to_string())
 }
 
@@ -437,5 +448,27 @@ mod tests {
         assert!(normalize_public_base_url("img.example.com").is_err());
         assert!(normalize_public_base_url("https://").is_err());
         assert!(normalize_public_base_url("https://img.exa mple.com").is_err());
+    }
+
+    #[test]
+    fn public_base_url_rejects_query_fragment_userinfo_and_empty_host() {
+        for bad in [
+            "https://img.example.com/?x=1",
+            "https://img.example.com?x",
+            "https://img.example.com/#top",
+            "https://img.example.com#top",
+            "https://user@img.example.com",
+            "https://evil.com@img.example.com",
+            "https:///path",
+            "https://:443",
+            "https://:443/path",
+        ] {
+            assert!(normalize_public_base_url(bad).is_err(), "{bad:?}");
+        }
+        // Có đường dẫn con và cổng thì vẫn hợp lệ.
+        assert_eq!(
+            normalize_public_base_url("https://img.example.com:8443/shots/").unwrap(),
+            "https://img.example.com:8443/shots"
+        );
     }
 }

@@ -6,7 +6,7 @@ use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
 use shotme_core::upload::Uploader;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 pub const NOTICE_CORRUPT: &str =
@@ -42,6 +42,110 @@ pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool {
     !config_file_exists || s.config_notice.is_some()
 }
 
+/// Một lượt tải lên chưa xong: ảnh và thư mục lưu của chính lượt đó.
+pub struct PendingUpload {
+    pub image: Arc<Image>,
+    pub save_dir: PathBuf,
+}
+
+/// Sổ các lượt tải lên đang chạy, để lưu ảnh vào máy nếu ứng dụng thoát giữa chừng.
+/// Dùng được từ nhiều luồng; `Mutex` bị poison vẫn dùng tiếp, không panic.
+pub struct PendingUploads {
+    inner: Mutex<PendingInner>,
+}
+
+struct PendingInner {
+    next_id: u64,
+    items: Vec<(u64, PendingUpload)>,
+}
+
+impl Default for PendingUploads {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PendingUploads {
+    pub const fn new() -> Self {
+        PendingUploads {
+            inner: Mutex::new(PendingInner {
+                next_id: 0,
+                items: Vec::new(),
+            }),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, PendingInner> {
+        // Sổ chỉ là danh sách; một luồng panic giữa chừng không làm nó sai, nên dùng tiếp.
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Ghi một lượt vào sổ; trả mã để rút ra sau.
+    pub fn add(&self, image: Arc<Image>, save_dir: PathBuf) -> u64 {
+        let mut g = self.lock();
+        let id = g.next_id;
+        g.next_id = g.next_id.wrapping_add(1);
+        g.items.push((id, PendingUpload { image, save_dir }));
+        id
+    }
+
+    /// Rút một lượt khỏi sổ; `false` nếu nó không còn trong sổ.
+    pub fn remove(&self, id: u64) -> bool {
+        let mut g = self.lock();
+        match g.items.iter().position(|(i, _)| *i == id) {
+            Some(pos) => {
+                g.items.remove(pos);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Lấy ra mọi lượt còn trong sổ (theo thứ tự thêm vào), sổ trở thành rỗng.
+    pub fn drain(&self) -> Vec<PendingUpload> {
+        std::mem::take(&mut self.lock().items)
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect()
+    }
+}
+
+/// Bỏ qua mọi thông báo: lúc thoát hoặc tắt máy không còn ai để báo.
+struct SilentNotifier;
+impl Notifier for SilentNotifier {
+    fn notify(&self, _: shotme_core::actions::NoticeKind, _: &str, _: &str) {}
+}
+
+/// Không đụng clipboard của người dùng khi lưu lúc thoát.
+struct NoClipboard;
+impl Clipboard for NoClipboard {
+    fn set_text(&self, _: &str) -> Result<(), String> {
+        Err("không dùng clipboard lúc thoát".into())
+    }
+    fn set_image(&self, _: &Image) -> Result<(), String> {
+        Err("không dùng clipboard lúc thoát".into())
+    }
+}
+
+/// Lưu PNG của các lượt chưa xong vào thư mục lưu của từng lượt. Chỉ ghi file, không thông báo,
+/// không chạm clipboard, không mạng. Trả số ảnh đã lưu được.
+pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
+    items
+        .iter()
+        .filter(|p| {
+            let ctx = Ctx {
+                save_dir: &p.save_dir,
+                expiry: shotme_core::config::Expiry::Keep,
+                now,
+                uploader: None,
+                clipboard: &NoClipboard,
+                notifier: &SilentNotifier,
+            };
+            matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
+        })
+        .count()
+}
+
 /// Mọi thứ một lượt tải lên cần; đã là bản chụp riêng, không tham chiếu trạng thái luồng chính.
 pub struct UploadJob {
     pub save_dir: PathBuf,
@@ -53,6 +157,8 @@ pub struct UploadJob {
     pub clock: fn() -> LocalTime,
     /// Gọi khi `UploadFailedSaved { needs_settings: true }`.
     pub on_needs_settings: Box<dyn FnOnce() + Send>,
+    /// Sổ và mã của lượt này; luồng tải lên rút nó khỏi sổ khi kết thúc.
+    pub pending: Option<(Arc<PendingUploads>, u64)>,
 }
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
@@ -69,6 +175,10 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 notifier: job.notifier.as_ref(),
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
+            // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
+            if let Some((reg, id)) = &job.pending {
+                reg.remove(*id);
+            }
             if let Outcome::UploadFailedSaved {
                 needs_settings: true,
                 ..
@@ -237,7 +347,103 @@ mod tests {
             image: img(),
             clock: fixed_now,
             on_needs_settings: cb,
+            pending: None,
         }
+    }
+
+    fn pixel(v: u8) -> Arc<Image> {
+        Arc::new(Image {
+            width: 1,
+            height: 1,
+            bgra: vec![v, v, v, 255],
+        })
+    }
+
+    #[test]
+    fn pending_add_remove_drain() {
+        let reg = PendingUploads::new();
+        let (a, b, c) = (pixel(1), pixel(2), pixel(3));
+        let ia = reg.add(a.clone(), PathBuf::from("C:/a"));
+        let ib = reg.add(b.clone(), PathBuf::from("C:/b"));
+        let ic = reg.add(c.clone(), PathBuf::from("C:/c"));
+        assert!(ia != ib && ib != ic && ia != ic);
+        assert!(reg.remove(ib));
+        // Rút hai lần: lần sau báo không còn.
+        assert!(!reg.remove(ib));
+        let left = reg.drain();
+        assert_eq!(left.len(), 2);
+        assert!(Arc::ptr_eq(&left[0].image, &a) && left[0].save_dir == Path::new("C:/a"));
+        assert!(Arc::ptr_eq(&left[1].image, &c) && left[1].save_dir == Path::new("C:/c"));
+        // Sau drain sổ rỗng; rút một lượt đã bị drain không làm gì.
+        assert!(reg.drain().is_empty());
+        assert!(!reg.remove(ia));
+        // Mã mới không trùng mã cũ.
+        let id = reg.add(pixel(4), PathBuf::from("C:/d"));
+        assert!(id != ia && id != ib && id != ic);
+        assert_eq!(reg.drain().len(), 1);
+    }
+
+    #[test]
+    fn pending_survives_poisoned_mutex() {
+        let reg = Arc::new(PendingUploads::new());
+        let id = reg.add(pixel(1), PathBuf::from("C:/a"));
+        let r2 = reg.clone();
+        let _ = std::thread::spawn(move || {
+            let _g = r2.inner.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        assert!(reg.inner.is_poisoned());
+        let id2 = reg.add(pixel(2), PathBuf::from("C:/b"));
+        assert!(reg.remove(id));
+        assert!(!reg.remove(id));
+        let left = reg.drain();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].save_dir, Path::new("C:/b"));
+        assert!(!reg.remove(id2));
+    }
+
+    #[test]
+    fn save_pending_writes_each_png_to_its_dir() {
+        let (d1, d2) = (temp_dir(), temp_dir().join("sub"));
+        let items = vec![
+            PendingUpload {
+                image: pixel(1),
+                save_dir: d1.clone(),
+            },
+            PendingUpload {
+                image: pixel(2),
+                save_dir: d2.clone(),
+            },
+            PendingUpload {
+                image: pixel(3),
+                save_dir: d1.clone(),
+            },
+        ];
+        assert_eq!(save_pending(items, fixed_now()), 3);
+        assert!(d1.join("shotme_2026-11-16_01-02-03.png").exists());
+        assert!(d1.join("shotme_2026-11-16_01-02-03_2.png").exists());
+        assert!(d2.join("shotme_2026-11-16_01-02-03.png").exists());
+        assert_eq!(std::fs::read_dir(&d1).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn finished_upload_leaves_the_registry() {
+        let reg = Arc::new(PendingUploads::new());
+        let other = reg.add(pixel(9), PathBuf::from("C:/other"));
+        for up in [
+            Some(Arc::new(SlowUploader("https://x/a".into())) as Arc<dyn Uploader>),
+            None, // lỗi cấu hình: đã tự lưu dự phòng
+        ] {
+            let n = Arc::new(FakeNotifier::default());
+            let mut j = job(temp_dir(), up, n, Box::new(|| {}));
+            let id = reg.add(j.image.clone(), j.save_dir.clone());
+            j.pending = Some((reg.clone(), id));
+            spawn_upload(j).unwrap().join().unwrap();
+            assert!(!reg.remove(id), "lượt đã xong phải tự rút khỏi sổ");
+        }
+        // Lượt không liên quan vẫn còn.
+        assert!(reg.remove(other));
     }
 
     #[test]

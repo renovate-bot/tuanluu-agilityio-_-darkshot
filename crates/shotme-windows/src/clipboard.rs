@@ -3,10 +3,10 @@
 use shotme_core::actions::Clipboard;
 use shotme_core::image::Image;
 use std::time::Duration;
-use windows::core::w;
+use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -16,6 +16,19 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Định dạng chuẩn (winuser.h): CF_DIB = 8, CF_UNICODETEXT = 13.
 const CF_DIB: u32 = 8;
 const CF_UNICODETEXT: u32 = 13;
+/// Định dạng đăng ký mà Windows dùng để loại nội dung khỏi lịch sử clipboard và đồng bộ đám mây,
+/// kèm giá trị DWORD đặt vào.
+/// Nguồn: learn.microsoft.com/windows/win32/dataxchg/clipboard-formats, mục
+/// "Cloud Clipboard and Clipboard History Formats" (lấy mã bằng `RegisterClipboardFormatW`).
+pub(crate) const EXCLUSION_FORMATS: &[(&str, u32)] = &[
+    // "Place any data ... to prevent all clipboard formats being included in the clipboard
+    // history or synchronized": dữ liệu tùy ý, ta đặt DWORD 0.
+    ("ExcludeClipboardContentFromMonitorProcessing", 0),
+    // DWORD 0: không đưa vào lịch sử clipboard (Win+V).
+    ("CanIncludeInClipboardHistory", 0),
+    // DWORD 0: không đồng bộ sang thiết bị khác.
+    ("CanUploadToCloudClipboard", 0),
+];
 /// `OpenClipboard` thất bại khi ứng dụng khác đang giữ clipboard: thử tối đa 10 lần, cách 30 ms.
 const OPEN_ATTEMPTS: u32 = 10;
 const OPEN_RETRY_DELAY: Duration = Duration::from_millis(30);
@@ -204,17 +217,44 @@ impl Drop for GlobalMem {
     }
 }
 
-/// Thay nội dung clipboard bằng một định dạng duy nhất.
+/// Mã và dữ liệu của các định dạng loại trừ; định dạng nào không đăng ký hoặc cấp phát được thì bỏ.
+fn exclusion_data() -> Vec<(u32, GlobalMem)> {
+    EXCLUSION_FORMATS
+        .iter()
+        .filter_map(|(name, value)| {
+            let h = HSTRING::from(*name);
+            // SAFETY: chuỗi kết thúc bằng 0, sống suốt lời gọi.
+            let id = unsafe { RegisterClipboardFormatW(&h) };
+            if id == 0 {
+                return None;
+            }
+            GlobalMem::from_bytes(&value.to_le_bytes())
+                .ok()
+                .map(|m| (id, m))
+        })
+        .collect()
+}
+
+/// Thay nội dung clipboard bằng một định dạng chính, kèm các định dạng báo Windows không đưa
+/// nội dung vào lịch sử clipboard hay đồng bộ đám mây.
 fn put(format: u32, data: &[u8]) -> Result<(), String> {
     // Cấp phát trước khi mở để giữ clipboard ngắn nhất có thể.
     let mem = GlobalMem::from_bytes(data)?;
+    let extras = exclusion_data();
     let owner = OwnerWindow::new()?;
     let result = {
         let _open = OpenGuard::open(&owner)?;
         // SAFETY: clipboard đang mở với chủ là `owner`.
-        unsafe { EmptyClipboard() }
+        let r = unsafe { EmptyClipboard() }
             .map_err(|e| format!("Không xóa được clipboard (mã lỗi {:#010x})", e.code().0))
-            .and_then(|()| mem.into_clipboard(format))
+            .and_then(|()| mem.into_clipboard(format));
+        if r.is_ok() {
+            for (id, m) in extras {
+                // Đặt định dạng phụ thất bại không làm hỏng việc chép chính; vùng nhớ tự giải phóng.
+                let _ = m.into_clipboard(id);
+            }
+        }
+        r
         // `_open` đóng clipboard ở đây, trước khi hủy cửa sổ chủ.
     };
     drop(owner);
@@ -306,6 +346,34 @@ mod tests {
         (width, height.abs(), [b[p], b[p + 1], b[p + 2]])
     }
 
+    /// Mọi định dạng loại trừ có mặt trên clipboard với DWORD 0.
+    fn assert_exclusion_formats_present() {
+        assert_eq!(EXCLUSION_FORMATS.len(), 3);
+        for (name, _) in EXCLUSION_FORMATS {
+            let h = HSTRING::from(*name);
+            // SAFETY: chuỗi kết thúc bằng 0, sống suốt lời gọi.
+            let id = unsafe { RegisterClipboardFormatW(&h) };
+            assert_ne!(id, 0, "{name}");
+            let data = read_clipboard(id).unwrap_or_else(|| panic!("thiếu định dạng {name}"));
+            assert!(data.len() >= 4, "{name}");
+            assert_eq!(&data[..4], &0u32.to_le_bytes(), "{name}");
+        }
+    }
+
+    #[test]
+    fn exclusion_formats_match_microsoft_docs() {
+        // learn.microsoft.com/windows/win32/dataxchg/clipboard-formats,
+        // mục "Cloud Clipboard and Clipboard History Formats".
+        assert_eq!(
+            EXCLUSION_FORMATS,
+            &[
+                ("ExcludeClipboardContentFromMonitorProcessing", 0),
+                ("CanIncludeInClipboardHistory", 0),
+                ("CanUploadToCloudClipboard", 0),
+            ]
+        );
+    }
+
     #[test]
     #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p shotme-windows clipboard -- --ignored"]
     fn clipboard_text_round_trip() {
@@ -313,10 +381,12 @@ mod tests {
         let link = "https://img.example.com/d30/Ab12.png";
         WinClipboard.set_text(link).unwrap();
         assert_eq!(read_text().as_deref(), Some(link));
+        assert_exclusion_formats_present();
 
         let vi = "Đã chép link: ảnh tiếng Việt ở đây";
         WinClipboard.set_text(vi).unwrap();
         assert_eq!(read_text().as_deref(), Some(vi));
+        assert_exclusion_formats_present();
     }
 
     #[test]
@@ -337,6 +407,7 @@ mod tests {
         let (w, h, top_left) = parse_dib(&dib);
         assert_eq!((w, h), (3, 2));
         assert_eq!(top_left, [0, 0, 255]);
+        assert_exclusion_formats_present();
     }
 
     #[test]

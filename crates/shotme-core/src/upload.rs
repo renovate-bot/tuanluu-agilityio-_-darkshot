@@ -20,6 +20,8 @@ pub enum UploadError {
     BucketNotFound,
     Http(u16),
     PublicUrl(String),
+    /// S3 trả 403 với mã `RequestTimeTooSkewed`: giờ máy lệch quá xa.
+    ClockSkew,
 }
 
 impl UploadError {
@@ -41,6 +43,9 @@ impl UploadError {
             UploadError::PublicUrl(_) => {
                 "Không đọc được ảnh qua địa chỉ công khai. Kiểm tra lại địa chỉ công khai của kho."
                     .into()
+            }
+            UploadError::ClockSkew => {
+                "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại.".into()
             }
         }
     }
@@ -88,6 +93,26 @@ fn bucket_is_safe(b: &str) -> bool {
 /// The account id becomes part of the host name, so only `[A-Za-z0-9-]` is accepted.
 fn account_id_is_safe(a: &str) -> bool {
     !a.is_empty() && a.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+}
+
+/// Giới hạn số byte đọc từ thân phản hồi lỗi của S3.
+const ERROR_BODY_LIMIT: u64 = 4096;
+
+/// Thân phản hồi 403 (đọc tối đa 4 KB) có mã `RequestTimeTooSkewed` không.
+/// Thân chỉ được dò mã, không bao giờ đưa vào lỗi hay thông báo.
+fn body_says_clock_skew(resp: &mut ureq::http::Response<ureq::Body>) -> bool {
+    let mut buf = Vec::new();
+    if resp
+        .body_mut()
+        .as_reader()
+        .take(ERROR_BODY_LIMIT)
+        .read_to_end(&mut buf)
+        .is_err()
+    {
+        return false;
+    }
+    buf.windows(b"RequestTimeTooSkewed".len())
+        .any(|w| w == b"RequestTimeTooSkewed")
 }
 
 pub struct R2Uploader {
@@ -212,7 +237,13 @@ impl R2Uploader {
                 .call(),
         };
         match result {
-            Ok(resp) => Ok(resp.status().as_u16()),
+            Ok(mut resp) => {
+                let status = resp.status().as_u16();
+                if status == 403 && body_says_clock_skew(&mut resp) {
+                    return Err(UploadError::ClockSkew);
+                }
+                Ok(status)
+            }
             Err(e) => Err(UploadError::Network(e.to_string())),
         }
     }
@@ -453,6 +484,38 @@ mod tests {
         }
     }
 
+    const SKEW_BODY: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>RequestTimeTooSkewed</Code><Message>The difference between the request time and the server's time is too large.</Message></Error>";
+    const DENIED_BODY: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>";
+
+    #[test]
+    fn forbidden_with_skew_code_is_clock_skew() {
+        let m = spawn_mock(vec![(403, SKEW_BODY)], false);
+        let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
+        assert_eq!(up.upload("d30/a.png", b"x"), Err(UploadError::ClockSkew));
+
+        let m = spawn_mock(vec![(403, SKEW_BODY)], false);
+        let up = R2Uploader::with_endpoints(&cfg(), &m.url(), &m.url());
+        assert_eq!(up.test_connection(), Err(UploadError::ClockSkew));
+    }
+
+    #[test]
+    fn forbidden_with_other_body_is_still_auth() {
+        let m = spawn_mock(vec![(403, DENIED_BODY)], false);
+        let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
+        assert_eq!(up.upload("d30/a.png", b"x"), Err(UploadError::Auth));
+    }
+
+    #[test]
+    fn clock_skew_message_does_not_echo_body() {
+        let e = UploadError::ClockSkew;
+        assert_eq!(
+            e.message_vi(),
+            "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại."
+        );
+        assert!(!e.message_vi().contains("RequestTimeTooSkewed"));
+        assert!(!format!("{e:?}").contains("server's time"));
+    }
+
     #[test]
     fn incomplete_config_sends_nothing() {
         let m = spawn_mock(vec![], false);
@@ -569,6 +632,7 @@ mod tests {
             UploadError::BucketNotFound,
             UploadError::Http(500),
             UploadError::PublicUrl("404".into()),
+            UploadError::ClockSkew,
         ];
         for e in errs {
             assert!(!e.message_vi().contains(SECRET));

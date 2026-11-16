@@ -68,7 +68,9 @@
 - [ ] "Tải lên": link dán ra đúng nguyên văn.
 - [ ] Chép khi một ứng dụng khác đang giữ clipboard: có thông báo lỗi "Clipboard đang bị ứng dụng khác giữ", ứng dụng vẫn chạy.
 - [ ] Bật khởi động cùng Windows trong Cài đặt, khởi động lại máy: shotme tự chạy. Tắt đi, khởi động lại: không tự chạy.
+- [ ] Bật lịch sử clipboard (Cài đặt Windows > Hệ thống > Clipboard), chép ảnh và tải lên bằng shotme, rồi bấm `Win+V`: không có ảnh hay link nào của shotme trong danh sách; dán (`Ctrl+V`) vẫn ra đúng ảnh/link.
 - [ ] `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` không có giá trị nào tên `shotme-test-*` (sót lại từ kiểm thử bị ngắt giữa chừng).
+- [ ] Sau khi chạy shotme một lần: `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` có giá trị DWORD `shotme.exe` = 1 (loại khỏi Báo cáo lỗi của Windows); ngoài nó và khóa `Run` khi bật khởi động cùng Windows, shotme không ghi gì khác vào registry.
 
 ## Luồng đầy đủ
 
@@ -81,11 +83,13 @@
 - [ ] Tải lên khi đã cấu hình đúng: thông báo "Đã chép link", dán ra link mở được ảnh. Link nằm đúng thư mục hạn đã chọn (`d30/...` nếu mặc định).
 - [ ] Tải lên khi rút mạng: ảnh được lưu vào thư mục lưu, thông báo lỗi tiếng Việt kèm đường dẫn; Cài đặt không tự mở.
 - [ ] Hai lần tải lên liên tiếp (chụp lần hai ngay khi lần một chưa xong): có hai thông báo "Đã chép link" riêng, hai link khác nhau; ứng dụng không đứng trong lúc tải.
-- [ ] Thoát ứng dụng (menu khay) khi một lượt tải lên còn chạy: ứng dụng thoát ngay, không treo, không báo lỗi lạ.
+- [ ] Thoát ứng dụng (menu khay) khi một lượt tải lên còn chạy (ví dụ mạng chậm): ứng dụng thoát ngay, không treo, không báo lỗi lạ; ảnh của lượt đó có trong thư mục lưu dưới dạng PNG (có thể ảnh cũng đã lên kho).
+- [ ] Đăng xuất hoặc tắt máy khi một lượt tải lên còn chạy: đăng nhập lại thì ảnh của lượt đó có trong thư mục lưu.
 - [ ] File cấu hình hỏng (ghi `{not json` vào `config.json`): Cài đặt mở ngay với dòng "File cấu hình bị hỏng. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại."; trước khi bấm Lưu, nội dung file vẫn là `{not json`; bấm Lưu thì file được ghi lại hợp lệ.
 - [ ] Mất khóa bí mật (chép `config.json` từ tài khoản Windows khác): Cài đặt mở với dòng "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key."; các trường khác còn nguyên.
 - [ ] Đổi phím tắt trong Cài đặt rồi Lưu: phím mới chụp được ngay, không cần khởi động lại; phím cũ không còn tác dụng. Khởi động lại ứng dụng: phím mới vẫn đúng.
-- [ ] Khi cửa sổ Cài đặt đang mở: bấm phím chụp không mở lớp phủ.
+- [ ] Khi cửa sổ Cài đặt đang mở: bấm phím chụp không mở lớp phủ, cửa sổ Cài đặt được đưa ra trước.
+- [ ] Cửa sổ Cài đặt có nút riêng trên thanh tác vụ; Alt+Tab thấy nó.
 - [ ] Che cửa sổ Cài đặt bằng cửa sổ khác (hoặc thu nhỏ nó), rồi bấm biểu tượng khay: cửa sổ Cài đặt hiện ra trước (khôi phục nếu đang thu nhỏ), không có menu khay và không mở cửa sổ thứ hai.
 - [ ] Tải lên khi chưa cấu hình, nhưng lúc đó đang mở lớp phủ chụp lần khác: lớp phủ đóng xong thì Cài đặt mới mở (yêu cầu không bị mất).
 - [ ] Menu khay đang mở mà một lượt tải lên báo cần Cài đặt: menu đóng rồi Cài đặt mở, không treo.

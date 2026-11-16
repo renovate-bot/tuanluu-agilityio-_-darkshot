@@ -47,7 +47,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP,
     WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_RBUTTONDOWN, WM_SETFONT,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 /// Giá trị đọc từ các ô của cửa sổ.
@@ -1028,7 +1028,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         // Đăng ký lại lần hai báo lỗi vô hại.
         RegisterClassW(&wc);
         CreateWindowExW(
-            WS_EX_CONTROLPARENT,
+            WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             class,
             w!("shotme – Cài đặt"),
             WS_CAPTION | WS_SYSMENU,
@@ -1135,7 +1135,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
             &mut rc,
             WS_CAPTION | WS_SYSMENU,
             false,
-            WS_EX_CONTROLPARENT,
+            WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             dpi,
         );
         let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);

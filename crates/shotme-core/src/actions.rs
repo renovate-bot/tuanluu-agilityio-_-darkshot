@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Expiry;
 use crate::image::{encode_png, Image};
-use crate::naming::{local_file_name, random_object_name, unique_path, LocalTime};
-use crate::upload::{object_key, Uploader};
+use crate::naming::{local_file_name, random_object_name, LocalTime};
+use crate::upload::{object_key, UploadError, Uploader};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -121,7 +121,10 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
             }
             Outcome::Uploaded(link)
         }
-        Err(e) => fallback(ctx, img, &e.message_vi(), false),
+        Err(e) => {
+            let needs_settings = e == UploadError::NotConfigured;
+            fallback(ctx, img, &e.message_vi(), needs_settings)
+        }
     }
 }
 
@@ -155,16 +158,50 @@ fn save_failed(ctx: &Ctx, img: &Image, err: &str) -> Outcome {
     Outcome::Failed
 }
 
-/// Ghi PNG an toàn: ghi vào file tạm cùng thư mục rồi đổi tên, lỗi thì xóa file tạm,
-/// nên không bao giờ để lại file PNG dở dang dưới tên cuối cùng.
+/// Số hậu tố tối đa thử khi tên đích đã có người dùng.
+const MAX_NAME_ATTEMPTS: u32 = 10_000;
+
+/// Chiếm một tên chưa có trong `dir` bằng cách tạo file rỗng với `create_new` (nguyên tử),
+/// thử `name`, rồi `stem_2.ext`, `stem_3.ext`... Hai lượt lưu đồng thời không bao giờ nhận cùng tên.
+fn claim_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) => name.split_at(i),
+        None => (name, ""),
+    };
+    for n in 1..=MAX_NAME_ATTEMPTS {
+        let candidate = if n == 1 {
+            dir.join(name)
+        } else {
+            dir.join(format!("{stem}_{n}{ext}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            // Đóng file giữ chỗ ngay để bước đổi tên thay được nó.
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "quá nhiều ảnh trùng tên trong cùng một giây",
+    ))
+}
+
+/// Ghi PNG an toàn: chiếm tên đích, ghi vào file tạm cùng thư mục rồi đổi tên đè lên file giữ chỗ;
+/// lỗi thì xóa file tạm và file giữ chỗ, nên không bao giờ để lại PNG dở dang dưới tên cuối cùng.
 fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
-    let path = unique_path(ctx.save_dir, &local_file_name(&ctx.now));
-    let tmp = path.with_extension("png.tmp");
     let png = encode_png(img)?;
+    std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
+    let path = claim_path(ctx.save_dir, &local_file_name(&ctx.now)).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("png.tmp");
     let result = std::fs::write(&tmp, &png).and_then(|_| std::fs::rename(&tmp, &path));
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&path);
         return Err(e.to_string());
     }
     Ok(path)
@@ -232,6 +269,7 @@ mod tests {
             match &self.result {
                 Ok(s) => Ok(s.clone()),
                 Err(UploadError::Network(m)) => Err(UploadError::Network(m.clone())),
+                Err(UploadError::NotConfigured) => Err(UploadError::NotConfigured),
                 Err(_) => Err(UploadError::Auth),
             }
         }
@@ -397,6 +435,87 @@ mod tests {
         );
         assert!(path.exists());
         assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Error);
+    }
+
+    #[test]
+    fn uploader_not_configured_error_asks_for_settings() {
+        let d = temp_dir();
+        let up = FakeUploader::new(Err(UploadError::NotConfigured));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
+        let path = d.join("shotme_2026-11-16_14-03-05.png");
+        assert_eq!(
+            out,
+            Outcome::UploadFailedSaved {
+                path: path.clone(),
+                needs_settings: true
+            }
+        );
+        assert!(path.exists());
+        // Lỗi khác vẫn không đòi mở Cài đặt.
+        let up = FakeUploader::new(Err(UploadError::Auth));
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, Some(&up), &cb, &n), Action::Upload, &img());
+        assert!(matches!(
+            out,
+            Outcome::UploadFailedSaved {
+                needs_settings: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn same_second_saves_never_overwrite_each_other() {
+        // Nhiều lượt lưu cùng `LocalTime` chạy đồng thời: mỗi lượt một file riêng, nội dung còn nguyên.
+        const N: usize = 8;
+        for _round in 0..5 {
+            let d = temp_dir();
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
+            let handles: Vec<_> = (0..N)
+                .map(|i| {
+                    let d = d.clone();
+                    let barrier = barrier.clone();
+                    std::thread::spawn(move || {
+                        let image = Image {
+                            width: 1,
+                            height: 1,
+                            bgra: vec![i as u8, 0, 0, 255],
+                        };
+                        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+                        barrier.wait();
+                        let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &image);
+                        (image, out)
+                    })
+                })
+                .collect();
+            let results: Vec<(Image, Outcome)> =
+                handles.into_iter().map(|h| h.join().unwrap()).collect();
+            let mut paths = std::collections::HashSet::new();
+            for (image, out) in &results {
+                let Outcome::Saved(p) = out else {
+                    panic!("lưu thất bại: {out:?}");
+                };
+                assert!(paths.insert(p.clone()), "trùng đường dẫn {}", p.display());
+                assert_eq!(std::fs::read(p).unwrap(), encode_png(image).unwrap());
+            }
+            // Không còn file tạm hay file giữ chỗ thừa.
+            assert_eq!(std::fs::read_dir(&d).unwrap().count(), N);
+        }
+    }
+
+    #[test]
+    fn save_skips_existing_file_without_touching_it() {
+        let d = temp_dir();
+        let first = d.join("shotme_2026-11-16_14-03-05.png");
+        std::fs::write(&first, b"old").unwrap();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Save, &img());
+        assert_eq!(
+            out,
+            Outcome::Saved(d.join("shotme_2026-11-16_14-03-05_2.png"))
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"old");
     }
 
     #[test]
