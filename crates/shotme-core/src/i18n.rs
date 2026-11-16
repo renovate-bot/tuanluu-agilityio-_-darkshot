@@ -229,6 +229,18 @@ messages! {
     AutostartExePath => ("Không xác định được đường dẫn của shotme", "Could not determine the path of shotme"),
     AutostartEnableFailed => ("Không bật được khởi động cùng Windows", "Could not enable starting with Windows"),
     AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not disable starting with Windows"),
+    LabelHotkeySaveFull => ("Lưu ảnh (toàn màn hình)", "Save screenshot (full screen)"),
+    LabelHotkeyUploadFull => ("Tải lên nhanh (toàn màn hình)", "Quick upload (full screen)"),
+    ChkShowSuccessNotices => (
+        "Hiện các thông báo lưu và sao chép",
+        "Show save and copy notifications"
+    ),
+    ChkKeepSelection => ("Giữ vị trí vùng đã chọn", "Remember the selected region's position"),
+    ChkIncludeCursor => (
+        "Bao gồm con trỏ chuột vào ảnh chụp màn hình",
+        "Include the mouse pointer in screenshots"
+    ),
+    HotkeysNotWorkingTitle => ("Phím tắt chưa hoạt động", "Hotkeys are not working"),
     AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
 }
 
@@ -247,6 +259,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::UploadStartFailedTitle,
     Msg::AutostartFailedTitle,
     Msg::OptionsSaveFailedTitle,
+    Msg::HotkeysNotWorkingTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -451,18 +464,45 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 }
 
 pub fn hotkeys_conflict(lang: Lang, first_label: &str, second_label: &str, combo: &str) -> String {
-    let _ = (lang, first_label, second_label, combo);
-    todo!()
+    match lang {
+        Lang::Vi => format!(
+            "\"{first_label}\" và \"{second_label}\" đang dùng cùng phím {combo}. Hãy đổi một trong hai."
+        ),
+        Lang::En => format!(
+            "\"{first_label}\" and \"{second_label}\" use the same key {combo}. Change one of them."
+        ),
+    }
 }
 
 pub fn hotkey_row_taken(lang: Lang, row_label: &str, combo: &str) -> String {
-    let _ = (lang, row_label, combo);
-    todo!()
+    match lang {
+        Lang::Vi => format!(
+            "Phím {combo} của \"{row_label}\" đang được ứng dụng khác dùng. Hãy chọn phím khác."
+        ),
+        Lang::En => format!(
+            "The {combo} key for \"{row_label}\" is in use by another app. Choose a different key."
+        ),
+    }
 }
 
 pub fn hotkeys_taken_body(lang: Lang, combos: &[String]) -> String {
-    let _ = (lang, combos);
-    todo!()
+    match (lang, combos) {
+        (_, []) => String::new(),
+        (Lang::Vi, [one]) => {
+            format!("{one} đang được ứng dụng khác dùng. Mở Tùy chọn để chọn phím khác.")
+        }
+        (Lang::En, [one]) => {
+            format!("{one} is in use by another app. Open Options to choose a different key.")
+        }
+        (Lang::Vi, many) => format!(
+            "Các phím {} đang được ứng dụng khác dùng. Mở Tùy chọn để chọn phím khác.",
+            many.join(", ")
+        ),
+        (Lang::En, many) => format!(
+            "The keys {} are in use by other apps. Open Options to choose different keys.",
+            many.join(", ")
+        ),
+    }
 }
 
 /// "Phiên bản 0.1.0" | "Version 0.1.0".

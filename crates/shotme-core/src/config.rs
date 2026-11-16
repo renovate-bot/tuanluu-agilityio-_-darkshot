@@ -101,11 +101,20 @@ impl HotkeyRole {
     ];
 
     pub fn label(self) -> Msg {
-        todo!()
+        match self {
+            HotkeyRole::Region => Msg::LabelHotkey,
+            HotkeyRole::SaveFull => Msg::LabelHotkeySaveFull,
+            HotkeyRole::UploadFull => Msg::LabelHotkeyUploadFull,
+        }
     }
 
     pub fn default_slot(self) -> HotkeySlot {
-        todo!()
+        let d = Hotkeys::default();
+        match self {
+            HotkeyRole::Region => d.region,
+            HotkeyRole::SaveFull => d.save_full,
+            HotkeyRole::UploadFull => d.upload_full,
+        }
     }
 }
 
@@ -144,17 +153,32 @@ impl Default for Hotkeys {
 
 impl Hotkeys {
     pub fn get(&self, role: HotkeyRole) -> HotkeySlot {
-        let _ = role;
-        todo!()
+        match role {
+            HotkeyRole::Region => self.region,
+            HotkeyRole::SaveFull => self.save_full,
+            HotkeyRole::UploadFull => self.upload_full,
+        }
     }
 
     pub fn set(&mut self, role: HotkeyRole, slot: HotkeySlot) {
-        let _ = (role, slot);
-        todo!()
+        match role {
+            HotkeyRole::Region => self.region = slot,
+            HotkeyRole::SaveFull => self.save_full = slot,
+            HotkeyRole::UploadFull => self.upload_full = slot,
+        }
     }
 
+    /// Cặp dòng đầu tiên (theo `HotkeyRole::ALL`) cùng bật và cùng tổ hợp.
     pub fn first_conflict(&self) -> Option<(HotkeyRole, HotkeyRole)> {
-        todo!()
+        for (i, a) in HotkeyRole::ALL.into_iter().enumerate() {
+            for b in HotkeyRole::ALL.into_iter().skip(i + 1) {
+                let (sa, sb) = (self.get(a), self.get(b));
+                if sa.enabled && sb.enabled && sa.key == sb.key {
+                    return Some((a, b));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -237,12 +261,56 @@ impl Default for FileHotkey {
     }
 }
 
+/// Một dòng phím tắt đầy đủ trong file; trường con thiếu lấy từ mặc định của dòng đó.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct FileSlot {
+    enabled: Option<bool>,
+    ctrl: Option<bool>,
+    alt: Option<bool>,
+    shift: Option<bool>,
+    win: Option<bool>,
+    vk: Option<u32>,
+}
+
+impl FileSlot {
+    fn from_slot(s: HotkeySlot) -> FileSlot {
+        FileSlot {
+            enabled: Some(s.enabled),
+            ctrl: Some(s.key.ctrl),
+            alt: Some(s.key.alt),
+            shift: Some(s.key.shift),
+            win: Some(s.key.win),
+            vk: Some(s.key.vk),
+        }
+    }
+
+    fn into_slot(self, default: HotkeySlot) -> HotkeySlot {
+        HotkeySlot {
+            enabled: self.enabled.unwrap_or(default.enabled),
+            key: Hotkey {
+                ctrl: self.ctrl.unwrap_or(default.key.ctrl),
+                alt: self.alt.unwrap_or(default.key.alt),
+                shift: self.shift.unwrap_or(default.key.shift),
+                win: self.win.unwrap_or(default.key.win),
+                vk: self.vk.unwrap_or(default.key.vk),
+            },
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct FileConfig {
     r2: FileR2,
     expiry: String,
     hotkey: FileHotkey,
+    hotkey_enabled: bool,
+    hotkey_save_full: Option<FileSlot>,
+    hotkey_upload_full: Option<FileSlot>,
+    notify_success: bool,
+    keep_selection: bool,
+    include_cursor: bool,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -254,6 +322,12 @@ impl Default for FileConfig {
             r2: FileR2::default(),
             expiry: Expiry::default().prefix().to_string(),
             hotkey: FileHotkey::default(),
+            hotkey_enabled: true,
+            hotkey_save_full: None,
+            hotkey_upload_full: None,
+            notify_success: true,
+            keep_selection: false,
+            include_cursor: false,
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -310,7 +384,7 @@ pub fn load(
         expiry: Expiry::from_prefix(&f.expiry).unwrap_or_default(),
         hotkeys: Hotkeys {
             region: HotkeySlot {
-                enabled: true,
+                enabled: f.hotkey_enabled,
                 key: Hotkey {
                     ctrl: f.hotkey.ctrl,
                     alt: f.hotkey.alt,
@@ -319,14 +393,21 @@ pub fn load(
                     vk: f.hotkey.vk,
                 },
             },
-            ..Hotkeys::default()
+            save_full: f
+                .hotkey_save_full
+                .unwrap_or_default()
+                .into_slot(HotkeyRole::SaveFull.default_slot()),
+            upload_full: f
+                .hotkey_upload_full
+                .unwrap_or_default()
+                .into_slot(HotkeyRole::UploadFull.default_slot()),
         },
         save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
         autostart: f.autostart,
         language: Lang::from_code(&f.language).unwrap_or(Lang::Vi),
-        show_success_notices: true,
-        keep_selection: false,
-        include_cursor: false,
+        show_success_notices: f.notify_success,
+        keep_selection: f.keep_selection,
+        include_cursor: f.include_cursor,
     };
     Ok(Loaded {
         config,
@@ -359,6 +440,12 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
             win: cfg.hotkeys.region.key.win,
             vk: cfg.hotkeys.region.key.vk,
         },
+        hotkey_enabled: cfg.hotkeys.region.enabled,
+        hotkey_save_full: Some(FileSlot::from_slot(cfg.hotkeys.save_full)),
+        hotkey_upload_full: Some(FileSlot::from_slot(cfg.hotkeys.upload_full)),
+        notify_success: cfg.show_success_notices,
+        keep_selection: cfg.keep_selection,
+        include_cursor: cfg.include_cursor,
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),

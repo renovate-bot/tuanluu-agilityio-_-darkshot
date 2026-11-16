@@ -25,8 +25,10 @@ pub enum NoticeKind {
 
 /// Thông báo loại `Success` có thể bị ẩn theo tùy chọn; các loại khác luôn hiện.
 pub fn notice_visible(kind: NoticeKind, show_success: bool) -> bool {
-    let _ = (kind, show_success);
-    todo!()
+    match kind {
+        NoticeKind::Success => show_success,
+        NoticeKind::Info | NoticeKind::Error => true,
+    }
 }
 
 pub trait Notifier: Send + Sync {

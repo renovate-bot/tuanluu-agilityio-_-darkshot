@@ -91,8 +91,19 @@ impl Selection {
     /// Vùng chọn có sẵn (khung đã nhớ). Khung không nằm trọn trong `bounds` hoặc nhỏ hơn
     /// `MIN_SIZE` thì coi như không có.
     pub fn with_rect(bounds: Rect, rect: Option<Rect>) -> Selection {
-        let _ = (bounds, rect);
-        todo!()
+        let mut s = Selection::new(bounds);
+        if let Some(r) = rect {
+            let fits = r.w >= MIN_SIZE
+                && r.h >= MIN_SIZE
+                && r.x >= bounds.x
+                && r.y >= bounds.y
+                && i64::from(r.x) + i64::from(r.w) <= i64::from(bounds.x) + i64::from(bounds.w)
+                && i64::from(r.y) + i64::from(r.h) <= i64::from(bounds.y) + i64::from(bounds.h);
+            if fits {
+                s.rect = Some(r);
+            }
+        }
+        s
     }
 
     pub fn rect(&self) -> Option<Rect> {
@@ -203,8 +214,31 @@ pub fn restore_selection(
     image_h: i32,
     monitors: &[Rect],
 ) -> Option<Rect> {
-    let _ = (remembered, origin, image_w, image_h, monitors);
-    todo!()
+    if remembered.w <= 0 || remembered.h <= 0 {
+        return None;
+    }
+    let x = i64::from(remembered.x) - i64::from(origin.x);
+    let y = i64::from(remembered.y) - i64::from(origin.y);
+    let (r, b) = (x + i64::from(remembered.w), y + i64::from(remembered.h));
+    if x < 0 || y < 0 || r > i64::from(image_w) || b > i64::from(image_h) {
+        return None;
+    }
+    // Từ đây x, y, r, b nằm trong phạm vi i32 vì ảnh nằm trong i32.
+    let touches = monitors.iter().any(|m| {
+        let mx = i64::from(m.x) - i64::from(origin.x);
+        let my = i64::from(m.y) - i64::from(origin.y);
+        let (mr, mb) = (mx + i64::from(m.w), my + i64::from(m.h));
+        x.max(mx) < r.min(mr) && y.max(my) < b.min(mb)
+    });
+    if !touches {
+        return None;
+    }
+    Some(Rect {
+        x: i32::try_from(x).ok()?,
+        y: i32::try_from(y).ok()?,
+        w: remembered.w,
+        h: remembered.h,
+    })
 }
 
 /// Màn hình chứa `p`; nếu không có thì màn hình gần nhất.
