@@ -45,7 +45,7 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 - Ảnh được đưa vào thư mục hạn trên kho. Link có dạng `{địa chỉ công khai}/{thư mục hạn}/{tên}.png`, ví dụ `https://img.example.com/d30/k3X9f2abQ7mZp1Lw.png`.
 - Tên ảnh gồm 16 ký tự chữ và số, sinh từ bộ sinh số ngẫu nhiên của Windows.
-- Tải lên thành công: link được chép vào clipboard, thông báo "Đã chép link".
+- Tải lên thành công: link được chép vào clipboard, thông báo "Đã chép link" (có thể tắt, xem mục "Thông báo").
 - Tải lên thất bại (mất mạng, khóa sai, kho không tồn tại, địa chỉ công khai không mở được): ảnh vẫn được lưu vào thư mục lưu. Thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh đã lưu.
 - Chưa cấu hình R2 mà bấm tải lên: ảnh được lưu vào thư mục lưu, thông báo nói rõ chưa cấu hình, và cửa sổ Tùy chọn tự mở ở tab Lưu trữ R2.
 
@@ -66,8 +66,8 @@ Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạ
 
 Cửa sổ Tùy chọn có ba tab:
 
-- **Thông thường:** **Khởi động cùng Windows**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
-- **Phím tắt:** Chụp vùng màn hình (ô chỉ đọc, nút **Đổi…**).
+- **Thông thường:** **Khởi động cùng Windows**, ba ô tích **Hiện các thông báo lưu và sao chép**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
+- **Phím tắt:** ba dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
 - **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
 
 Nút **OK** ghi cài đặt rồi đóng cửa sổ. Nút **Hủy** bỏ thay đổi. Nút **Trợ giúp** mở cửa sổ Trợ giúp và không đóng Tùy chọn.
@@ -86,12 +86,43 @@ Giao diện có hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy ch�
 
 ### Phím tắt chụp
 
-- Mặc định là `PrintScreen`. Bấm **Đổi…** rồi nhấn tổ hợp mới. Bấm **Esc** để bỏ qua việc đổi.
+Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…**.
+
+| Dòng | Mặc định | Việc làm |
+|---|---|---|
+| Chụp vùng màn hình | Bật, `PrintScreen` | Mở lớp phủ để chọn vùng. |
+| Lưu ảnh (toàn màn hình) | Tắt, `Shift+PrintScreen` | Lưu PNG của màn hình đang có con trỏ chuột, không mở lớp phủ. |
+| Tải lên nhanh (toàn màn hình) | Tắt, `Ctrl+PrintScreen` | Tải lên ảnh của màn hình đang có con trỏ chuột và chép link, không mở lớp phủ. |
+
+- "Toàn màn hình" là màn hình đang có con trỏ chuột lúc bấm phím. Nếu con trỏ không nằm trên màn hình nào thì lấy màn hình gần nhất. Ảnh là cả màn hình: không có vùng chọn và không có thanh công cụ.
+- Hai phím toàn màn hình không đổi vùng đã nhớ của mục "Giữ vị trí vùng chọn".
+- Bỏ tích một dòng thì phím của dòng đó không còn được đăng ký; ô phím và nút **Đổi…** mờ đi. Tổ hợp của dòng vẫn được giữ, tích lại là dùng được.
+- Hai dòng đang bật không được trùng tổ hợp: bấm OK khi trùng thì cửa sổ báo lỗi và không đóng. Dòng đang tắt có thể trùng với dòng khác.
+- Để đổi: bấm **Đổi…** rồi nhấn tổ hợp mới. Bấm **Esc** để bỏ qua việc đổi.
 - Phím thường phải kèm **Ctrl**, **Alt** hoặc **Win**. Ví dụ `Ctrl+Shift+S` được nhận, còn chữ `S` một mình thì không.
 - Các phím được đứng riêng: `PrintScreen`, `Pause`, `ScrollLock`, `F1` đến `F24`.
 - Shift một mình không đủ. `Alt+F4` vẫn là lệnh đóng cửa sổ của Windows.
-- Nếu phím đang bị ứng dụng khác giữ (ví dụ Lightshot giữ `PrintScreen`), Tùy chọn báo "đang bị ứng dụng khác chiếm" và không đóng cửa sổ. Ứng dụng vẫn chạy, và vẫn chụp được qua menu khay.
-- Nếu phím bị chiếm lúc shotme khởi động, biểu tượng khay hiện thông báo "Phím … đang bị ứng dụng khác chiếm" và gợi ý đổi phím trong Tùy chọn.
+- Nếu tổ hợp đang bị ứng dụng khác giữ (ví dụ Lightshot giữ `PrintScreen`), Tùy chọn báo "... đang được ứng dụng khác dùng. Hãy chọn phím khác." và không đóng cửa sổ. Ứng dụng vẫn chạy, và vẫn chụp được qua menu khay.
+- Khi khởi động, dòng bật nào không đăng ký được thì biểu tượng khay hiện thông báo "Phím tắt chưa hoạt động", nêu tổ hợp bị chiếm và gợi ý mở Tùy chọn. Mọi dòng lỗi gom vào một thông báo.
+
+### Thông báo
+
+- Ô **Hiện các thông báo lưu và sao chép** (mặc định bật) quyết định ba thông báo thành công: "Đã lưu ảnh", "Đã chép ảnh" và "Đã chép link". Tắt ô này thì ba thông báo đó không hiện.
+- Thông báo lỗi luôn hiện, kể cả khi tắt ô.
+
+### Giữ vị trí vùng chọn
+
+- Bật **Giữ vị trí vùng đã chọn** (mặc định tắt): lần chụp vùng sau mở lớp phủ với khung của lần trước, đã chọn sẵn, có tay nắm, nhãn kích thước và thanh công cụ.
+- Khung được nhớ khi lượt chụp vùng kết thúc bằng Lưu, Chép hoặc Tải lên. Bấm Esc thì giữ khung cũ.
+- Khung vẫn được nhớ khi ô đang tắt, nên bật ô lên là dùng được ngay.
+- Khung chỉ dùng lại khi nằm trọn trong ảnh chụp hiện tại và chạm ít nhất một màn hình đang có. Nếu không, lớp phủ mở trống.
+- Chỉ nhớ tọa độ, không lưu ảnh. Vị trí chỉ nhớ trong lúc ứng dụng chạy: thoát rồi mở lại thì lớp phủ mở trống.
+
+### Con trỏ chuột trong ảnh
+
+- Bật **Bao gồm con trỏ chuột vào ảnh chụp màn hình** (mặc định tắt): con trỏ được vẽ vào ảnh ngay lúc chụp, nên ảnh nền của lớp phủ cũng có con trỏ đứng yên.
+- Con trỏ đang ẩn thì không được vẽ.
+- Con trỏ được vẽ ở cỡ mặc định của hệ thống, không co giãn theo DPI của màn hình và không theo độ phóng to trong Trợ năng. Trên màn hình có DPI khác 100% hoặc khi con trỏ được phóng to, con trỏ trong ảnh có thể nhỏ hơn trên màn hình.
 
 ### Menu khay
 
@@ -195,7 +226,7 @@ Nếu `PrintScreen` không mở được lớp phủ, một ứng dụng khác �
 - **Lightshot:** thoát hẳn Lightshot trước khi dùng shotme. Cách tắt việc Lightshot giữ `PrintScreen` tùy phiên bản; chưa đối chiếu với tài liệu của Lightshot.
 - **Snipping Tool của Windows 11:** tắt việc gán `PrintScreen` cho công cụ cắt. Vào **Settings** > **Accessibility** > **Keyboard** rồi tắt mục dùng nút Print Screen để mở công cụ cắt. Tên mục có thể khác theo bản Windows. Tham khảo: https://support.microsoft.com/en-gb/accessibility/windows/make-your-mouse-keyboard-and-other-input-devices-easier-to-use
 
-Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của shotme (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`.
+Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của shotme (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`. Bỏ tích dòng "Chụp vùng màn hình" cũng trả `PrintScreen` về cho Windows; menu khay vẫn chụp được.
 
 ## Bảo mật
 

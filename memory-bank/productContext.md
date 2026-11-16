@@ -11,12 +11,14 @@ Một người: chủ dự án, trên Windows 11, đang quen dùng Lightshot.
 - Ứng dụng nằm ở khay hệ thống, không có cửa sổ chính. Menu khay có năm mục: Chụp màn hình, Tùy chọn..., Thông tin..., Trợ giúp, Thoát (không đường kẻ).
 - Cửa sổ Thông tin và Trợ giúp không chặn ứng dụng: lúc mở vẫn chụp, dùng menu và mở Tùy chọn được. Mở lại khi đang mở thì chỉ đưa ra trước. Thông tin gồm biểu tượng, tên, phiên bản và một dòng mô tả, không có link. Trợ giúp là văn bản thuần, nêu phím tắt đang đặt và các bước chuẩn bị R2, không có địa chỉ web.
 - Tùy chọn có ba tab, nút OK, Hủy và Trợ giúp:
-  - Thông thường: Khởi động cùng Windows, Thư mục lưu (nút Chọn…), Ngôn ngữ.
-  - Phím tắt: Chụp vùng màn hình (ô chỉ đọc, nút Đổi…).
+  - Thông thường: Khởi động cùng Windows, ba ô tích (Hiện các thông báo lưu và sao chép; Giữ vị trí vùng đã chọn; Bao gồm con trỏ chuột vào ảnh chụp màn hình), Thư mục lưu (nút Chọn…), Ngôn ngữ.
+  - Phím tắt: ba dòng, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút Đổi…: Chụp vùng màn hình (bật, PrintScreen), Lưu ảnh (toàn màn hình) (tắt, Shift+PrintScreen), Tải lên nhanh (toàn màn hình) (tắt, Ctrl+PrintScreen).
   - Lưu trữ R2: Account ID, Access Key ID, Secret Access Key, Tên kho, Địa chỉ công khai, Hạn của link, nút Kiểm tra kết nối.
 - Hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy chọn › Thông thường, có hiệu lực ngay khi bấm OK. Mặc định: chưa có file cấu hình hoặc file hỏng thì theo ngôn ngữ giao diện Windows (tiếng Việt nếu là tiếng Việt, còn lại English); file cũ không có mục ngôn ngữ thì là Tiếng Việt.
-- Chưa làm (đợt sau): đợt 2 (phím tắt lưu và tải lên toàn màn hình, chụp cả con trỏ, giữ vị trí vùng chọn, bật/tắt thông báo) và đợt 3 (tải lên bằng PNG hoặc JPEG, chất lượng JPEG). Chưa có thiết kế. Proxy không làm ở mọi đợt.
-- Bấm `PrintScreen` (đổi được): màn hình đứng yên và tối đi, kéo chuột chọn vùng, có nhãn kích thước. Chỉnh khung bằng 8 tay nắm, kéo bên trong để di chuyển, kéo bên ngoài để chọn lại.
+- Đợt 2 đã có trong mã: phím lưu và tải lên toàn màn hình (màn hình đang có con trỏ chuột, không mở lớp phủ), chụp kèm con trỏ chuột, giữ vị trí vùng chọn (trong lúc ứng dụng chạy), bật/tắt thông báo lưu và sao chép. Chủ dự án tự thử tay đợt này.
+- Chưa làm (đợt 3): tải lên bằng PNG hoặc JPEG, chất lượng JPEG. Chưa có thiết kế. Proxy không làm ở mọi đợt.
+- Bấm `PrintScreen` (đổi được): màn hình đứng yên và tối đi, kéo chuột chọn vùng, có nhãn kích thước. Chỉnh khung bằng 8 tay nắm, kéo bên trong để di chuyển, kéo bên ngoài để chọn lại. Ảnh nền có con trỏ chuột nếu ô "Bao gồm con trỏ chuột" đang bật.
+- Phím toàn màn hình (tắt mặc định): `Shift+PrintScreen` lưu, `Ctrl+PrintScreen` tải lên; không mở lớp phủ, không có vùng chọn.
 - Thanh công cụ bốn nút chỉ có biểu tượng; rê chuột hiện tên và phím tắt:
   - Tải lên (`Ctrl+D`): tải lên R2, chép link vào clipboard, thông báo "Đã chép link".
   - Lưu (`Ctrl+S`): lưu PNG vào `Pictures\shotme`, tên `shotme_YYYY-MM-DD_HH-MM-SS.png`, không hỏi lại.
