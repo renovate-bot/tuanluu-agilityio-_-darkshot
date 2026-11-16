@@ -13,15 +13,47 @@ pub struct Image {
 impl Image {
     /// Cắt theo `r`; `r` được kẹp vào ảnh.
     pub fn crop(&self, r: Rect) -> Image {
-        let _ = r;
-        todo!()
+        let x0 = i64::from(r.x).max(0);
+        let y0 = i64::from(r.y).max(0);
+        let x1 = (i64::from(r.x) + i64::from(r.w)).min(i64::from(self.width));
+        let y1 = (i64::from(r.y) + i64::from(r.h)).min(i64::from(self.height));
+        if x1 <= x0 || y1 <= y0 {
+            return Image {
+                width: 0,
+                height: 0,
+                bgra: Vec::new(),
+            };
+        }
+        let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
+        let stride = self.width as usize * 4;
+        let mut bgra = Vec::with_capacity(w * h * 4);
+        for y in y0 as usize..y1 as usize {
+            let start = y * stride + x0 as usize * 4;
+            bgra.extend_from_slice(&self.bgra[start..start + w * 4]);
+        }
+        Image {
+            width: w as u32,
+            height: h as u32,
+            bgra,
+        }
     }
 }
 
 /// PNG RGB 8 bit, bỏ kênh alpha.
 pub fn encode_png(img: &Image) -> Vec<u8> {
-    let _ = img;
-    todo!()
+    let mut rgb = Vec::with_capacity(img.width as usize * img.height as usize * 3);
+    for p in img.bgra.as_chunks::<4>().0 {
+        rgb.extend_from_slice(&[p[2], p[1], p[0]]);
+    }
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, img.width, img.height);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().expect("PNG header to memory");
+        w.write_image_data(&rgb).expect("PNG data to memory");
+    }
+    out
 }
 
 #[cfg(test)]

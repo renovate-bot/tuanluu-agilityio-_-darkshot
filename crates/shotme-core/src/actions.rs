@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::Expiry;
-use crate::image::Image;
-use crate::naming::LocalTime;
-use crate::upload::Uploader;
+use crate::image::{encode_png, Image};
+use crate::naming::{local_file_name, random_object_name, unique_path, LocalTime};
+use crate::upload::{object_key, Uploader};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -51,8 +51,109 @@ pub enum Outcome {
 }
 
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
-    let _ = (ctx, action, img);
-    todo!()
+    match action {
+        Action::Cancel => Outcome::Cancelled,
+        Action::Save => match save_png(ctx, img) {
+            Ok(path) => {
+                ctx.notifier
+                    .notify(NoticeKind::Info, "Đã lưu ảnh", &path.display().to_string());
+                Outcome::Saved(path)
+            }
+            Err(e) => save_failed(ctx, img, &e),
+        },
+        Action::Copy => match ctx.clipboard.set_image(img) {
+            Ok(()) => {
+                ctx.notifier.notify(
+                    NoticeKind::Info,
+                    "Đã chép ảnh",
+                    "Ảnh đã nằm trong clipboard.",
+                );
+                Outcome::Copied
+            }
+            Err(e) => {
+                ctx.notifier.notify(
+                    NoticeKind::Error,
+                    "Không chép được ảnh",
+                    &format!("Không đưa được ảnh vào clipboard: {e}"),
+                );
+                Outcome::Failed
+            }
+        },
+        Action::Upload => upload(ctx, img),
+    }
+}
+
+fn upload(ctx: &Ctx, img: &Image) -> Outcome {
+    let Some(uploader) = ctx.uploader else {
+        return fallback(
+            ctx,
+            img,
+            "Chưa cấu hình kho lưu trữ. Hãy nhập đủ thông tin trong cài đặt.",
+            true,
+        );
+    };
+    let png = encode_png(img);
+    let key = object_key(ctx.expiry, &random_object_name());
+    match uploader.upload(&key, &png) {
+        Ok(link) => {
+            if let Err(e) = ctx.clipboard.set_text(&link) {
+                ctx.notifier.notify(
+                    NoticeKind::Error,
+                    "Đã tải lên nhưng chưa chép được link",
+                    &format!("{link}\n{e}"),
+                );
+            } else {
+                ctx.notifier.notify(NoticeKind::Info, "Đã chép link", &link);
+            }
+            Outcome::Uploaded(link)
+        }
+        Err(e) => fallback(ctx, img, &e.message_vi(), false),
+    }
+}
+
+/// Lưu dự phòng sau khi tải lên không thành.
+fn fallback(ctx: &Ctx, img: &Image, reason: &str, needs_settings: bool) -> Outcome {
+    match save_png(ctx, img) {
+        Ok(path) => {
+            ctx.notifier.notify(
+                NoticeKind::Error,
+                "Không tải lên được",
+                &format!("{reason}\nẢnh đã được lưu tại {}", path.display()),
+            );
+            Outcome::UploadFailedSaved {
+                path,
+                needs_settings,
+            }
+        }
+        Err(e) => save_failed(ctx, img, &e),
+    }
+}
+
+fn save_failed(ctx: &Ctx, img: &Image, err: &str) -> Outcome {
+    let in_clipboard = ctx.clipboard.set_image(img).is_ok();
+    let body = if in_clipboard {
+        format!("Không lưu được ảnh ({err}). Ảnh đã được đặt trong clipboard, hãy dán ra ngay.")
+    } else {
+        format!("Không lưu được ảnh ({err}) và cũng không đưa được vào clipboard.")
+    };
+    ctx.notifier
+        .notify(NoticeKind::Error, "Không lưu được ảnh", &body);
+    Outcome::Failed
+}
+
+/// Ghi PNG an toàn: ghi vào file tạm cùng thư mục rồi đổi tên, lỗi thì xóa file tạm,
+/// nên không bao giờ để lại file PNG dở dang dưới tên cuối cùng.
+fn save_png(ctx: &Ctx, img: &Image) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(ctx.save_dir).map_err(|e| e.to_string())?;
+    let path = unique_path(ctx.save_dir, &local_file_name(&ctx.now));
+    let tmp = path.with_extension("png.tmp");
+    let png = encode_png(img);
+    let result = std::fs::write(&tmp, &png).and_then(|_| std::fs::rename(&tmp, &path));
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(path)
 }
 
 #[cfg(test)]
