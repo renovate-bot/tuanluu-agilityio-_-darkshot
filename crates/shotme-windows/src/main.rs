@@ -343,7 +343,8 @@ fn capture_flow(hwnd: HWND) {
         CaptureKind::Region => {
             let prev = LAST_SELECTION.with(|s| s.get());
             let initial = if keep_selection {
-                // `restore_selection` nhận màn hình theo tọa độ màn hình.
+                // `restore_selection` nhận màn hình theo tọa độ màn hình (nó tự trừ gốc), còn
+                // `shot.monitors` ở tọa độ ảnh: truyền thẳng thì lệch khi gốc âm (màn hình bên trái).
                 let screens: Vec<Rect> = shot
                     .monitors
                     .iter()

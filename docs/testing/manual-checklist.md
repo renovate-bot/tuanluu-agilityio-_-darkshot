@@ -181,6 +181,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Con trỏ mũi tên, chữ I (trong ô nhập chữ), bàn tay (trên link): đúng hình, đúng điểm nóng.
 - [ ] Con trỏ đang ẩn (đang gõ trong ứng dụng ẩn con trỏ, phim toàn màn hình): ảnh không có con trỏ, không báo lỗi.
 - [ ] Con trỏ phóng to trong Cài đặt Windows (Trợ năng): con trỏ trong ảnh có thể ra cỡ thường (giới hạn đã biết, không co giãn).
+- [ ] Trên màn hình DPI 150% (hoặc khác 100%), bật ô con trỏ rồi chụp: so cỡ con trỏ trong ảnh với cỡ trên màn hình; nếu nhỏ hơn thì đó là giới hạn đã biết (không co giãn con trỏ), ghi lại mức chênh.
 - [ ] Tắt ô con trỏ: ảnh không có con trỏ ở cả ba kiểu chụp.
 - [ ] Giữ vị trí: bật ô, chụp và lưu một vùng; chụp lại thấy khung cũ đúng chỗ kèm tay nắm, nhãn kích thước, thanh công cụ; con trỏ chuột đúng hình theo chỗ đứng ngay khi mở; Ctrl+S (và Ctrl+D, Ctrl+C) dùng được ngay; kéo tay nắm, kéo bên trong và kéo bên ngoài chọn lại đều được.
 - [ ] Giữ vị trí: Esc không đổi khung đang nhớ (lần sau vẫn mở khung trước đó).

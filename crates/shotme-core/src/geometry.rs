@@ -206,7 +206,9 @@ impl Selection {
     }
 }
 
-/// Đổi khung đã nhớ (tọa độ ảo) sang tọa độ ảnh; `None` khi khung không còn dùng được.
+/// Đổi khung đã nhớ (tọa độ màn hình) sang tọa độ ảnh có gốc `origin`; `None` khi khung không
+/// còn dùng được. `monitors` ở **tọa độ màn hình**, cùng hệ với `remembered` (không phải tọa độ
+/// ảnh như `Screenshot::monitors`): hàm tự trừ `origin` cho cả hai.
 pub fn restore_selection(
     remembered: Rect,
     origin: Point,
@@ -559,6 +561,56 @@ mod tests {
     }
 
     #[test]
+    fn restore_selection_left_monitor_in_screen_coords() {
+        // Màn hình phụ bên trái; `mons` theo tọa độ màn hình, cùng hệ với khung nhớ.
+        let mons = [
+            Rect {
+                x: -1280,
+                y: 0,
+                w: 1280,
+                h: 1024,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1920,
+                h: 1080,
+            },
+        ];
+        let o = p(-1280, 0);
+        let on_left = Rect {
+            x: -1000,
+            y: 100,
+            w: 300,
+            h: 200,
+        };
+        assert_eq!(
+            restore_selection(on_left, o, 3200, 1080, &mons),
+            Some(Rect {
+                x: 280,
+                y: 100,
+                w: 300,
+                h: 200
+            })
+        );
+        let on_main = Rect {
+            x: 100,
+            y: 100,
+            w: 300,
+            h: 200,
+        };
+        assert_eq!(
+            restore_selection(on_main, o, 3200, 1080, &mons),
+            Some(Rect { x: 1380, ..on_main })
+        );
+        // màn hình trái đã rút: gốc về (0, 0), khung cũ nằm ngoài ảnh
+        assert_eq!(
+            restore_selection(on_left, p(0, 0), 1920, 1080, &mons[1..]),
+            None
+        );
+    }
+
+    #[test]
     fn restore_selection_cases() {
         let mons = [
             Rect {
@@ -582,7 +634,8 @@ mod tests {
             h: 200,
         };
         assert_eq!(restore_selection(r, o, 3200, 1080, &mons), Some(r));
-        // gốc âm: màn hình phụ ở bên trái
+        // gốc âm: chỉ kiểm phép trừ gốc; `mons` ở đây không khớp bố cục có màn hình bên trái
+        // (ca đúng bố cục, `mons` theo tọa độ màn hình: `restore_selection_left_monitor_in_screen_coords`)
         assert_eq!(
             restore_selection(r, p(-1280, 0), 3200, 1080, &mons),
             Some(Rect { x: 1380, ..r })
