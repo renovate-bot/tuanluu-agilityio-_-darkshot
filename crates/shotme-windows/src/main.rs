@@ -19,8 +19,10 @@ mod winutil;
 use app::{AppState, UploadJob};
 use secret::DpapiStore;
 use settings::OpenReason;
-use shotme_core::actions::{run_action, Action, Clipboard, Ctx, NoticeKind, Notifier};
-use shotme_core::config::{Config, Hotkey};
+use shotme_core::actions::{
+    notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
+};
+use shotme_core::config::{Config, HotkeyRole, Hotkeys};
 use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
@@ -226,6 +228,35 @@ fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
     APP.with(|a| a.borrow_mut().as_mut().map(f))
 }
 
+/// Đăng ký các dòng đang bật của `keys` (dòng tắt không bao giờ được đăng ký); dòng nào không đăng
+/// ký được thì báo **một** thông báo lỗi liệt kê mọi tổ hợp bị chiếm.
+fn register_hotkeys_or_notify(hwnd: HWND, keys: &Hotkeys, notifier: &dyn Notifier) {
+    let failed = hotkey::register_enabled(hwnd, keys);
+    notify_hotkeys_taken(keys, &failed, notifier);
+}
+
+/// Tiêu đề và nội dung của thông báo gộp "Phím tắt chưa hoạt động"; `None` khi không có dòng lỗi.
+pub fn hotkeys_taken_notice(
+    lang: Lang,
+    keys: &Hotkeys,
+    failed: &[HotkeyRole],
+) -> Option<(&'static str, String)> {
+    if failed.is_empty() {
+        return None;
+    }
+    Some((
+        i18n::t(lang, Msg::HotkeysNotWorkingTitle),
+        i18n::hotkeys_taken_body(lang, &hotkey::taken_combos(keys, failed)),
+    ))
+}
+
+/// Báo **một** thông báo lỗi cho các dòng `failed` (nếu có).
+fn notify_hotkeys_taken(keys: &Hotkeys, failed: &[HotkeyRole], notifier: &dyn Notifier) {
+    if let Some((title, body)) = hotkeys_taken_notice(lang::current(), keys, failed) {
+        notifier.notify(NoticeKind::Error, title, &body);
+    }
+}
+
 /// Chụp, mở lớp phủ rồi thực hiện hành động đã chọn.
 /// Chỉ gọi qua `gate` (trạng thái `Capturing`), nên không bao giờ có hai lớp phủ.
 fn capture_flow(hwnd: HWND) {
@@ -340,6 +371,11 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
         notice.map(|n| n.message(lang::current())).as_deref(),
         reason,
     ) else {
+        // Hủy: `show` đã đăng ký lại các dòng của cấu hình cũ; dòng nào lỗi thì báo gộp một lần.
+        let failed = settings::take_cancel_failures();
+        if let Some(t) = current_tray() {
+            notify_hotkeys_taken(&config.hotkeys, &failed, &t.notifier());
+        }
         return;
     };
     let notify = |kind: NoticeKind, title: &str, body: &str| {
@@ -373,9 +409,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
             with_app(|a| a.config = new);
         }
         Err(e) => {
-            // Không ghi được: giữ cấu hình cũ và phím cũ.
-            hotkey::unregister(hwnd);
-            let key_ok = hotkey::register(hwnd, &config.hotkeys.region.key);
+            // Không ghi được: giữ cấu hình cũ và phím cũ (chỉ các dòng đang bật của cấu hình cũ).
+            hotkey::unregister_all(hwnd);
             let why = match e {
                 shotme_core::config::ConfigError::Io(m)
                 | shotme_core::config::ConfigError::Corrupt(m)
@@ -386,15 +421,10 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 lang::tr(Msg::OptionsSaveFailedTitle),
                 &i18n::options_save_failed_body(lang::current(), &why),
             );
-            if !key_ok {
-                notify(
-                    NoticeKind::Error,
-                    &i18n::hotkey_inactive_title(
-                        lang::current(),
-                        &hotkey::describe(&config.hotkeys.region.key),
-                    ),
-                    lang::tr(Msg::HotkeyReregisterFailedBody),
-                );
+            if let Some(t) = current_tray() {
+                register_hotkeys_or_notify(hwnd, &config.hotkeys, &t.notifier());
+            } else {
+                let _ = hotkey::register_enabled(hwnd, &config.hotkeys);
             }
         }
     }
@@ -492,7 +522,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         return LRESULT(0);
     }
     match msg {
-        WM_HOTKEY if wp.0 as i32 == hotkey::HOTKEY_ID => {
+        WM_HOTKEY if hotkey::role_of(wp.0 as i32) == Some(HotkeyRole::Region) => {
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi chụp sau khi menu tắt hẳn, như chọn từ menu.
                 // SAFETY: đóng menu đang hiện của luồng này.
@@ -503,6 +533,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             } else {
                 handle_event(hwnd, AppEvent::Capture);
             }
+            LRESULT(0)
+        }
+        WM_HOTKEY if hotkey::role_of(wp.0 as i32).is_some() => {
+            // Task 22: Lưu ảnh và Tải lên nhanh (toàn màn hình) nối vào luồng chụp ở đây.
             LRESULT(0)
         }
         WM_TRAY => {
@@ -525,8 +559,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
-                        if let Some(hk) = with_app(|a| a.config.hotkeys.region.key) {
-                            help::show(hwnd, &hk);
+                        if let Some(keys) = with_app(|a| hotkey::help_keys(&a.config.hotkeys)) {
+                            help::show(hwnd, &keys);
                         }
                     }
                     Some(MenuCommand::Quit) => handle_event(hwnd, AppEvent::Quit),
@@ -553,8 +587,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_NOTICE => {
             // SAFETY: con trỏ do TrayNotifier::notify cấp phát và chuyển quyền sở hữu cho ta.
             let notice = unsafe { Box::from_raw(lp.0 as *mut Notice) };
-            if let Some(t) = current_tray() {
-                t.show_notice(&notice);
+            // Chỗ lọc duy nhất: thông báo thành công theo cài đặt; lỗi và thông tin luôn hiện.
+            let show = with_app(|a| a.config.show_success_notices).unwrap_or(true);
+            if notice_visible(notice.kind, show) {
+                if let Some(t) = current_tray() {
+                    t.show_notice(&notice);
+                }
             }
             LRESULT(0)
         }
@@ -583,7 +621,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // Cửa sổ Thông tin và Trợ giúp thuộc cửa sổ ẩn này: hủy cả hai, trả phông của chúng.
             about::close();
             help::close();
-            hotkey::unregister(hwnd);
+            hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
             unsafe { PostQuitMessage(0) };
@@ -665,20 +703,13 @@ fn main() {
     );
     lang::set(state.config.language);
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
-    let hk: Hotkey = state.config.hotkeys.region.key;
+    let keys = state.config.hotkeys;
     APP.with(|a| *a.borrow_mut() = Some(state));
     // Ghi lại đường dẫn exe hiện tại phòng khi file đã được chuyển chỗ; lỗi thì bỏ qua.
     if autostart::is_enabled() {
         let _ = autostart::set_enabled(true);
     }
-    if !hotkey::register(hwnd, &hk) {
-        let name = hotkey::describe(&hk);
-        notifier.notify(
-            NoticeKind::Error,
-            &i18n::hotkey_taken_title(lang::current(), &name),
-            lang::tr(Msg::HotkeyTakenBody),
-        );
-    }
+    register_hotkeys_or_notify(hwnd, &keys, &notifier);
 
     if open_settings_now {
         post_open_settings(hwnd.0 as isize);
@@ -825,6 +856,47 @@ mod tests {
         let mut b = a.clone();
         b.autostart = true;
         assert!(!info_windows_stale(&a, &b));
+    }
+
+    #[test]
+    fn info_windows_close_when_any_hotkey_row_changes() {
+        use std::path::Path;
+        let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
+        // Bật/tắt một dòng: stale.
+        for r in shotme_core::config::HotkeyRole::ALL {
+            let mut b = a.clone();
+            let mut slot = b.hotkeys.get(r);
+            slot.enabled = !slot.enabled;
+            b.hotkeys.set(r, slot);
+            assert!(info_windows_stale(&a, &b), "{r:?}");
+        }
+        // Đổi tổ hợp của dòng 2 hay 3: stale.
+        let mut b = a.clone();
+        b.hotkeys.save_full.key.alt = true;
+        assert!(info_windows_stale(&a, &b));
+        let mut b = a.clone();
+        b.hotkeys.upload_full.key.vk = 0x71;
+        assert!(info_windows_stale(&a, &b));
+        // Đổi show_success_notices: không stale.
+        let mut b = a.clone();
+        b.show_success_notices = !b.show_success_notices;
+        assert!(!info_windows_stale(&a, &b));
+    }
+
+    #[test]
+    fn hotkeys_taken_notice_only_when_rows_failed() {
+        use shotme_core::config::HotkeyRole::*;
+        let keys = Hotkeys::default();
+        assert_eq!(hotkeys_taken_notice(Lang::Vi, &keys, &[]), None);
+        let (title, body) = hotkeys_taken_notice(Lang::Vi, &keys, &[UploadFull, Region]).unwrap();
+        assert_eq!(title, i18n::t(Lang::Vi, Msg::HotkeysNotWorkingTitle));
+        assert_eq!(
+            body,
+            i18n::hotkeys_taken_body(
+                Lang::Vi,
+                &["PrintScreen".to_string(), "Ctrl+PrintScreen".to_string()]
+            )
+        );
     }
 
     #[test]
