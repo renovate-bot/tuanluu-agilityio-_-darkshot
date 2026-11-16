@@ -1,8 +1,9 @@
 //! Trạng thái ứng dụng và luồng tải lên. Phần lớn là hàm thuần để kiểm thử được.
 
+use crate::lang;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
 use shotme_core::config::{Config, ConfigError, SecretStore};
-use shotme_core::i18n::Lang;
+use shotme_core::i18n::{t, Lang, Msg};
 use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
 use shotme_core::upload::Uploader;
@@ -18,8 +19,13 @@ pub enum ConfigNotice {
 }
 
 impl ConfigNotice {
-    pub fn message(self, _lang: Lang) -> String {
-        todo!()
+    pub fn message(self, lang: Lang) -> String {
+        let m = match self {
+            ConfigNotice::Corrupt => Msg::NoticeConfigCorrupt,
+            ConfigNotice::SecretLost => Msg::NoticeSecretLost,
+            ConfigNotice::Unreadable => Msg::NoticeConfigUnreadable,
+        };
+        t(lang, m).to_string()
     }
 }
 
@@ -31,13 +37,26 @@ pub struct AppState {
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
 pub fn startup(
-    _path: &Path,
-    _store: &dyn SecretStore,
-    _default_save_dir: &Path,
-    _os_lang: Lang,
+    path: &Path,
+    store: &dyn SecretStore,
+    default_save_dir: &Path,
+    os_lang: Lang,
 ) -> AppState {
-    todo!()
+    let defaults = || Config::defaults(default_save_dir, os_lang);
+    let (config, config_notice) =
+        match shotme_core::config::load(path, store, default_save_dir, os_lang) {
+            Ok(l) if l.secret_lost => (l.config, Some(ConfigNotice::SecretLost)),
+            Ok(l) => (l.config, None),
+            Err(ConfigError::Corrupt(_)) => (defaults(), Some(ConfigNotice::Corrupt)),
+            Err(_) => (defaults(), Some(ConfigNotice::Unreadable)),
+        };
+    AppState {
+        config,
+        config_notice,
+        overlay_open: false,
+    }
 }
+
 pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool {
     !config_file_exists || s.config_notice.is_some()
 }
@@ -120,10 +139,10 @@ impl Notifier for SilentNotifier {
 struct NoClipboard;
 impl Clipboard for NoClipboard {
     fn set_text(&self, _: &str) -> Result<(), String> {
-        Err("không dùng clipboard lúc thoát".into())
+        Err(lang::tr(Msg::ClipboardUnusedOnExit).into())
     }
     fn set_image(&self, _: &Image) -> Result<(), String> {
-        Err("không dùng clipboard lúc thoát".into())
+        Err(lang::tr(Msg::ClipboardUnusedOnExit).into())
     }
 }
 
@@ -140,7 +159,7 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
                 uploader: None,
                 clipboard: &NoClipboard,
                 notifier: &SilentNotifier,
-                lang: Lang::Vi,
+                lang: lang::current(),
             };
             matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
         })
@@ -160,6 +179,8 @@ pub struct UploadJob {
     pub on_needs_settings: Box<dyn FnOnce() + Send>,
     /// Sổ và mã của lượt này; luồng tải lên rút nó khỏi sổ khi kết thúc.
     pub pending: Option<(Arc<PendingUploads>, u64)>,
+    /// Ngôn ngữ của thông báo, chốt lúc tạo lượt.
+    pub lang: Lang,
 }
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
@@ -174,7 +195,7 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 uploader: job.uploader.as_deref(),
                 clipboard: job.clipboard.as_ref(),
                 notifier: job.notifier.as_ref(),
-                lang: Lang::Vi,
+                lang: job.lang,
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
             // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
@@ -382,6 +403,7 @@ mod tests {
             clock: fixed_now,
             on_needs_settings: cb,
             pending: None,
+            lang: Lang::Vi,
         }
     }
 

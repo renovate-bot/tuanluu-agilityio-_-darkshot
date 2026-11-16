@@ -112,6 +112,113 @@ messages! {
         "Địa chỉ công khai không được chứa các ký tự ?, # hoặc @",
         "The public address must not contain ?, # or @"
     ),
+    NoticeConfigCorrupt => (
+        "File cấu hình bị hỏng. Tùy chọn mặc định đang được dùng; bấm Lưu để ghi lại.",
+        "The config file is corrupt. Default options are in use; click Save to write it again."
+    ),
+    NoticeSecretLost => (
+        "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.",
+        "Could not read the saved secret key. Enter the Secret Access Key again."
+    ),
+    NoticeConfigUnreadable => (
+        "Không đọc được file cấu hình. Tùy chọn mặc định đang được dùng; bấm Lưu để ghi lại.",
+        "Could not read the config file. Default options are in use; click Save to write it again."
+    ),
+    ClipboardUnusedOnExit => ("không dùng clipboard lúc thoát", "the clipboard is not used on exit"),
+    TrayOptions => ("Tùy chọn...", "Options..."),
+    TrayExit => ("Thoát", "Exit"),
+    OverlayUpload => ("Tải lên và chép link (Ctrl+D)", "Upload and copy link (Ctrl+D)"),
+    OverlaySave => ("Lưu vào máy (Ctrl+S)", "Save to disk (Ctrl+S)"),
+    OverlayCopy => ("Chép ảnh (Ctrl+C)", "Copy image (Ctrl+C)"),
+    OverlayCancel => ("Hủy (Esc)", "Cancel (Esc)"),
+    OverlayErrTooLarge => ("ảnh chụp quá lớn", "the screenshot is too large"),
+    OverlayErrInvalid => ("ảnh chụp không hợp lệ", "the screenshot is invalid"),
+    OverlayErrAlreadyOpen => ("lớp phủ đang mở", "the overlay is already open"),
+    OverlayErrMemory => ("không đủ bộ nhớ cho lớp phủ", "not enough memory for the overlay"),
+    OverlayErrWindow => ("không tạo được cửa sổ lớp phủ", "could not create the overlay window"),
+    OverlayErrLoop => ("vòng lặp thông điệp lỗi", "the message loop failed"),
+    CaptureFailedTitle => ("Không chụp được màn hình", "Could not capture the screen"),
+    CaptureFailedBody => (
+        "Windows không cho chụp lúc này (ví dụ màn hình khóa hoặc hộp thoại quyền quản trị). Hãy thử lại.",
+        "Windows does not allow capturing right now (for example the lock screen or an administrator prompt). Try again."
+    ),
+    OverlayFailedTitle => ("Không mở được lớp phủ chọn vùng", "Could not open the region selector"),
+    UploadStartFailedTitle => ("Không bắt đầu được việc tải lên", "Could not start the upload"),
+    AutostartFailedTitle => ("Không đổi được khởi động cùng Windows", "Could not change start with Windows"),
+    OptionsSaveFailedTitle => ("Không lưu được tùy chọn", "Could not save the options"),
+    HotkeyReregisterFailedBody => (
+        "Không đăng ký lại được phím tắt cũ. Hãy mở Tùy chọn và chọn lại phím tắt.",
+        "Could not register the previous hotkey again. Open Options and pick the hotkey again."
+    ),
+    HotkeyTakenBody => ("Hãy đổi phím tắt trong Tùy chọn.", "Change the hotkey in Options."),
+    OptionsTitle => ("Tùy chọn", "Options"),
+    ErrAccountChars => (
+        "Account ID chỉ gồm chữ cái, chữ số và dấu gạch ngang.",
+        "Account ID may only contain letters, digits and hyphens."
+    ),
+    ErrBucketChars => (
+        "Tên kho chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới và gạch ngang.",
+        "The bucket name may only contain letters, digits, dots, underscores and hyphens."
+    ),
+    ErrPickSaveDir => ("Hãy chọn thư mục lưu ảnh.", "Choose a folder to save images in."),
+    HotkeyCapturePrompt => (
+        "Nhấn tổ hợp phím mới… (Esc để bỏ qua)",
+        "Press the new key combination... (Esc to skip)"
+    ),
+    HotkeyNeedModifier => (
+        "Phím này cần kèm Ctrl, Alt hoặc Win. Thử lại…",
+        "This key needs Ctrl, Alt or Win with it. Try again..."
+    ),
+    PickFolderTitle => ("Chọn thư mục lưu ảnh", "Choose the folder to save images in"),
+    TestFillAll => (
+        "Hãy điền đủ Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai trước.",
+        "Fill in Account ID, Access Key ID, Secret Access Key, Bucket and Public address first."
+    ),
+    TestSuccess => (
+        "Thành công: tải lên được và link mở được.",
+        "Success: the upload worked and the link opens."
+    ),
+    TestThreadFailed => (
+        "Không tạo được luồng kiểm tra. Hãy thử lại.",
+        "Could not start the check. Try again."
+    ),
+    TestRunning => ("Đang kiểm tra…", "Checking..."),
+    TestTimeout => (
+        "Kiểm tra quá thời gian chờ. Hãy thử lại.",
+        "The check timed out. Try again."
+    ),
+    LabelBucket => ("Tên kho (bucket)", "Bucket"),
+    SecretNone => ("Chưa có khóa.", "No key saved."),
+    SecretSaved => (
+        "Đã lưu khóa; để trống nếu không đổi.",
+        "Key saved; leave empty to keep it."
+    ),
+    LabelPublicUrl => ("Địa chỉ công khai", "Public address"),
+    BtnTest => ("Kiểm tra kết nối", "Test connection"),
+    GroupShare => ("Chia sẻ và lưu", "Share and save"),
+    LabelExpiry => ("Hạn của link", "Link expiry"),
+    LabelSaveDir => ("Thư mục lưu", "Save folder"),
+    BtnChoose => ("Chọn…", "Choose..."),
+    GroupGeneral => ("Chung", "General"),
+    LabelHotkey => ("Phím tắt chụp", "Capture hotkey"),
+    BtnChange => ("Đổi…", "Change..."),
+    ChkAutostart => ("Khởi động cùng Windows", "Start with Windows"),
+    BtnSave => ("Lưu", "Save"),
+    BtnCancel => ("Hủy", "Cancel"),
+    ClipInvalidImage => ("Ảnh không hợp lệ", "The image is invalid"),
+    ClipImageTooBig => ("Ảnh quá lớn để chép vào clipboard", "The image is too large to copy to the clipboard"),
+    ClipBusy => ("Clipboard đang bị ứng dụng khác giữ", "Another app is holding the clipboard"),
+    ClipAllocFailed => ("Không cấp phát được bộ nhớ cho clipboard", "Could not allocate memory for the clipboard"),
+    ClipWindowFailed => ("Không tạo được cửa sổ cho clipboard", "Could not create a window for the clipboard"),
+    ClipSetFailed => ("Không đặt được dữ liệu vào clipboard", "Could not put the data on the clipboard"),
+    ClipEmptyFailed => ("Không xóa được clipboard", "Could not clear the clipboard"),
+    SecretEncryptFailed => ("Không mã hóa được khóa bí mật", "Could not encrypt the secret key"),
+    SecretDecryptFailed => ("Không giải mã được khóa bí mật", "Could not decrypt the secret key"),
+    SecretTooLarge => ("Dữ liệu quá lớn để mã hóa", "The data is too large to encrypt"),
+    AutostartExePath => ("Không xác định được đường dẫn của shotme", "Could not determine the path of shotme"),
+    AutostartEnableFailed => ("Không bật được khởi động cùng Windows", "Could not turn on start with Windows"),
+    AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not turn off start with Windows"),
+    AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -124,6 +231,11 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::UploadedNoCopyTitle,
     Msg::UploadFailedTitle,
     Msg::SaveFailedTitle,
+    Msg::CaptureFailedTitle,
+    Msg::OverlayFailedTitle,
+    Msg::UploadStartFailedTitle,
+    Msg::AutostartFailedTitle,
+    Msg::OptionsSaveFailedTitle,
 ];
 
 pub fn expiry_label(lang: Lang, e: Expiry) -> &'static str {
@@ -197,6 +309,63 @@ pub fn http_error(lang: Lang, code: u16) -> String {
     match lang {
         Lang::Vi => format!("Máy chủ trả về lỗi {code}."),
         Lang::En => format!("The server returned error {code}."),
+    }
+}
+
+/// Thêm mã lỗi của hệ điều hành sau một thông báo.
+pub fn with_error_code(lang: Lang, base: &str, code: &str) -> String {
+    match lang {
+        Lang::Vi => format!("{base} (mã lỗi {code})"),
+        Lang::En => format!("{base} (error code {code})"),
+    }
+}
+
+pub fn reason(lang: Lang, why: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Lý do: {why}"),
+        Lang::En => format!("Reason: {why}"),
+    }
+}
+
+pub fn reason_try_again(lang: Lang, why: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Lý do: {why}. Hãy thử lại."),
+        Lang::En => format!("Reason: {why}. Try again."),
+    }
+}
+
+pub fn upload_start_failed_body(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("{err}. Ảnh sẽ được lưu vào máy."),
+        Lang::En => format!("{err}. The image will be saved to disk."),
+    }
+}
+
+pub fn options_save_failed_body(lang: Lang, why: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Lý do: {why}. Tùy chọn cũ vẫn được dùng."),
+        Lang::En => format!("Reason: {why}. The previous options remain in use."),
+    }
+}
+
+pub fn hotkey_inactive_title(lang: Lang, key: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Phím {key} hiện không hoạt động"),
+        Lang::En => format!("The {key} key is not working now"),
+    }
+}
+
+pub fn hotkey_taken_title(lang: Lang, key: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm"),
+        Lang::En => format!("Another app is using the {key} key"),
+    }
+}
+
+pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Phím {key} đang bị ứng dụng khác chiếm. Hãy chọn phím khác."),
+        Lang::En => format!("Another app is using the {key} key. Choose a different key."),
     }
 }
 
@@ -301,6 +470,30 @@ mod tests {
         assert_ne!(
             save_failed_no_clipboard(Lang::Vi, "x"),
             save_failed_no_clipboard(Lang::En, "x")
+        );
+    }
+
+    #[test]
+    fn windows_layer_strings_contain_their_arguments() {
+        for l in Lang::ALL {
+            let coded = with_error_code(l, "BASE", "0x1");
+            assert!(coded.contains("BASE") && coded.contains("0x1"), "{l:?}");
+            assert!(reason(l, "A1").contains("A1"));
+            assert!(reason_try_again(l, "A2").contains("A2"));
+            assert!(upload_start_failed_body(l, "A3").contains("A3"));
+            assert!(options_save_failed_body(l, "A4").contains("A4"));
+            assert!(hotkey_inactive_title(l, "A5").contains("A5"));
+            assert!(hotkey_taken_title(l, "A6").contains("A6"));
+            assert!(hotkey_taken_choose_other(l, "A7").contains("A7"));
+        }
+        assert_ne!(reason(Lang::Vi, "x"), reason(Lang::En, "x"));
+        assert_ne!(
+            hotkey_taken_title(Lang::Vi, "x"),
+            hotkey_taken_title(Lang::En, "x")
+        );
+        assert_ne!(
+            with_error_code(Lang::Vi, "x", "1"),
+            with_error_code(Lang::En, "x", "1")
         );
     }
 }

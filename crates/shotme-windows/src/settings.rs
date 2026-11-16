@@ -6,8 +6,9 @@
 //! Việc ghi `Config` ra đĩa và bật/tắt khởi động cùng Windows do bên gọi (Task 11) làm.
 
 use crate::hotkey;
+use crate::lang;
 use shotme_core::config::{normalize_public_base_url, Config, Expiry, Hotkey, R2Config};
-use shotme_core::i18n::Lang;
+use shotme_core::i18n::{self, expiry_label, Msg};
 use shotme_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -106,18 +107,18 @@ pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
     let save_dir = form.save_dir.trim();
 
     if !account_id.chars().all(is_account_char) {
-        return Err("Account ID chỉ gồm chữ cái, chữ số và dấu gạch ngang.".into());
+        return Err(lang::tr(Msg::ErrAccountChars).into());
     }
     if !bucket.chars().all(is_bucket_char) {
-        return Err("Tên kho chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới và gạch ngang.".into());
+        return Err(lang::tr(Msg::ErrBucketChars).into());
     }
     let public_base_url = if url.is_empty() {
         String::new()
     } else {
-        normalize_public_base_url(url).map_err(|e| e.message(Lang::Vi))?
+        normalize_public_base_url(url).map_err(|e| e.message(lang::current()))?
     };
     if save_dir.is_empty() {
-        return Err("Hãy chọn thư mục lưu ảnh.".into());
+        return Err(lang::tr(Msg::ErrPickSaveDir).into());
     }
     let secret_access_key = if secret.is_empty() {
         current.r2.secret_access_key.clone()
@@ -429,9 +430,9 @@ fn save() {
             hotkey::unregister(p);
             if !hotkey::register(p, &cfg.hotkey) {
                 with_st(|s| s.hk_unregistered = true);
-                show_error(&format!(
-                    "Phím {} đang bị ứng dụng khác chiếm. Hãy chọn phím khác.",
-                    hotkey::describe(&cfg.hotkey)
+                show_error(&i18n::hotkey_taken_choose_other(
+                    lang::current(),
+                    &hotkey::describe(&cfg.hotkey),
                 ));
                 return;
             }
@@ -466,7 +467,7 @@ fn on_change_hotkey() {
     })
     .unwrap_or(false);
     if started {
-        set_text(c.hk_edit, "Nhấn tổ hợp phím mới… (Esc để bỏ qua)");
+        set_text(c.hk_edit, lang::tr(Msg::HotkeyCapturePrompt));
         show_error("");
     }
 }
@@ -538,7 +539,7 @@ fn capture_msg(msg: &MSG, hk_btn: HWND) -> bool {
                 Capture::PassThrough => false,
                 Capture::NeedModifier => {
                     if let Some(c) = ctl() {
-                        set_text(c.hk_edit, "Phím này cần kèm Ctrl, Alt hoặc Win. Thử lại…");
+                        set_text(c.hk_edit, lang::tr(Msg::HotkeyNeedModifier));
                     }
                     true
                 }
@@ -567,7 +568,7 @@ fn on_browse(hwnd: HWND) {
                 CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
             let opts = dlg.GetOptions()?;
             dlg.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)?;
-            dlg.SetTitle(&HSTRING::from("Chọn thư mục lưu ảnh"))?;
+            dlg.SetTitle(&HSTRING::from(lang::tr(Msg::PickFolderTitle)))?;
             dlg.Show(Some(hwnd))?;
             let item = dlg.GetResult()?;
             let name: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH)?;
@@ -599,10 +600,7 @@ fn on_test(hwnd: HWND) {
     };
     show_error("");
     if !cfg.r2.is_complete() {
-        set_text(
-            c.test_res,
-            "Hãy điền đủ Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai trước.",
-        );
+        set_text(c.test_res, lang::tr(Msg::TestFillAll));
         return;
     }
     if TEST_RUNNING.with(|r| r.get()) {
@@ -616,8 +614,8 @@ fn on_test(hwnd: HWND) {
         .name("shotme-test-connection".into())
         .spawn(move || {
             let msg = match R2Uploader::new(&r2).test_connection() {
-                Ok(()) => "Thành công: tải lên được và link mở được.".to_string(),
-                Err(e) => e.message(Lang::Vi),
+                Ok(()) => lang::tr(Msg::TestSuccess).to_string(),
+                Err(e) => e.message(lang::current()),
             };
             if let Ok(mut slot) = TEST_RESULT.lock() {
                 // Cửa sổ đã đóng (thế hệ đã đổi): bỏ kết quả, không đè lên kết quả của cửa sổ mới.
@@ -636,7 +634,7 @@ fn on_test(hwnd: HWND) {
             }
         });
     if spawned.is_err() {
-        set_text(c.test_res, "Không tạo được luồng kiểm tra. Hãy thử lại.");
+        set_text(c.test_res, lang::tr(Msg::TestThreadFailed));
         return;
     }
     TEST_RUNNING.with(|r| r.set(true));
@@ -648,7 +646,7 @@ fn on_test(hwnd: HWND) {
         let _ = EnableWindow(c.test_btn, false);
         SetTimer(Some(hwnd), TEST_TIMER_ID, TEST_FAILSAFE_MS, None);
     }
-    set_text(c.test_res, "Đang kiểm tra…");
+    set_text(c.test_res, lang::tr(Msg::TestRunning));
 }
 
 /// Bật lại nút "Kiểm tra kết nối" và hủy bộ hẹn giờ dự phòng.
@@ -668,7 +666,7 @@ fn on_test_timeout(hwnd: HWND) {
     }
     // Bỏ kết quả muộn của luồng nền.
     GENERATION.fetch_add(1, Ordering::SeqCst);
-    set_text(c.test_res, "Kiểm tra quá thời gian chờ. Hãy thử lại.");
+    set_text(c.test_res, lang::tr(Msg::TestTimeout));
     test_finished(hwnd, &c);
 }
 
@@ -853,7 +851,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
             ID_SECRET,
             WINDOW_STYLE(ES_PASSWORD as u32),
         ),
-        ("Tên kho (bucket)", ID_BUCKET, WINDOW_STYLE(0)),
+        (lang::tr(Msg::LabelBucket), ID_BUCKET, WINDOW_STYLE(0)),
     ];
     let mut handles = Vec::new();
     for (label, id, style) in rows {
@@ -862,19 +860,19 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         y += 28;
         if id == ID_SECRET {
             let hint = if current.r2.secret_access_key.is_empty() {
-                "Chưa có khóa."
+                lang::tr(Msg::SecretNone)
             } else {
-                "Đã lưu khóa; để trống nếu không đổi."
+                lang::tr(Msg::SecretSaved)
             };
             b.label(hint, EX, y - 2, EW, 18);
             y += 20;
         }
     }
-    b.label("Địa chỉ công khai", LX, y + 3, EX - LX - 4, 20);
+    b.label(lang::tr(Msg::LabelPublicUrl), LX, y + 3, EX - LX - 4, 20);
     let url = b.edit(WINDOW_STYLE(0), (EX, y, EW, 24), ID_URL);
     y += 28;
     let test_btn = b.button(
-        "Kiểm tra kết nối",
+        lang::tr(Msg::BtnTest),
         WS_TABSTOP | ws(BS_PUSHBUTTON),
         (LX, y, 140, 26),
         ID_TEST,
@@ -888,13 +886,13 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     let g2 = y;
     let g2h = b.make(
         w!("BUTTON"),
-        "Chia sẻ và lưu",
+        lang::tr(Msg::GroupShare),
         ws(BS_GROUPBOX),
         (12, y, 456, 1),
         -1,
     );
     y += 24;
-    b.label("Hạn của link", LX, y + 3, EX - LX - 4, 20);
+    b.label(lang::tr(Msg::LabelExpiry), LX, y + 3, EX - LX - 4, 20);
     let expiry = b.make(
         w!("COMBOBOX"),
         "",
@@ -903,10 +901,10 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         ID_EXPIRY,
     );
     y += 32;
-    b.label("Thư mục lưu", LX, y + 3, EX - LX - 4, 20);
+    b.label(lang::tr(Msg::LabelSaveDir), LX, y + 3, EX - LX - 4, 20);
     let dir = b.edit(WINDOW_STYLE(0), (EX, y, EW - 76, 24), ID_DIR);
     b.button(
-        "Chọn…",
+        lang::tr(Msg::BtnChoose),
         ws(BS_PUSHBUTTON),
         (EX + EW - 70, y - 1, 70, 26),
         ID_BROWSE,
@@ -917,19 +915,25 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     // Nhóm Chung
     y += 4;
     let g3 = y;
-    let g3h = b.make(w!("BUTTON"), "Chung", ws(BS_GROUPBOX), (12, y, 456, 1), -1);
+    let g3h = b.make(
+        w!("BUTTON"),
+        lang::tr(Msg::GroupGeneral),
+        ws(BS_GROUPBOX),
+        (12, y, 456, 1),
+        -1,
+    );
     y += 24;
-    b.label("Phím tắt chụp", LX, y + 3, EX - LX - 4, 20);
+    b.label(lang::tr(Msg::LabelHotkey), LX, y + 3, EX - LX - 4, 20);
     let hk_edit = b.edit(WINDOW_STYLE(ES_READONLY as u32), (EX, y, EW - 76, 24), -1);
     let hk_btn = b.button(
-        "Đổi…",
+        lang::tr(Msg::BtnChange),
         ws(BS_PUSHBUTTON),
         (EX + EW - 70, y - 1, 70, 26),
         ID_HK_CHANGE,
     );
     y += 32;
     let autostart = b.button(
-        "Khởi động cùng Windows",
+        lang::tr(Msg::ChkAutostart),
         ws(BS_AUTOCHECKBOX),
         (LX, y, 300, 22),
         ID_AUTOSTART,
@@ -941,11 +945,16 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     y += 8;
     let err = b.label("", 12, y, 456, 36);
     y += 40;
-    b.button("Lưu", ws(BS_DEFPUSHBUTTON), (300, y, 80, 28), ID_OK);
+    b.button(
+        lang::tr(Msg::BtnSave),
+        ws(BS_DEFPUSHBUTTON),
+        (300, y, 80, 28),
+        ID_OK,
+    );
     // Hủy không có WS_GROUP: Lưu và Hủy cùng một nhóm mũi tên.
     b.make(
         w!("BUTTON"),
-        "Hủy",
+        lang::tr(Msg::BtnCancel),
         WS_TABSTOP | ws(BS_PUSHBUTTON),
         (388, y, 80, 28),
         ID_CANCEL,
@@ -1018,6 +1027,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         return None;
     }
 
+    let title = HSTRING::from(lang::tr(Msg::OptionsTitle));
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; mọi handle được giải phóng ở cuối hàm.
     let hwnd = unsafe {
         let hinst = GetModuleHandleW(None).ok()?;
@@ -1034,7 +1044,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
         let hwnd = CreateWindowExW(
             WS_EX_CONTROLPARENT | WS_EX_APPWINDOW,
             class,
-            w!("shotme – Cài đặt"),
+            &title,
             WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -1118,7 +1128,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
     set_text(c.url, &current.r2.public_base_url);
     set_text(c.dir, &current.save_dir.to_string_lossy());
     refresh_hotkey_text();
-    let labels = ["1 ngày", "7 ngày", "30 ngày", "Không hết hạn"];
+    let labels = Expiry::ALL.map(|e| expiry_label(lang::current(), e));
     // SAFETY: gửi thông điệp tới các điều khiển của cửa sổ này; HSTRING sống suốt lời gọi.
     unsafe {
         for l in labels {
@@ -1283,6 +1293,7 @@ fn get_class_is_button(h: HWND) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shotme_core::i18n::Lang;
     use std::path::Path;
 
     fn base() -> Config {

@@ -4,10 +4,12 @@
 //! Mọi trạng thái kéo thả nằm trong `geometry::Selection`; ở đây chỉ vẽ và nhận sự kiện.
 
 use crate::capture::Screenshot;
+use crate::lang;
 use shotme_core::actions::Action;
 use shotme_core::geometry::{
     monitor_containing, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
+use shotme_core::i18n::Msg;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
@@ -51,11 +53,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 const CLASS: PCWSTR = w!("shotme-overlay");
 const ACTIONS: [Action; 4] = [Action::Upload, Action::Save, Action::Copy, Action::Cancel];
-const TIPS: [&str; 4] = [
-    "Tải lên và chép link (Ctrl+D)",
-    "Lưu vào máy (Ctrl+S)",
-    "Chép ảnh (Ctrl+C)",
-    "Hủy (Esc)",
+const TIPS: [Msg; 4] = [
+    Msg::OverlayUpload,
+    Msg::OverlaySave,
+    Msg::OverlayCopy,
+    Msg::OverlayCancel,
 ];
 
 // Kích thước ở 96 DPI (100%); nhân theo DPI của màn hình chứa phần tử.
@@ -396,7 +398,7 @@ impl State {
         let corner = Point { x: r.x, y: r.y };
         let mon = monitor_containing(corner, &self.monitors);
         let dpi = self.monitor_dpi(mon);
-        let text = wide(&format!("{} × {}", r.w, r.h));
+        let text = wide(&format!("{} \u{d7} {}", r.w, r.h));
         let (tw, th) = self.text_size(&text, dpi);
         let (lw, lh) = (tw + 2 * scaled(7, dpi), th + 2 * scaled(2, dpi));
         let gap = scaled(GAP, dpi);
@@ -412,7 +414,7 @@ impl State {
         let a = self.hover?;
         let (bar, dpi) = self.toolbar()?;
         let i = action_index(a);
-        let text = wide(TIPS.get(i)?);
+        let text = wide(lang::tr(*TIPS.get(i)?));
         let (tw, th) = self.text_size(&text, dpi);
         let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
         let b = bar.h;
@@ -1324,20 +1326,20 @@ pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> 
     let img = &shot.image;
     let size = (i32::try_from(img.width), i32::try_from(img.height));
     let (Ok(w), Ok(h)) = size else {
-        return Err("ảnh chụp quá lớn".to_string());
+        return Err(lang::tr(Msg::OverlayErrTooLarge).to_string());
     };
     if !img.is_valid() {
-        return Err("ảnh chụp không hợp lệ".to_string());
+        return Err(lang::tr(Msg::OverlayErrInvalid).to_string());
     }
     // Không mở lồng hai lớp phủ.
     let busy = OVERLAY.with(|o| o.try_borrow().map(|s| s.is_some()).unwrap_or(true));
     if busy {
-        return Err("lớp phủ đang mở".to_string());
+        return Err(lang::tr(Msg::OverlayErrAlreadyOpen).to_string());
     }
 
     let mut dark = Vec::new();
     if dark.try_reserve_exact(img.bgra.len()).is_err() {
-        return Err("không đủ bộ nhớ cho lớp phủ".to_string());
+        return Err(lang::tr(Msg::OverlayErrMemory).to_string());
     }
     dark.extend(img.bgra.iter().map(|b| b >> 1));
 
@@ -1383,11 +1385,11 @@ pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> 
         Err(_) => false,
     });
     if !placed {
-        return Err("lớp phủ đang mở".to_string());
+        return Err(lang::tr(Msg::OverlayErrAlreadyOpen).to_string());
     }
     let _state = StateGuard;
     let Some(hwnd) = create_window(shot.origin, w, h) else {
-        return Err("không tạo được cửa sổ lớp phủ".to_string());
+        return Err(lang::tr(Msg::OverlayErrWindow).to_string());
     };
     // Thả trước _state: cửa sổ bị hủy khi trạng thái (và ảnh tối) còn sống.
     let _window = WindowGuard(hwnd);
@@ -1421,7 +1423,7 @@ pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> 
             return Ok(None);
         }
         if got < 0 {
-            return Err("vòng lặp thông điệp lỗi".to_string());
+            return Err(lang::tr(Msg::OverlayErrLoop).to_string());
         }
         // SAFETY: phân phát thông điệp vừa nhận.
         unsafe {

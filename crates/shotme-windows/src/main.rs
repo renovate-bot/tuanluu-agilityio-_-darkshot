@@ -17,6 +17,7 @@ use app::{AppState, UploadJob};
 use secret::DpapiStore;
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, NoticeKind, Notifier};
 use shotme_core::config::Hotkey;
+use shotme_core::i18n::{self, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -206,8 +207,8 @@ fn capture_flow(hwnd: HWND) {
         Err(_) => {
             notify(
                 NoticeKind::Error,
-                "Không chụp được màn hình",
-                "Windows không cho chụp lúc này (ví dụ màn hình khóa hoặc hộp thoại quyền quản trị). Hãy thử lại.",
+                lang::tr(Msg::CaptureFailedTitle),
+                lang::tr(Msg::CaptureFailedBody),
             );
             return;
         }
@@ -221,8 +222,8 @@ fn capture_flow(hwnd: HWND) {
         Err(e) => {
             notify(
                 NoticeKind::Error,
-                "Không mở được lớp phủ chọn vùng",
-                &format!("Lý do: {e}. Hãy thử lại."),
+                lang::tr(Msg::OverlayFailedTitle),
+                &i18n::reason_try_again(lang::current(), &e),
             );
             return;
         }
@@ -244,7 +245,7 @@ fn capture_flow(hwnd: HWND) {
                 uploader: None,
                 clipboard: clipboard.as_ref(),
                 notifier: notifier.as_ref(),
-                lang: shotme_core::i18n::Lang::Vi,
+                lang: lang::current(),
             };
             run_action(&ctx, action, &image);
         }
@@ -268,6 +269,7 @@ fn capture_flow(hwnd: HWND) {
                 clock: paths::local_now,
                 on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
                 pending: Some((registry.clone(), pending_id)),
+                lang: lang::current(),
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.
@@ -275,8 +277,8 @@ fn capture_flow(hwnd: HWND) {
                 // Không tạo được luồng: lưu ảnh ngay thay vì mất nó.
                 notifier.notify(
                     NoticeKind::Error,
-                    "Không bắt đầu được việc tải lên",
-                    &format!("{e}. Ảnh sẽ được lưu vào máy."),
+                    lang::tr(Msg::UploadStartFailedTitle),
+                    &i18n::upload_start_failed_body(lang::current(), &e),
                 );
                 let ctx = Ctx {
                     save_dir: &config.save_dir,
@@ -285,7 +287,7 @@ fn capture_flow(hwnd: HWND) {
                     uploader: None,
                     clipboard: clipboard.as_ref(),
                     notifier: notifier.as_ref(),
-                    lang: shotme_core::i18n::Lang::Vi,
+                    lang: lang::current(),
                 };
                 run_action(&ctx, Action::Save, &image);
             }
@@ -301,9 +303,7 @@ fn open_settings(hwnd: HWND) {
     let Some(result) = settings::show(
         hwnd,
         &config,
-        notice
-            .map(|n| n.message(shotme_core::i18n::Lang::Vi))
-            .as_deref(),
+        notice.map(|n| n.message(lang::current())).as_deref(),
     ) else {
         return;
     };
@@ -319,10 +319,11 @@ fn open_settings(hwnd: HWND) {
             if let Err(e) = autostart::set_enabled(new.autostart) {
                 notify(
                     NoticeKind::Error,
-                    "Không đổi được khởi động cùng Windows",
-                    &format!("Lý do: {e}"),
+                    lang::tr(Msg::AutostartFailedTitle),
+                    &i18n::reason(lang::current(), &e),
                 );
             }
+            lang::set(new.language);
             with_app(|a| a.config = new);
         }
         Err(e) => {
@@ -336,17 +337,17 @@ fn open_settings(hwnd: HWND) {
             };
             notify(
                 NoticeKind::Error,
-                "Không lưu được cài đặt",
-                &format!("Lý do: {why}. Cài đặt cũ vẫn được dùng."),
+                lang::tr(Msg::OptionsSaveFailedTitle),
+                &i18n::options_save_failed_body(lang::current(), &why),
             );
             if !key_ok {
                 notify(
                     NoticeKind::Error,
-                    &format!(
-                        "Phím {} hiện không hoạt động",
-                        hotkey::describe(&config.hotkey)
+                    &i18n::hotkey_inactive_title(
+                        lang::current(),
+                        &hotkey::describe(&config.hotkey),
                     ),
-                    "Không đăng ký lại được phím tắt cũ. Hãy mở Cài đặt và chọn lại phím tắt.",
+                    lang::tr(Msg::HotkeyReregisterFailedBody),
                 );
             }
         }
@@ -591,8 +592,9 @@ fn main() {
         &config_path,
         &DpapiStore,
         &paths::default_save_dir(),
-        shotme_core::i18n::Lang::Vi,
+        lang::os_default(),
     );
+    lang::set(state.config.language);
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
     let hk: Hotkey = state.config.hotkey;
     APP.with(|a| *a.borrow_mut() = Some(state));
@@ -604,8 +606,8 @@ fn main() {
         let name = hotkey::describe(&hk);
         notifier.notify(
             NoticeKind::Error,
-            &format!("Phím {name} đang bị ứng dụng khác chiếm"),
-            "Hãy đổi phím tắt trong Cài đặt.",
+            &i18n::hotkey_taken_title(lang::current(), &name),
+            lang::tr(Msg::HotkeyTakenBody),
         );
     }
 

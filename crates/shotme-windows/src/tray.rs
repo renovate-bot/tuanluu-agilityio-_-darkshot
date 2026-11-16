@@ -1,10 +1,12 @@
 //! Biểu tượng khay, menu và thông báo.
 
+use crate::lang;
 use shotme_core::actions::{NoticeKind, Notifier};
+use shotme_core::i18n::Msg;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
-use windows::core::{w, PCWSTR};
+use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::{
@@ -141,9 +143,12 @@ impl Tray {
         // SAFETY: menu được tạo và hủy trong hàm này; hwnd thuộc luồng gọi.
         unsafe {
             let menu = CreatePopupMenu().ok()?;
-            let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, w!("Chụp màn hình"));
-            let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, w!("Cài đặt"));
-            let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, w!("Thoát"));
+            let capture = HSTRING::from(lang::tr(Msg::TrayCapture));
+            let options = HSTRING::from(lang::tr(Msg::TrayOptions));
+            let exit = HSTRING::from(lang::tr(Msg::TrayExit));
+            let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
+            let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, &options);
+            let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, &exit);
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             // Cần để menu đóng khi bấm ra ngoài.
