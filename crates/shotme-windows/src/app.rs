@@ -10,36 +10,34 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-pub const NOTICE_CORRUPT: &str =
-    "File cấu hình bị hỏng. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại.";
-pub const NOTICE_SECRET_LOST: &str =
-    "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key.";
-pub const NOTICE_UNREADABLE: &str =
-    "Không đọc được file cấu hình. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại.";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfigNotice {
+    Corrupt,
+    SecretLost,
+    Unreadable,
+}
+
+impl ConfigNotice {
+    pub fn message(self, _lang: Lang) -> String {
+        todo!()
+    }
+}
 
 pub struct AppState {
     pub config: Config,
-    pub config_notice: Option<String>,
+    pub config_notice: Option<ConfigNotice>,
     pub overlay_open: bool,
 }
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
-pub fn startup(path: &Path, store: &dyn SecretStore, default_save_dir: &Path) -> AppState {
-    let defaults = || Config::defaults(default_save_dir, Lang::Vi);
-    let (config, config_notice) =
-        match shotme_core::config::load(path, store, default_save_dir, Lang::Vi) {
-            Ok(l) if l.secret_lost => (l.config, Some(NOTICE_SECRET_LOST.to_string())),
-            Ok(l) => (l.config, None),
-            Err(ConfigError::Corrupt(_)) => (defaults(), Some(NOTICE_CORRUPT.to_string())),
-            Err(_) => (defaults(), Some(NOTICE_UNREADABLE.to_string())),
-        };
-    AppState {
-        config,
-        config_notice,
-        overlay_open: false,
-    }
+pub fn startup(
+    _path: &Path,
+    _store: &dyn SecretStore,
+    _default_save_dir: &Path,
+    _os_lang: Lang,
+) -> AppState {
+    todo!()
 }
-
 pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool {
     !config_file_exists || s.config_notice.is_some()
 }
@@ -250,7 +248,7 @@ mod tests {
     #[test]
     fn first_run_opens_settings() {
         let missing = temp_dir().join("config.json");
-        let s = startup(&missing, &XorStore, Path::new("C:/pics"));
+        let s = startup(&missing, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert!(needs_settings_on_start(&s, false) && s.config_notice.is_none());
         assert!(!missing.exists());
     }
@@ -259,9 +257,9 @@ mod tests {
     fn corrupt_config_uses_defaults_and_does_not_overwrite() {
         let path = temp_dir().join("config.json");
         std::fs::write(&path, "{not json").unwrap();
-        let s = startup(&path, &XorStore, Path::new("C:/pics"));
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config, Config::defaults(Path::new("C:/pics"), Lang::Vi));
-        assert_eq!(s.config_notice.as_deref(), Some(NOTICE_CORRUPT));
+        assert_eq!(s.config_notice, Some(ConfigNotice::Corrupt));
         assert!(needs_settings_on_start(&s, true));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json");
     }
@@ -270,21 +268,53 @@ mod tests {
     fn lost_secret_opens_settings_with_notice() {
         let path = temp_dir().join("config.json");
         shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
-        let s = startup(&path, &FailStore, Path::new("C:/pics"));
+        let s = startup(&path, &FailStore, Path::new("C:/pics"), Lang::Vi);
+        assert_eq!(s.config_notice, Some(ConfigNotice::SecretLost));
         assert!(s
             .config_notice
-            .as_deref()
             .unwrap()
+            .message(Lang::Vi)
             .contains("Secret Access Key"));
         assert!(needs_settings_on_start(&s, true));
         assert!(s.config.r2.secret_access_key.is_empty());
     }
 
     #[test]
+    fn corrupt_or_missing_config_uses_os_language() {
+        let path = temp_dir().join("config.json");
+        std::fs::write(&path, "{not json").unwrap();
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::En);
+        assert_eq!(s.config_notice, Some(ConfigNotice::Corrupt));
+
+        let missing = temp_dir().join("config.json");
+        let s = startup(&missing, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::En);
+        assert_eq!(s.config_notice, None);
+
+        let path = temp_dir().join("config.json");
+        std::fs::write(&path, "{}").unwrap();
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::En);
+        assert_eq!(s.config.language, Lang::Vi);
+        assert_eq!(s.config_notice, None);
+    }
+
+    #[test]
+    fn config_notice_messages_differ_by_language() {
+        for n in [
+            ConfigNotice::Corrupt,
+            ConfigNotice::SecretLost,
+            ConfigNotice::Unreadable,
+        ] {
+            assert_ne!(n.message(Lang::Vi), n.message(Lang::En));
+        }
+    }
+
+    #[test]
     fn complete_config_starts_quietly() {
         let path = temp_dir().join("config.json");
         shotme_core::config::save(&path, &complete_config(), &XorStore).unwrap();
-        let s = startup(&path, &XorStore, Path::new("C:/pics"));
+        let s = startup(&path, &XorStore, Path::new("C:/pics"), Lang::Vi);
         assert_eq!(s.config, complete_config());
         assert!(!needs_settings_on_start(&s, true));
         assert!(!s.overlay_open);

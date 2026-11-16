@@ -53,6 +53,7 @@ macro_rules! messages {
 }
 
 messages! {
+    TrayCapture => ("Chụp màn hình", "Take screenshot"),
     NoImageTitle => ("Không có ảnh để xử lý", "No image to process"),
     NoImageBody => ("Vùng chọn trống hoặc ảnh không hợp lệ.", "The selection is empty or the image is invalid."),
     SavedTitle => ("Đã lưu ảnh", "Image saved"),

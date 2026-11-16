@@ -5,6 +5,7 @@ mod autostart;
 mod capture;
 mod clipboard;
 mod hotkey;
+mod lang;
 mod overlay;
 mod paths;
 mod secret;
@@ -297,7 +298,13 @@ fn open_settings(hwnd: HWND) {
     let Some((config, notice)) = with_app(|a| (a.config.clone(), a.config_notice.take())) else {
         return;
     };
-    let Some(result) = settings::show(hwnd, &config, notice.as_deref()) else {
+    let Some(result) = settings::show(
+        hwnd,
+        &config,
+        notice
+            .map(|n| n.message(shotme_core::i18n::Lang::Vi))
+            .as_deref(),
+    ) else {
         return;
     };
     let notify = |kind: NoticeKind, title: &str, body: &str| {
@@ -580,7 +587,12 @@ fn main() {
     TRAY.with(|t| *t.borrow_mut() = Some(Rc::new(tray)));
 
     let config_path = paths::config_path();
-    let state = app::startup(&config_path, &DpapiStore, &paths::default_save_dir());
+    let state = app::startup(
+        &config_path,
+        &DpapiStore,
+        &paths::default_save_dir(),
+        shotme_core::i18n::Lang::Vi,
+    );
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
     let hk: Hotkey = state.config.hotkey;
     APP.with(|a| *a.borrow_mut() = Some(state));
