@@ -390,6 +390,7 @@ const ID_HK_CHANGE: i32 = 110;
 const ID_AUTOSTART: i32 = 111;
 const ID_LANGUAGE: i32 = 112;
 const ID_TABS: i32 = 113;
+const ID_HELP: i32 = 114;
 /// Khung của tab thứ i có ID `ID_FRAME0 + i`.
 const ID_FRAME0: i32 = 120;
 const FRAME_CLASS: PCWSTR = w!("shotme-settings-frame");
@@ -709,7 +710,18 @@ fn on_command(hwnd: HWND, id: i32) {
         ID_TEST => on_test(hwnd),
         ID_BROWSE => on_browse(hwnd),
         ID_HK_CHANGE => on_change_hotkey(),
+        ID_HELP => on_help(),
         _ => {}
+    }
+}
+
+/// Mở Trợ giúp với phím tắt đang hiện trong biểu mẫu. Chủ của cửa sổ Trợ giúp là cửa sổ ẩn của
+/// ứng dụng, không phải Tùy chọn, nên đóng Tùy chọn không kéo Trợ giúp theo.
+fn on_help() {
+    // Đang bắt phím mà bấm nút này: thoát chế độ bắt trước, như bấm ra ngoài.
+    end_capture();
+    if let Some((parent, hk)) = with_st(|s| (s.parent, s.hotkey)) {
+        crate::help::show(parent, &hk);
     }
 }
 
@@ -1284,8 +1296,8 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
 
 /// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
 ///
-/// Thứ tự Z (cũng là thứ tự Tab của `IsDialogMessageW`): khung các tab, dòng lỗi, OK, Hủy, rồi dải tab
-/// ở đáy. Vòng Tab vì vậy là: dải tab → ô của khung đang hiện → OK → Hủy → dải tab. Dải tab có
+/// Thứ tự Z (cũng là thứ tự Tab của `IsDialogMessageW`): khung các tab, dòng lỗi, Trợ giúp, OK, Hủy, rồi
+/// dải tab ở đáy. Vòng Tab vì vậy là: dải tab → ô của khung đang hiện → Trợ giúp → OK → Hủy → dải tab. Dải tab có
 /// `WS_CLIPSIBLINGS` và nằm dưới các khung nên không vẽ đè lên chúng.
 fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i32, Option<Ctl>) {
     let main = b.parent;
@@ -1390,10 +1402,17 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         );
     }
 
-    // Dòng lỗi và hàng nút, dưới dải tab. Vùng trái hàng nút (x 12..300) để trống cho nút Trợ giúp.
+    // Dòng lỗi và hàng nút, dưới dải tab. Nút Trợ giúp ở x = 12; OK và Hủy ở bên phải.
     y = (tab_bottom * 96 + b.dpi - 1) / b.dpi.max(1) + 8;
     let err = b.label("", 12, y, 456, 36);
     y += 40;
+    // Nút Trợ giúp tạo ngay trước OK để đứng liền trước OK trong thứ tự Tab; không phải nút mặc định.
+    b.button(
+        lang::tr(Msg::BtnHelp),
+        ws(BS_PUSHBUTTON),
+        (12, y, 80, 28),
+        ID_HELP,
+    );
     b.button(
         i18n::OK_LABEL,
         ws(BS_DEFPUSHBUTTON),
@@ -1707,6 +1726,10 @@ fn run_loop(hwnd: HWND, c: Ctl) {
         if r.0 < 0 {
             cancel();
             break;
+        }
+        // Thông tin và Trợ giúp dùng được cả khi Tùy chọn đang mở: chúng xử lý phím của chính chúng trước.
+        if crate::about::pre_translate(&msg) || crate::help::pre_translate(&msg) {
+            continue;
         }
         // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.
         let mine = msg.hwnd == hwnd || unsafe { IsChild(hwnd, msg.hwnd).as_bool() };

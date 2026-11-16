@@ -128,3 +128,19 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Đổi ngôn ngữ rồi Hủy: không đổi gì.
 - [ ] File cấu hình của bản cũ (không có trường `language`): vẫn Tiếng Việt, mọi cài đặt còn nguyên.
 - [ ] Chữ English không bị cắt ở ô nào (nhãn, nút, tab, ô tích, dòng gợi ý, thông báo cấu hình lỗi).
+
+## Đợt 1: menu, Thông tin, Trợ giúp
+
+- [ ] Menu khay có đúng năm mục, không đường kẻ, theo thứ tự: Chụp màn hình, Tùy chọn..., Thông tin..., Trợ giúp, Thoát. Tiếng Anh: Take screenshot, Options..., About..., Help, Exit.
+- [ ] Thông tin hiện biểu tượng 48×48, "shotme", đúng phiên bản (so với `version` trong `Cargo.toml`), dòng mô tả đủ chữ ở cả hai ngôn ngữ, nút Đóng/Close giữ tiêu điểm. Không có link.
+- [ ] Chọn lại Thông tin (hoặc Trợ giúp) khi cửa sổ đang mở, kể cả đang thu nhỏ: chỉ đưa nó ra trước (khôi phục nếu thu nhỏ), không mở cửa sổ thứ hai.
+- [ ] Enter, Esc, nút X và nút Đóng đều đóng được Thông tin và Trợ giúp, kể cả khi con trỏ đang đứng trong ô chữ của Trợ giúp.
+- [ ] Trợ giúp: cuộn được bằng thanh cuộn, bánh xe chuột; không có chữ nào bị bôi chọn sẵn; nêu đúng phím tắt đang đặt (đổi sang tổ hợp khác rồi mở lại để thử); không có địa chỉ web.
+- [ ] Thông tin và Trợ giúp có biểu tượng shotme trên thanh tiêu đề và thanh tác vụ, hiện giữa màn hình đang có con trỏ, không đổi cỡ được. Thử ở màn hình phụ và ở DPI khác 100%.
+- [ ] Lúc Thông tin hoặc Trợ giúp đang mở: phím tắt chụp, menu khay và Tùy chọn vẫn dùng được; chụp xong, hai cửa sổ vẫn còn.
+- [ ] Nút Trợ giúp ở góc dưới trái cửa sổ Tùy chọn mở Trợ giúp (nêu đúng phím đang hiện trong tab Phím tắt, kể cả khi vừa đổi mà chưa bấm OK); gõ tiếp vào Tùy chọn được; bấm lại nút khi Trợ giúp đã mở chỉ đưa nó ra trước; đóng Tùy chọn (OK hoặc Hủy) thì Trợ giúp còn nguyên.
+- [ ] Tab trong Tùy chọn: Trợ giúp đứng ngay trước OK; Enter khi nút Trợ giúp đang giữ tiêu điểm mở Trợ giúp, không lưu.
+- [ ] Đang ở chế độ bắt phím (ô hiện "Nhấn tổ hợp phím mới…") mà bấm nút Trợ giúp: thoát chế độ bắt, ô phím tắt hiện lại phím đang chọn.
+- [ ] Đổi ngôn ngữ rồi OK: Thông tin và Trợ giúp đang mở tự đóng; mở lại thấy chữ đúng ngôn ngữ mới. Đổi phím tắt rồi OK: cả hai tự đóng. Đổi mục khác (ví dụ Khởi động cùng Windows) rồi OK: hai cửa sổ ở lại. Hủy: ở lại.
+- [ ] Thoát ứng dụng (menu Thoát) khi cả hai cửa sổ đang mở: cả hai đóng, tiến trình thoát, không treo.
+- [ ] Đọc lại toàn bộ lời văn Trợ giúp ở cả hai ngôn ngữ: đúng tên nút, tên tab, tên khóa; các bước R2 đúng với `README.md`.

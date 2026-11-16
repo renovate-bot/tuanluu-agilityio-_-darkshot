@@ -141,8 +141,8 @@ pub fn lang_after_save(old: Lang, new: Lang, saved: bool) -> Lang {
 }
 
 /// Chữ trong cửa sổ Thông tin và Trợ giúp đã cũ sau khi lưu cấu hình mới (ngôn ngữ hoặc phím tắt đổi).
-pub fn info_windows_stale(_old: &Config, _new: &Config) -> bool {
-    todo!()
+pub fn info_windows_stale(old: &Config, new: &Config) -> bool {
+    old.language != new.language || old.hotkey != new.hotkey
 }
 
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
@@ -365,6 +365,11 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                     &i18n::reason(lang::current(), &e),
                 );
             }
+            // Chữ trong hai cửa sổ này (ngôn ngữ, phím tắt) không còn đúng thì đóng chúng.
+            if info_windows_stale(&config, &new) {
+                about::close();
+                help::close();
+            }
             with_app(|a| a.config = new);
         }
         Err(e) => {
@@ -513,9 +518,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::Capture) => {
                         gate(hwnd, GateEvent::MenuCapture);
                     }
-                    Some(MenuCommand::Settings) => {
+                    Some(MenuCommand::Options) => {
                         note_open_reason(OpenReason::User);
                         handle_event(hwnd, AppEvent::OpenSettings);
+                    }
+                    // Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
+                    Some(MenuCommand::About) => about::show(hwnd),
+                    Some(MenuCommand::Help) => {
+                        if let Some(hk) = with_app(|a| a.config.hotkey) {
+                            help::show(hwnd, &hk);
+                        }
                     }
                     Some(MenuCommand::Quit) => handle_event(hwnd, AppEvent::Quit),
                     None => {}
@@ -568,6 +580,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_DESTROY => {
+            // Cửa sổ Thông tin và Trợ giúp thuộc cửa sổ ẩn này: hủy cả hai, trả phông của chúng.
+            about::close();
+            help::close();
             hotkey::unregister(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -673,6 +688,9 @@ fn main() {
     // SAFETY: vòng lặp thông điệp chuẩn; GetMessageW trả về 0 (WM_QUIT) hoặc -1 (lỗi) thì dừng.
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            if about::pre_translate(&msg) || help::pre_translate(&msg) {
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
