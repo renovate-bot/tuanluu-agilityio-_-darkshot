@@ -41,9 +41,10 @@ def glyph_smooth(size):
     d = ImageDraw.Draw(img)
     m = 0.24 * big
     sw = 0.09 * big
-    arm = 0.21 * big
     lo = m + sw / 2
     hi = big - m - sw / 2
+    # Mỗi cạnh chữ L dài 15% cạnh icon tính cả đầu nét bo tròn (bán kính sw/2) kể từ mép khung.
+    arm = 0.15 * big - sw  # đầu mút = m + 0.15*big, trừ nửa nét ở gốc và nửa nét ở đầu
     white = (255, 255, 255, 255)
 
     def seg(x0, y0, x1, y1):
@@ -55,8 +56,8 @@ def glyph_smooth(size):
         for cy, sy in ((lo, 1), (hi, -1)):
             seg(cx, cy, cx + sx * arm, cy)
             seg(cx, cy, cx, cy + sy * arm)
-    rad = 0.07 * big
-    dx = dy = 0.575 * big
+    rad = 0.06 * big
+    dx = dy = 0.5 * big
     d.ellipse((dx - rad, dy - rad, dx + rad, dy + rad), fill=white)
     return img.resize((size, size), Image.LANCZOS)
 
@@ -64,9 +65,8 @@ def glyph_smooth(size):
 def glyph_grid(size):
     """16 và 20: bốn góc chữ L nét 2 px đúng lưới, không chấm tròn."""
     img = background(size).resize((size, size), Image.LANCZOS)
-    lo = 3 if size == 16 else 4
+    lo, arm = {16: (3, 4), 20: (4, 5), 24: (5, 4)}[size]
     hi = size - 1 - lo
-    arm = 4 if size == 16 else 5
     px = img.load()
     white = (255, 255, 255, 255)
 
@@ -86,7 +86,22 @@ def glyph_grid(size):
 
 
 def make(size):
-    return glyph_grid(size) if size in (16, 20) else glyph_smooth(size)
+    return glyph_grid(size) if size in (16, 20, 24) else glyph_smooth(size)
+
+
+def self_check(images):
+    """Khung phải là bốn góc rời nhau: giữa cạnh trên và cạnh trái là nền xanh, góc là nét trắng."""
+    for size, img in images:
+        px = img.load()
+        m = {16: 3, 20: 4, 24: 5}.get(size, round(0.285 * size))
+        mid = size // 2
+        assert px[mid, m][0] < 128, f"cỡ {size}: giữa cạnh trên bị tô trắng"
+        assert px[m, mid][0] < 128, f"cỡ {size}: giữa cạnh trái bị tô trắng"
+        assert px[m, m][0] > 200, f"cỡ {size}: góc trên trái không trắng"
+        if size >= 24:
+            whites = [x for x in range(size) if px[x, m][0] >= 128]
+            best = max(b - a - 1 for a, b in zip(whites, whites[1:]))
+            assert best >= 0.16 * size, f"cỡ {size}: khe giữa hai góc chỉ {best}px"
 
 
 def dib(img):
@@ -144,6 +159,11 @@ def preview(images, path):
 
 def main():
     images = [(s, make(s)) for s in SIZES]
+    try:
+        self_check(images)
+    except AssertionError as e:
+        print("LỖI tự kiểm:", e)
+        sys.exit(1)
     here = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(here, "shotme.ico"), "wb") as f:
         f.write(build_ico(images))
