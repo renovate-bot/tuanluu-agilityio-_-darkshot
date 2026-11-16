@@ -8,7 +8,8 @@ Cập nhật: 2026-11-16
 - Task vừa xong: Task 8 (chụp màn hình và lớp phủ), đã gộp vào `main`. Lõi 57 kiểm thử; lớp Windows 10 kiểm thử và 1 kiểm thử chạy tay (`overlay_round_trip_without_gdi_leaks`, `-- --ignored`). Rà soát hai lượt (lượt hai chỉ rà phần sửa).
 - Task 9 (DPAPI, clipboard, khởi động cùng Windows) đã gộp vào `main`; lớp Windows 16 kiểm thử, 3 kiểm thử chạy tay (2 clipboard, 1 lớp phủ).
 - Task 10 (cửa sổ Cài đặt) đã gộp vào `main`; lớp Windows 31 kiểm thử, 4 kiểm thử chạy tay. Cửa sổ mới chỉ được mở qua kiểm thử chạy tay, chưa ai nhìn.
-- Task đang làm: **Task 11, `docs/tasks/11-integration.md`**, nhánh `task/11-integration`, agent `builder`, trạng thái `đang làm`. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
+- Task 11 (nối toàn bộ) đã gộp vào `main`; lớp Windows 41 kiểm thử. Ứng dụng đã đủ ba tính năng theo mã; chưa ai thử bằng tay, chưa thử với R2 thật. Rà soát Task 11 kết luận CẦN SỬA (không lỗi chặn), bốn điểm đã sửa nhưng CHƯA được rà soát lại: rà soát toàn bộ cuối cùng phải xem kỹ `gate_step` (trạng thái `PendingMenuSettings`, `CapturingSettings`, hành động `FocusSettings`) và `settings::focus_existing`.
+- Task đang làm: **Task 12, `docs/tasks/12-docs-release.md`**, nhánh `task/12-docs-release`, agent `scaffolder`, trạng thái `đang làm`. Sau task này DỪNG để chủ dự án nghiệm thu với R2 thật, rồi mới rà soát toàn bộ. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
 
 ## Bước kế tiếp
 

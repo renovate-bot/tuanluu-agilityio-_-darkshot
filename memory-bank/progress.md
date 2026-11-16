@@ -19,8 +19,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 8 Chụp màn hình và lớp phủ | task/08-capture-overlay | specialist | opus | xong, chưa thử tay | 185.819 | 193.926 | 55.331 | 435.076 |
 | 9 Dịch vụ Windows | task/09-win-services | specialist | opus | xong | 134.713 | 73.546 | 0 | 208.259 |
 | 10 Cửa sổ Cài đặt | task/10-settings | builder | sonnet | xong | 118.217 | 67.217 | 37.831 | 223.265 |
-| 11 Nối toàn bộ | task/11-integration | builder | sonnet | đang làm | | | | |
-| 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | chờ | | | | |
+| 11 Nối toàn bộ | task/11-integration | builder | sonnet | xong | 125.499 | 58.921 | 15.661 | 200.081 |
+| 12 Tài liệu và phát hành | task/12-docs-release | scaffolder | haiku | đang làm | | | | |
 | Rà soát toàn bộ sau Task 12 | main | specialist | opus | chờ | | | | |
 
 Rà soát Task 4, 8, 9 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
