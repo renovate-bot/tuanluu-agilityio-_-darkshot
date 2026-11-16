@@ -13,6 +13,7 @@ mod overlay;
 mod paths;
 mod secret;
 mod settings;
+mod theme;
 mod tray;
 mod wer;
 mod winutil;
