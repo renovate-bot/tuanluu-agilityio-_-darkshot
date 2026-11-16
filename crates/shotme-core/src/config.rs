@@ -1,5 +1,7 @@
 //! Cấu hình ứng dụng và lưu trữ.
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -14,7 +16,16 @@ pub enum Expiry {
 impl Expiry {
     pub const ALL: [Expiry; 4] = [Expiry::D1, Expiry::D7, Expiry::D30, Expiry::Keep];
     pub fn prefix(self) -> &'static str {
-        todo!()
+        match self {
+            Expiry::D1 => "d1",
+            Expiry::D7 => "d7",
+            Expiry::D30 => "d30",
+            Expiry::Keep => "keep",
+        }
+    }
+
+    fn from_prefix(s: &str) -> Option<Expiry> {
+        Expiry::ALL.into_iter().find(|e| e.prefix() == s)
     }
 }
 
@@ -29,7 +40,7 @@ pub struct Hotkey {
 
 impl Default for Hotkey {
     fn default() -> Self {
-        todo!()
+        Hotkey { ctrl: false, alt: false, shift: false, win: false, vk: 0x2C }
     }
 }
 
@@ -56,7 +67,15 @@ impl std::fmt::Debug for R2Config {
 
 impl R2Config {
     pub fn is_complete(&self) -> bool {
-        todo!()
+        [
+            &self.account_id,
+            &self.access_key_id,
+            &self.secret_access_key,
+            &self.bucket,
+            &self.public_base_url,
+        ]
+        .iter()
+        .all(|s| !s.is_empty())
     }
 }
 
@@ -70,8 +89,14 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn defaults(_default_save_dir: &Path) -> Config {
-        todo!()
+    pub fn defaults(default_save_dir: &Path) -> Config {
+        Config {
+            r2: R2Config::default(),
+            expiry: Expiry::default(),
+            hotkey: Hotkey::default(),
+            save_dir: default_save_dir.to_path_buf(),
+            autostart: false,
+        }
     }
 }
 
@@ -92,20 +117,171 @@ pub struct Loaded {
     pub secret_lost: bool,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct FileR2 {
+    account_id: String,
+    access_key_id: String,
+    secret_access_key_protected: String,
+    bucket: String,
+    public_base_url: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct FileHotkey {
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+    win: bool,
+    vk: u32,
+}
+
+impl Default for FileHotkey {
+    fn default() -> Self {
+        let h = Hotkey::default();
+        FileHotkey { ctrl: h.ctrl, alt: h.alt, shift: h.shift, win: h.win, vk: h.vk }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
+struct FileConfig {
+    r2: FileR2,
+    expiry: String,
+    hotkey: FileHotkey,
+    save_dir: Option<PathBuf>,
+    autostart: bool,
+}
+
+impl Default for FileConfig {
+    fn default() -> Self {
+        FileConfig {
+            r2: FileR2::default(),
+            expiry: Expiry::default().prefix().to_string(),
+            hotkey: FileHotkey::default(),
+            save_dir: None,
+            autostart: false,
+        }
+    }
+}
+
 pub fn load(
-    _path: &Path,
-    _store: &dyn SecretStore,
-    _default_save_dir: &Path,
+    path: &Path,
+    store: &dyn SecretStore,
+    default_save_dir: &Path,
 ) -> Result<Loaded, ConfigError> {
-    todo!()
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Loaded { config: Config::defaults(default_save_dir), secret_lost: false })
+        }
+        Err(e) => return Err(ConfigError::Io(e.to_string())),
+    };
+    let f: FileConfig =
+        serde_json::from_str(&text).map_err(|e| ConfigError::Corrupt(e.to_string()))?;
+
+    let mut secret_lost = false;
+    let secret = if f.r2.secret_access_key_protected.is_empty() {
+        String::new()
+    } else {
+        let plain = BASE64
+            .decode(&f.r2.secret_access_key_protected)
+            .map_err(|e| e.to_string())
+            .and_then(|c| store.unprotect(&c))
+            .ok()
+            .and_then(|p| String::from_utf8(p).ok());
+        match plain {
+            Some(p) => p,
+            None => {
+                secret_lost = true;
+                String::new()
+            }
+        }
+    };
+
+    let config = Config {
+        r2: R2Config {
+            account_id: f.r2.account_id,
+            access_key_id: f.r2.access_key_id,
+            secret_access_key: secret,
+            bucket: f.r2.bucket,
+            public_base_url: f.r2.public_base_url,
+        },
+        expiry: Expiry::from_prefix(&f.expiry).unwrap_or_default(),
+        hotkey: Hotkey {
+            ctrl: f.hotkey.ctrl,
+            alt: f.hotkey.alt,
+            shift: f.hotkey.shift,
+            win: f.hotkey.win,
+            vk: f.hotkey.vk,
+        },
+        save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
+        autostart: f.autostart,
+    };
+    Ok(Loaded { config, secret_lost })
 }
 
-pub fn save(_path: &Path, _cfg: &Config, _store: &dyn SecretStore) -> Result<(), ConfigError> {
-    todo!()
+pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), ConfigError> {
+    let protected = if cfg.r2.secret_access_key.is_empty() {
+        String::new()
+    } else {
+        let c = store
+            .protect(cfg.r2.secret_access_key.as_bytes())
+            .map_err(ConfigError::Secret)?;
+        BASE64.encode(c)
+    };
+    let f = FileConfig {
+        r2: FileR2 {
+            account_id: cfg.r2.account_id.clone(),
+            access_key_id: cfg.r2.access_key_id.clone(),
+            secret_access_key_protected: protected,
+            bucket: cfg.r2.bucket.clone(),
+            public_base_url: cfg.r2.public_base_url.clone(),
+        },
+        expiry: cfg.expiry.prefix().to_string(),
+        hotkey: FileHotkey {
+            ctrl: cfg.hotkey.ctrl,
+            alt: cfg.hotkey.alt,
+            shift: cfg.hotkey.shift,
+            win: cfg.hotkey.win,
+            vk: cfg.hotkey.vk,
+        },
+        save_dir: Some(cfg.save_dir.clone()),
+        autostart: cfg.autostart,
+    };
+    let json = serde_json::to_string_pretty(&f).map_err(|e| ConfigError::Io(e.to_string()))?;
+
+    let io = |e: std::io::Error| ConfigError::Io(e.to_string());
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty());
+    if let Some(d) = dir {
+        std::fs::create_dir_all(d).map_err(io)?;
+    }
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = match dir {
+        Some(d) => d.join(tmp_name),
+        None => PathBuf::from(tmp_name),
+    };
+    std::fs::write(&tmp, json).map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        io(e)
+    })
 }
 
-pub fn normalize_public_base_url(_input: &str) -> Result<String, String> {
-    todo!()
+pub fn normalize_public_base_url(input: &str) -> Result<String, String> {
+    let s = input.trim().trim_end_matches('/');
+    let Some(rest) = s.strip_prefix("https://") else {
+        return Err("Địa chỉ công khai phải bắt đầu bằng https://".into());
+    };
+    if rest.is_empty() {
+        return Err("Địa chỉ công khai thiếu tên miền sau https://".into());
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err("Địa chỉ công khai không được chứa khoảng trắng".into());
+    }
+    Ok(s.to_string())
 }
 
 #[cfg(test)]
