@@ -5,8 +5,8 @@ Cập nhật: 2026-11-16
 ## Đang ở đâu
 
 - Giai đoạn: 5. Xây dựng.
-- Task vừa xong: Task 5 (tải lên R2), đã gộp vào `main`.
-- Task đang làm: **Task 6, `docs/tasks/06-image-actions.md`**, nhánh `task/06-image-actions`, agent `builder`, trạng thái `đang làm`.
+- Task vừa xong: Task 6 (PNG và luồng hành động), đã gộp vào `main`. Phần lõi (Task 2 đến 6) đã xong, 57 kiểm thử.
+- Task đang làm: **Task 7, `docs/tasks/07-win-shell.md`**, nhánh `task/07-win-shell`, agent `builder`, trạng thái `đang làm`.
 
 ## Bước kế tiếp
 
@@ -31,6 +31,7 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 - Task 5: `R2Uploader` trả `NotConfigured` (không gửi gì) khi `account_id` có ký tự ngoài `[A-Za-z0-9-]`, tên kho ngoài `[A-Za-z0-9._-]`, hoặc địa chỉ công khai không qua `normalize_public_base_url`. Chưa thử với R2 thật.
 - Từ Task 5, `scripts/check.ps1` chạy thêm `cargo fmt --all --check`; agent phải chạy `cargo fmt --all` trước khi commit.
 - Trong bash của máy này `cargo` không có trong PATH; chạy cargo qua PowerShell hoặc qua `scripts/check.ps1`.
+- Task 6, khác gói task: `image::encode_png` trả `Result<Vec<u8>, String>`; có thêm `Image::is_valid()`. `run_action` với ảnh không hợp lệ trả `Failed` kèm một thông báo Error. Sao chép lỗi clipboard trả `Failed`; tải lên xong mà không chép được link vẫn trả `Uploaded(link)` với thông báo Error chứa link. Bản release dùng `panic = "abort"`: mã chạy thật không được `unwrap`/`expect` trên dữ liệu đầu vào.
 - Việc để sau (ngoài bản đầu): xóa trắng vùng nhớ chứa khóa sau khi ký (cần crate `zeroize`).
 - Sửa nhỏ sau rà soát: gọi tiếp chính agent đã làm bằng SendMessage (còn nguyên ngữ cảnh), không tạo agent mới.
 - Task 2, lựa chọn của agent đã được rà soát chấp nhận: tay nắm nhận trên cả dải cạnh; `release` bỏ khung khi một chiều nhỏ hơn 3; `place_toolbar` kẹp cả hai chiều. Task 8 (lớp phủ) cần biết: khung nhỏ hơn hai lần bán kính tay nắm thì không còn vùng "Inside" để di chuyển.
