@@ -20,8 +20,8 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
-    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetTimer, TranslateMessage,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EndMenu, GetMessageW,
+    KillTimer, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetTimer, TranslateMessage,
     CW_USEDEFAULT, MSG, WM_DESTROY, WM_HOTKEY, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
     WS_EX_TOOLWINDOW, WS_OVERLAPPED,
 };
@@ -66,16 +66,27 @@ pub enum GateAction {
 
 /// Hàm chuyển trạng thái thuần của cổng chụp.
 pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction) {
-    let _ = (state, ev);
-    todo!()
+    use CaptureGate::*;
+    use GateEvent::*;
+    match (state, ev) {
+        (Idle, MenuCapture) => (PendingMenu, GateAction::StartTimer),
+        (Idle | PendingMenu, Hotkey) | (PendingMenu, TimerFired) => {
+            (Capturing, GateAction::CaptureNow)
+        }
+        (Idle, TrayClick) => (Idle, GateAction::None),
+        (Capturing, OverlayClosed) => (Idle, GateAction::None),
+        (s, OverlayClosed) => (s, GateAction::None),
+        (s, _) => (s, GateAction::Ignore),
+    }
 }
 
 thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
     static ADD_ATTEMPTS: Cell<u32> = const { Cell::new(0) };
-    /// Đang chụp hoặc lớp phủ đang mở.
-    static CAPTURING: Cell<bool> = const { Cell::new(false) };
+    static GATE: Cell<CaptureGate> = const { Cell::new(CaptureGate::Idle) };
+    /// Menu khay đang hiện.
+    static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
 }
 
 const RETRY_TIMER_ID: usize = 1;
@@ -119,46 +130,84 @@ fn action_name(a: Action) -> &'static str {
 }
 
 /// Chụp rồi mở lớp phủ. Tạm thời (đến Task 11) chỉ báo vùng và hành động đã chọn.
+/// Chỉ gọi qua `gate` (trạng thái `Capturing`), nên không bao giờ có hai lớp phủ.
 fn capture_flow() {
-    // Phím tắt hoặc menu khi lớp phủ đang mở: bỏ qua.
-    if CAPTURING.with(|c| c.replace(true)) {
-        return;
-    }
     let notifier = current_tray().map(|t| t.notifier());
-    match capture::capture_virtual_screen() {
+    let notify = |kind: NoticeKind, title: &str, body: &str| {
+        if let Some(n) = &notifier {
+            n.notify(kind, title, body);
+        }
+    };
+    let shot = match capture::capture_virtual_screen() {
+        Ok(s) => s,
         Err(_) => {
-            if let Some(n) = &notifier {
-                n.notify(
-                    NoticeKind::Error,
-                    "Không chụp được màn hình",
-                    "Windows không cho chụp lúc này (ví dụ màn hình khóa hoặc hộp thoại quyền quản trị). Hãy thử lại.",
-                );
-            }
+            notify(
+                NoticeKind::Error,
+                "Không chụp được màn hình",
+                "Windows không cho chụp lúc này (ví dụ màn hình khóa hoặc hộp thoại quyền quản trị). Hãy thử lại.",
+            );
+            return;
         }
-        Ok(shot) => {
-            let picked = overlay::pick_region(&shot);
-            // Giải phóng ảnh chụp ngay khi lớp phủ đóng.
-            drop(shot);
-            if let (Some((action, r)), Some(n)) = (picked, &notifier) {
-                n.notify(
-                    NoticeKind::Info,
-                    "shotme",
-                    &format!(
-                        "Đã chọn {} × {}, hành động {}",
-                        r.w,
-                        r.h,
-                        action_name(action)
-                    ),
-                );
-            }
-        }
+    };
+    let picked = overlay::pick_region(&shot);
+    // Giải phóng ảnh chụp ngay khi lớp phủ đóng.
+    drop(shot);
+    match picked {
+        Ok(Some((action, r))) => notify(
+            NoticeKind::Info,
+            "shotme",
+            &format!(
+                "Đã chọn {} × {}, hành động {}",
+                r.w,
+                r.h,
+                action_name(action)
+            ),
+        ),
+        Ok(None) => {}
+        Err(e) => notify(
+            NoticeKind::Error,
+            "Không mở được lớp phủ chọn vùng",
+            &format!("Lý do: {e}. Hãy thử lại."),
+        ),
     }
-    CAPTURING.with(|c| c.set(false));
+}
+
+/// Đưa một sự kiện qua cổng chụp và làm việc mà cổng yêu cầu.
+fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
+    let (next, act) = gate_step(GATE.with(|g| g.get()), ev);
+    GATE.with(|g| g.set(next));
+    match act {
+        GateAction::StartTimer => {
+            // Chờ menu khay tắt hẳn (hiệu ứng mờ dần) để nó không lọt vào ảnh.
+            // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
+            unsafe {
+                SetTimer(
+                    Some(hwnd),
+                    MENU_CAPTURE_TIMER_ID,
+                    MENU_CAPTURE_DELAY_MS,
+                    None,
+                );
+            }
+        }
+        GateAction::CaptureNow => {
+            // SAFETY: hủy bộ hẹn giờ của menu (nếu có) của chính cửa sổ này.
+            unsafe {
+                let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
+            }
+            capture_flow();
+            let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::OverlayClosed);
+            GATE.with(|g| g.set(next));
+        }
+        GateAction::None | GateAction::Ignore => {}
+    }
+    act
 }
 
 fn handle_event(hwnd: HWND, ev: AppEvent) {
     match ev {
-        AppEvent::Capture => capture_flow(),
+        AppEvent::Capture => {
+            gate(hwnd, GateEvent::Hotkey);
+        }
         AppEvent::OpenSettings => {
             if let Some(t) = current_tray() {
                 t.notifier().notify(NoticeKind::Info, "shotme", "Chưa có");
@@ -183,26 +232,29 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
     match msg {
         WM_HOTKEY if wp.0 as i32 == hotkey::HOTKEY_ID => {
-            handle_event(hwnd, AppEvent::Capture);
+            if MENU_OPEN.with(|m| m.get()) {
+                // Menu khay đang mở: đóng nó rồi chụp sau khi menu tắt hẳn, như chọn từ menu.
+                // SAFETY: đóng menu đang hiện của luồng này.
+                unsafe {
+                    let _ = EndMenu();
+                }
+                gate(hwnd, GateEvent::MenuCapture);
+            } else {
+                handle_event(hwnd, AppEvent::Capture);
+            }
             LRESULT(0)
         }
-        WM_TRAY if CAPTURING.with(|c| c.get()) => LRESULT(0),
         WM_TRAY => {
             let ev = (lp.0 & 0xFFFF) as u32;
-            if ev == WM_RBUTTONUP || ev == WM_LBUTTONUP {
+            if (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
+                && gate(hwnd, GateEvent::TrayClick) == GateAction::None
+            {
+                MENU_OPEN.with(|m| m.set(true));
                 let cmd = current_tray().and_then(|t| t.show_menu());
+                MENU_OPEN.with(|m| m.set(false));
                 match cmd {
                     Some(MenuCommand::Capture) => {
-                        // Chờ menu khay tắt hẳn (hiệu ứng mờ dần) để nó không lọt vào ảnh.
-                        // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
-                        unsafe {
-                            SetTimer(
-                                Some(hwnd),
-                                MENU_CAPTURE_TIMER_ID,
-                                MENU_CAPTURE_DELAY_MS,
-                                None,
-                            );
-                        }
+                        gate(hwnd, GateEvent::MenuCapture);
                     }
                     Some(MenuCommand::Settings) => handle_event(hwnd, AppEvent::OpenSettings),
                     Some(MenuCommand::Quit) => handle_event(hwnd, AppEvent::Quit),
@@ -224,7 +276,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe {
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
             }
-            handle_event(hwnd, AppEvent::Capture);
+            gate(hwnd, GateEvent::TimerFired);
             LRESULT(0)
         }
         WM_TIMER if wp.0 == RETRY_TIMER_ID => {

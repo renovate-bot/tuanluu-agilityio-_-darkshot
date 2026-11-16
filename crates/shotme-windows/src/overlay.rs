@@ -13,13 +13,14 @@ use std::ffi::c_void;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontIndirectW, CreatePen,
-    CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetStockObject,
-    GetTextExtentPoint32W, InvalidateRect, MonitorFromPoint, Rectangle, RoundRect, SelectObject,
-    SetBkColor, SetBkMode, SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER,
-    BI_RGB, DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HDC, HFONT,
-    LOGFONTW, MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_DASH, PS_SOLID,
-    SRCCOPY, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDIBSection,
+    CreateFontIndirectW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint,
+    FillRect, GetStockObject, GetTextExtentPoint32W, IntersectClipRect, InvalidateRect,
+    MonitorFromPoint, Rectangle, RoundRect, SelectClipRgn, SelectObject, SetBkColor, SetBkMode,
+    SetTextColor, StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+    DIB_RGB_COLORS, DT_CENTER, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, HFONT,
+    HGDIOBJ, LOGFONTW, MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_DASH,
+    PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::Graphics::GdiPlus::{
     DashCapFlat, FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure,
@@ -33,17 +34,18 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, SystemParametersInfoForDpi, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_ESCAPE,
+    GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus, UnregisterHotKey,
+    MOD_NOREPEAT, VK_CONTROL, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowRect,
-    GetWindowThreadProcessId, LoadCursorW, PostQuitMessage, RegisterClassExW, SetCursor,
-    SetForegroundWindow, SetWindowPos, ShowWindow, TranslateMessage, HTCLIENT, IDC_ARROW,
+    GetWindowThreadProcessId, KillTimer, LoadCursorW, PostQuitMessage, RegisterClassExW, SetCursor,
+    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, HTCLIENT, IDC_ARROW,
     IDC_CROSS, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG,
     NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WNDCLASSEXW,
+    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
@@ -62,6 +64,12 @@ const GAP: i32 = 6;
 const HANDLE_SIZE: i32 = 9;
 const HANDLE_HIT: i32 = 6;
 const ICON: i32 = 20;
+
+/// ID phím tắt Esc tạm (khác ID phím chụp của cửa sổ chính).
+const ESC_HOTKEY_ID: i32 = 0x0E5C;
+const FOCUS_TIMER_ID: usize = 1;
+const FOCUS_RETRY_MS: u32 = 100;
+const MAX_FOCUS_RETRIES: u32 = 5;
 
 // COLORREF là 0x00BBGGRR.
 const WHITE: COLORREF = COLORREF(0x00FF_FFFF);
@@ -84,8 +92,21 @@ pub fn button_at(toolbar: Rect, p: Point) -> Option<Action> {
 
 /// Vùng `r` nằm trọn trong ảnh BGRA `img_w`×`img_h` và bộ đệm dài `len` đủ chứa ảnh.
 fn blit_in_bounds(r: Rect, img_w: i32, img_h: i32, len: usize) -> bool {
-    let _ = (r, img_w, img_h, len);
-    todo!()
+    let (x, y, w, h) = (
+        i64::from(r.x),
+        i64::from(r.y),
+        i64::from(r.w),
+        i64::from(r.h),
+    );
+    let (iw, ih) = (i64::from(img_w), i64::from(img_h));
+    let need = iw.checked_mul(ih).and_then(|n| n.checked_mul(4));
+    w > 0
+        && h > 0
+        && x >= 0
+        && y >= 0
+        && x + w <= iw
+        && y + h <= ih
+        && need.is_some_and(|n| n <= i64::try_from(len).unwrap_or(i64::MAX))
 }
 
 /// `v` pixel ở 96 DPI đổi sang pixel vật lý ở `dpi`, làm tròn, tối thiểu 1.
@@ -179,7 +200,12 @@ struct State {
     h: i32,
     /// Ảnh gốc (`Screenshot::image.bgra`), sống suốt `pick_region`; chỉ đọc.
     bright: *const u8,
+    bright_len: usize,
     dark: Vec<u8>,
+    /// Bộ đệm vẽ cố định cỡ màn hình ảo; `None` thì mỗi lần vẽ tạo bitmap tạm.
+    back: Option<BackBuffer>,
+    /// Số lần đã thử lại giành tiêu điểm.
+    focus_retries: u32,
     monitors: Vec<Rect>,
     dpis: Vec<u32>,
     sel: Selection,
@@ -206,6 +232,61 @@ impl Drop for State {
                 let _ = DeleteDC(self.measure);
             }
         }
+    }
+}
+
+/// DC bộ nhớ có DIB 32 bit cố định được chọn sẵn; giải phóng khi drop.
+struct BackBuffer {
+    dc: HDC,
+    bmp: HBITMAP,
+    old: HGDIOBJ,
+}
+
+impl BackBuffer {
+    fn new(w: i32, h: i32) -> Option<BackBuffer> {
+        let bmi = dib_info(w, h);
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        // SAFETY: DC và DIB vừa tạo; mọi đường lỗi giải phóng phần đã tạo.
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            if dc.is_invalid() {
+                return None;
+            }
+            let Ok(bmp) = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
+            else {
+                let _ = DeleteDC(dc);
+                return None;
+            };
+            let old = SelectObject(dc, bmp.into());
+            Some(BackBuffer { dc, bmp, old })
+        }
+    }
+}
+
+impl Drop for BackBuffer {
+    fn drop(&mut self) {
+        // SAFETY: bỏ chọn rồi xóa bitmap và DC do BackBuffer tạo, mỗi thứ đúng một lần.
+        unsafe {
+            SelectObject(self.dc, self.old);
+            let _ = DeleteObject(self.bmp.into());
+            let _ = DeleteDC(self.dc);
+        }
+    }
+}
+
+/// BITMAPINFO cho ảnh BGRA 32 bit từ trên xuống.
+fn dib_info(w: i32, h: i32) -> BITMAPINFO {
+    BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
     }
 }
 
@@ -504,6 +585,31 @@ impl State {
         ) else {
             return;
         };
+        if let Some(dc) = self.back.as_ref().map(|b| b.dc) {
+            // Bộ đệm cố định cùng tọa độ với client: chỉ vẽ trong `area` rồi chép đúng vùng đó.
+            // SAFETY: DC của BackBuffer còn sống; vùng cắt được bỏ ngay sau khi vẽ.
+            unsafe {
+                IntersectClipRect(dc, area.x, area.y, area.right(), area.bottom());
+            }
+            self.draw(&Painter { dc, ox: 0, oy: 0 }, area);
+            // SAFETY: như trên; target là DC của BeginPaint còn hiệu lực.
+            unsafe {
+                SelectClipRgn(dc, None);
+                let _ = BitBlt(
+                    target,
+                    area.x,
+                    area.y,
+                    area.w,
+                    area.h,
+                    Some(dc),
+                    area.x,
+                    area.y,
+                    SRCCOPY,
+                );
+            }
+            return;
+        }
+        // Dự phòng khi không tạo được bộ đệm cố định: bitmap tạm cỡ vùng cần vẽ.
         // SAFETY: DC và bitmap bộ nhớ chỉ sống trong khối này và được giải phóng ở cuối,
         // sau khi bỏ chọn bitmap.
         unsafe {
@@ -542,9 +648,14 @@ impl State {
 
     fn draw(&mut self, p: &Painter, area: Rect) {
         let sel = self.sel.rect().and_then(|r| intersect(r, area));
+        let (w, h) = (self.w, self.h);
+        // SAFETY: `bright`/`bright_len` là bộ đệm của Screenshot::image, sống suốt pick_region
+        // (State bị hủy trước khi pick_region trả về) và không bị ai ghi trong lúc này.
+        let bright = unsafe { std::slice::from_raw_parts(self.bright, self.bright_len) };
+        let dark = self.dark.as_slice();
         // Nền tối chỉ vẽ ngoài khung, ảnh gốc chỉ vẽ trong khung: không vẽ chồng.
         match sel {
-            None => p.image(self.dark.as_ptr(), self.w, area),
+            None => p.image(dark, w, h, area),
             Some(s) => {
                 for strip in [
                     Rect {
@@ -570,10 +681,10 @@ impl State {
                     },
                 ] {
                     if strip.w > 0 && strip.h > 0 {
-                        p.image(self.dark.as_ptr(), self.w, strip);
+                        p.image(dark, w, h, strip);
                     }
                 }
-                p.image(self.bright, self.w, s);
+                p.image(bright, w, h, s);
             }
         }
         let Some(r) = self.sel.rect() else { return };
@@ -621,28 +732,20 @@ impl Painter {
         })
     }
 
-    /// Chép vùng `r` (tọa độ ảnh, đã nằm trong ảnh) của ảnh BGRA rộng `img_w` từ `bits`.
-    fn image(&self, bits: *const u8, img_w: i32, r: Rect) {
-        if r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 {
+    /// Chép vùng `r` (tọa độ ảnh) của ảnh BGRA `img_w`×`img_h` từ `bits`; sai biên thì bỏ qua.
+    fn image(&self, bits: &[u8], img_w: i32, img_h: i32, r: Rect) {
+        if !blit_in_bounds(r, img_w, img_h, bits.len()) {
             return;
         }
         // Đưa con trỏ tới hàng đầu của vùng và khai báo DIB đúng `r.h` hàng, nên nguồn
         // luôn là trọn chiều cao DIB: không phụ thuộc cách hiểu ySrc của DIB từ trên xuống.
         let offset = r.y as usize * img_w as usize * 4;
-        let bmi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: img_w,
-                biHeight: -r.h,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            ..Default::default()
+        let Some(rows) = bits.get(offset..) else {
+            return;
         };
-        // SAFETY: `bits` trỏ tới ảnh img_w×h còn sống; r nằm trong ảnh nên các hàng
-        // r.y..r.bottom() đều thuộc bộ đệm.
+        let bmi = dib_info(img_w, r.h);
+        // SAFETY: blit_in_bounds bảo đảm `rows` (từ hàng r.y) chứa đủ r.h hàng rộng img_w
+        // và cột r.x..r.right() nằm trong mỗi hàng; bộ đệm sống suốt lời gọi.
         unsafe {
             StretchDIBits(
                 self.dc,
@@ -654,7 +757,7 @@ impl Painter {
                 0,
                 r.w,
                 r.h,
-                Some(bits.add(offset) as *const c_void),
+                Some(rows.as_ptr() as *const c_void),
                 &bmi,
                 DIB_RGB_COLORS,
                 SRCCOPY,
@@ -1065,6 +1168,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         // Lớp phủ đã phủ đúng pixel vật lý; không đổi kích thước theo DPI.
         WM_DPICHANGED => LRESULT(0),
+        WM_HOTKEY if wp.0 == ESC_HOTKEY_ID as usize => {
+            with_state(|s| s.result = Some(None));
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == FOCUS_TIMER_ID => {
+            let tries = with_state(|s| {
+                s.focus_retries += 1;
+                s.focus_retries
+            })
+            .unwrap_or(MAX_FOCUS_RETRIES);
+            // Gọi ngoài lúc mượn trạng thái: SetForegroundWindow gửi WM_ACTIVATE đồng bộ.
+            if take_focus(hwnd) || tries >= MAX_FOCUS_RETRIES {
+                // SAFETY: hủy bộ hẹn giờ của chính cửa sổ này.
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), FOCUS_TIMER_ID);
+                }
+            }
+            LRESULT(0)
+        }
         WM_CLOSE | WM_DESTROY => {
             with_state(|s| {
                 if s.result.is_none() {
@@ -1142,7 +1264,8 @@ fn create_window(origin: Point, w: i32, h: i32) -> Option<HWND> {
 
 /// Đưa lớp phủ lên trước và nhận bàn phím. Windows có thể từ chối SetForegroundWindow
 /// (quy tắc chống giành tiêu điểm); khi đó gắn tạm hàng đợi nhập với luồng đang ở trước rồi thử lại.
-fn take_focus(hwnd: HWND) {
+/// Trả về `true` khi lớp phủ đã ở trước.
+fn take_focus(hwnd: HWND) -> bool {
     // SAFETY: các API chỉ thao tác trên cửa sổ của ta và luồng đang ở trước; gắn rồi gỡ ngay.
     unsafe {
         let _ = SetForegroundWindow(hwnd);
@@ -1157,25 +1280,65 @@ fn take_focus(hwnd: HWND) {
             }
         }
         let _ = SetFocus(Some(hwnd));
+        GetForegroundWindow() == hwnd
     }
 }
 
-/// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh; `None` khi hủy.
-pub fn pick_region(shot: &Screenshot) -> Option<(Action, Rect)> {
-    let img = &shot.image;
-    if !img.is_valid() {
-        return None;
+/// Phím Esc toàn cục trong lúc lớp phủ mở, để không bao giờ kẹt khi chưa giành được
+/// tiêu điểm. Gỡ khi drop; đăng ký thất bại (phím đã bị chiếm) thì không làm gì.
+struct EscHotkey {
+    hwnd: HWND,
+    registered: bool,
+}
+
+impl EscHotkey {
+    fn register(hwnd: HWND) -> EscHotkey {
+        // SAFETY: phím tắt gắn với cửa sổ lớp phủ của luồng này; gỡ trong Drop.
+        let registered = unsafe {
+            RegisterHotKey(
+                Some(hwnd),
+                ESC_HOTKEY_ID,
+                MOD_NOREPEAT,
+                u32::from(VK_ESCAPE.0),
+            )
+        }
+        .is_ok();
+        EscHotkey { hwnd, registered }
     }
-    let w = i32::try_from(img.width).ok()?;
-    let h = i32::try_from(img.height).ok()?;
+}
+
+impl Drop for EscHotkey {
+    fn drop(&mut self) {
+        if self.registered {
+            // SAFETY: gỡ đúng phím đã đăng ký, khi cửa sổ còn sống (guard này thả trước WindowGuard).
+            unsafe {
+                let _ = UnregisterHotKey(Some(self.hwnd), ESC_HOTKEY_ID);
+            }
+        }
+    }
+}
+
+/// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh.
+/// `Ok(None)` khi người dùng hủy; `Err` khi không mở được lớp phủ.
+pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> {
+    let img = &shot.image;
+    let size = (i32::try_from(img.width), i32::try_from(img.height));
+    let (Ok(w), Ok(h)) = size else {
+        return Err("ảnh chụp quá lớn".to_string());
+    };
+    if !img.is_valid() {
+        return Err("ảnh chụp không hợp lệ".to_string());
+    }
     // Không mở lồng hai lớp phủ.
     let busy = OVERLAY.with(|o| o.try_borrow().map(|s| s.is_some()).unwrap_or(true));
     if busy {
-        return None;
+        return Err("lớp phủ đang mở".to_string());
     }
 
     let mut dark = Vec::new();
-    dark.try_reserve_exact(img.bgra.len()).ok()?;
+    if dark.try_reserve_exact(img.bgra.len()).is_err() {
+        return Err("không đủ bộ nhớ cho lớp phủ".to_string());
+    }
     dark.extend(img.bgra.iter().map(|b| b >> 1));
 
     let gdiplus = GdiPlus::start();
@@ -1196,7 +1359,10 @@ pub fn pick_region(shot: &Screenshot) -> Option<(Action, Rect)> {
         w,
         h,
         bright: img.bgra.as_ptr(),
+        bright_len: img.bgra.len(),
         dark,
+        back: BackBuffer::new(w, h),
+        focus_retries: 0,
         monitors: shot.monitors.clone(),
         dpis,
         sel: Selection::new(Rect { x: 0, y: 0, w, h }),
@@ -1217,25 +1383,34 @@ pub fn pick_region(shot: &Screenshot) -> Option<(Action, Rect)> {
         Err(_) => false,
     });
     if !placed {
-        return None;
+        return Err("lớp phủ đang mở".to_string());
     }
     let _state = StateGuard;
-    let hwnd = create_window(shot.origin, w, h)?;
+    let Some(hwnd) = create_window(shot.origin, w, h) else {
+        return Err("không tạo được cửa sổ lớp phủ".to_string());
+    };
     // Thả trước _state: cửa sổ bị hủy khi trạng thái (và ảnh tối) còn sống.
     let _window = WindowGuard(hwnd);
     with_state(|s| s.hwnd = hwnd);
+    // Thả trước _window: gỡ phím Esc khi cửa sổ còn sống.
+    let _esc = EscHotkey::register(hwnd);
 
     // SAFETY: hiện và vẽ ngay cửa sổ vừa tạo của luồng này.
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = UpdateWindow(hwnd);
     }
-    take_focus(hwnd);
+    if !take_focus(hwnd) {
+        // SAFETY: bộ hẹn giờ của cửa sổ lớp phủ; tự mất khi cửa sổ bị hủy.
+        unsafe {
+            SetTimer(Some(hwnd), FOCUS_TIMER_ID, FOCUS_RETRY_MS, None);
+        }
+    }
 
     let mut msg = MSG::default();
     loop {
         if let Some(Some(r)) = with_state(|s| s.result) {
-            return r;
+            return Ok(r);
         }
         // SAFETY: vòng lặp thông điệp chuẩn của luồng này.
         let got = unsafe { GetMessageW(&mut msg, None, 0, 0) }.0;
@@ -1243,10 +1418,10 @@ pub fn pick_region(shot: &Screenshot) -> Option<(Action, Rect)> {
             // WM_QUIT (ứng dụng đang thoát): hủy lớp phủ và trả WM_QUIT cho vòng lặp chính.
             // SAFETY: đăng lại thông điệp thoát cho luồng này.
             unsafe { PostQuitMessage(msg.wParam.0 as i32) };
-            return None;
+            return Ok(None);
         }
         if got < 0 {
-            return None;
+            return Err("vòng lặp thông điệp lỗi".to_string());
         }
         // SAFETY: phân phát thông điệp vừa nhận.
         unsafe {
@@ -1349,7 +1524,8 @@ mod tests {
             y: bar.y + btn / 2,
         };
 
-        let run = |finish_with_save: bool| {
+        // 0: bấm nút Lưu, 1: phím Esc (WM_KEYDOWN), 2: phím tắt Esc toàn cục (WM_HOTKEY).
+        let run = |finish: u8| {
             let driver = std::thread::spawn(move || {
                 let lp =
                     |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
@@ -1369,11 +1545,13 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(300));
                     post(WM_MOUSEMOVE, 0, lp(save));
                     std::thread::sleep(Duration::from_millis(300));
-                    if finish_with_save {
-                        post(WM_LBUTTONDOWN, 1, lp(save));
-                        post(WM_LBUTTONUP, 0, lp(save));
-                    } else {
-                        post(WM_KEYDOWN, usize::from(VK_ESCAPE.0), LPARAM(0));
+                    match finish {
+                        0 => {
+                            post(WM_LBUTTONDOWN, 1, lp(save));
+                            post(WM_LBUTTONUP, 0, lp(save));
+                        }
+                        1 => post(WM_KEYDOWN, usize::from(VK_ESCAPE.0), LPARAM(0)),
+                        _ => post(WM_HOTKEY, ESC_HOTKEY_ID as usize, LPARAM(0)),
                     }
                     return true;
                 }
@@ -1386,10 +1564,11 @@ mod tests {
         // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
         let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
 
-        assert_eq!(run(true), Some((Action::Save, sel)));
+        assert_eq!(run(0), Ok(Some((Action::Save, sel))));
         let after_first = gdi();
-        assert_eq!(run(false), None);
-        assert_eq!(run(true), Some((Action::Save, sel)));
+        assert_eq!(run(1), Ok(None));
+        assert_eq!(run(2), Ok(None));
+        assert_eq!(run(0), Ok(Some((Action::Save, sel))));
         let after_third = gdi();
         assert!(
             after_third <= after_first,
