@@ -229,7 +229,7 @@ pub fn capture_virtual_screen() -> windows::core::Result<Screenshot> {
     drop(mem);
     drop(screen);
     // BitBlt không ghi kênh alpha; đặt đục để ảnh dùng được ở mọi nơi.
-    for px in bgra.chunks_exact_mut(4) {
+    for px in bgra.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
 
