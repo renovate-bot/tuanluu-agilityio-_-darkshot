@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>shotme – prototype giao diện</title>
+<style>
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;font:13px "Segoe UI",system-ui,sans-serif;color:#1b1b1b;overflow:hidden;user-select:none}
+  #bar{height:40px;background:#fff7d6;border-bottom:1px solid #e0c96a;display:flex;align-items:center;gap:14px;padding:0 12px}
+  #bar b{color:#7a5a00}
+  #bar button{font:inherit;padding:4px 10px;cursor:pointer}
+  #bar label{display:flex;align-items:center;gap:4px;cursor:pointer}
+  #desk{position:absolute;top:40px;left:0;right:0;bottom:0;overflow:hidden;
+        background:linear-gradient(135deg,#1f4f8f,#4d8fd1 55%,#9cc7ee)}
+  .win{position:absolute;background:#fff;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden}
+  .win h4{margin:0;padding:8px 12px;background:#f1f1f1;font-weight:600;border-bottom:1px solid #ddd}
+  .win div{padding:12px;line-height:1.6;color:#444}
+  .win i{display:block;height:10px;margin:8px 0;border-radius:5px;background:#e3e8ef}
+  #taskbar{position:absolute;left:0;right:0;bottom:0;height:44px;background:rgba(238,242,248,.92);
+           border-top:1px solid #c9d2df;display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:0 14px}
+  #tray{width:28px;height:28px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+  #tray:hover{background:#1d4ed8}
+  #menu{position:absolute;right:14px;bottom:50px;background:#fff;border:1px solid #c8c8c8;border-radius:8px;
+        box-shadow:0 6px 20px rgba(0,0,0,.25);padding:4px;min-width:170px;z-index:30}
+  #menu div{padding:7px 12px;border-radius:5px;cursor:pointer}
+  #menu div:hover{background:#e8f0fe}
+  #overlay{position:absolute;inset:0;z-index:50;cursor:crosshair;overflow:hidden}
+  #overlay.empty{background:rgba(0,0,0,.5)}
+  #sel{position:absolute;outline:1px dashed #fff;box-shadow:0 0 0 99999px rgba(0,0,0,.5);cursor:move}
+  #size{position:absolute;left:0;top:-24px;background:#111;color:#fff;padding:2px 7px;border-radius:4px;font-size:12px;white-space:nowrap}
+  #size.in{top:6px;left:6px}
+  .h{position:absolute;width:9px;height:9px;background:#fff;border:1px solid #111}
+  .h[data-d=nw]{left:-5px;top:-5px;cursor:nwse-resize}.h[data-d=n]{left:calc(50% - 4px);top:-5px;cursor:ns-resize}
+  .h[data-d=ne]{right:-5px;top:-5px;cursor:nesw-resize}.h[data-d=e]{right:-5px;top:calc(50% - 4px);cursor:ew-resize}
+  .h[data-d=se]{right:-5px;bottom:-5px;cursor:nwse-resize}.h[data-d=s]{left:calc(50% - 4px);bottom:-5px;cursor:ns-resize}
+  .h[data-d=sw]{left:-5px;bottom:-5px;cursor:nesw-resize}.h[data-d=w]{left:-5px;top:calc(50% - 4px);cursor:ew-resize}
+  #tools{position:absolute;right:0;bottom:-46px;display:flex;background:#fff;border-radius:6px;
+         box-shadow:0 3px 12px rgba(0,0,0,.4);cursor:default}
+  #tools.above{bottom:auto;top:-46px}
+  #tools.in{bottom:8px;right:8px}
+  #tools button{position:relative;display:flex;border:0;background:none;color:#222;padding:8px 11px;cursor:pointer;border-right:1px solid #e3e3e3}
+  #tools button:first-child{border-radius:6px 0 0 6px}
+  #tools button:last-child{border-right:0;border-radius:0 6px 6px 0}
+  #tools button:hover{background:#e8f0fe;color:#1d4ed8}
+  #tools button::after{content:attr(data-tip);position:absolute;right:0;bottom:calc(100% + 7px);background:#111;color:#fff;
+         font:12px "Segoe UI",system-ui,sans-serif;padding:4px 8px;border-radius:4px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s}
+  #tools button:hover::after{opacity:1}
+  #toast{position:absolute;right:14px;bottom:56px;width:340px;background:#fff;border-radius:8px;z-index:40;
+         box-shadow:0 8px 26px rgba(0,0,0,.35);padding:12px 14px;line-height:1.5;border-left:4px solid #2563eb}
+  #toast.err{border-left-color:#c62828}
+  #toast b{display:block;margin-bottom:2px}
+  #toast code{word-break:break-all;font-size:12px}
+  #settings{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);width:470px;background:#f3f3f3;z-index:35;
+            border:1px solid #999;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.45);user-select:text}
+  #settings h3{margin:0;padding:10px 14px;font-size:13px;background:#fff;border-bottom:1px solid #ddd;border-radius:8px 8px 0 0}
+  #settings form{padding:12px 14px}
+  fieldset{border:1px solid #ccc;border-radius:6px;margin:0 0 10px;padding:8px 10px 10px}
+  legend{padding:0 5px;color:#555}
+  .row{display:flex;align-items:center;margin-top:6px;gap:8px}
+  .row>span{width:130px;flex:none}
+  .row input[type=text],.row input[type=password],.row select{flex:1;font:inherit;padding:4px 6px;border:1px solid #aaa;border-radius:4px}
+  .btns{display:flex;justify-content:flex-end;gap:8px}
+  #settings button{font:inherit;padding:5px 16px;cursor:pointer}
+  #testres{flex:1;color:#1b6e1b}
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>PROTOTYPE</b>
+  <span>Chỉ minh họa giao diện, không chụp và không tải lên thật.</span>
+  <button id="go">Giả lập phím PrintScreen</button>
+  <label><input type="checkbox" id="offline"> Giả lập mất mạng</label>
+</div>
+
+<div id="desk">
+  <div class="win" style="left:6%;top:8%;width:38%;height:48%"><h4>Báo cáo quý 4.docx</h4><div>Nội dung mẫu để bạn thử kéo chọn vùng.<i></i><i style="width:80%"></i><i style="width:92%"></i><i style="width:60%"></i><i></i><i style="width:70%"></i></div></div>
+  <div class="win" style="left:50%;top:20%;width:40%;height:52%"><h4>Trình duyệt</h4><div>Một cửa sổ khác trên màn hình.<i style="height:90px"></i><i style="width:75%"></i><i style="width:88%"></i><i style="width:50%"></i></div></div>
+
+  <div id="taskbar"><span id="clock"></span><button id="tray" title="shotme – bấm chuột phải">S</button></div>
+
+  <div id="menu" hidden>
+    <div data-m="shot">Chụp màn hình</div>
+    <div data-m="set">Cài đặt</div>
+    <div data-m="quit">Thoát</div>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <div id="settings" hidden>
+    <h3>shotme – Cài đặt</h3>
+    <form onsubmit="return false">
+      <fieldset><legend>Cloudflare R2</legend>
+        <div class="row"><span>Account ID</span><input type="text" value="a1b2c3d4e5f6"></div>
+        <div class="row"><span>Access Key ID</span><input type="text" value="7f3e…"></div>
+        <div class="row"><span>Secret Access Key</span><input type="password" placeholder="(đã lưu, không hiện lại)"></div>
+        <div class="row"><span>Tên kho (bucket)</span><input type="text" value="shotme"></div>
+        <div class="row"><span>Địa chỉ công khai</span><input type="text" id="base" value="https://img.example.com"></div>
+        <div class="row"><button id="test">Kiểm tra kết nối</button><span id="testres"></span></div>
+      </fieldset>
+      <fieldset><legend>Chia sẻ và lưu</legend>
+        <div class="row"><span>Hạn của link</span><select id="exp"><option value="d1">1 ngày</option><option value="d7">7 ngày</option><option value="d30" selected>30 ngày</option><option value="keep">Không hết hạn</option></select></div>
+        <div class="row"><span>Thư mục lưu</span><input type="text" id="dir" value="C:\Users\Ban\Pictures\shotme"><button>Chọn…</button></div>
+      </fieldset>
+      <fieldset><legend>Chung</legend>
+        <div class="row"><span>Phím tắt chụp</span><input type="text" value="PrintScreen"></div>
+        <div class="row"><label><input type="checkbox"> Khởi động cùng Windows</label></div>
+      </fieldset>
+      <div class="btns"><button id="ok">Lưu</button><button id="cancel">Hủy</button></div>
+    </form>
+  </div>
+
+  <div id="overlay" class="empty" hidden>
+    <div id="sel" hidden>
+      <span id="size"></span>
+      <div class="h" data-d="nw"></div><div class="h" data-d="n"></div><div class="h" data-d="ne"></div><div class="h" data-d="e"></div>
+      <div class="h" data-d="se"></div><div class="h" data-d="s"></div><div class="h" data-d="sw"></div><div class="h" data-d="w"></div>
+      <div id="tools">
+        <button data-a="upload" data-tip="Tải lên và chép link (Ctrl+D)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 9.5a4.25 4.25 0 0 1-.5 8.5"/><path d="M12 20v-8m-3 3 3-3 3 3"/></svg></button>
+        <button data-a="save" data-tip="Lưu vào máy (Ctrl+S)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h7V3M8 21v-7h8v7"/></svg></button>
+        <button data-a="copy" data-tip="Chép ảnh (Ctrl+C)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>
+        <button data-a="cancel" data-tip="Hủy (Esc)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const desk = $('desk'), ov = $('overlay'), selEl = $('sel'), tools = $('tools'), sizeEl = $('size');
+let sel = null, drag = null, toastTimer = 0;
+
+function pos(e) {
+  const r = desk.getBoundingClientRect();
+  return { x: Math.max(0, Math.min(r.width, e.clientX - r.left)),
+           y: Math.max(0, Math.min(r.height, e.clientY - r.top)) };
+}
+
+function render() {
+  if (!sel || sel.w < 1 || sel.h < 1) { selEl.hidden = true; ov.classList.add('empty'); return; }
+  ov.classList.remove('empty');
+  selEl.hidden = false;
+  Object.assign(selEl.style, { left: sel.x + 'px', top: sel.y + 'px', width: sel.w + 'px', height: sel.h + 'px' });
+  sizeEl.textContent = Math.round(sel.w) + ' × ' + Math.round(sel.h);
+  sizeEl.className = sel.y < 26 ? 'in' : '';
+  tools.hidden = !!(drag && drag.mode === 'new');
+  const below = sel.y + sel.h + 50 <= desk.clientHeight;
+  tools.className = below ? '' : (sel.y >= 50 ? 'above' : 'in');
+}
+
+function openOverlay() {
+  if (!ov.hidden) return;
+  $('menu').hidden = true; $('settings').hidden = true; $('toast').hidden = true;
+  sel = null; drag = null; ov.hidden = false; render();
+}
+function closeOverlay() { ov.hidden = true; sel = null; drag = null; }
+
+ov.addEventListener('mousedown', e => {
+  if (e.button !== 0 || e.target.closest('#tools')) return;
+  const p = pos(e);
+  if (e.target.classList.contains('h')) {
+    drag = { mode: 'resize', dir: e.target.dataset.d, start: p, orig: { ...sel } };
+  } else if (sel && p.x >= sel.x && p.x <= sel.x + sel.w && p.y >= sel.y && p.y <= sel.y + sel.h) {
+    drag = { mode: 'move', start: p, orig: { ...sel } };
+  } else {
+    drag = { mode: 'new', start: p };
+    sel = { x: p.x, y: p.y, w: 0, h: 0 };
+  }
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  const p = pos(e), dx = p.x - drag.start.x, dy = p.y - drag.start.y, o = drag.orig;
+  if (drag.mode === 'new') {
+    sel = { x: Math.min(p.x, drag.start.x), y: Math.min(p.y, drag.start.y), w: Math.abs(dx), h: Math.abs(dy) };
+  } else if (drag.mode === 'move') {
+    sel = { w: o.w, h: o.h,
+            x: Math.max(0, Math.min(desk.clientWidth - o.w, o.x + dx)),
+            y: Math.max(0, Math.min(desk.clientHeight - o.h, o.y + dy)) };
+  } else {
+    let l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h;
+    const d = drag.dir;
+    if (d.includes('w')) l = Math.max(0, l + dx);
+    if (d.includes('e')) r = Math.min(desk.clientWidth, r + dx);
+    if (d.includes('n')) t = Math.max(0, t + dy);
+    if (d.includes('s')) b = Math.min(desk.clientHeight, b + dy);
+    sel = { x: Math.min(l, r), y: Math.min(t, b), w: Math.abs(r - l), h: Math.abs(b - t) };
+  }
+  render();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!drag) return;
+  drag = null;
+  if (sel && (sel.w < 3 || sel.h < 3)) sel = null;
+  render();
+});
+
+function toast(title, body, err, ms) {
+  const t = $('toast');
+  t.className = err ? 'err' : '';
+  t.innerHTML = '<b>' + title + '</b>' + body;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.hidden = true, ms || 6000);
+}
+
+function fileName() {
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  return 'shotme_' + d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + '_' +
+         z(d.getHours()) + '-' + z(d.getMinutes()) + '-' + z(d.getSeconds()) + '.png';
+}
+function randomName() {
+  const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => c[b % c.length]).join('');
+}
+
+function act(a) {
+  if (a === 'cancel') { closeOverlay(); return; }
+  if (!sel) return;
+  const dim = Math.round(sel.w) + ' × ' + Math.round(sel.h);
+  const path = $('dir').value + '\\' + fileName();
+  closeOverlay();
+  if (a === 'save') toast('Đã lưu ảnh (' + dim + ')', '<code>' + path + '</code>');
+  if (a === 'copy') toast('Đã chép ảnh vào clipboard', dim + ' pixel');
+  if (a === 'upload') {
+    toast('Đang tải lên…', dim + ' pixel', false, 60000);
+    setTimeout(() => {
+      if ($('offline').checked) {
+        toast('Tải lên thất bại: không kết nối được R2', 'Ảnh đã được lưu tại <code>' + path + '</code>', true, 9000);
+      } else {
+        const exp = $('exp'), link = $('base').value + '/' + exp.value + '/' + randomName() + '.png';
+        toast('Đã chép link vào clipboard', '<code>' + link + '</code><br>Hạn của link: ' + exp.options[exp.selectedIndex].text.toLowerCase());
+      }
+    }, 900);
+  }
+}
+
+tools.addEventListener('click', e => { const b = e.target.closest('button'); if (b) act(b.dataset.a); });
+
+window.addEventListener('keydown', e => {
+  if (ov.hidden) return;
+  if (e.key === 'Escape') { act('cancel'); return; }
+  const k = e.ctrlKey && { d: 'upload', s: 'save', c: 'copy' }[e.key.toLowerCase()];
+  if (k) { e.preventDefault(); act(k); }
+});
+window.addEventListener('keyup', e => { if (e.key === 'PrintScreen') openOverlay(); });
+$('go').onclick = openOverlay;
+
+const menu = $('menu');
+$('tray').onclick = e => { menu.hidden = !menu.hidden; e.stopPropagation(); };
+$('tray').oncontextmenu = e => { e.preventDefault(); menu.hidden = false; };
+desk.addEventListener('click', e => { if (!e.target.closest('#menu')) menu.hidden = true; });
+menu.addEventListener('click', e => {
+  const m = e.target.dataset.m; menu.hidden = true;
+  if (m === 'shot') openOverlay();
+  if (m === 'set') { $('settings').hidden = false; $('testres').textContent = ''; }
+  if (m === 'quit') toast('Thoát', 'Ở bản thật, ứng dụng sẽ đóng và biểu tượng biến mất.');
+});
+$('ok').onclick = () => { $('settings').hidden = true; toast('Đã lưu cài đặt', ''); };
+$('cancel').onclick = () => $('settings').hidden = true;
+$('test').onclick = () => {
+  const r = $('testres'); r.style.color = '#555'; r.textContent = 'Đang kiểm tra…';
+  setTimeout(() => {
+    const off = $('offline').checked;
+    r.style.color = off ? '#c62828' : '#1b6e1b';
+    r.textContent = off ? 'Thất bại: không kết nối được R2.' : 'Thành công: tải lên được và link mở được.';
+  }, 700);
+};
+
+function tick() { const d = new Date(); $('clock').textContent = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
+tick(); setInterval(tick, 30000);
+</script>
+</body>
+</html>
