@@ -111,6 +111,12 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
     }
 }
 
+/// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
+pub fn tray_click_opens_menu(ev: u32, menu_open: bool) -> bool {
+    let _ = menu_open;
+    ev == WM_RBUTTONUP || ev == WM_LBUTTONUP
+}
+
 thread_local! {
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     static TASKBAR_CREATED: Cell<u32> = const { Cell::new(0) };
@@ -243,6 +249,7 @@ fn capture_flow(hwnd: HWND) {
                 image: image.clone(),
                 clock: paths::local_now,
                 on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
+                pending: None,
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không tạo được luồng: lưu ảnh ngay thay vì mất nó.
@@ -632,14 +639,19 @@ mod tests {
                 "{ev:?}"
             );
         }
-        // Yêu cầu chụp bị bỏ qua.
-        for ev in [MenuCapture, Hotkey, TimerFired] {
+        // Yêu cầu chụp không chụp nhưng đưa cửa sổ Cài đặt ra trước để nó không bị khuất.
+        for ev in [MenuCapture, Hotkey] {
             assert_eq!(
                 gate_step(SettingsOpen, ev),
-                (SettingsOpen, GateAction::Ignore),
+                (SettingsOpen, GateAction::FocusSettings),
                 "{ev:?}"
             );
         }
+        // Hẹn giờ cũ của menu thì chỉ bị bỏ qua.
+        assert_eq!(
+            gate_step(SettingsOpen, TimerFired),
+            (SettingsOpen, GateAction::Ignore)
+        );
         assert_eq!(
             gate_step(SettingsOpen, OverlayClosed),
             (SettingsOpen, GateAction::None)
@@ -654,6 +666,15 @@ mod tests {
             gate_step(Capturing, SettingsClosed),
             (Capturing, GateAction::None)
         );
+    }
+
+    #[test]
+    fn tray_click_while_menu_open_is_ignored() {
+        assert!(tray_click_opens_menu(WM_RBUTTONUP, false));
+        assert!(tray_click_opens_menu(WM_LBUTTONUP, false));
+        assert!(!tray_click_opens_menu(WM_RBUTTONUP, true));
+        assert!(!tray_click_opens_menu(WM_LBUTTONUP, true));
+        assert!(!tray_click_opens_menu(WM_TIMER, false));
     }
 
     #[test]
