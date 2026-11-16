@@ -1,6 +1,10 @@
 #![windows_subsystem = "windows"]
 
+#[allow(dead_code)]
+mod capture;
 mod hotkey;
+#[allow(dead_code)]
+mod overlay;
 // Task 11 dùng các hàm trong paths; ở task này chỉ có kiểm thử gọi chúng.
 #[allow(dead_code)]
 mod paths;
