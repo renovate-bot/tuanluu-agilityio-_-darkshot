@@ -30,10 +30,16 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | xong | 178.194 | 72.826 | 0 | 251.020 |
 | 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | xong | 177.000 | 74.920 | 11.776 | 263.696 |
 | 19b Kiểm thử chập chờn, chữ "Đổi…" trong Trợ giúp | task/19b-flaky-test-help-text | builder | sonnet | xong | 53.642 | 0 (phiên chính đọc diff 18 dòng, không giao rà soát) | 0 | 53.642 |
+| 20 Lõi đợt 2 | task/20-batch2-core | builder | sonnet | đang làm | | | | |
+| 21 Tùy chọn: ba phím tắt, ba ô tích, lọc thông báo, Trợ giúp | task/21-hotkeys-options | specialist | opus | chờ | | | | |
+| 22 Chụp: con trỏ, toàn màn hình, khung nhớ | task/22-fullscreen-cursor-selection | specialist | opus | chờ | | | | |
+| 23 Tài liệu đợt 2 | task/23-docs-batch2 | scaffolder | haiku | chờ (sau khi chủ dự án thử tay Task 22) | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
-Rà soát Task 4, 8, 9, 17 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
+Task 20–23 là đợt 2 (kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md`). Trước khi xây: đọc soát thiết kế đợt 2 (general-purpose) 146.071.
+
+Rà soát Task 4, 8, 9, 17, 21, 22 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
 Ghi chú về "Token sửa": khi một agent được gọi tiếp để sửa, công cụ báo một con số duy nhất cho agent đó (Task 3: 69.217 sau lượt sửa, so với 66.710 sau lượt làm). Sổ này coi con số đó là cộng dồn và ghi phần chênh lệch vào cột "Token sửa". Đây là giả định, chưa kiểm chứng; nếu con số là riêng của lượt sửa thì Token sửa của Task 3 là 69.217. Task 4: agent làm báo 58.879 (lượt bị dừng vì không truy cập được tài liệu AWS), 73.515 (sau khi làm xong), 79.057 (sau lượt sửa); mức tăng nhỏ giữa các lượt cho thấy con số có thể là kích thước ngữ cảnh cuối của agent, thấp hơn lượng token thực tính tiền. Coi bảng này là số tương đối giữa các task.
 

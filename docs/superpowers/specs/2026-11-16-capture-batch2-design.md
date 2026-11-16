@@ -1,6 +1,6 @@
 # shotme đợt 2: phím tắt toàn màn hình, con trỏ chuột, giữ vị trí vùng, bật/tắt thông báo
 
-Ngày: 2026-11-16. Trạng thái: chờ chủ dự án duyệt.
+Ngày: 2026-11-16. Trạng thái: chủ dự án đã duyệt (2026-11-16).
 
 Tài liệu này bổ sung cho spec gốc `2026-11-16-shotme-design.md` và thiết kế đợt 1 `2026-11-16-options-tabs-i18n-design.md` (không sửa hai tài liệu đó). Chỗ nào khác nhau thì tài liệu này thắng, và điểm khác được ghi vào `memory-bank/decisions.md`.
 
@@ -222,7 +222,7 @@ Số task nối tiếp sổ hiện có.
 | Task | Nội dung | Agent làm | Model | Rà soát |
 |---|---|---|---|---|
 | 20 | Core: trường cấu hình mới và nâng cấp file, kiểm tra trùng tổ hợp, loại thông báo "thành công", chuỗi mới, các hàm hình học (chọn màn hình, khung nhớ, vùng chọn khởi tạo sẵn) | builder | sonnet | reviewer (sonnet) |
-| 21 | Tùy chọn: ba dòng phím tắt với ô tích và bắt phím từng dòng, đăng ký ba phím (OK, Hủy, lỗi, khởi động), ba ô tích ở tab Thông thường, lọc thông báo | specialist | opus | specialist (opus) |
+| 21 | Tùy chọn: ba dòng phím tắt với ô tích và bắt phím từng dòng, đăng ký ba phím (OK, Hủy, lỗi, khởi động), ba ô tích ở tab Thông thường, lọc thông báo, lời văn Trợ giúp (chốt ở kế hoạch) | specialist | opus | specialist (opus) |
 | 22 | Chụp: con trỏ vào ảnh, hai luồng toàn màn hình qua cổng chụp, lớp phủ mở với khung nhớ | specialist | opus | specialist (opus) |
 | 23 | Lời văn Trợ giúp, README, checklist thử tay, tài liệu AI | scaffolder | haiku | reviewer (sonnet) |
 
