@@ -1,0 +1,12 @@
+[package]
+name = "shotme-windows"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "shotme"
+path = "src/main.rs"
+
+[dependencies]
+shotme-core = { path = "../shotme-core" }
