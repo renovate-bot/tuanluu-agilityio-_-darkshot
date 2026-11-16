@@ -12,7 +12,7 @@ Cập nhật: 2026-11-16
 - Task 12 (README, mục nghiệm thu R2) đã gộp vào `main`. Cả 12 task đã xong. Bản phát hành `target/release/shotme.exe` 1.513.472 byte.
 - Rà soát toàn bộ (specialist) đã xong: DUYỆT, không lỗi chặn; phần bảo mật (hai đích mạng, đường đi của khóa, tên ngẫu nhiên) đã xác nhận. Sáu điểm nên sửa và bốn điểm nhỏ thành gói `docs/tasks/13-hardening.md`.
 - Task 13 (gia cố) đã gộp vào `main`: lõi 64 kiểm thử, lớp Windows 49 kiểm thử và 4 kiểm thử chạy tay. Tổng kết token đã lập trong `progress.md`.
-- Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay và nghiệm thu với R2 thật. Lỗi họ báo: mở nhánh `task/14-...`.
+- Task đang làm: **Task 14, `docs/tasks/14-icon.md`** (chủ dự án yêu cầu cập nhật biểu tượng), nhánh `task/14-icon`, agent `builder`. Vẫn chờ chủ dự án thử tay và nghiệm thu với R2 thật.
 - shotme ghi `shotme.exe`=1 (DWORD) vào `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` mỗi lần khởi động (đã có trên máy chủ dự án từ lượt chạy thử Task 13). Chưa thử bằng sự cố thật.
 - Biết mà để lại: thoát đúng lúc một lượt đang tự lưu dự phòng có thể để lại một file PNG 0 byte (ảnh không mất, bản đủ nằm ở tên `_2`). Việc còn lại sau đó: sửa lỗi họ báo (nhánh `task/13-...`, agent theo độ khó), rà soát toàn bộ bằng `specialist`, tổng kết token theo task/model/giai đoạn trong `progress.md`. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
 
