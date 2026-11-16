@@ -205,7 +205,7 @@ impl Tray {
         let mut nid = self.base_data();
         nid.uFlags = NIF_INFO;
         nid.dwInfoFlags = match n.kind {
-            NoticeKind::Info => NIIF_INFO,
+            NoticeKind::Success | NoticeKind::Info => NIIF_INFO,
             NoticeKind::Error => NIIF_ERROR,
         };
         fill_wide(&mut nid.szInfoTitle, &n.title);

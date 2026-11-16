@@ -88,6 +88,24 @@ impl Selection {
         }
     }
 
+    /// Vùng chọn có sẵn (khung đã nhớ). Khung không nằm trọn trong `bounds` hoặc nhỏ hơn
+    /// `MIN_SIZE` thì coi như không có.
+    pub fn with_rect(bounds: Rect, rect: Option<Rect>) -> Selection {
+        let mut s = Selection::new(bounds);
+        if let Some(r) = rect {
+            let fits = r.w >= MIN_SIZE
+                && r.h >= MIN_SIZE
+                && r.x >= bounds.x
+                && r.y >= bounds.y
+                && i64::from(r.x) + i64::from(r.w) <= i64::from(bounds.x) + i64::from(bounds.w)
+                && i64::from(r.y) + i64::from(r.h) <= i64::from(bounds.y) + i64::from(bounds.h);
+            if fits {
+                s.rect = Some(r);
+            }
+        }
+        s
+    }
+
     pub fn rect(&self) -> Option<Rect> {
         self.rect
     }
@@ -186,6 +204,41 @@ impl Selection {
             }
         }
     }
+}
+
+/// Đổi khung đã nhớ (tọa độ ảo) sang tọa độ ảnh; `None` khi khung không còn dùng được.
+pub fn restore_selection(
+    remembered: Rect,
+    origin: Point,
+    image_w: i32,
+    image_h: i32,
+    monitors: &[Rect],
+) -> Option<Rect> {
+    if remembered.w <= 0 || remembered.h <= 0 {
+        return None;
+    }
+    let x = i64::from(remembered.x) - i64::from(origin.x);
+    let y = i64::from(remembered.y) - i64::from(origin.y);
+    let (r, b) = (x + i64::from(remembered.w), y + i64::from(remembered.h));
+    if x < 0 || y < 0 || r > i64::from(image_w) || b > i64::from(image_h) {
+        return None;
+    }
+    // Từ đây x, y, r, b nằm trong phạm vi i32 vì ảnh nằm trong i32.
+    let touches = monitors.iter().any(|m| {
+        let mx = i64::from(m.x) - i64::from(origin.x);
+        let my = i64::from(m.y) - i64::from(origin.y);
+        let (mr, mb) = (mx + i64::from(m.w), my + i64::from(m.h));
+        x.max(mx) < r.min(mr) && y.max(my) < b.min(mb)
+    });
+    if !touches {
+        return None;
+    }
+    Some(Rect {
+        x: i32::try_from(x).ok()?,
+        y: i32::try_from(y).ok()?,
+        w: remembered.w,
+        h: remembered.h,
+    })
 }
 
 /// Màn hình chứa `p`; nếu không có thì màn hình gần nhất.
@@ -468,5 +521,110 @@ mod tests {
         ];
         assert_eq!(monitor_containing(p(1500, 300), &ms), ms[1]);
         assert_eq!(monitor_containing(p(1500, 50), &ms), ms[1]);
+    }
+
+    #[test]
+    fn with_rect_starts_selected() {
+        let b = Rect {
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 100,
+        };
+        let r = Rect {
+            x: 10,
+            y: 20,
+            w: 30,
+            h: 40,
+        };
+        let s = Selection::with_rect(b, Some(r));
+        assert_eq!(s.rect(), Some(r));
+        assert!(!s.is_dragging());
+        assert_eq!(s.hit_test(p(20, 30), 4), Hit::Inside);
+        assert_eq!(Selection::with_rect(b, None).rect(), None);
+        let over = Rect {
+            x: 90,
+            y: 0,
+            w: 30,
+            h: 10,
+        };
+        assert_eq!(Selection::with_rect(b, Some(over)).rect(), None);
+        let tiny = Rect {
+            x: 0,
+            y: 0,
+            w: 1,
+            h: 50,
+        };
+        assert_eq!(Selection::with_rect(b, Some(tiny)).rect(), None);
+    }
+
+    #[test]
+    fn restore_selection_cases() {
+        let mons = [
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1920,
+                h: 1080,
+            },
+            Rect {
+                x: 1920,
+                y: 0,
+                w: 1280,
+                h: 1024,
+            },
+        ];
+        let o = p(0, 0);
+        let r = Rect {
+            x: 100,
+            y: 100,
+            w: 300,
+            h: 200,
+        };
+        assert_eq!(restore_selection(r, o, 3200, 1080, &mons), Some(r));
+        // gốc âm: màn hình phụ ở bên trái
+        assert_eq!(
+            restore_selection(r, p(-1280, 0), 3200, 1080, &mons),
+            Some(Rect { x: 1380, ..r })
+        );
+        // màn hình phải đã rút: khung nằm ngoài ảnh
+        let far = Rect {
+            x: 2000,
+            y: 100,
+            w: 300,
+            h: 200,
+        };
+        assert_eq!(restore_selection(far, o, 1920, 1080, &mons[..1]), None);
+        // trong ảnh nhưng ở vùng chết
+        let dead = Rect {
+            x: 2000,
+            y: 1040,
+            w: 100,
+            h: 30,
+        };
+        assert_eq!(restore_selection(dead, o, 3200, 1080, &mons), None);
+        // tràn một phần; rỗng; giá trị cực lớn không panic
+        let part = Rect {
+            x: 1800,
+            y: 900,
+            w: 300,
+            h: 300,
+        };
+        assert_eq!(restore_selection(part, o, 1920, 1080, &mons[..1]), None);
+        let empty = Rect {
+            x: 5,
+            y: 5,
+            w: 0,
+            h: 10,
+        };
+        assert_eq!(restore_selection(empty, o, 1920, 1080, &mons[..1]), None);
+        let huge = Rect {
+            x: i32::MAX,
+            y: i32::MIN,
+            w: i32::MAX,
+            h: i32::MAX,
+        };
+        let o3 = p(i32::MIN, i32::MAX);
+        assert_eq!(restore_selection(huge, o3, 1920, 1080, &mons[..1]), None);
     }
 }

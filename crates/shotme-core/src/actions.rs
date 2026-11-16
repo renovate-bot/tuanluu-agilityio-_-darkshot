@@ -18,8 +18,17 @@ pub enum Action {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeKind {
+    Success,
     Info,
     Error,
+}
+
+/// Thông báo loại `Success` có thể bị ẩn theo tùy chọn; các loại khác luôn hiện.
+pub fn notice_visible(kind: NoticeKind, show_success: bool) -> bool {
+    match kind {
+        NoticeKind::Success => show_success,
+        NoticeKind::Info | NoticeKind::Error => true,
+    }
 }
 
 pub trait Notifier: Send + Sync {
@@ -69,7 +78,7 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
-                    NoticeKind::Info,
+                    NoticeKind::Success,
                     t(ctx.lang, Msg::SavedTitle),
                     &path.display().to_string(),
                 );
@@ -80,7 +89,7 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         Action::Copy => match ctx.clipboard.set_image(img) {
             Ok(()) => {
                 ctx.notifier.notify(
-                    NoticeKind::Info,
+                    NoticeKind::Success,
                     t(ctx.lang, Msg::CopiedTitle),
                     t(ctx.lang, Msg::CopiedBody),
                 );
@@ -121,7 +130,7 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
                 );
             } else {
                 ctx.notifier
-                    .notify(NoticeKind::Info, t(ctx.lang, Msg::UploadedTitle), &link);
+                    .notify(NoticeKind::Success, t(ctx.lang, Msg::UploadedTitle), &link);
             }
             Outcome::Uploaded(link)
         }
@@ -368,7 +377,7 @@ mod tests {
         assert_eq!(bytes[..8], SIG);
         let notes = n.notes.lock().unwrap();
         assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].0, NoticeKind::Info);
+        assert_eq!(notes[0].0, NoticeKind::Success);
         // không để lại file tạm
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
     }
@@ -380,7 +389,7 @@ mod tests {
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Copy, &img());
         assert_eq!(out, Outcome::Copied);
         assert_eq!(*cb.images.lock().unwrap(), vec![img()]);
-        assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Info);
+        assert_eq!(n.notes.lock().unwrap()[0].0, NoticeKind::Success);
     }
 
     #[test]
@@ -397,7 +406,7 @@ mod tests {
         assert_eq!(keys[0].len(), 3 + 16 + 4);
         assert_eq!(*cb.texts.lock().unwrap(), vec![link.to_string()]);
         let notes = n.notes.lock().unwrap();
-        assert_eq!(notes[0].0, NoticeKind::Info);
+        assert_eq!(notes[0].0, NoticeKind::Success);
         assert_eq!(notes[0].1, "Đã chép link");
         assert_eq!(notes[0].2, link);
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
@@ -568,5 +577,96 @@ mod tests {
         let out = run_action(&ctx(&file, Some(&up), &cb, &n), Action::Upload, &img());
         assert_eq!(out, Outcome::Failed);
         assert_eq!(cb.images.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn only_success_notices_can_be_hidden() {
+        assert!(notice_visible(NoticeKind::Success, true));
+        assert!(!notice_visible(NoticeKind::Success, false));
+        for k in [NoticeKind::Info, NoticeKind::Error] {
+            assert!(notice_visible(k, false) && notice_visible(k, true));
+        }
+    }
+
+    /// Bộ chép clipboard có thể lỗi từng phần.
+    struct PickyClipboard {
+        text_ok: bool,
+        image_ok: bool,
+    }
+    impl Clipboard for PickyClipboard {
+        fn set_text(&self, _: &str) -> Result<(), String> {
+            if self.text_ok {
+                Ok(())
+            } else {
+                Err("no text".into())
+            }
+        }
+        fn set_image(&self, _: &Image) -> Result<(), String> {
+            if self.image_ok {
+                Ok(())
+            } else {
+                Err("no image".into())
+            }
+        }
+    }
+
+    fn kinds_of(
+        dir: &Path,
+        up: Option<&dyn Uploader>,
+        cb: &dyn Clipboard,
+        action: Action,
+    ) -> Vec<NoticeKind> {
+        let n = FakeNotifier::default();
+        let c = Ctx {
+            save_dir: dir,
+            expiry: Expiry::D7,
+            now: now(),
+            uploader: up,
+            clipboard: cb,
+            notifier: &n,
+            lang: Lang::Vi,
+        };
+        run_action(&c, action, &img());
+        let kinds = n.notes.lock().unwrap().iter().map(|x| x.0).collect();
+        kinds
+    }
+
+    #[test]
+    fn notice_kinds_of_outcomes() {
+        let good = PickyClipboard {
+            text_ok: true,
+            image_ok: true,
+        };
+        let no_text = PickyClipboard {
+            text_ok: false,
+            image_ok: true,
+        };
+        let no_image = PickyClipboard {
+            text_ok: true,
+            image_ok: false,
+        };
+        let ok_up = FakeUploader::new(Ok("https://x/y.png".to_string()));
+        let bad_up = FakeUploader::new(Err(UploadError::Network("x".into())));
+
+        let ok = [NoticeKind::Success];
+        let err = [NoticeKind::Error];
+        assert_eq!(kinds_of(&temp_dir(), None, &good, Action::Save), ok);
+        assert_eq!(kinds_of(&temp_dir(), None, &good, Action::Copy), ok);
+        assert_eq!(
+            kinds_of(&temp_dir(), Some(&ok_up), &good, Action::Upload),
+            ok
+        );
+        assert_eq!(
+            kinds_of(&temp_dir(), Some(&ok_up), &no_text, Action::Upload),
+            err
+        );
+        assert_eq!(
+            kinds_of(&temp_dir(), Some(&bad_up), &good, Action::Upload),
+            err
+        );
+        assert_eq!(kinds_of(&temp_dir(), None, &no_image, Action::Copy), err);
+        let file = temp_dir().join("not_a_dir");
+        std::fs::write(&file, b"x").unwrap();
+        assert_eq!(kinds_of(&file, None, &good, Action::Save), err);
     }
 }
