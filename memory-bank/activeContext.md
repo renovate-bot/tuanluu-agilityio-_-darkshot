@@ -25,7 +25,8 @@ Chạy `/next-task` nối tiếp từ Task 15, không hỏi lại chủ dự án
 
 ## Đang chờ chủ dự án
 
-- **Chặn Task 19:** thử tay đợt 1 theo hai mục "Đợt 1" của `docs/testing/manual-checklist.md` bằng `target/batch1/release/shotme.exe` (thoát bản đang chạy trước), và đọc lời văn Trợ giúp ở cả hai ngôn ngữ. Lỗi họ báo: nhánh `task/18b-...`, agent theo độ khó (tab, tiêu điểm, bắt phím: `specialist`; chữ, bố cục đơn giản: `builder`).
+- Chủ dự án bảo "tiếp tục" (2026-11-16) mà chưa báo kết quả thử tay đợt 1: Task 19 được chạy, việc thử tay vẫn còn nợ và không còn chặn Task 19. **Task 19 đang làm** trên nhánh `task/19-docs-batch1` (agent `scaffolder`).
+- Còn nợ: thử tay đợt 1 theo hai mục "Đợt 1" của `docs/testing/manual-checklist.md` bằng `target/batch1/release/shotme.exe` (thoát bản đang chạy trước), và đọc lời văn Trợ giúp ở cả hai ngôn ngữ. Lỗi họ báo: nhánh `task/18b-...`, agent theo độ khó (tab, tiêu điểm, bắt phím: `specialist`; chữ, bố cục đơn giản: `builder`).
 
 - Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md` (mọi mục), rồi làm theo `README.md` mục "Chuẩn bị Cloudflare R2" và mục "Nghiệm thu với R2 thật" của checklist. Họ tự nhập khóa vào ứng dụng; phiên điều phối và agent không nhận, đọc hay ghi khóa. Cần họ xác nhận thêm: quyền "Object Read & Write" có cho xóa file thử của "Kiểm tra kết nối" không. Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
 

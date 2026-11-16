@@ -28,7 +28,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 16 Lớp Windows dùng bảng chuỗi | task/16-i18n-windows | builder | sonnet | xong | 148.870 | 78.526 | 7.629 | 235.025 |
 | 17 Cửa sổ Tùy chọn dạng tab | task/17-options-tabs | specialist | opus | xong, chưa thử tay | 233.114 | 168.494 | 11.798 | 413.406 |
 | 18 Menu, Thông tin, Trợ giúp | task/18-menu-about-help | builder | sonnet | xong, chờ thử tay | 178.194 | 72.826 | 0 | 251.020 |
-| 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | chờ (sau khi chủ dự án thử tay Task 18) | | | | |
+| 19 Tài liệu đợt 1 | task/19-docs-batch1 | scaffolder | haiku | đang làm | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`).
 
