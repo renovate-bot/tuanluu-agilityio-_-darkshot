@@ -51,7 +51,11 @@ Tạm thời (đến Task 11) chọn xong một hành động chỉ hiện thôn
 - [ ] "Chọn…" mở hộp chọn thư mục; chọn xong đường dẫn hiện trong ô.
 - [ ] Địa chỉ công khai nhập "http://x" rồi Lưu: lỗi màu đỏ hiện ngay trong cửa sổ, cửa sổ không đóng. Nhập "https://img.example.com/" thì lưu thành không có dấu "/" cuối.
 - [ ] Xóa trống ô Thư mục lưu rồi Lưu: hiện lỗi, cửa sổ không đóng.
-- [ ] "Đổi…": ô phím hiện "Nhấn tổ hợp phím mới…"; bấm PrintScreen thì ô hiện "PrintScreen"; bấm Ctrl+Shift+S thì hiện "Ctrl+Shift+S"; bấm riêng chữ "S" thì báo cần kèm Ctrl/Alt/Shift/Win; Esc bỏ qua việc đổi.
+- [ ] "Đổi…": ô phím hiện "Nhấn tổ hợp phím mới…"; bấm PrintScreen thì ô hiện "PrintScreen"; bấm Ctrl+Shift+S thì hiện "Ctrl+Shift+S" (kể cả khi nhả Ctrl trước chữ S); bấm riêng chữ "S" hoặc Shift+S thì báo cần kèm Ctrl, Alt hoặc Win; F5 và Shift+F5 được nhận; Esc bỏ qua việc đổi.
+- [ ] Bắt đầu "Đổi…" bằng phím Enter hoặc Space (Tab tới nút rồi bấm): ngay sau đó không hiện lỗi "cần kèm Ctrl…".
+- [ ] Trong lúc "Đổi…": Alt+F4 đóng cửa sổ như thường (không thành tổ hợp); bấm chuột vào ô khác hoặc thanh tiêu đề thì thoát chế độ bắt và ô phím trở lại giá trị cũ; chuyển sang cửa sổ khác cũng thoát chế độ bắt.
+- [ ] Phím mũi tên khi đang chọn nút "Lưu" chỉ nhảy sang "Hủy", không nhảy vào các ô nhập; Tab vẫn đi đủ các ô.
+- [ ] "Kiểm tra kết nối": bấm liên tiếp nhiều lần chỉ chạy một lần; trong lúc nút mờ, Enter vẫn là Lưu chỉ khi bạn muốn (focus đã chuyển sang ô Account ID, không rơi vào trạng thái không phím nào hoạt động).
 - [ ] Đổi phím tắt sang tổ hợp khác, Lưu: phím mới chụp được, phím cũ không còn tác dụng. Đổi về PrintScreen, Lưu: PrintScreen chụp được lại.
 - [ ] Bấm "Đổi…" rồi bấm Hủy: phím tắt cũ vẫn chụp được.
 - [ ] Chọn phím đang bị ứng dụng khác chiếm rồi Lưu: hiện lỗi "đang bị ứng dụng khác chiếm" trong cửa sổ, cửa sổ không đóng.

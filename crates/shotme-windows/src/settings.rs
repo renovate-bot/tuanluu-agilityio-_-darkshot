@@ -38,15 +38,16 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
     GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, IsChild, IsDialogMessageW, IsIconic,
-    PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos,
-    SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK, BM_SETCHECK,
-    BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST, CB_ADDSTRING,
-    CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, ES_PASSWORD,
-    ES_READONLY, GWL_STYLE, HMENU, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
-    SWP_NOZORDER, SW_RESTORE, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP, WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW,
-    WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_CONTROLPARENT, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
-    WS_VSCROLL,
+    KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow,
+    SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, BM_CLICK, BM_GETCHECK,
+    BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CBS_DROPDOWNLIST,
+    CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL,
+    ES_PASSWORD, ES_READONLY, GWL_STYLE, HMENU, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
+    SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_RBUTTONDOWN, WM_SETFONT,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 /// Giá trị đọc từ các ô của cửa sổ.
@@ -140,7 +141,7 @@ pub fn apply_form(current: &Config, form: &Form) -> Result<Config, String> {
 pub enum Capture {
     /// Phím bổ trợ đứng một mình: chờ tiếp.
     Ignore,
-    /// Phím thường cần kèm Ctrl/Alt/Shift/Win.
+    /// Phím thường cần kèm Ctrl, Alt hoặc Win (Shift một mình không đủ).
     NeedModifier,
     /// Không nuốt phím: để hệ thống xử lý như thường (Alt+F4 đóng cửa sổ).
     PassThrough,
@@ -179,8 +180,40 @@ impl CaptureState {
     }
 
     pub fn feed(&mut self, ev: KeyEv) -> Capture {
-        let _ = (&mut self.downs, ev);
-        todo!()
+        match ev {
+            KeyEv::Down {
+                vk,
+                ctrl,
+                alt,
+                shift,
+                win,
+            } => {
+                let out = capture_hotkey(vk, ctrl, alt, shift, win);
+                if matches!(out, Capture::Got(_) | Capture::NeedModifier)
+                    && !self.downs.contains(&vk)
+                {
+                    self.downs.push(vk);
+                }
+                out
+            }
+            KeyEv::Up {
+                vk,
+                ctrl,
+                alt,
+                shift,
+                win,
+            } => {
+                if let Some(i) = self.downs.iter().position(|k| *k == vk) {
+                    self.downs.swap_remove(i);
+                    Capture::Ignore
+                } else if vk == 0x2C {
+                    // PrintScreen không sinh KEYDOWN: nhận ở KEYUP.
+                    capture_hotkey(vk, ctrl, alt, shift, win)
+                } else {
+                    Capture::Ignore
+                }
+            }
+        }
     }
 }
 
@@ -189,11 +222,20 @@ fn allowed_bare(vk: u32) -> bool {
     matches!(vk, 0x2C | 0x13 | 0x91 | 0x70..=0x87)
 }
 
+fn is_modifier_vk(vk: u32) -> bool {
+    matches!(vk, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C | 0xA0..=0xA5)
+}
+
 pub fn capture_hotkey(vk: u32, ctrl: bool, alt: bool, shift: bool, win: bool) -> Capture {
-    if matches!(vk, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C | 0xA0..=0xA5) {
+    if is_modifier_vk(vk) {
         return Capture::Ignore;
     }
-    if ctrl || alt || shift || win || allowed_bare(vk) {
+    // Alt+F4 luôn là lệnh đóng cửa sổ của hệ thống.
+    if vk == 0x73 && alt {
+        return Capture::PassThrough;
+    }
+    // Shift một mình không đủ: sẽ chặn việc gõ chữ hoa.
+    if ctrl || alt || win || allowed_bare(vk) {
         Capture::Got(Hotkey {
             ctrl,
             alt,
@@ -228,6 +270,9 @@ const fn ws(v: i32) -> WINDOW_STYLE {
     WINDOW_STYLE(v as u32)
 }
 
+const TEST_TIMER_ID: usize = 1;
+/// Thời gian chờ tối đa của `test_connection` (60 s) cộng dư.
+const TEST_FAILSAFE_MS: u32 = 70_000;
 const WM_APP_TEST_DONE: u32 = WM_APP + 1;
 const VK_CONTROL_U: i32 = VK_CONTROL.0 as i32;
 
@@ -253,6 +298,7 @@ struct St {
     parent: HWND,
     hotkey: Hotkey,
     capturing: bool,
+    cap: CaptureState,
     /// Phím tắt cũ đã bị hủy đăng ký (do "Đổi…" hoặc lần Lưu lỗi) và cần đăng ký lại nếu Hủy.
     hk_unregistered: bool,
     done: bool,
@@ -262,6 +308,7 @@ struct St {
 
 thread_local! {
     /// HWND của cửa sổ đang mở (0 = không có).
+    static TEST_RUNNING: Cell<bool> = const { Cell::new(false) };
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static CTL: Cell<Option<Ctl>> = const { Cell::new(None) };
     static ST: RefCell<Option<St>> = const { RefCell::new(None) };
@@ -410,6 +457,7 @@ fn on_change_hotkey() {
         hotkey::unregister(s.parent);
         s.hk_unregistered = true;
         s.capturing = true;
+        s.cap = CaptureState::new();
         true
     })
     .unwrap_or(false);
@@ -419,52 +467,89 @@ fn on_change_hotkey() {
     }
 }
 
-/// Xử lý phím khi đang chọn phím tắt. Trả về `true` nếu đã nuốt thông điệp.
-fn capture_key(msg: &MSG) -> bool {
-    let is_up = msg.message == WM_KEYUP || msg.message == WM_SYSKEYUP;
-    let is_down = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
-    if !is_up && !is_down {
-        return false;
-    }
-    if is_down {
-        return true;
-    }
-    let vk = msg.wParam.0 as u32;
-    if vk == VK_ESCAPE.0 as u32 {
-        with_st(|s| s.capturing = false);
+/// Thoát chế độ bắt phím, giữ phím tắt đang chọn trong biểu mẫu.
+fn end_capture() {
+    let was = with_st(|s| std::mem::replace(&mut s.capturing, false)).unwrap_or(false);
+    if was {
         refresh_hotkey_text();
-        return true;
     }
-    let down = |k: i32| {
-        // SAFETY: chỉ đọc trạng thái phím.
-        unsafe { GetKeyState(k) < 0 }
-    };
-    let out = capture_hotkey(
-        vk,
-        down(VK_CONTROL_U),
-        down(VK_MENU.0 as i32),
-        down(VK_SHIFT.0 as i32),
-        down(VK_LWIN.0 as i32) || down(VK_RWIN.0 as i32),
-    );
-    match out {
-        Capture::Ignore | Capture::PassThrough => {}
-        Capture::NeedModifier => {
-            if let Some(c) = ctl() {
-                set_text(
-                    c.hk_edit,
-                    "Phím này cần kèm Ctrl, Alt, Shift hoặc Win. Thử lại…",
-                );
+}
+
+fn key_down(k: i32) -> bool {
+    // SAFETY: chỉ đọc trạng thái phím.
+    unsafe { GetKeyState(k) < 0 }
+}
+
+/// Xử lý thông điệp khi đang chọn phím tắt. Trả về `true` nếu đã nuốt thông điệp.
+fn capture_msg(msg: &MSG, hk_btn: HWND) -> bool {
+    match msg.message {
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_NCLBUTTONDOWN | WM_NCRBUTTONDOWN => {
+            // Bấm ra ngoài nút "Đổi…": thoát chế độ bắt rồi xử lý cú bấm bình thường.
+            if msg.hwnd != hk_btn {
+                end_capture();
+            }
+            false
+        }
+        WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
+            let is_down = msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN;
+            let vk = msg.wParam.0 as u32;
+            if is_down {
+                if vk == VK_ESCAPE.0 as u32 {
+                    end_capture();
+                    return true;
+                }
+                // Tự lặp phím (kể cả phím giữ từ trước khi vào chế độ bắt): bỏ qua.
+                if (msg.lParam.0 >> 30) & 1 == 1 {
+                    return true;
+                }
+            }
+            let (ctrl, alt, shift, win) = (
+                key_down(VK_CONTROL_U),
+                key_down(VK_MENU.0 as i32),
+                key_down(VK_SHIFT.0 as i32),
+                key_down(VK_LWIN.0 as i32) || key_down(VK_RWIN.0 as i32),
+            );
+            let ev = if is_down {
+                KeyEv::Down {
+                    vk,
+                    ctrl,
+                    alt,
+                    shift,
+                    win,
+                }
+            } else {
+                KeyEv::Up {
+                    vk,
+                    ctrl,
+                    alt,
+                    shift,
+                    win,
+                }
+            };
+            let Some(out) = with_st(|s| s.cap.feed(ev)) else {
+                return false;
+            };
+            match out {
+                Capture::Ignore => true,
+                Capture::PassThrough => false,
+                Capture::NeedModifier => {
+                    if let Some(c) = ctl() {
+                        set_text(c.hk_edit, "Phím này cần kèm Ctrl, Alt hoặc Win. Thử lại…");
+                    }
+                    true
+                }
+                Capture::Got(h) => {
+                    with_st(|s| {
+                        s.hotkey = h;
+                        s.capturing = false;
+                    });
+                    refresh_hotkey_text();
+                    true
+                }
             }
         }
-        Capture::Got(h) => {
-            with_st(|s| {
-                s.hotkey = h;
-                s.capturing = false;
-            });
-            refresh_hotkey_text();
-        }
+        _ => false,
     }
-    true
 }
 
 fn on_browse(hwnd: HWND) {
@@ -516,7 +601,11 @@ fn on_test(hwnd: HWND) {
         );
         return;
     }
-    let generation = GENERATION.load(Ordering::SeqCst);
+    if TEST_RUNNING.with(|r| r.get()) {
+        return;
+    }
+    // Thế hệ mới: kết quả của lần chạy trước (nếu có) sẽ bị bỏ.
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let target = hwnd.0 as isize;
     let r2 = cfg.r2;
     let spawned = std::thread::Builder::new()
@@ -546,14 +635,40 @@ fn on_test(hwnd: HWND) {
         set_text(c.test_res, "Không tạo được luồng kiểm tra. Hãy thử lại.");
         return;
     }
-    // SAFETY: vô hiệu nút trong lúc chờ.
+    TEST_RUNNING.with(|r| r.set(true));
+    // SAFETY: chuyển focus sang ô còn bật trước khi làm mờ nút; bộ hẹn giờ dự phòng gắn với cửa sổ này.
     unsafe {
+        if GetFocus() == c.test_btn {
+            let _ = SetFocus(Some(c.account));
+        }
         let _ = EnableWindow(c.test_btn, false);
+        SetTimer(Some(hwnd), TEST_TIMER_ID, TEST_FAILSAFE_MS, None);
     }
     set_text(c.test_res, "Đang kiểm tra…");
 }
 
-fn on_test_done() {
+/// Bật lại nút "Kiểm tra kết nối" và hủy bộ hẹn giờ dự phòng.
+fn test_finished(hwnd: HWND, c: &Ctl) {
+    TEST_RUNNING.with(|r| r.set(false));
+    // SAFETY: bật lại nút và hủy bộ hẹn giờ của chính cửa sổ này.
+    unsafe {
+        let _ = KillTimer(Some(hwnd), TEST_TIMER_ID);
+        let _ = EnableWindow(c.test_btn, true);
+    }
+}
+
+fn on_test_timeout(hwnd: HWND) {
+    let Some(c) = ctl() else { return };
+    if !TEST_RUNNING.with(|r| r.get()) {
+        return;
+    }
+    // Bỏ kết quả muộn của luồng nền.
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    set_text(c.test_res, "Kiểm tra quá thời gian chờ. Hãy thử lại.");
+    test_finished(hwnd, &c);
+}
+
+fn on_test_done(hwnd: HWND) {
     let Some(c) = ctl() else { return };
     let taken = TEST_RESULT.lock().ok().and_then(|mut s| s.take());
     let Some((generation, msg)) = taken else {
@@ -563,10 +678,7 @@ fn on_test_done() {
         return;
     }
     set_text(c.test_res, &msg);
-    // SAFETY: bật lại nút.
-    unsafe {
-        let _ = EnableWindow(c.test_btn, true);
-    }
+    test_finished(hwnd, &c);
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -583,8 +695,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_APP_TEST_DONE => {
-            on_test_done();
+            on_test_done(hwnd);
             LRESULT(0)
+        }
+        WM_TIMER if wp.0 == TEST_TIMER_ID => {
+            on_test_timeout(hwnd);
+            LRESULT(0)
+        }
+        WM_ACTIVATE => {
+            // Mất kích hoạt: thoát chế độ bắt phím (rồi để hệ thống xử lý tiếp, giữ focus đúng).
+            if (wp.0 & 0xFFFF) as u32 == WA_INACTIVE {
+                end_capture();
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
         }
         WM_CTLCOLORSTATIC => {
             if ctl().is_some_and(|c| c.err.0 as isize == lp.0) {
@@ -655,7 +779,7 @@ impl Builder {
         self.make(
             w!("EDIT"),
             "",
-            WS_TABSTOP | ws(ES_AUTOHSCROLL) | style | WS_BORDER,
+            WS_GROUP | WS_TABSTOP | ws(ES_AUTOHSCROLL) | style | WS_BORDER,
             rect,
             id,
         )
@@ -668,7 +792,7 @@ impl Builder {
         rect: (i32, i32, i32, i32),
         id: i32,
     ) -> HWND {
-        self.make(w!("BUTTON"), text, WS_TABSTOP | style, rect, id)
+        self.make(w!("BUTTON"), text, WS_GROUP | WS_TABSTOP | style, rect, id)
     }
 }
 
@@ -770,7 +894,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     let expiry = b.make(
         w!("COMBOBOX"),
         "",
-        WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
+        WS_GROUP | WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
         (EX, y, 160, 200),
         ID_EXPIRY,
     );
@@ -814,7 +938,14 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     let err = b.label("", 12, y, 456, 36);
     y += 40;
     b.button("Lưu", ws(BS_DEFPUSHBUTTON), (300, y, 80, 28), ID_OK);
-    b.button("Hủy", ws(BS_PUSHBUTTON), (388, y, 80, 28), ID_CANCEL);
+    // Hủy không có WS_GROUP: Lưu và Hủy cùng một nhóm mũi tên.
+    b.make(
+        w!("BUTTON"),
+        "Hủy",
+        WS_TABSTOP | ws(BS_PUSHBUTTON),
+        (388, y, 80, 28),
+        ID_CANCEL,
+    );
     y += 40;
 
     // Giờ mới biết chiều cao thật của ba nhóm.
@@ -935,6 +1066,7 @@ pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<Sett
             parent,
             hotkey: current.hotkey,
             capturing: false,
+            cap: CaptureState::new(),
             hk_unregistered: false,
             done: false,
             result: None,
@@ -1056,7 +1188,7 @@ fn run_loop(hwnd: HWND, c: Ctl) {
         let mine = msg.hwnd == hwnd || unsafe { IsChild(hwnd, msg.hwnd).as_bool() };
         if mine {
             let capturing = with_st(|s| s.capturing).unwrap_or(false);
-            if capturing && capture_key(&msg) {
+            if capturing && capture_msg(&msg, c.hk_btn) {
                 continue;
             }
             if msg.message == WM_KEYDOWN {
@@ -1401,5 +1533,72 @@ mod tests {
             capture_hotkey(0x73, true, true, false, false),
             Capture::PassThrough
         );
+    }
+
+    /// Mở cửa sổ thật, đóng bằng WM_CLOSE rồi bằng nút Hủy. Không ghi đĩa, không gọi mạng.
+    /// Chạy tay: `cargo test -p shotme-windows -- --ignored settings_window`.
+    #[test]
+    #[ignore]
+    fn settings_window_opens_and_cancels() {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DefWindowProcW as Def, FindWindowW, IsWindow, WM_COMMAND,
+        };
+        unsafe extern "system" fn proc_(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+            // SAFETY: chuyển nguyên tham số.
+            unsafe { Def(h, m, w, l) }
+        }
+        // Cửa sổ cha ẩn riêng của kiểm thử (phím tắt toàn cục gắn với nó, không đụng ứng dụng thật).
+        let parent = unsafe {
+            let hinst = GetModuleHandleW(None).unwrap();
+            let class = w!("shotme-settings-test-parent");
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(proc_),
+                hInstance: hinst.into(),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                w!("parent"),
+                WS_CAPTION,
+                0,
+                0,
+                10,
+                10,
+                None,
+                None,
+                Some(hinst.into()),
+                None,
+            )
+            .unwrap()
+        };
+        let cfg = Config::defaults(std::path::Path::new("C:/shotme-test-not-created"));
+        for use_command in [false, true] {
+            let closer = std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                // SAFETY: tìm cửa sổ theo tên lớp rồi đăng thông điệp; HWND chỉ dùng như số.
+                unsafe {
+                    let h = FindWindowW(w!("shotme-settings"), None)
+                        .expect("settings window not found");
+                    if use_command {
+                        PostMessageW(Some(h), WM_COMMAND, WPARAM(ID_CANCEL as usize), LPARAM(0))
+                            .unwrap();
+                    } else {
+                        PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+                    }
+                }
+            });
+            assert!(show(parent, &cfg, Some("Thông báo thử")).is_none());
+            closer.join().unwrap();
+            // SAFETY: tìm lại cửa sổ sau khi show trả về.
+            assert!(unsafe { FindWindowW(w!("shotme-settings"), None) }.is_err());
+        }
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            assert!(IsWindow(Some(parent)).as_bool());
+            let _ = DestroyWindow(parent);
+        }
     }
 }
