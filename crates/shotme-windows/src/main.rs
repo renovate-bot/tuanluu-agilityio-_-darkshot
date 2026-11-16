@@ -1,11 +1,18 @@
 #![windows_subsystem = "windows"]
 
+// Task 10 và 11 mới nối autostart, clipboard, secret vào luồng chạy; ở task này chỉ có kiểm thử gọi chúng.
+#[allow(dead_code)]
+mod autostart;
 mod capture;
+#[allow(dead_code)]
+mod clipboard;
 mod hotkey;
 mod overlay;
 // Task 11 dùng các hàm trong paths; ở task này chỉ có kiểm thử gọi chúng.
 #[allow(dead_code)]
 mod paths;
+#[allow(dead_code)]
+mod secret;
 mod tray;
 
 use shotme_core::actions::{Action, NoticeKind, Notifier};
