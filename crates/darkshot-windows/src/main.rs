@@ -8,6 +8,7 @@ mod clipboard;
 mod help;
 mod hotkey;
 mod lang;
+mod legacy;
 mod overlay;
 mod paths;
 mod secret;

@@ -3,6 +3,7 @@ pub mod config;
 pub mod geometry;
 pub mod i18n;
 pub mod image;
+pub mod migrate;
 pub mod naming;
 pub mod sigv4;
 pub mod upload;
