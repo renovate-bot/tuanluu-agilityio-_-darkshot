@@ -3,23 +3,133 @@
 //! Tên cũ chỉ được nằm ở file này và `darkshot-core/src/migrate.rs`. Không bao giờ xóa hay sửa
 //! gì trong thư mục cũ, không bao giờ ghi đè cấu hình darkshot đã có.
 
-use std::path::Path;
+use crate::{autostart, paths};
+use darkshot_core::migrate::{
+    migrated_config, plan_run, should_copy_config, RunAction, LEGACY_APP_DIR, LEGACY_EXE,
+    LEGACY_RUN_VALUE,
+};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use windows::core::HSTRING;
+use windows::Win32::Foundation::ERROR_SUCCESS;
+use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
+use windows::Win32::System::ErrorReporting::WerRemoveExcludedApplication;
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_ANY};
+
+/// Khóa chứa danh sách loại trừ của WER cho người dùng hiện tại (`bAllUsers = FALSE`).
+const WER_EXCLUDED_KEY: &str =
+    r"Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications";
 
 /// Bước 1–2 của thiết kế mục 6 với thư mục gốc truyền vào (để kiểm thử bằng thư mục tạm).
 /// Ok(true) = đã chép; Ok(false) = không cần chép; Err = có bước lỗi (đã bỏ qua).
 pub fn migrate_config(appdata: &Path, pictures: &Path) -> Result<bool, String> {
-    todo!("{} {}", appdata.display(), pictures.display())
+    let new_path = paths::config_path_in(appdata);
+    let old_path = appdata.join(LEGACY_APP_DIR).join("config.json");
+    // Không chắc file mới có hay không thì coi là lỗi, không chép (không bao giờ ghi đè).
+    let new_exists = new_path.try_exists().map_err(|e| e.to_string())?;
+    let old_exists = old_path.is_file();
+    if !should_copy_config(new_exists, old_exists) {
+        return Ok(false);
+    }
+    let old = std::fs::read(&old_path).map_err(|e| e.to_string())?;
+    let data = migrated_config(&old, &pictures.join(LEGACY_APP_DIR))
+        .map_err(|e| format!("legacy config: {e:?}"))?;
+    write_new_file(&new_path, &data)?;
+    Ok(true)
+}
+
+/// Ghi `data` thành `path` như `config::save` (file tạm cạnh đích, `sync_all`, đổi tên), nhưng
+/// không bao giờ đè lên file đích đã có: đổi tên không kèm `MOVEFILE_REPLACE_EXISTING`.
+fn write_new_file(path: &Path, data: &[u8]) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or("no parent directory")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".migrate.tmp");
+    let tmp: PathBuf = dir.join(tmp_name);
+    let result = write_tmp(&tmp, data).and_then(|()| {
+        // Kiểm lại ngay trước khi đổi tên; MoveFileExW cũng tự thất bại nếu đích đã có.
+        if path.try_exists().map_err(|e| e.to_string())? {
+            return Err("target already exists".to_string());
+        }
+        // SAFETY: hai HSTRING kết thúc bằng 0 và sống suốt lời gọi.
+        unsafe {
+            MoveFileExW(
+                &HSTRING::from(tmp.as_os_str()),
+                &HSTRING::from(path.as_os_str()),
+                MOVEFILE_WRITE_THROUGH,
+            )
+        }
+        .map_err(|e| e.to_string())
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_tmp(tmp: &Path, data: &[u8]) -> Result<(), String> {
+    let mut f = std::fs::File::create(tmp).map_err(|e| e.to_string())?;
+    f.write_all(data).map_err(|e| e.to_string())?;
+    f.sync_all().map_err(|e| e.to_string())
+}
+
+/// Đúng khi danh sách loại trừ WER của người dùng hiện tại còn exe cũ.
+fn legacy_wer_excluded() -> bool {
+    let mut size = 0u32;
+    // SAFETY: chỉ hỏi kích thước giá trị, không có bộ đệm; RegGetValueW tự mở và đóng khóa con.
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(WER_EXCLUDED_KEY),
+            &HSTRING::from(LEGACY_EXE),
+            RRF_RT_ANY,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    r == ERROR_SUCCESS
+}
+
+/// Bỏ exe cũ khỏi danh sách loại trừ WER. Tài liệu không nêu mã lỗi khi exe không có trong
+/// danh sách, nên chỉ tính là lỗi khi gọi thất bại mà giá trị vẫn còn.
+fn remove_legacy_wer() -> Result<(), String> {
+    // SAFETY: HSTRING kết thúc bằng 0 và sống suốt lời gọi; hàm không giữ con trỏ lại.
+    let r = unsafe { WerRemoveExcludedApplication(&HSTRING::from(LEGACY_EXE), false) };
+    match r {
+        Err(e) if legacy_wer_excluded() => Err(e.to_string()),
+        _ => Ok(()),
+    }
 }
 
 /// Gọi lúc khởi động, trước app::startup: migrate_config với thư mục thật, rồi
 /// WerRemoveExcludedApplication(LEGACY_EXE, FALSE) (lỗi "không có" không tính là lỗi).
 pub fn run_before_startup() -> bool {
-    todo!()
+    let config_failed = migrate_config(&paths::appdata_dir(), &paths::pictures_dir()).is_err();
+    let wer_failed = remove_legacy_wer().is_err();
+    config_failed || wer_failed
 }
 
 /// Gọi sau app::startup: đọc hai giá trị Run, plan_run(..., config.autostart), áp dụng.
 pub fn sync_autostart(autostart: bool) -> bool {
-    todo!("{autostart}")
+    let plan = plan_run(
+        autostart::value_exists(LEGACY_RUN_VALUE),
+        autostart::is_enabled(),
+        autostart,
+    );
+    let mut failed = false;
+    if plan.delete_legacy {
+        failed |= autostart::delete_value(LEGACY_RUN_VALUE).is_err();
+    }
+    failed |= match plan.darkshot {
+        RunAction::Write => autostart::set_enabled(true).is_err(),
+        RunAction::Delete => autostart::set_enabled(false).is_err(),
+        RunAction::Nothing => false,
+    };
+    failed
 }
 
 #[cfg(test)]

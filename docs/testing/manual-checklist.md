@@ -211,3 +211,12 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Nâng cấp với file cấu hình cũ (không có hai trường mới): tab Định dạng hiện PNG và 90; tải lên ra `.png`.
 - [ ] Trình đọc màn hình (Narrator) đọc tên thanh trượt là "Chất lượng JPEG" / "JPEG quality" kèm giá trị.
 - [ ] Trợ giúp có đoạn về tab Định dạng ở cả hai ngôn ngữ.
+
+## Đợt 4: chuyển từ shotme
+
+- [ ] (a) Máy có shotme đã cấu hình R2 và bật khởi động cùng Windows. Thoát shotme, chạy `darkshot.exe` lần đầu: Tùy chọn hiện đủ thiết lập cũ; Kiểm tra kết nối qua (khóa giải mã được); ảnh lưu vào thư mục cũ (`Pictures\shotme` nếu trước đó dùng mặc định); `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` có `darkshot` và không còn `shotme`; `%APPDATA%\shotme` còn nguyên.
+- [ ] (b) Khởi động lại Windows sau (a): chỉ darkshot tự chạy.
+- [ ] (c) Đã có cấu hình darkshot với khởi động cùng Windows tắt; thêm tay giá trị Run `shotme`; chạy darkshot: `shotme` bị xóa, `darkshot` không được ghi.
+- [ ] (d) Máy chưa từng có shotme: không có thông báo nào về phiên bản cũ; ảnh lưu vào `Pictures\darkshot`.
+- [ ] (e) File `%APPDATA%\shotme\config.json` hỏng (chưa có cấu hình darkshot): darkshot vẫn chạy với mặc định và hiện thông báo "Chưa chuyển được hết thiết lập từ phiên bản cũ..."; file cũ không bị đổi.
+- [ ] (f) Sau (a): `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` không còn `shotme.exe`, còn `darkshot.exe`.

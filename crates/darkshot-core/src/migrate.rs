@@ -2,6 +2,7 @@
 //!
 //! Tên cũ chỉ được nằm trong file này và `darkshot-windows/src/legacy.rs`.
 
+use serde_json::Value;
 use std::path::Path;
 
 /// Thư mục cũ: `%APPDATA%\shotme` và `Pictures\shotme`.
@@ -19,7 +20,7 @@ pub enum MigrateError {
 
 /// Chỉ chép khi chưa có cấu hình mới và có cấu hình cũ.
 pub fn should_copy_config(new_exists: bool, old_exists: bool) -> bool {
-    todo!("{new_exists} {old_exists}")
+    !new_exists && old_exists
 }
 
 /// Nội dung file mới: mọi trường của file cũ giữ nguyên giá trị; nếu thiếu `save_dir` (hoặc là null)
@@ -28,7 +29,16 @@ pub fn migrated_config(
     old_json: &[u8],
     legacy_default_save_dir: &Path,
 ) -> Result<Vec<u8>, MigrateError> {
-    todo!("{} {}", old_json.len(), legacy_default_save_dir.display())
+    let mut value: Value = serde_json::from_slice(old_json).map_err(|_| MigrateError::Corrupt)?;
+    let obj = value.as_object_mut().ok_or(MigrateError::Corrupt)?;
+    if obj.get("save_dir").is_some_and(|v| !v.is_null()) {
+        // Không cần đổi gì: giữ nguyên từng byte của file cũ.
+        return Ok(old_json.to_vec());
+    }
+    // Ghi đường dẫn như `config::save` (serde của PathBuf); đường dẫn không phải UTF-8 thì không chép.
+    let dir = serde_json::to_value(legacy_default_save_dir).map_err(|_| MigrateError::Corrupt)?;
+    obj.insert("save_dir".to_string(), dir);
+    serde_json::to_vec_pretty(&value).map_err(|_| MigrateError::Corrupt)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +57,17 @@ pub struct RunPlan {
 /// delete_legacy = legacy_present; darkshot = Write nếu autostart (luôn ghi lại để cập nhật đường dẫn exe),
 /// Delete nếu !autostart && darkshot_present, còn lại Nothing.
 pub fn plan_run(legacy_present: bool, darkshot_present: bool, autostart: bool) -> RunPlan {
-    todo!("{legacy_present} {darkshot_present} {autostart}")
+    let darkshot = if autostart {
+        RunAction::Write
+    } else if darkshot_present {
+        RunAction::Delete
+    } else {
+        RunAction::Nothing
+    };
+    RunPlan {
+        delete_legacy: legacy_present,
+        darkshot,
+    }
 }
 
 #[cfg(test)]
