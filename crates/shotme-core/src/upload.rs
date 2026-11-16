@@ -45,8 +45,8 @@ pub trait Uploader: Send + Sync {
     fn upload(&self, key: &str, body: &[u8], content_type: &str) -> Result<String, UploadError>;
 }
 
-pub fn object_key(_expiry: Expiry, _name: &str, _format: UploadFormat) -> String {
-    todo!()
+pub fn object_key(expiry: Expiry, name: &str, format: UploadFormat) -> String {
+    format!("{}/{name}.{}", expiry.prefix(), format.extension())
 }
 
 pub fn public_url(base: &str, key: &str) -> String {
@@ -289,11 +289,11 @@ impl R2Uploader {
 }
 
 impl Uploader for R2Uploader {
-    fn upload(&self, key: &str, body: &[u8], _content_type: &str) -> Result<String, UploadError> {
+    fn upload(&self, key: &str, body: &[u8], content_type: &str) -> Result<String, UploadError> {
         if !self.complete || self.s3.is_none() {
             return Err(UploadError::NotConfigured);
         }
-        let status = self.s3_request("PUT", key, Some("image/png"), body)?;
+        let status = self.s3_request("PUT", key, Some(content_type), body)?;
         Self::check_status(status)?;
         Ok(public_url(&self.public_base, key))
     }

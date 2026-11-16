@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{Expiry, UploadFormat};
 use crate::i18n::{self, t, Lang, Msg};
-use crate::image::{encode_png, Image};
+use crate::image::{encode_for_upload, encode_png, Image};
 use crate::naming::{local_file_name, random_object_name, LocalTime};
 use crate::upload::{object_key, UploadError, Uploader};
 
@@ -114,7 +114,7 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
     let Some(uploader) = ctx.uploader else {
         return fallback(ctx, img, t(ctx.lang, Msg::UploadNotConfigured), true);
     };
-    let png = match encode_png(img) {
+    let body = match encode_for_upload(img, ctx.upload_format, ctx.jpeg_quality) {
         Ok(p) => p,
         Err(e) => {
             let reason = i18n::encode_failed(ctx.lang, &e.message(ctx.lang));
@@ -122,7 +122,7 @@ fn upload(ctx: &Ctx, img: &Image) -> Outcome {
         }
     };
     let key = object_key(ctx.expiry, &random_object_name(), ctx.upload_format);
-    match uploader.upload(&key, &png, "image/png") {
+    match uploader.upload(&key, &body, ctx.upload_format.content_type()) {
         Ok(link) => {
             if let Err(e) = ctx.clipboard.set_text(&link) {
                 ctx.notifier.notify(

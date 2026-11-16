@@ -41,15 +41,35 @@ impl UploadFormat {
     pub const ALL: [UploadFormat; 2] = [UploadFormat::Png, UploadFormat::Jpeg];
 
     pub fn extension(self) -> &'static str {
-        todo!()
+        match self {
+            UploadFormat::Png => "png",
+            UploadFormat::Jpeg => "jpg",
+        }
     }
 
     pub fn content_type(self) -> &'static str {
-        todo!()
+        match self {
+            UploadFormat::Png => "image/png",
+            UploadFormat::Jpeg => "image/jpeg",
+        }
     }
 
     pub fn label(self) -> Msg {
-        todo!()
+        match self {
+            UploadFormat::Png => Msg::RadioPng,
+            UploadFormat::Jpeg => Msg::RadioJpeg,
+        }
+    }
+
+    fn code(self) -> &'static str {
+        match self {
+            UploadFormat::Png => "png",
+            UploadFormat::Jpeg => "jpeg",
+        }
+    }
+
+    fn from_code(s: &str) -> Option<UploadFormat> {
+        UploadFormat::ALL.into_iter().find(|f| f.code() == s)
     }
 }
 
@@ -57,8 +77,9 @@ pub const JPEG_QUALITY_MIN: u8 = 50;
 pub const JPEG_QUALITY_MAX: u8 = 100;
 pub const JPEG_QUALITY_DEFAULT: u8 = 90;
 
-pub fn clamp_jpeg_quality(_v: i64) -> u8 {
-    todo!()
+pub fn clamp_jpeg_quality(v: i64) -> u8 {
+    let c = v.clamp(i64::from(JPEG_QUALITY_MIN), i64::from(JPEG_QUALITY_MAX));
+    u8::try_from(c).unwrap_or(JPEG_QUALITY_DEFAULT)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,6 +367,8 @@ struct FileConfig {
     notify_success: bool,
     keep_selection: bool,
     include_cursor: bool,
+    upload_format: String,
+    jpeg_quality: i64,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -363,6 +386,8 @@ impl Default for FileConfig {
             notify_success: true,
             keep_selection: false,
             include_cursor: false,
+            upload_format: UploadFormat::default().code().to_string(),
+            jpeg_quality: i64::from(JPEG_QUALITY_DEFAULT),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -443,8 +468,8 @@ pub fn load(
         show_success_notices: f.notify_success,
         keep_selection: f.keep_selection,
         include_cursor: f.include_cursor,
-        upload_format: UploadFormat::Png,
-        jpeg_quality: JPEG_QUALITY_DEFAULT,
+        upload_format: UploadFormat::from_code(&f.upload_format).unwrap_or_default(),
+        jpeg_quality: clamp_jpeg_quality(f.jpeg_quality),
     };
     Ok(Loaded {
         config,
@@ -483,6 +508,8 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         notify_success: cfg.show_success_notices,
         keep_selection: cfg.keep_selection,
         include_cursor: cfg.include_cursor,
+        upload_format: cfg.upload_format.code().to_string(),
+        jpeg_quality: i64::from(clamp_jpeg_quality(i64::from(cfg.jpeg_quality))),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),

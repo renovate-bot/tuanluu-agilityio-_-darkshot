@@ -1,6 +1,6 @@
 //! Ảnh chụp trong bộ nhớ và mã hóa PNG.
 
-use crate::config::UploadFormat;
+use crate::config::{clamp_jpeg_quality, UploadFormat};
 use crate::geometry::Rect;
 use crate::i18n::{self, Lang, Msg};
 
@@ -100,16 +100,32 @@ pub fn encode_png(img: &Image) -> Result<Vec<u8>, EncodeError> {
 }
 
 /// JPEG baseline 8 bit, 4:4:4, không EXIF, không bình luận.
-pub fn encode_jpeg(_img: &Image, _quality: u8) -> Result<Vec<u8>, EncodeError> {
-    todo!()
+pub fn encode_jpeg(img: &Image, quality: u8) -> Result<Vec<u8>, EncodeError> {
+    if !img.is_valid() {
+        return Err(EncodeError::InvalidImage);
+    }
+    let (w, h) = match (u16::try_from(img.width), u16::try_from(img.height)) {
+        (Ok(w), Ok(h)) => (w, h),
+        _ => return Err(EncodeError::TooLarge),
+    };
+    let mut out = Vec::new();
+    let mut enc = jpeg_encoder::Encoder::new(&mut out, clamp_jpeg_quality(i64::from(quality)));
+    enc.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_4_4);
+    enc.set_progressive(false);
+    enc.encode(&img.bgra, w, h, jpeg_encoder::ColorType::Bgra)
+        .map_err(|e| EncodeError::Encoder(e.to_string()))?;
+    Ok(out)
 }
 
 pub fn encode_for_upload(
-    _img: &Image,
-    _format: UploadFormat,
-    _quality: u8,
+    img: &Image,
+    format: UploadFormat,
+    quality: u8,
 ) -> Result<Vec<u8>, EncodeError> {
-    todo!()
+    match format {
+        UploadFormat::Png => encode_png(img),
+        UploadFormat::Jpeg => encode_jpeg(img, quality),
+    }
 }
 
 #[cfg(test)]
