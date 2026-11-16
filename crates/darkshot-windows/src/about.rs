@@ -10,12 +10,13 @@ use std::cell::Cell;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{DeleteObject, HDC, HFONT, HGDIOBJ};
+use windows::Win32::UI::Controls::{NMHDR, NM_CUSTOMDRAW};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, DestroyWindow, GetDlgCtrlID, IsWindow, SendMessageW, BS_DEFPUSHBUTTON, MSG,
-    STM_SETICON, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WM_SETFONT,
-    WS_GROUP, WS_TABSTOP,
+    STM_SETICON, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_CTLCOLORSTATIC, WM_NCDESTROY, WM_NOTIFY,
+    WM_SETFONT, WS_GROUP, WS_TABSTOP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-about");
@@ -31,6 +32,9 @@ thread_local! {
     /// HWND của cửa sổ đang mở (0 = không có).
     static OPEN: Cell<isize> = const { Cell::new(0) };
     static FONT: Cell<Option<HFONT>> = const { Cell::new(None) };
+    /// Phông đậm của nút Đóng (nút chính) và DPI lúc mở, dùng khi tự vẽ nút.
+    static BOLD: Cell<Option<HFONT>> = const { Cell::new(None) };
+    static DPI: Cell<u32> = const { Cell::new(96) };
     /// Phông đậm, lớn hơn, của tên ứng dụng.
     static NAME_FONT: Cell<Option<HFONT>> = const { Cell::new(None) };
 }
@@ -60,6 +64,8 @@ pub fn show(owner: HWND) {
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let font = winutil::system_font(dpi);
     FONT.with(|f| f.set(font));
+    BOLD.with(|f| f.set(winutil::system_font_styled(dpi, 100, true)));
+    DPI.with(|d| d.set(dpi));
     OPEN.with(|o| o.set(hwnd.0 as isize));
 
     let child = |class, text: &str, style, rect, id| {
@@ -113,7 +119,6 @@ pub fn show(owner: HWND) {
         (120, 184, 80, 28),
         ID_CLOSE,
     );
-    theme::set_dark_control_theme(close, theme::DarkClass::Explorer);
     theme::apply_dark_title_bar(hwnd);
     winutil::finish_popup(hwnd, 320, 224, dpi);
     // SAFETY: nút vừa tạo trong cửa sổ này.
@@ -158,9 +163,34 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let fg = if id == ID_NAME { TEXT } else { TEXT_MUTED };
             theme::ctl_color(HDC(wp.0 as *mut std::ffi::c_void), fg, BG)
         }
+        WM_NOTIFY => {
+            // Nút Đóng là nút chính tự vẽ (Common Controls v6 gửi NM_CUSTOMDRAW cho cửa sổ cha).
+            // SAFETY: lp của WM_NOTIFY trỏ tới NMHDR hợp lệ suốt lời gọi.
+            let hdr = unsafe { (lp.0 as *const NMHDR).as_ref() };
+            if hdr.is_some_and(|h| h.code == NM_CUSTOMDRAW && h.idFrom == ID_CLOSE as usize) {
+                // SAFETY: mã NM_CUSTOMDRAW nên lp trỏ tới NMCUSTOMDRAW.
+                if let Some(cd) = unsafe { theme::nmcd_of(lp) } {
+                    return theme::custom_draw_button(
+                        cd,
+                        theme::ButtonKind::Primary,
+                        BG,
+                        DPI.with(|d| d.get()),
+                        BOLD.with(|f| f.get()),
+                    );
+                }
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
         WM_NCDESTROY => {
             // Cửa sổ đã mất hết con: giải phóng phông và quên handle, dù đóng bằng đường nào.
             OPEN.with(|o| o.set(0));
+            if let Some(f) = BOLD.with(|f| f.take()) {
+                // SAFETY: phông đậm do CreateFontIndirectW tạo, nút dùng nó đã bị hủy.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(f.0));
+                }
+            }
             if let Some(f) = NAME_FONT.with(|f| f.take()) {
                 // SAFETY: như phông thường bên dưới.
                 unsafe {
