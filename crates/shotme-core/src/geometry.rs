@@ -199,7 +199,12 @@ pub fn monitor_containing(p: Point, monitors: &[Rect]) -> Rect {
         .iter()
         .min_by_key(|m| dist(m))
         .copied()
-        .unwrap_or(Rect { x: 0, y: 0, w: 0, h: 0 })
+        .unwrap_or(Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        })
 }
 
 pub fn place_toolbar(sel: Rect, size: (i32, i32), gap: i32, monitor: Rect) -> Rect {
@@ -224,8 +229,15 @@ pub fn place_toolbar(sel: Rect, size: (i32, i32), gap: i32, monitor: Rect) -> Re
 mod tests {
     use super::*;
 
-    const B: Rect = Rect { x: 0, y: 0, w: 1000, h: 800 };
-    fn p(x: i32, y: i32) -> Point { Point { x, y } }
+    const B: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1000,
+        h: 800,
+    };
+    fn p(x: i32, y: i32) -> Point {
+        Point { x, y }
+    }
     fn sel(x: i32, y: i32, w: i32, h: i32) -> Selection {
         let mut s = Selection::new(B);
         s.press(p(x, y), 6);
@@ -234,65 +246,226 @@ mod tests {
         s
     }
 
-    #[test] fn new_selection_from_drag() {
+    #[test]
+    fn new_selection_from_drag() {
         let mut s = Selection::new(B);
-        s.press(p(300, 200), 6); s.drag_to(p(100, 50)); s.release();
-        assert_eq!(s.rect(), Some(Rect { x: 100, y: 50, w: 200, h: 150 }));
+        s.press(p(300, 200), 6);
+        s.drag_to(p(100, 50));
+        s.release();
+        assert_eq!(
+            s.rect(),
+            Some(Rect {
+                x: 100,
+                y: 50,
+                w: 200,
+                h: 150
+            })
+        );
     }
-    #[test] fn tiny_selection_is_discarded() {
+    #[test]
+    fn tiny_selection_is_discarded() {
         let mut s = Selection::new(B);
-        s.press(p(10, 10), 6); s.drag_to(p(12, 12)); s.release();
+        s.press(p(10, 10), 6);
+        s.drag_to(p(12, 12));
+        s.release();
         assert_eq!(s.rect(), None);
     }
-    #[test] fn drag_is_clamped_to_bounds() {
+    #[test]
+    fn drag_is_clamped_to_bounds() {
         let mut s = Selection::new(B);
-        s.press(p(900, 700), 6); s.drag_to(p(5000, -40)); s.release();
-        assert_eq!(s.rect(), Some(Rect { x: 900, y: 0, w: 100, h: 700 }));
+        s.press(p(900, 700), 6);
+        s.drag_to(p(5000, -40));
+        s.release();
+        assert_eq!(
+            s.rect(),
+            Some(Rect {
+                x: 900,
+                y: 0,
+                w: 100,
+                h: 700
+            })
+        );
     }
-    #[test] fn move_keeps_size_and_stays_inside() {
+    #[test]
+    fn move_keeps_size_and_stays_inside() {
         let mut s = sel(100, 100, 200, 100);
-        s.press(p(150, 150), 6); s.drag_to(p(2000, 2000)); s.release();
-        assert_eq!(s.rect(), Some(Rect { x: 800, y: 700, w: 200, h: 100 }));
+        s.press(p(150, 150), 6);
+        s.drag_to(p(2000, 2000));
+        s.release();
+        assert_eq!(
+            s.rect(),
+            Some(Rect {
+                x: 800,
+                y: 700,
+                w: 200,
+                h: 100
+            })
+        );
     }
-    #[test] fn resize_east_handle_and_flip() {
+    #[test]
+    fn resize_east_handle_and_flip() {
         let mut s = sel(100, 100, 200, 100);
         assert_eq!(s.hit_test(p(300, 150), 6), Hit::Handle(Handle::E));
-        s.press(p(300, 150), 6); s.drag_to(p(40, 150)); s.release();
-        assert_eq!(s.rect(), Some(Rect { x: 40, y: 100, w: 60, h: 100 }));
+        s.press(p(300, 150), 6);
+        s.drag_to(p(40, 150));
+        s.release();
+        assert_eq!(
+            s.rect(),
+            Some(Rect {
+                x: 40,
+                y: 100,
+                w: 60,
+                h: 100
+            })
+        );
     }
-    #[test] fn press_outside_starts_new_selection() {
+    #[test]
+    fn press_outside_starts_new_selection() {
         let mut s = sel(100, 100, 200, 100);
-        s.press(p(500, 500), 6); s.drag_to(p(600, 650)); s.release();
-        assert_eq!(s.rect(), Some(Rect { x: 500, y: 500, w: 100, h: 150 }));
+        s.press(p(500, 500), 6);
+        s.drag_to(p(600, 650));
+        s.release();
+        assert_eq!(
+            s.rect(),
+            Some(Rect {
+                x: 500,
+                y: 500,
+                w: 100,
+                h: 150
+            })
+        );
     }
-    #[test] fn hit_test_corners_inside_outside() {
+    #[test]
+    fn hit_test_corners_inside_outside() {
         let s = sel(100, 100, 200, 100);
         assert_eq!(s.hit_test(p(100, 100), 6), Hit::Handle(Handle::NW));
         assert_eq!(s.hit_test(p(200, 150), 6), Hit::Inside);
         assert_eq!(s.hit_test(p(50, 50), 6), Hit::Outside);
     }
-    #[test] fn toolbar_below_right_aligned() {
-        assert_eq!(place_toolbar(Rect { x: 100, y: 100, w: 300, h: 200 }, (160, 40), 6, B),
-                   Rect { x: 240, y: 306, w: 160, h: 40 });
+    #[test]
+    fn toolbar_below_right_aligned() {
+        assert_eq!(
+            place_toolbar(
+                Rect {
+                    x: 100,
+                    y: 100,
+                    w: 300,
+                    h: 200
+                },
+                (160, 40),
+                6,
+                B
+            ),
+            Rect {
+                x: 240,
+                y: 306,
+                w: 160,
+                h: 40
+            }
+        );
     }
-    #[test] fn toolbar_above_when_no_room_below() {
-        assert_eq!(place_toolbar(Rect { x: 100, y: 500, w: 300, h: 290 }, (160, 40), 6, B),
-                   Rect { x: 240, y: 454, w: 160, h: 40 });
+    #[test]
+    fn toolbar_above_when_no_room_below() {
+        assert_eq!(
+            place_toolbar(
+                Rect {
+                    x: 100,
+                    y: 500,
+                    w: 300,
+                    h: 290
+                },
+                (160, 40),
+                6,
+                B
+            ),
+            Rect {
+                x: 240,
+                y: 454,
+                w: 160,
+                h: 40
+            }
+        );
     }
-    #[test] fn toolbar_inside_when_selection_fills_monitor() {
-        assert_eq!(place_toolbar(B, (160, 40), 6, B), Rect { x: 834, y: 754, w: 160, h: 40 });
+    #[test]
+    fn toolbar_inside_when_selection_fills_monitor() {
+        assert_eq!(
+            place_toolbar(B, (160, 40), 6, B),
+            Rect {
+                x: 834,
+                y: 754,
+                w: 160,
+                h: 40
+            }
+        );
     }
-    #[test] fn toolbar_clamped_horizontally_for_narrow_selection() {
-        let r = place_toolbar(Rect { x: 10, y: 100, w: 50, h: 50 }, (160, 40), 6, B);
-        assert_eq!(r, Rect { x: 0, y: 156, w: 160, h: 40 });
+    #[test]
+    fn toolbar_clamped_horizontally_for_narrow_selection() {
+        let r = place_toolbar(
+            Rect {
+                x: 10,
+                y: 100,
+                w: 50,
+                h: 50,
+            },
+            (160, 40),
+            6,
+            B,
+        );
+        assert_eq!(
+            r,
+            Rect {
+                x: 0,
+                y: 156,
+                w: 160,
+                h: 40
+            }
+        );
     }
-    #[test] fn toolbar_stays_in_second_monitor_with_offset_origin() {
-        let m2 = Rect { x: 1000, y: 200, w: 800, h: 600 };
-        let r = place_toolbar(Rect { x: 1100, y: 600, w: 300, h: 190 }, (160, 40), 6, m2);
-        assert_eq!(r, Rect { x: 1240, y: 554, w: 160, h: 40 });
+    #[test]
+    fn toolbar_stays_in_second_monitor_with_offset_origin() {
+        let m2 = Rect {
+            x: 1000,
+            y: 200,
+            w: 800,
+            h: 600,
+        };
+        let r = place_toolbar(
+            Rect {
+                x: 1100,
+                y: 600,
+                w: 300,
+                h: 190,
+            },
+            (160, 40),
+            6,
+            m2,
+        );
+        assert_eq!(
+            r,
+            Rect {
+                x: 1240,
+                y: 554,
+                w: 160,
+                h: 40
+            }
+        );
     }
-    #[test] fn monitor_containing_picks_nearest_when_in_gap() {
-        let ms = [Rect { x: 0, y: 0, w: 1000, h: 800 }, Rect { x: 1000, y: 200, w: 800, h: 600 }];
+    #[test]
+    fn monitor_containing_picks_nearest_when_in_gap() {
+        let ms = [
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1000,
+                h: 800,
+            },
+            Rect {
+                x: 1000,
+                y: 200,
+                w: 800,
+                h: 600,
+            },
+        ];
         assert_eq!(monitor_containing(p(1500, 300), &ms), ms[1]);
         assert_eq!(monitor_containing(p(1500, 50), &ms), ms[1]);
     }

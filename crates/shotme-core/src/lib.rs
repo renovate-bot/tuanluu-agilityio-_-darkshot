@@ -2,6 +2,7 @@ pub mod config;
 pub mod geometry;
 pub mod naming;
 pub mod sigv4;
+pub mod upload;
 
 #[cfg(test)]
 mod tests {
