@@ -11,8 +11,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 0 Môi trường, git, khung AI-first | main | phiên chính | fable | xong | không đo | | | |
 | 1 Khung workspace | task/01-workspace | scaffolder | haiku | xong | 55.218 | 16.463 | 0 | 71.681 |
 | 2 Hình học vùng chọn | task/02-geometry | builder | sonnet | xong | 58.497 | 28.360 | 0 | 86.857 |
-| 3 Đặt tên và cấu hình | task/03-naming-config | builder | sonnet | đang làm | | | | |
-| 4 Chữ ký SigV4 | task/04-sigv4 | specialist | opus | chờ | | | | |
+| 3 Đặt tên và cấu hình | task/03-naming-config | builder | sonnet | xong | 66.710 | 30.618 | 2.507 (xem ghi chú) | 99.835 |
+| 4 Chữ ký SigV4 | task/04-sigv4 | specialist | opus | đang làm | | | | |
 | 5 Tải lên R2 | task/05-upload | builder | sonnet | chờ | | | | |
 | 6 PNG và luồng hành động | task/06-image-actions | builder | sonnet | chờ | | | | |
 | 7 Vỏ ứng dụng Windows | task/07-win-shell | builder | sonnet | chờ | | | | |
@@ -24,6 +24,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | Rà soát toàn bộ sau Task 12 | main | specialist | opus | chờ | | | | |
 
 Rà soát Task 4, 8, 9 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
+
+Ghi chú về "Token sửa": khi một agent được gọi tiếp để sửa, công cụ báo một con số duy nhất cho agent đó (Task 3: 69.217 sau lượt sửa, so với 66.710 sau lượt làm). Sổ này coi con số đó là cộng dồn và ghi phần chênh lệch vào cột "Token sửa". Đây là giả định, chưa kiểm chứng; nếu con số là riêng của lượt sửa thì Token sửa của Task 3 là 69.217.
 
 ## Token trước giai đoạn xây dựng (giai đoạn 1 đến 4)
 

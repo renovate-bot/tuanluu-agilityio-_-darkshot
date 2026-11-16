@@ -21,3 +21,5 @@ Quyết định đã chốt. Không bàn lại nếu chủ dự án không yêu 
 | 15 | 2026-11-16 | Phiên mới chỉ đọc `activeContext.md` và `progress.md`, không đọc cả memory bank | Mở lại không phải đọc lại toàn bộ | Đề xuất, chủ dự án chưa phản đối |
 | 16 | 2026-11-16 | Làm tiếp từ claude.ai bằng Remote Control; không đẩy mã lên GitHub hay phiên đám mây | Mã và công cụ build ở lại máy Windows | Chủ dự án |
 | 17 | 2026-11-16 | Mã được đẩy lên repo GitHub riêng tư `tuanluu-agilityio/shotme` (remote `origin`): `main` và mọi nhánh `task/...`. Thay phần "không đẩy lên GitHub" của mục 16; Remote Control vẫn là cách làm tiếp từ claude.ai | Chủ dự án cung cấp repo; chuyển sang riêng tư vì lý do bảo mật | Chủ dự án |
+| 18 | 2026-11-16 | Phiên điều phối tự chạy nối tiếp các task, không hỏi lại sau mỗi task; chỉ dừng ở điểm cần chủ dự án thử tay hoặc quyết định | Chủ dự án không muốn bị hỏi lại | Chủ dự án |
+| 19 | 2026-11-16 | Quy tắc quyền `Bash(git push origin:*)` trong `.claude/settings.local.json` (không đưa lên git) cho phép phiên điều phối tự đẩy lên `origin` | Bỏ bước chủ dự án phải tự chạy lệnh đẩy | Chủ dự án |
