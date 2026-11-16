@@ -126,6 +126,16 @@ messages! {
     ),
     ClipboardUnusedOnExit => ("không dùng clipboard lúc thoát", "the clipboard is not used on exit"),
     TrayOptions => ("Tùy chọn...", "Options..."),
+    TrayAbout => ("Thông tin...", "About..."),
+    TrayHelp => ("Trợ giúp", "Help"),
+    AboutTitle => ("Thông tin", "About"),
+    HelpTitle => ("Trợ giúp", "Help"),
+    BtnHelp => ("Trợ giúp", "Help"),
+    BtnClose => ("Đóng", "Close"),
+    AboutDescription => (
+        "Chụp vùng màn hình, lưu vào máy hoặc tải lên kho Cloudflare R2 của chính bạn và chép link.",
+        "Capture a region of the screen, save it locally or upload it to your own Cloudflare R2 bucket and copy the link."
+    ),
     TrayExit => ("Thoát", "Exit"),
     OverlayUpload => ("Tải lên và chép link (Ctrl+D)", "Upload and copy link (Ctrl+D)"),
     OverlaySave => ("Lưu vào máy (Ctrl+S)", "Save to disk (Ctrl+S)"),
@@ -374,6 +384,79 @@ pub fn hotkey_taken_choose_other(lang: Lang, key: &str) -> String {
     }
 }
 
+/// Nội dung cửa sổ Trợ giúp: văn bản thuần, các dòng ngăn bằng `\n`, không có địa chỉ web.
+/// `hotkey` là tổ hợp phím chụp đang đặt (ví dụ "PrintScreen").
+pub fn help_text(lang: Lang, hotkey: &str) -> String {
+    match lang {
+        Lang::Vi => format!(
+            "1. Chụp màn hình\n\
+Bấm {hotkey} hoặc chọn \"Chụp màn hình\" ở menu khay. Màn hình đứng yên và tối đi. Kéo chuột để chọn vùng; kéo các tay nắm để đổi cỡ, kéo bên trong khung để di chuyển.\n\
+\n\
+2. Thanh công cụ và phím tắt\n\
+Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
+- Ctrl+D: tải ảnh lên kho R2 và chép link.\n\
+- Ctrl+S: lưu ảnh vào thư mục lưu.\n\
+- Ctrl+C: chép ảnh vào clipboard.\n\
+- Esc: hủy và đóng lớp phủ.\n\
+\n\
+3. Tùy chọn\n\
+Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
+- Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ.\n\
+- Phím tắt: phím tắt chụp. Bấm Đổi... rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
+\n\
+4. Chuẩn bị Cloudflare R2\n\
+Chỉ cần làm một lần, để tải ảnh lên và chép link.\n\
+a) Trên trang quản lý Cloudflare, mở mục R2 và tạo một kho (bucket). Ghi lại Account ID.\n\
+b) Bật truy cập công khai cho kho: gắn tên miền riêng (nên dùng lâu dài) hoặc bật địa chỉ r2.dev (chỉ để thử). Ghi lại địa chỉ công khai của kho. Không bật liệt kê nội dung công khai.\n\
+c) Tạo khóa API với quyền Object Read & Write, chỉ cho đúng kho này. Cloudflare chỉ hiện Access Key ID và Secret Access Key một lần, hãy lưu ngay.\n\
+d) Tạo ba quy tắc vòng đời cho kho, theo tiền tố d1/ (1 ngày), d7/ (7 ngày) và d30/ (30 ngày). Không có quy tắc thì ảnh không tự hết hạn.\n\
+e) Mở Tùy chọn, tab Lưu trữ R2, nhập Account ID, Access Key ID, Secret Access Key, tên kho và địa chỉ công khai.\n\
+f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
+\n\
+5. Khi tải lên không được\n\
+Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại."
+        ),
+        Lang::En => format!(
+            "1. Taking a screenshot\n\
+Press {hotkey} or choose \"Take screenshot\" in the tray menu. The screen dims and freezes. Drag to select a region; drag the handles to resize it, or drag inside the frame to move it.\n\
+\n\
+2. Toolbar and keys\n\
+Once a region is selected, use the toolbar buttons or the keys:\n\
+- Ctrl+D: upload the image to your R2 bucket and copy the link.\n\
+- Ctrl+S: save the image to the save folder.\n\
+- Ctrl+C: copy the image to the clipboard.\n\
+- Esc: cancel and close the overlay.\n\
+\n\
+3. Options\n\
+Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
+- General: start with Windows, save folder, language.\n\
+- Hotkeys: the capture hotkey. Click Change..., then press the new combination; Esc skips.\n\
+- R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
+\n\
+4. Setting up Cloudflare R2\n\
+You only need to do this once, to upload images and copy links.\n\
+a) In the Cloudflare dashboard, open R2 and create a bucket. Note the Account ID.\n\
+b) Turn on public access for the bucket: attach a custom domain (best for long-term use) or enable the r2.dev address (for trying it out only). Note the public address of the bucket. Do not enable public listing.\n\
+c) Create an API key with Object Read & Write permission, limited to this bucket only. Cloudflare shows the Access Key ID and Secret Access Key just once, so save them right away.\n\
+d) Create three lifecycle rules for the bucket, for the prefixes d1/ (1 day), d7/ (7 days) and d30/ (30 days). Without the rules, images never expire.\n\
+e) Open Options, the R2 storage tab, and enter the Account ID, Access Key ID, Secret Access Key, bucket name and public address.\n\
+f) Click Test connection, wait for the success message, then click OK.\n\
+\n\
+5. When an upload fails\n\
+The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again."
+        ),
+    }
+}
+
+/// "Phiên bản 0.1.0" | "Version 0.1.0".
+pub fn about_version(lang: Lang, version: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Phiên bản {version}"),
+        Lang::En => format!("Version {version}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +599,35 @@ mod tests {
             for title in [hotkey_taken_title(l, key), hotkey_inactive_title(l, key)] {
                 assert!(title.encode_utf16().count() <= 63, "{l:?} {title}");
             }
+        }
+    }
+
+    #[test]
+    fn help_text_names_the_hotkey_and_keys() {
+        for l in Lang::ALL {
+            let s = help_text(l, "Ctrl+Shift+Q");
+            assert!(s.contains("Ctrl+Shift+Q"), "{l:?}");
+            for k in [
+                "Ctrl+D",
+                "Ctrl+S",
+                "Ctrl+C",
+                "Esc",
+                "d1/",
+                "d7/",
+                "d30/",
+                "Object Read & Write",
+            ] {
+                assert!(s.contains(k), "{l:?} thiếu {k}");
+            }
+            assert!(!s.contains("http"), "{l:?} có địa chỉ web");
+        }
+        assert_ne!(help_text(Lang::Vi, "X"), help_text(Lang::En, "X"));
+    }
+
+    #[test]
+    fn about_version_contains_version() {
+        for l in Lang::ALL {
+            assert!(about_version(l, "1.2.3").contains("1.2.3"));
         }
     }
 }

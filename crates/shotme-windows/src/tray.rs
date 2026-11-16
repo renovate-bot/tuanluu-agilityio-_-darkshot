@@ -27,13 +27,17 @@ pub const WM_NOTICE: u32 = WM_APP + 2;
 
 const TRAY_UID: u32 = 1;
 const ID_CAPTURE: usize = 1;
-const ID_SETTINGS: usize = 2;
-const ID_QUIT: usize = 3;
+const ID_OPTIONS: usize = 2;
+const ID_ABOUT: usize = 3;
+const ID_HELP: usize = 4;
+const ID_QUIT: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
     Capture,
-    Settings,
+    Options,
+    About,
+    Help,
     Quit,
 }
 
@@ -145,9 +149,13 @@ impl Tray {
             let menu = CreatePopupMenu().ok()?;
             let capture = HSTRING::from(lang::tr(Msg::TrayCapture));
             let options = HSTRING::from(lang::tr(Msg::TrayOptions));
+            let about = HSTRING::from(lang::tr(Msg::TrayAbout));
+            let help = HSTRING::from(lang::tr(Msg::TrayHelp));
             let exit = HSTRING::from(lang::tr(Msg::TrayExit));
             let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
-            let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, &options);
+            let _ = AppendMenuW(menu, MF_STRING, ID_OPTIONS, &options);
+            let _ = AppendMenuW(menu, MF_STRING, ID_ABOUT, &about);
+            let _ = AppendMenuW(menu, MF_STRING, ID_HELP, &help);
             let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, &exit);
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
@@ -166,7 +174,9 @@ impl Tray {
             let _ = DestroyMenu(menu);
             match cmd.0 as usize {
                 ID_CAPTURE => Some(MenuCommand::Capture),
-                ID_SETTINGS => Some(MenuCommand::Settings),
+                ID_OPTIONS => Some(MenuCommand::Options),
+                ID_ABOUT => Some(MenuCommand::About),
+                ID_HELP => Some(MenuCommand::Help),
                 ID_QUIT => Some(MenuCommand::Quit),
                 _ => None,
             }
