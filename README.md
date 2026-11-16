@@ -15,8 +15,8 @@ File chạy nằm tại `target\release\shotme.exe`. Kích thước bản build 
 ## Cách dùng
 
 1. Chạy `shotme.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "shotme".
-2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Cài đặt**, **Thoát**.
-3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Cài đặt** tự mở. Điền thông tin R2 (xem mục bên dưới) rồi bấm **Lưu**.
+2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
+3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel.
 6. Chỉnh vùng chọn nếu cần: kéo 8 tay nắm ở góc và cạnh để đổi kích thước, kéo bên trong để di chuyển, kéo ở ngoài khung để chọn lại từ đầu.
@@ -38,7 +38,7 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 ### Lưu vào máy
 
-- Định dạng PNG, thư mục mặc định `Pictures\shotme` (đổi được trong Cài đặt, thư mục chưa có thì được tạo).
+- Định dạng PNG, thư mục mặc định `Pictures\shotme` (đổi được trong Tùy chọn, tab Thông thường; thư mục chưa có thì được tạo).
 - Tên file: `shotme_YYYY-MM-DD_HH-MM-SS.png` theo giờ máy. Nếu trùng tên thì thêm `_2`, `_3`.
 
 ### Tải lên
@@ -47,11 +47,11 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 - Tên ảnh gồm 16 ký tự chữ và số, sinh từ bộ sinh số ngẫu nhiên của Windows.
 - Tải lên thành công: link được chép vào clipboard, thông báo "Đã chép link".
 - Tải lên thất bại (mất mạng, khóa sai, kho không tồn tại, địa chỉ công khai không mở được): ảnh vẫn được lưu vào thư mục lưu. Thông báo "Không tải lên được" nêu lý do và đường dẫn ảnh đã lưu.
-- Chưa cấu hình R2 mà bấm tải lên: ảnh được lưu vào thư mục lưu, thông báo nói rõ chưa cấu hình, và cửa sổ Cài đặt tự mở.
+- Chưa cấu hình R2 mà bấm tải lên: ảnh được lưu vào thư mục lưu, thông báo nói rõ chưa cấu hình, và cửa sổ Tùy chọn tự mở ở tab Lưu trữ R2.
 
 ### Hạn của link
 
-Mục **Hạn của link** trong Cài đặt có bốn lựa chọn:
+Mục **Hạn của link** nằm trong tab **Lưu trữ R2** của Tùy chọn, có bốn lựa chọn:
 
 | Lựa chọn | Thư mục trên kho | Ghi chú |
 |---|---|---|
@@ -60,20 +60,28 @@ Mục **Hạn của link** trong Cài đặt có bốn lựa chọn:
 | 30 ngày | `d30/` | Mặc định. |
 | Không hết hạn | `keep/` | Không có quy tắc xóa cho thư mục này. |
 
-Hạn áp dụng cho mọi lần tải lên sau khi lưu cài đặt. Không chọn hạn riêng cho từng ảnh.
+Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạn riêng cho từng ảnh.
 
-### Cài đặt
+### Tùy chọn
 
-Cửa sổ Cài đặt có ba nhóm:
+Cửa sổ Tùy chọn có ba tab:
 
-- **Cloudflare R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, nút **Kiểm tra kết nối**.
-- **Chia sẻ và lưu:** Hạn của link, Thư mục lưu (nút **Chọn…**).
-- **Chung:** Phím tắt chụp (nút **Đổi…**), **Khởi động cùng Windows**.
+- **Thông thường:** **Khởi động cùng Windows**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
+- **Phím tắt:** Chụp vùng màn hình (ô chỉ đọc, nút **Đổi…**).
+- **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
 
-Nút **Lưu** ghi cài đặt. Nút **Hủy** bỏ thay đổi.
+Nút **OK** ghi cài đặt rồi đóng cửa sổ. Nút **Hủy** bỏ thay đổi. Nút **Trợ giúp** mở cửa sổ Trợ giúp và không đóng Tùy chọn.
 
 - **Địa chỉ công khai** phải bắt đầu bằng `https://`, không có khoảng trắng. Dấu `/` cuối được bỏ tự động khi lưu.
-- **Secret Access Key** không hiện lại giá trị đã lưu. Ô hiện dòng "Đã lưu khóa; để trống nếu không đổi." Để trống ô này khi lưu thì khóa cũ vẫn được dùng.
+- **Secret Access Key** không hiện lại giá trị đã lưu. Ô hiện dòng "Đã lưu khóa; để trống nếu không đổi." Để trống ô này khi bấm OK thì khóa cũ vẫn được dùng.
+- Ô sai (ví dụ địa chỉ công khai sai, thư mục lưu trống) làm OK không đóng cửa sổ. Cửa sổ chuyển đến tab chứa ô đó và báo lỗi ngay trong cửa sổ.
+
+### Ngôn ngữ
+
+Giao diện có hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy chọn, tab Thông thường, mục Ngôn ngữ; có hiệu lực ngay khi bấm OK.
+
+- Khi chưa có file cấu hình (lần chạy đầu) hoặc file cấu hình bị hỏng: theo ngôn ngữ giao diện của Windows. Windows dùng tiếng Việt thì là Tiếng Việt, còn lại là English.
+- File cấu hình của bản cũ không có mục ngôn ngữ: Tiếng Việt.
 - **Kiểm tra kết nối** tải lên một file thử nhỏ, tải lại qua địa chỉ công khai để chắc link mở được, rồi xóa file thử. Kết quả hiện ngay bên cạnh nút. Thông báo lỗi phân biệt lỗi tải lên với lỗi địa chỉ công khai. File thử nằm ở `d1/shotme-test-{16 ký tự}.txt`. Nếu bước xóa thất bại, kết quả báo lỗi quyền dù tải lên đã được, và file thử ở lại trên kho đến khi quy tắc `d1/` xóa nó.
 
 ### Phím tắt chụp
@@ -82,16 +90,20 @@ Nút **Lưu** ghi cài đặt. Nút **Hủy** bỏ thay đổi.
 - Phím thường phải kèm **Ctrl**, **Alt** hoặc **Win**. Ví dụ `Ctrl+Shift+S` được nhận, còn chữ `S` một mình thì không.
 - Các phím được đứng riêng: `PrintScreen`, `Pause`, `ScrollLock`, `F1` đến `F24`.
 - Shift một mình không đủ. `Alt+F4` vẫn là lệnh đóng cửa sổ của Windows.
-- Nếu phím đang bị ứng dụng khác giữ (ví dụ Lightshot giữ `PrintScreen`), Cài đặt báo "đang bị ứng dụng khác chiếm" và không lưu. Ứng dụng vẫn chạy, và vẫn chụp được qua menu khay.
-- Nếu phím bị chiếm lúc shotme khởi động, biểu tượng khay hiện thông báo "Phím … đang bị ứng dụng khác chiếm" và gợi ý đổi phím trong Cài đặt.
+- Nếu phím đang bị ứng dụng khác giữ (ví dụ Lightshot giữ `PrintScreen`), Tùy chọn báo "đang bị ứng dụng khác chiếm" và không đóng cửa sổ. Ứng dụng vẫn chạy, và vẫn chụp được qua menu khay.
+- Nếu phím bị chiếm lúc shotme khởi động, biểu tượng khay hiện thông báo "Phím … đang bị ứng dụng khác chiếm" và gợi ý đổi phím trong Tùy chọn.
 
 ### Menu khay
 
 | Mục | Việc làm |
 |---|---|
 | Chụp màn hình | Mở lớp phủ chụp. |
-| Cài đặt | Mở cửa sổ Cài đặt. Nếu đã mở thì đưa cửa sổ đó ra trước. |
+| Tùy chọn... | Mở cửa sổ Tùy chọn. Nếu đã mở thì đưa cửa sổ đó ra trước. |
+| Thông tin... | Mở cửa sổ Thông tin: biểu tượng, tên, phiên bản và mô tả ngắn. |
+| Trợ giúp | Mở cửa sổ Trợ giúp: các bước dùng shotme và chuẩn bị Cloudflare R2, theo phím tắt đang đặt. |
 | Thoát | Thoát ứng dụng và xóa biểu tượng khỏi khay. |
+
+Thông tin và Trợ giúp không chặn ứng dụng: lúc hai cửa sổ này mở, vẫn chụp, dùng menu và mở Tùy chọn được. Mở lại khi đang mở thì chỉ đưa cửa sổ ra trước. Đóng bằng Enter, Esc, nút X hoặc nút Đóng.
 
 Chỉ một bản shotme chạy cùng lúc. Mở bản thứ hai thì bản mới thoát ngay.
 
@@ -160,15 +172,15 @@ Sau khi tạo, mở lại mục **Object Lifecycle Rules** và kiểm tra đủ 
 
 ### Bước 5: Nhập vào shotme
 
-1. Mở Cài đặt, nhập Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai (ví dụ `https://img.example.com`).
+1. Mở Tùy chọn, tab Lưu trữ R2, nhập Account ID, Access Key ID, Secret Access Key, Tên kho và Địa chỉ công khai (ví dụ `https://img.example.com`).
 2. Bấm **Kiểm tra kết nối**. Chờ thông báo "Thành công: tải lên được và link mở được."
-3. Bấm **Lưu**.
+3. Bấm **OK**.
 
 ## Kiểm tra quy tắc xóa
 
 Ba quy tắc chỉ hoạt động nếu đã tạo đúng. Kiểm tra như sau:
 
-1. Trong Cài đặt, chọn **Hạn của link** là **1 ngày**, bấm **Lưu**.
+1. Trong Tùy chọn, tab Lưu trữ R2, chọn **Hạn của link** là **1 ngày**, bấm **OK**.
 2. Chụp một vùng bất kỳ, bấm `Ctrl+D`. Chép link, ví dụ `https://img.example.com/d1/{16 ký tự}.png`. Link phải có `/d1/`.
 3. Mở link trong trình duyệt và thấy ảnh.
 4. Đợi qua hạn 1 ngày, cộng thêm độ trễ xóa tối đa khoảng 24 giờ. Mở lại link: phải thấy lỗi không tìm thấy.
@@ -183,18 +195,19 @@ Nếu `PrintScreen` không mở được lớp phủ, một ứng dụng khác �
 - **Lightshot:** thoát hẳn Lightshot trước khi dùng shotme. Cách tắt việc Lightshot giữ `PrintScreen` tùy phiên bản; chưa đối chiếu với tài liệu của Lightshot.
 - **Snipping Tool của Windows 11:** tắt việc gán `PrintScreen` cho công cụ cắt. Vào **Settings** > **Accessibility** > **Keyboard** rồi tắt mục dùng nút Print Screen để mở công cụ cắt. Tên mục có thể khác theo bản Windows. Tham khảo: https://support.microsoft.com/en-gb/accessibility/windows/make-your-mouse-keyboard-and-other-input-devices-easier-to-use
 
-Nếu không muốn tắt, đổi phím tắt chụp trong Cài đặt của shotme sang tổ hợp khác, ví dụ `Ctrl+Shift+S`.
+Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của shotme (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`.
 
 ## Bảo mật
 
 - Cấu hình nằm ở `%APPDATA%\shotme\config.json`.
-- **Secret Access Key** được mã hóa bằng DPAPI của Windows, gắn với tài khoản Windows hiện tại, trước khi ghi vào file. Các mục khác ghi dạng văn bản thường. Nếu chép file sang tài khoản Windows khác thì khóa không đọc được, và Cài đặt sẽ yêu cầu nhập lại.
+- **Secret Access Key** được mã hóa bằng DPAPI của Windows, gắn với tài khoản Windows hiện tại, trước khi ghi vào file. Các mục khác ghi dạng văn bản thường. Nếu chép file sang tài khoản Windows khác thì khóa không đọc được, và Tùy chọn sẽ yêu cầu nhập lại.
 - Ứng dụng tải ảnh thẳng lên địa chỉ S3 của R2 qua HTTPS, yêu cầu được ký theo AWS Signature V4. Không có máy chủ trung gian.
 - Ứng dụng chỉ mở kết nối đến hai địa chỉ: `https://{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho do bạn nhập. Tên miền của hai địa chỉ này vẫn được hỏi qua máy chủ DNS mà Windows đang dùng, nên máy chủ DNS đó thấy được tên miền.
 - Ảnh và link do shotme chép vào clipboard được đánh dấu bằng các định dạng `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` = 0 và `CanUploadToCloudClipboard` = 0 theo tài liệu của Microsoft, để Windows không đưa chúng vào lịch sử clipboard (`Win+V`) và không đồng bộ sang thiết bị khác. Đây là quy ước của Windows; trình quản lý clipboard của hãng khác có thể không tuân theo.
 - Lúc khởi động, shotme tự loại mình khỏi Báo cáo lỗi của Windows (WER) cho tài khoản hiện tại, để khi ứng dụng sự cố Windows không gửi bản kết xuất bộ nhớ đi. Việc này ghi một giá trị DWORD `shotme.exe` = 1 vào `HKEY_CURRENT_USER\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications`. Muốn gỡ, xóa giá trị đó (ví dụ `reg delete "HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications" /v shotme.exe /f`). Chính sách WER do quản trị viên đặt cho cả máy vẫn có thể ghi đè. Việc loại trừ có hiệu lực từ sau lần shotme khởi động đầu tiên, và chưa được thử bằng một sự cố thật.
 - Nếu bạn chọn Thoát (hoặc tắt máy, đăng xuất) lúc một lượt tải lên còn chạy, ảnh của lượt đó được lưu PNG vào thư mục lưu trước khi thoát. Có thể ảnh vừa được lưu vừa đã lên kho.
 - HTTPS dùng thư viện `rustls` với danh sách chứng chỉ gốc đóng kèm trong file, không dùng bộ chứng chỉ của Windows.
+- Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng.
 - Ứng dụng không ghi log ra file. Không gửi thống kê, không kiểm tra cập nhật.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.

@@ -47,3 +47,33 @@ Mọi trait có ràng buộc `Send + Sync`.
 - Không panic trên đường chạy thật: bản release dùng `panic = "abort"`, một panic sẽ tắt cả ứng dụng khay. Dùng `Result`, và với ảnh thì kiểm `Image::is_valid()` trước.
 - Ghi file cho chắc: ghi vào file tạm cùng thư mục, rồi đổi tên; dọn file tạm khi lỗi (`config::save`, lưu PNG trong `actions`).
 - Đầu vào do người dùng nhập mà đi vào URL (account id, tên kho, địa chỉ công khai) phải được kiểm ký tự trước; sai thì coi như chưa cấu hình và không gửi gì.
+
+## Mẫu của đợt 1 (chuỗi, cửa sổ tab, cửa sổ không chặn)
+
+### Bảng chuỗi
+
+- Ở `crates/shotme-core/src/i18n.rs`. Macro `messages!` sinh `enum Msg` và hàm `t(lang, msg)`. Mỗi dòng có cặp (bản Việt, bản English).
+- Thêm một chuỗi: thêm một dòng vào `messages!` với đủ hai bản. `t` là `match` trên cặp `(Lang, Msg)`, nên thiếu một bản là lỗi biên dịch.
+- Chuỗi có tham số: viết hàm riêng nhận `lang: Lang` và `match` theo `Lang` (ví dụ `help_text`, `upload_failed_body`). `OK_LABEL` nằm ngoài bảng vì "OK" giống nhau ở hai ngôn ngữ. Tên riêng "Account ID", "Access Key ID", "Secret Access Key" viết thẳng trong `settings.rs` (`build_r2`), không dịch.
+- Core nhận `Lang` qua tham số, không tự biết ngôn ngữ hiện hành.
+- Lớp Windows giữ ngôn ngữ hiện hành trong `crates/shotme-windows/src/lang.rs` (biến nguyên tử, đọc được từ mọi luồng). Lấy chuỗi bằng `lang::tr(Msg)` hoặc `lang::tr_code`. Khởi động đặt bằng `lang::set`; sau khi lưu Tùy chọn thành công, `main.rs` gọi `lang::set` lần nữa. Lưu thất bại thì giữ ngôn ngữ cũ.
+- `lang::os_default()` đọc ngôn ngữ giao diện Windows, chỉ dùng khi chưa có file cấu hình hoặc file hỏng.
+
+### Cửa sổ dạng tab (Tùy chọn)
+
+- Trong `settings.rs`: dải tab `SysTabControl32` (`WC_TABCONTROLW`) và ba khung con `ID_FRAME0 + i`. Mỗi tab là một nhóm điều khiển dựng trong `build_general`, `build_hotkeys`, `build_r2`.
+- Khung không hiện thì bị ẩn và `EnableWindow(false)`, để không nhận Tab. Thứ tự Z của các điều khiển chính là thứ tự Tab (chú thích ở `build_controls`).
+- `WM_COMMAND` từ nút trong khung được `frame_proc` chuyển lên cửa sổ chính.
+- Hàm thuần có kiểm thử: `tab_of(Field)`, `initial_tab(OpenReason)`, `key_route(...)`. `apply_form` trả `FormError { field, message }`; cửa sổ chuyển đến tab chứa ô sai.
+- `show` chạy vòng `GetMessageW` riêng và gọi `about::pre_translate` và `help::pre_translate` trong vòng đó.
+
+### Cửa sổ không chặn (Thông tin, Trợ giúp)
+
+- Hàm công khai: `show(owner, ...)`, `close()`, `pre_translate(&MSG) -> bool`. Mỗi cửa sổ tối đa một bản; HWND lưu trong `thread_local`. Dọn tài nguyên ở `WM_NCDESTROY`.
+- `winutil::dialog_pre_translate` lo Enter và Esc (đóng cửa sổ) và `IsDialogMessageW` lo Tab.
+- Phải gọi `pre_translate` ở mọi vòng lặp thông điệp, trừ lớp phủ (lớp phủ có vòng riêng). Hiện có hai nơi gọi: `main.rs` (vòng chính) và `settings.rs` (vòng của Tùy chọn). Thiếu một nơi thì phím Tab và Enter không hoạt động trong cửa sổ đó.
+
+### Thêm một ô hoặc một tab (đợt 2, 3)
+
+- Ô trong tab có sẵn: thêm `const ID_...` (dãy hiện có 101 đến 114), tạo điều khiển trong `build_*` bằng `row_edit`, `combo` hoặc `b.button`, đọc trong `read_form`, thêm trường vào `Form` và kiểm trong `apply_form`. Trường cấu hình thêm vào `Config` ở core và `config::load`/`save`.
+- Tab mới: thêm biến thể vào `Tab`, cập nhật `Tab::ALL`, `index`, `label` (kèm `Msg` mới), thêm `b.frame(ID_FRAME0 + n)` và hàm `build_*`. Mảng `frames` hiện cố định ba phần tử. Trình biên dịch báo các `match` còn thiếu nhánh.
