@@ -75,5 +75,14 @@ Mọi trait có ràng buộc `Send + Sync`.
 
 ### Thêm một ô hoặc một tab (đợt 2, 3)
 
-- Ô trong tab có sẵn: thêm `const ID_...` (dãy hiện có 101 đến 114), tạo điều khiển trong `build_*` bằng `row_edit`, `combo` hoặc `b.button`, đọc trong `read_form`, thêm trường vào `Form` và kiểm trong `apply_form`. Trường cấu hình thêm vào `Config` ở core và `config::load`/`save`.
-- Tab mới: thêm biến thể vào `Tab`, cập nhật `Tab::ALL`, `index`, `label` (kèm `Msg` mới), thêm `b.frame(ID_FRAME0 + n)` và hàm `build_*`. Mảng `frames` hiện cố định ba phần tử. Trình biên dịch báo các `match` còn thiếu nhánh.
+- Ô trong tab có sẵn (`settings.rs`):
+  1. Thêm `const ID_...` (dãy hiện có 101 đến 114) và tạo điều khiển trong `build_general` hoặc `build_hotkeys` (trả về bộ giá trị) hoặc `build_r2` (trả về `R2Ctl`) bằng `row_edit`, `combo` hoặc `b.button`.
+  2. Thêm HWND vào `struct Ctl` và gán trong `build_controls`, chỗ dựng `let ctl = Ctl { ... }`.
+  3. Điền giá trị ban đầu trong `show` (các `set_text(c.account, ...)`), và đọc giá trị trong `read_form` vào trường mới của `Form`.
+  4. Kiểm trong `apply_form`; trường cấu hình thêm vào `Config` ở core và `config::load`/`save`.
+  5. Nếu ô có thể sai: thêm biến thể vào `Field`, vào `tab_of` và `field_ctl`. Nếu ô đứng đầu tab (theo thứ tự Tab) thì thêm vào `first_ctl`.
+- Tab mới (`settings.rs`):
+  1. Thêm biến thể vào `Tab`, rồi `Tab::ALL` (`[Tab; 3]`, đổi độ dài), `index` và `label` (kèm `Msg` mới).
+  2. Đổi độ dài mảng `frames: [HWND; 3]` trong `struct Ctl` và thêm `b.frame(ID_FRAME0 + n)` trong `build_controls`.
+  3. `show_frame` duyệt mảng `frames` để ẩn và tắt các khung còn lại, nên không cần sửa.
+  4. Thêm hàm `build_*` cho tab, và nhánh trong `first_ctl`. Trình biên dịch báo các `match` còn thiếu nhánh.

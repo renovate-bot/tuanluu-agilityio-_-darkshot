@@ -45,7 +45,7 @@
 
 - [ ] Mọi mục hiện đủ và đúng chữ theo ba tab (xem "Đợt 1: cửa sổ Tùy chọn"), nút "OK", "Hủy" và "Trợ giúp". Chữ không bị cắt, các ô không chồng nhau.
 - [ ] Phông chữ giống phông hệ thống; ở màn hình 125% và 150% cửa sổ vẫn cân đối, không bị cắt.
-- [ ] Ô Secret Access Key hiện dấu chấm khi gõ; mở lại cửa sổ thì ô này rỗng, dòng chú thích dưới ô ghi "Đã lưu khóa; để trống nếu không đổi."; lưu với ô rỗng thì khóa cũ vẫn dùng được (Kiểm tra kết nối vẫn thành công).
+- [ ] Ô Secret Access Key hiện dấu chấm khi gõ; mở lại cửa sổ thì ô này rỗng, dòng chú thích dưới ô ghi "Đã lưu khóa; để trống nếu không đổi."; bấm OK với ô rỗng thì khóa cũ vẫn dùng được (Kiểm tra kết nối vẫn thành công).
 - [ ] Phím Tab đi qua các ô theo thứ tự hợp lý; Enter ở ô nhập là OK; Esc là Hủy; Enter khi đang chọn nút "Chọn…" hoặc "Đổi…" là bấm nút đó.
 - [ ] "Chọn…" mở hộp chọn thư mục; chọn xong đường dẫn hiện trong ô.
 - [ ] Địa chỉ công khai nhập "http://x" rồi bấm OK: lỗi màu đỏ hiện ngay trong cửa sổ, cửa sổ không đóng. Nhập "https://img.example.com/" thì lưu thành không có dấu "/" cuối.
@@ -61,7 +61,7 @@
 - [ ] "Kiểm tra kết nối" với khóa sai: nút mờ trong lúc chờ, cửa sổ vẫn kéo và bấm được, rồi hiện thông báo lỗi tiếng Việt (không chứa khóa). Với khóa đúng: "Thành công: tải lên được và link mở được."
 - [ ] Đóng cửa sổ (nút X) lúc đang kiểm tra kết nối: ứng dụng không treo, không báo lỗi; mở lại cửa sổ thì dòng kết quả rỗng.
 - [ ] Mở Tùy chọn lần hai khi đã có một cửa sổ: không mở thêm, cửa sổ đang có được đưa ra trước.
-- [ ] Khi có thông báo đầu cửa sổ (cấu hình hỏng hoặc mất khóa): dòng chữ hiện ở đầu, không đè lên nhóm "Cloudflare R2".
+- [ ] Khi có thông báo đầu cửa sổ (cấu hình hỏng hoặc mất khóa): dòng chữ hiện ở đầu, không đè lên dải tab.
 
 ## Clipboard và khởi động cùng Windows
 
