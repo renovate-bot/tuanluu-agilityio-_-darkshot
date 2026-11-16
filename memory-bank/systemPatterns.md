@@ -5,8 +5,8 @@ Nguồn đầy đủ: spec mục 10, kế hoạch mục "Cấu trúc file" và c
 ## Hai lớp
 
 ```
-crates/shotme-core      thư viện, KHÔNG phụ thuộc hệ điều hành
-crates/shotme-windows   file chạy shotme.exe, hiện thực các trait bằng Win32
+crates/darkshot-core      thư viện, KHÔNG phụ thuộc hệ điều hành
+crates/darkshot-windows   file chạy darkshot.exe, hiện thực các trait bằng Win32
 ```
 
 Thêm macOS hoặc Linux sau này là thêm một crate nền tảng mới, không sửa core.
@@ -52,11 +52,11 @@ Mọi trait có ràng buộc `Send + Sync`.
 
 ### Bảng chuỗi
 
-- Ở `crates/shotme-core/src/i18n.rs`. Macro `messages!` sinh `enum Msg` và hàm `t(lang, msg)`. Mỗi dòng có cặp (bản Việt, bản English).
+- Ở `crates/darkshot-core/src/i18n.rs`. Macro `messages!` sinh `enum Msg` và hàm `t(lang, msg)`. Mỗi dòng có cặp (bản Việt, bản English).
 - Thêm một chuỗi: thêm một dòng vào `messages!` với đủ hai bản. `t` là `match` trên cặp `(Lang, Msg)`, nên thiếu một bản là lỗi biên dịch.
 - Chuỗi có tham số: viết hàm riêng nhận `lang: Lang` và `match` theo `Lang` (ví dụ `help_text`, `upload_failed_body`). `OK_LABEL` nằm ngoài bảng vì "OK" giống nhau ở hai ngôn ngữ. Tên riêng "Account ID", "Access Key ID", "Secret Access Key" viết thẳng trong `settings.rs` (`build_r2`), không dịch.
 - Core nhận `Lang` qua tham số, không tự biết ngôn ngữ hiện hành.
-- Lớp Windows giữ ngôn ngữ hiện hành trong `crates/shotme-windows/src/lang.rs` (biến nguyên tử, đọc được từ mọi luồng). Lấy chuỗi bằng `lang::tr(Msg)` hoặc `lang::tr_code`. Khởi động đặt bằng `lang::set`; sau khi lưu Tùy chọn thành công, `main.rs` gọi `lang::set` lần nữa. Lưu thất bại thì giữ ngôn ngữ cũ.
+- Lớp Windows giữ ngôn ngữ hiện hành trong `crates/darkshot-windows/src/lang.rs` (biến nguyên tử, đọc được từ mọi luồng). Lấy chuỗi bằng `lang::tr(Msg)` hoặc `lang::tr_code`. Khởi động đặt bằng `lang::set`; sau khi lưu Tùy chọn thành công, `main.rs` gọi `lang::set` lần nữa. Lưu thất bại thì giữ ngôn ngữ cũ.
 - `lang::os_default()` đọc ngôn ngữ giao diện Windows, chỉ dùng khi chưa có file cấu hình hoặc file hỏng.
 
 ### Cửa sổ dạng tab (Tùy chọn)
@@ -82,12 +82,12 @@ Mọi trait có ràng buộc `Send + Sync`.
   3. Điền giá trị ban đầu trong `show` (ô nhập bằng `set_text(c.account, ...)`, ô tích bằng `set_checked`), và đọc giá trị trong `read_form` vào trường mới của `Form` (ô tích bằng `is_checked`).
   4. Kiểm trong `apply_form`; trường cấu hình thêm vào `Config` ở core, rồi vào `FileConfig` và hai chiều trong `config::load`/`save`.
   5. Nếu ô có thể sai: thêm biến thể vào `Field`, vào `tab_of` và `field_ctl`. Nếu ô đứng đầu tab (theo thứ tự Tab) thì sửa `first_ctl`.
-- Dòng phím tắt mới, ở core (`crates/shotme-core/src/config.rs`): thêm biến thể vào `HotkeyRole`, rồi sửa `HotkeyRole::ALL` (`[HotkeyRole; 3]`), `label()` (trỏ tới một `Msg` nhãn mới trong `i18n.rs`, có đủ hai ngôn ngữ), `default_slot`, `Hotkeys` (trường mới, `Default`), `get`, `set` và `first_conflict`. Thêm trường của dòng vào `FileConfig` và ánh xạ hai chiều trong `config::load`/`save`.
-- Trong `crates/shotme-core/src/i18n.rs`: thêm trường vào `HelpKeys` và nhánh tương ứng trong `help_text`.
-- Trong `crates/shotme-windows/src/hotkey.rs`: thêm nhánh vào `id_of` và trường trong `help_keys`. `role_of` duyệt `HotkeyRole::ALL` nên không cần sửa. Mã đăng ký phải khác các mã đang có (1 đến 3).
+- Dòng phím tắt mới, ở core (`crates/darkshot-core/src/config.rs`): thêm biến thể vào `HotkeyRole`, rồi sửa `HotkeyRole::ALL` (`[HotkeyRole; 3]`), `label()` (trỏ tới một `Msg` nhãn mới trong `i18n.rs`, có đủ hai ngôn ngữ), `default_slot`, `Hotkeys` (trường mới, `Default`), `get`, `set` và `first_conflict`. Thêm trường của dòng vào `FileConfig` và ánh xạ hai chiều trong `config::load`/`save`.
+- Trong `crates/darkshot-core/src/i18n.rs`: thêm trường vào `HelpKeys` và nhánh tương ứng trong `help_text`.
+- Trong `crates/darkshot-windows/src/hotkey.rs`: thêm nhánh vào `id_of` và trường trong `help_keys`. `role_of` duyệt `HotkeyRole::ALL` nên không cần sửa. Mã đăng ký phải khác các mã đang có (1 đến 3).
 - Trong `settings.rs`: `HotkeyRole::ALL` được duyệt trong `show`, `read_form`, `build_hotkeys` và `save`, nên các vòng này tự nhận dòng mới. Độ dài các mảng `hk_chk`, `hk_edit`, `hk_btn` (`[HWND; 3]`) trong `struct Ctl`, và `struct HotkeysCtl` (`chk`, `edit`, `btn`, cùng độ dài 3) phải đổi cùng nhau.
 - ID của dòng là dãy liền nhau: `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135). Khi số dòng tăng, dãy nút "Đổi…" sẽ đè lên ô tích, nên phải dời `ID_HK_CHECK0` (hoặc đổi cả hai) trước khi thêm dòng.
-- Nếu dòng là loại chụp mới: thêm vào `CaptureKind` và `kind_of` trong `crates/shotme-windows/src/main.rs`, rồi thêm nhánh trong `capture_flow`.
+- Nếu dòng là loại chụp mới: thêm vào `CaptureKind` và `kind_of` trong `crates/darkshot-windows/src/main.rs`, rồi thêm nhánh trong `capture_flow`.
 - Tab mới (`settings.rs`):
   1. Thêm biến thể vào `Tab`, rồi `Tab::ALL` (hiện `[Tab; 4]`: Thông thường, Phím tắt, Định dạng, Lưu trữ R2; đổi độ dài), `index` và `label` (kèm `Msg` mới).
   2. Đổi độ dài mảng `frames: [HWND; 4]` trong `struct Ctl`. Trong `build_controls`, thêm `b.frame(ID_FRAME0 + n)` vào mảng `frames`, thêm `frames[n]` vào mảng `all`, và đặt `b.parent = frames[Tab::X.index()]` trước khi gọi `build_*`.

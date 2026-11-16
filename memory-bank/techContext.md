@@ -16,9 +16,9 @@ Cập nhật: 2026-11-16
 |---|---|
 | Cổng kiểm tra trước khi gộp | `powershell -File scripts/check.ps1` (phải in `ALL CHECKS PASSED`) |
 | Định dạng mã trước khi commit | `cargo fmt --all` |
-| Kiểm thử một crate | `cargo test -p shotme-core <bộ lọc>` |
-| Kiểm thử chạy tay ba cửa sổ (mở cửa sổ thật, cần người nhìn) | `cargo test -p shotme-windows -- --ignored about_window help_window settings_window --test-threads=1` |
-| Kiểm thử chạy tay chụp con trỏ (chụp màn hình thật, kiểm GDI) | `cargo test -p shotme-windows -- --ignored capture_with_cursor --test-threads=1` |
+| Kiểm thử một crate | `cargo test -p darkshot-core <bộ lọc>` |
+| Kiểm thử chạy tay ba cửa sổ (mở cửa sổ thật, cần người nhìn) | `cargo test -p darkshot-windows -- --ignored about_window help_window settings_window --test-threads=1` |
+| Kiểm thử chạy tay chụp con trỏ (chụp màn hình thật, kiểm GDI) | `cargo test -p darkshot-windows -- --ignored capture_with_cursor --test-threads=1` |
 | Build bản phát hành | `cargo build --release` (ra `target/release/shotme.exe`) |
 | Thêm crate | `cargo add -p <crate của dự án> <tên>` |
 
@@ -39,7 +39,7 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 
 ## Ràng buộc kỹ thuật
 
-- `shotme-core` không phụ thuộc crate `windows`, `native-tls`, `schannel`, `rustls-platform-verifier`.
+- `darkshot-core` không phụ thuộc crate `windows`, `native-tls`, `schannel`, `rustls-platform-verifier`.
 - Không dùng TLS của hệ điều hành.
 - Profile release: `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`.
 - R2: địa chỉ S3 `https://{account_id}.r2.cloudflarestorage.com`, vùng `auto`, dịch vụ `s3`, đường dẫn `/{bucket}/{key}`.
@@ -52,6 +52,6 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 - Task 6: `png` 0.18. Task 7: `windows` 0.62.2 (features: Win32_Foundation, Win32_UI_WindowsAndMessaging, Win32_UI_Shell, Win32_UI_Input_KeyboardAndMouse, Win32_System_LibraryLoader, Win32_System_Threading, Win32_System_SystemInformation, Win32_System_Com, Win32_Graphics_Gdi, Win32_Security), `embed-resource` 3.0.12 (build).
 - Cổng kiểm tra có thêm `cargo fmt --all --check` (từ sau Task 5).
 - Đợt 1 (Task 16): `scripts/check.ps1` có bước `no hard-coded Vietnamese strings`. Bước này quét `crates/*/src/*.rs`, bỏ qua `i18n.rs`, tìm chuỗi có chữ Latin có dấu (U+00C0–U+024F, U+1E00–U+1EFF) viết thẳng trong mã, và dừng ở `#[cfg(test)]` đứng trước `mod`. Chuỗi English viết thẳng không bị bắt. Crate `windows` bật thêm `Win32_Globalization` (Task 16, `lang::os_default`) và `Win32_UI_Controls` (Task 17, dải tab `SysTabControl32`).
-- Đợt 2 (Task 20–22): không thêm crate hay feature Win32 nào; `crates/shotme-windows/Cargo.toml` giữ nguyên so với trước đợt 2. Con trỏ chuột lấy bằng `GetCursorInfo`, `GetIconInfo`, `DrawIconEx` (đã có trong feature `Win32_UI_WindowsAndMessaging` và `Win32_Graphics_Gdi`).
-- Lệnh kiểm thử chạy tay: `cargo test -p shotme-windows -- --ignored about_window help_window settings_window --test-threads=1` chạy `about_window_opens_and_closes`, `help_window_opens_and_closes`, `settings_window_opens_and_cancels`. Các kiểm thử này mở cửa sổ thật trên máy, nên không nằm trong `scripts/check.ps1`.
-- Đợt 3 (Task 24): thêm crate `jpeg-encoder` `=0.7.1` vào `shotme-core`, không bật `simd`, không phụ thuộc crate nào khác, giấy phép `(MIT OR Apache-2.0) AND IJG`. Đây là ngoại lệ duy nhất của luật không thêm crate (`memory-bank/decisions.md` mục 40). Không thêm feature Win32 nào trong đợt 3. Kiểm thử `capture::tests::jpeg_decodes_with_gdiplus` giải nén JPEG bằng GDI+ (feature `Win32_Graphics_GdiPlus` có từ trước) và chạy thường, không `#[ignore]`, nên không có lệnh `--ignored` mới.
+- Đợt 2 (Task 20–22): không thêm crate hay feature Win32 nào; `crates/darkshot-windows/Cargo.toml` giữ nguyên so với trước đợt 2. Con trỏ chuột lấy bằng `GetCursorInfo`, `GetIconInfo`, `DrawIconEx` (đã có trong feature `Win32_UI_WindowsAndMessaging` và `Win32_Graphics_Gdi`).
+- Lệnh kiểm thử chạy tay: `cargo test -p darkshot-windows -- --ignored about_window help_window settings_window --test-threads=1` chạy `about_window_opens_and_closes`, `help_window_opens_and_closes`, `settings_window_opens_and_cancels`. Các kiểm thử này mở cửa sổ thật trên máy, nên không nằm trong `scripts/check.ps1`.
+- Đợt 3 (Task 24): thêm crate `jpeg-encoder` `=0.7.1` vào `darkshot-core`, không bật `simd`, không phụ thuộc crate nào khác, giấy phép `(MIT OR Apache-2.0) AND IJG`. Đây là ngoại lệ duy nhất của luật không thêm crate (`memory-bank/decisions.md` mục 40). Không thêm feature Win32 nào trong đợt 3. Kiểm thử `capture::tests::jpeg_decodes_with_gdiplus` giải nén JPEG bằng GDI+ (feature `Win32_Graphics_GdiPlus` có từ trước) và chạy thường, không `#[ignore]`, nên không có lệnh `--ignored` mới.
