@@ -35,8 +35,8 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 22 Chụp: con trỏ, toàn màn hình, khung nhớ | task/22-fullscreen-cursor-selection | specialist | opus | xong | 165.719 | 108.270 | 6.482 | 280.471 |
 | 23 Tài liệu đợt 2 | task/23-docs-batch2 | scaffolder | haiku | xong | 199.156 | 65.960 | 8.601 | 273.717 |
 | 24 Lõi đợt 3: định dạng tải lên, bộ nén JPEG | task/24-upload-format-core | builder | sonnet | xong | 143.728 | 46.466 | 3.060 | 193.254 |
-| 25 Tab Định dạng | task/25-format-tab | specialist | opus | đang làm | | | | |
-| 26 Tài liệu đợt 3 | task/26-docs-batch3 | scaffolder | haiku | chờ | | | | |
+| 25 Tab Định dạng | task/25-format-tab | specialist | opus | xong, chưa thử tay | 184.196 | 118.542 | 4.661 | 307.399 |
+| 26 Tài liệu đợt 3 | task/26-docs-batch3 | scaffolder | haiku | đang làm | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
