@@ -15,7 +15,7 @@ File chạy nằm tại `target\release\shotme.exe`. Kích thước bản build 
 ## Cách dùng
 
 1. Chạy `shotme.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "shotme".
-2. Chuột phải vào biểu tượng để mở menu: **Chụp màn hình**, **Cài đặt**, **Thoát**.
+2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Cài đặt**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Cài đặt** tự mở. Điền thông tin R2 (xem mục bên dưới) rồi bấm **Lưu**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel.
@@ -74,7 +74,7 @@ Nút **Lưu** ghi cài đặt. Nút **Hủy** bỏ thay đổi.
 
 - **Địa chỉ công khai** phải bắt đầu bằng `https://`, không có khoảng trắng. Dấu `/` cuối được bỏ tự động khi lưu.
 - **Secret Access Key** không hiện lại giá trị đã lưu. Ô hiện dòng "Đã lưu khóa; để trống nếu không đổi." Để trống ô này khi lưu thì khóa cũ vẫn được dùng.
-- **Kiểm tra kết nối** tải lên một file thử nhỏ, tải lại qua địa chỉ công khai để chắc link mở được, rồi xóa file thử. Kết quả hiện ngay bên cạnh nút. Thông báo lỗi phân biệt lỗi tải lên với lỗi địa chỉ công khai.
+- **Kiểm tra kết nối** tải lên một file thử nhỏ, tải lại qua địa chỉ công khai để chắc link mở được, rồi xóa file thử. Kết quả hiện ngay bên cạnh nút. Thông báo lỗi phân biệt lỗi tải lên với lỗi địa chỉ công khai. File thử nằm ở `d1/shotme-test-{16 ký tự}.txt`. Nếu bước xóa thất bại, kết quả báo lỗi quyền dù tải lên đã được, và file thử ở lại trên kho đến khi quy tắc `d1/` xóa nó.
 
 ### Phím tắt chụp
 
@@ -83,6 +83,7 @@ Nút **Lưu** ghi cài đặt. Nút **Hủy** bỏ thay đổi.
 - Các phím được đứng riêng: `PrintScreen`, `Pause`, `ScrollLock`, `F1` đến `F24`.
 - Shift một mình không đủ. `Alt+F4` vẫn là lệnh đóng cửa sổ của Windows.
 - Nếu phím đang bị ứng dụng khác giữ (ví dụ Lightshot giữ `PrintScreen`), Cài đặt báo "đang bị ứng dụng khác chiếm" và không lưu. Ứng dụng vẫn chạy, và vẫn chụp được qua menu khay.
+- Nếu phím bị chiếm lúc shotme khởi động, biểu tượng khay hiện thông báo "Phím … đang bị ứng dụng khác chiếm" và gợi ý đổi phím trong Cài đặt.
 
 ### Menu khay
 
@@ -108,7 +109,7 @@ Tài liệu tham khảo:
 ### Bước 1: Tạo tài khoản và bucket
 
 1. Tạo tài khoản Cloudflare, đăng nhập trang quản lý, rồi mở mục **R2 object storage**.
-2. Tạo một bucket (kho) mới. Tên bucket chỉ gồm chữ thường `a-z`, số `0-9` và dấu gạch ngang `-`, dài từ 3 đến 63 ký tự, không bắt đầu hoặc kết thúc bằng `-`.
+2. Tạo một bucket (kho) mới. Tên bucket chỉ gồm chữ thường `a-z`, số `0-9` và dấu gạch ngang `-`, dài từ 3 đến 63 ký tự, không bắt đầu hoặc kết thúc bằng `-`. Đây là quy tắc của Cloudflare; shotme không tự kiểm độ dài hay chữ hoa.
 3. Ghi lại **Account ID** (hiện trong trang tổng quan R2). Đây là giá trị mẫu, không phải khóa: `1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d`.
 
 ### Bước 2: Bật truy cập công khai
@@ -194,10 +195,9 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Cài đặt của sho
 - Ứng dụng không ghi log ra file. Không gửi thống kê, không kiểm tra cập nhật.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.
-- **Ứng dụng không xóa được ảnh đã tải lên.** Muốn xóa, vào trang Cloudflare R2, mở bucket và xóa đối tượng đó.
+- **Ứng dụng không xóa được ảnh chụp đã tải lên.** (Nó chỉ xóa file thử của nút Kiểm tra kết nối.) Muốn xóa, vào trang Cloudflare R2, mở bucket và xóa đối tượng đó.
 - Link "Không hết hạn" nằm trong thư mục `keep/`. Ảnh ở đó vẫn nằm trên kho cho đến khi bạn tự xóa trong trang Cloudflare.
 
 ## Phạm vi
-
 
 Ứng dụng làm một việc: chụp vùng màn hình, lưu hoặc tải lên và chép link. Không có chức năng vẽ lên ảnh, lịch sử ảnh, hay xóa ảnh từ ứng dụng.
