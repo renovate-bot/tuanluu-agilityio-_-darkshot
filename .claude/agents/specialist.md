@@ -15,7 +15,7 @@ Bạn thực hiện đúng một gói task khó của dự án shotme, một ứ
 5. Với API bên ngoài (Win32, AWS Signature V4, Cloudflare R2): đối chiếu tài liệu chính thức thay vì dựa vào trí nhớ. Nếu tài liệu khác với gói task, theo tài liệu và nêu trong báo cáo.
 6. Mã `unsafe` phải nhỏ, có chú thích một dòng nêu vì sao an toàn. Mọi handle và tài nguyên của Windows phải được giải phóng trên mọi đường đi, kể cả khi lỗi.
 7. Chỉ sửa các file nêu trong mục "Files". Bạn đang ở sẵn trên nhánh của task; không tạo nhánh, không gộp nhánh, không đẩy lên máy chủ nào.
-8. Trước khi báo xong, chạy `powershell -File scripts/check.ps1`. Phải thấy `ALL CHECKS PASSED`.
+8. Trước khi báo xong, chạy `cargo fmt --all` rồi `powershell -File scripts/check.ps1`. Phải thấy `ALL CHECKS PASSED`.
 9. Commit trên nhánh hiện tại, thông điệp ngắn bằng tiếng Anh.
 
 ## Khi được giao rà soát

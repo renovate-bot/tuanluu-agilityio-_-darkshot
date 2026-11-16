@@ -15,6 +15,7 @@ Cập nhật: 2026-11-16
 | Việc | Lệnh |
 |---|---|
 | Cổng kiểm tra trước khi gộp | `powershell -File scripts/check.ps1` (phải in `ALL CHECKS PASSED`) |
+| Định dạng mã trước khi commit | `cargo fmt --all` |
 | Kiểm thử một crate | `cargo test -p shotme-core <bộ lọc>` |
 | Build bản phát hành | `cargo build --release` (ra `target/release/shotme.exe`) |
 | Thêm crate | `cargo add -p <crate của dự án> <tên>` |
@@ -43,4 +44,6 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 
 ## Phát sinh
 
-(Ghi thêm ở đây khi thêm phụ thuộc hoặc đổi công cụ.)
+- Task 3: `serde`, `serde_json`, `base64`, `getrandom`. Task 4: `sha2` 0.11, `hmac` 0.13.
+- Task 5: `ureq` 3.5.2 với `default-features = false, features = ["rustls"]` (provider `ring`, `webpki-roots`). Agent HTTP đặt `proxy(None)`, `max_redirects(0)`, `http_status_as_error(false)`, thời hạn kết nối 10 giây, toàn bộ 60 giây.
+- Cổng kiểm tra có thêm `cargo fmt --all --check` (từ sau Task 5).

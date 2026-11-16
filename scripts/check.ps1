@@ -12,6 +12,7 @@ function Step([string]$name, [scriptblock]$cmd) {
     }
 }
 
+Step 'cargo fmt --check' { cargo fmt --all --check }
 Step 'cargo test' { cargo test --workspace }
 Step 'cargo clippy' { cargo clippy --workspace --all-targets -- -D warnings }
 
