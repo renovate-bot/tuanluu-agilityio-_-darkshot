@@ -380,10 +380,17 @@ mod tests {
         })
     }
 
+    static PORT_LOCK: Mutex<()> = Mutex::new(());
+
     /// Mock server: replies with `responses` in order (200 empty when exhausted).
     /// If `stall` is set it accepts connections and never answers.
     fn spawn_mock(responses: Vec<(u16, &'static str)>, stall: bool) -> Mock {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        // Binding port 0 must not overlap with the refused-port test, which
+        // briefly frees a port and expects nobody else to be handed it.
+        let listener = {
+            let _g = PORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            TcpListener::bind("127.0.0.1:0").unwrap()
+        };
         let addr = listener.local_addr().unwrap().to_string();
         let log = Arc::new(Mutex::new(Vec::new()));
         let log2 = log.clone();
@@ -522,6 +529,9 @@ mod tests {
 
     #[test]
     fn connection_refused_is_network_error() {
+        // Held for the whole test: no other test can bind port 0 (and be
+        // handed the port freed below) until the connection attempt is done.
+        let _g = PORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let port = {
             let l = TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().port()
