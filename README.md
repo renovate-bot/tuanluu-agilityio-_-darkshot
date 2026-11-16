@@ -10,7 +10,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\shotme.exe`. Kích thước bản build `shotme.exe` kiểm tra ngày 2026-11-16: **1.505.792 byte** (khoảng 1,44 MiB, bản `--release` trên Windows 11).
+File chạy nằm tại `target\release\shotme.exe`. Kích thước bản build `shotme.exe` kiểm tra ngày 2026-11-16: **1.513.472 byte** (khoảng 1,44 MiB, bản `--release` trên Windows 11).
 
 ## Cách dùng
 

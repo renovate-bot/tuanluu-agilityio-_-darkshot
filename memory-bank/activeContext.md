@@ -9,7 +9,7 @@ Cập nhật: 2026-11-16
 - Task 9 (DPAPI, clipboard, khởi động cùng Windows) đã gộp vào `main`; lớp Windows 16 kiểm thử, 3 kiểm thử chạy tay (2 clipboard, 1 lớp phủ).
 - Task 10 (cửa sổ Cài đặt) đã gộp vào `main`; lớp Windows 31 kiểm thử, 4 kiểm thử chạy tay. Cửa sổ mới chỉ được mở qua kiểm thử chạy tay, chưa ai nhìn.
 - Task 11 (nối toàn bộ) đã gộp vào `main`; lớp Windows 41 kiểm thử. Ứng dụng đã đủ ba tính năng theo mã; chưa ai thử bằng tay, chưa thử với R2 thật. Rà soát Task 11 kết luận CẦN SỬA (không lỗi chặn), bốn điểm đã sửa nhưng CHƯA được rà soát lại: rà soát toàn bộ cuối cùng phải xem kỹ `gate_step` (trạng thái `PendingMenuSettings`, `CapturingSettings`, hành động `FocusSettings`) và `settings::focus_existing`.
-- Task 12 (README, mục nghiệm thu R2) đã gộp vào `main`. Cả 12 task đã xong. Bản phát hành `target/release/shotme.exe` 1.505.792 byte.
+- Task 12 (README, mục nghiệm thu R2) đã gộp vào `main`. Cả 12 task đã xong. Bản phát hành `target/release/shotme.exe` 1.513.472 byte.
 - Rà soát toàn bộ (specialist) đã xong: DUYỆT, không lỗi chặn; phần bảo mật (hai đích mạng, đường đi của khóa, tên ngẫu nhiên) đã xác nhận. Sáu điểm nên sửa và bốn điểm nhỏ thành gói `docs/tasks/13-hardening.md`.
 - Task 13 (gia cố) đã gộp vào `main`: lõi 64 kiểm thử, lớp Windows 49 kiểm thử và 4 kiểm thử chạy tay. Tổng kết token đã lập trong `progress.md`.
 - Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay và nghiệm thu với R2 thật. Lỗi họ báo: mở nhánh `task/14-...`.
