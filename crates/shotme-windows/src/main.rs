@@ -93,11 +93,19 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
         (Idle | PendingMenu, Hotkey) | (PendingMenu, TimerFired) => {
             (Capturing, GateAction::CaptureNow)
         }
+        (PendingMenuSettings, Hotkey | TimerFired) => (CapturingSettings, GateAction::CaptureNow),
         (Idle, TrayClick) => (Idle, GateAction::None),
         (Idle, OpenSettings) => (SettingsOpen, GateAction::OpenSettings),
+        // Yêu cầu mở Cài đặt đến lúc đang chụp hoặc chờ menu: nhớ lại, mở sau khi lớp phủ đóng.
+        (PendingMenu | PendingMenuSettings, OpenSettings) => {
+            (PendingMenuSettings, GateAction::Ignore)
+        }
+        (Capturing | CapturingSettings, OpenSettings) => (CapturingSettings, GateAction::Ignore),
+        (SettingsOpen, TrayClick | OpenSettings) => (SettingsOpen, GateAction::FocusSettings),
         (SettingsOpen, SettingsClosed) => (Idle, GateAction::None),
         (s, SettingsClosed) => (s, GateAction::None),
         (Capturing, OverlayClosed) => (Idle, GateAction::None),
+        (CapturingSettings, OverlayClosed) => (SettingsOpen, GateAction::OpenSettings),
         (s, OverlayClosed) => (s, GateAction::None),
         (s, _) => (s, GateAction::Ignore),
     }
@@ -286,7 +294,7 @@ fn open_settings(hwnd: HWND) {
         Err(e) => {
             // Không ghi được: giữ cấu hình cũ và phím cũ.
             hotkey::unregister(hwnd);
-            let _ = hotkey::register(hwnd, &config.hotkey);
+            let key_ok = hotkey::register(hwnd, &config.hotkey);
             let why = match e {
                 shotme_core::config::ConfigError::Io(m)
                 | shotme_core::config::ConfigError::Corrupt(m)
@@ -297,8 +305,25 @@ fn open_settings(hwnd: HWND) {
                 "Không lưu được cài đặt",
                 &format!("Lý do: {why}. Cài đặt cũ vẫn được dùng."),
             );
+            if !key_ok {
+                notify(
+                    NoticeKind::Error,
+                    &format!(
+                        "Phím {} hiện không hoạt động",
+                        hotkey::describe(&config.hotkey)
+                    ),
+                    "Không đăng ký lại được phím tắt cũ. Hãy mở Cài đặt và chọn lại phím tắt.",
+                );
+            }
         }
     }
+}
+
+/// Mở Cài đặt (cổng đã ở `SettingsOpen`), rồi đóng cổng lại.
+fn run_settings(hwnd: HWND) {
+    open_settings(hwnd);
+    let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::SettingsClosed);
+    GATE.with(|g| g.set(next));
 }
 
 /// Đưa một sự kiện qua cổng chụp và làm việc mà cổng yêu cầu.
@@ -328,15 +353,17 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
             }
             capture_flow(hwnd);
-            let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::OverlayClosed);
+            let (next, after) = gate_step(GATE.with(|g| g.get()), GateEvent::OverlayClosed);
             GATE.with(|g| g.set(next));
+            if after == GateAction::OpenSettings {
+                run_settings(hwnd);
+            }
         }
         GateAction::OpenSettings => {
-            open_settings(hwnd);
-            let (next, _) = gate_step(GATE.with(|g| g.get()), GateEvent::SettingsClosed);
-            GATE.with(|g| g.set(next));
+            run_settings(hwnd);
         }
-        GateAction::FocusSettings | GateAction::None | GateAction::Ignore => {}
+        GateAction::FocusSettings => settings::focus_existing(),
+        GateAction::None | GateAction::Ignore => {}
     }
     act
 }
@@ -400,7 +427,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_OPEN_SETTINGS => {
-            handle_event(hwnd, AppEvent::OpenSettings);
+            if MENU_OPEN.with(|m| m.get()) {
+                // Menu khay đang mở: đóng nó rồi mở Cài đặt sau khi menu thoát, không mở lồng.
+                // SAFETY: đóng menu đang hiện của luồng này.
+                unsafe {
+                    let _ = EndMenu();
+                }
+                post_open_settings(hwnd.0 as isize);
+            } else {
+                handle_event(hwnd, AppEvent::OpenSettings);
+            }
             LRESULT(0)
         }
         WM_NOTICE => {

@@ -85,5 +85,9 @@
 - [ ] File cấu hình hỏng (ghi `{not json` vào `config.json`): Cài đặt mở ngay với dòng "File cấu hình bị hỏng. Cài đặt mặc định đang được dùng; bấm Lưu để ghi lại."; trước khi bấm Lưu, nội dung file vẫn là `{not json`; bấm Lưu thì file được ghi lại hợp lệ.
 - [ ] Mất khóa bí mật (chép `config.json` từ tài khoản Windows khác): Cài đặt mở với dòng "Không đọc được khóa bí mật đã lưu. Hãy nhập lại Secret Access Key."; các trường khác còn nguyên.
 - [ ] Đổi phím tắt trong Cài đặt rồi Lưu: phím mới chụp được ngay, không cần khởi động lại; phím cũ không còn tác dụng. Khởi động lại ứng dụng: phím mới vẫn đúng.
-- [ ] Khi cửa sổ Cài đặt đang mở: bấm phím chụp hoặc chọn "Chụp màn hình" không mở lớp phủ; chọn "Cài đặt" thêm lần nữa không mở cửa sổ thứ hai.
+- [ ] Khi cửa sổ Cài đặt đang mở: bấm phím chụp không mở lớp phủ.
+- [ ] Che cửa sổ Cài đặt bằng cửa sổ khác (hoặc thu nhỏ nó), rồi bấm biểu tượng khay: cửa sổ Cài đặt hiện ra trước (khôi phục nếu đang thu nhỏ), không có menu khay và không mở cửa sổ thứ hai.
+- [ ] Tải lên khi chưa cấu hình, nhưng lúc đó đang mở lớp phủ chụp lần khác: lớp phủ đóng xong thì Cài đặt mới mở (yêu cầu không bị mất).
+- [ ] Menu khay đang mở mà một lượt tải lên báo cần Cài đặt: menu đóng rồi Cài đặt mở, không treo.
+- [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\shotme` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím … hiện không hoạt động" kèm hướng dẫn mở Cài đặt chọn lại.
 - [ ] Bật "Khởi động cùng Windows" rồi Lưu: mục `shotme` xuất hiện trong `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; tắt rồi Lưu thì mất.

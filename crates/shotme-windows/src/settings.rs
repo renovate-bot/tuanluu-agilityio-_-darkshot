@@ -983,6 +983,22 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     (y, ctl)
 }
 
+/// Đưa cửa sổ Cài đặt đang mở (nếu có) ra trước; không làm gì khác.
+pub fn focus_existing() {
+    let open = OPEN.with(|o| o.get());
+    if open == 0 {
+        return;
+    }
+    let h = HWND(open as *mut c_void);
+    // SAFETY: `h` là cửa sổ Cài đặt của luồng này, OPEN chỉ khác 0 khi cửa sổ còn sống.
+    unsafe {
+        if IsIconic(h).as_bool() {
+            let _ = ShowWindow(h, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(h);
+    }
+}
+
 /// Mở cửa sổ Cài đặt và chờ đến khi người dùng Lưu hoặc Hủy. `None` khi Hủy (hoặc đã có cửa sổ mở).
 pub fn show(parent: HWND, current: &Config, notice: Option<&str>) -> Option<SettingsResult> {
     let open = OPEN.with(|o| o.get());
