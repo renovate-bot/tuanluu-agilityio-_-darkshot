@@ -9,7 +9,8 @@ Cập nhật: 2026-11-16
 - Task 9 (DPAPI, clipboard, khởi động cùng Windows) đã gộp vào `main`; lớp Windows 16 kiểm thử, 3 kiểm thử chạy tay (2 clipboard, 1 lớp phủ).
 - Task 10 (cửa sổ Cài đặt) đã gộp vào `main`; lớp Windows 31 kiểm thử, 4 kiểm thử chạy tay. Cửa sổ mới chỉ được mở qua kiểm thử chạy tay, chưa ai nhìn.
 - Task 11 (nối toàn bộ) đã gộp vào `main`; lớp Windows 41 kiểm thử. Ứng dụng đã đủ ba tính năng theo mã; chưa ai thử bằng tay, chưa thử với R2 thật. Rà soát Task 11 kết luận CẦN SỬA (không lỗi chặn), bốn điểm đã sửa nhưng CHƯA được rà soát lại: rà soát toàn bộ cuối cùng phải xem kỹ `gate_step` (trạng thái `PendingMenuSettings`, `CapturingSettings`, hành động `FocusSettings`) và `settings::focus_existing`.
-- Task đang làm: **Task 12, `docs/tasks/12-docs-release.md`**, nhánh `task/12-docs-release`, agent `scaffolder`, trạng thái `đang làm`. Sau task này DỪNG để chủ dự án nghiệm thu với R2 thật, rồi mới rà soát toàn bộ. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
+- Task 12 (README, mục nghiệm thu R2) đã gộp vào `main`. Cả 12 task đã xong. Bản phát hành `target/release/shotme.exe` 1.505.792 byte.
+- Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay và nghiệm thu với R2 thật. Việc còn lại sau đó: sửa lỗi họ báo (nhánh `task/13-...`, agent theo độ khó), rà soát toàn bộ bằng `specialist`, tổng kết token theo task/model/giai đoạn trong `progress.md`. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
 
 ## Bước kế tiếp
 
@@ -17,7 +18,7 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 
 ## Đang chờ chủ dự án
 
-- (Không chặn task kế tiếp; chủ dự án chưa báo kết quả.) Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md`, mục "Vỏ ứng dụng" và "Lớp phủ". Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
+- Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md` (mọi mục), rồi làm theo `README.md` mục "Chuẩn bị Cloudflare R2" và mục "Nghiệm thu với R2 thật" của checklist. Họ tự nhập khóa vào ứng dụng; phiên điều phối và agent không nhận, đọc hay ghi khóa. Cần họ xác nhận thêm: quyền "Object Read & Write" có cho xóa file thử của "Kiểm tra kết nối" không. Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
 
 ## Điểm dừng sắp tới cần chủ dự án
 
