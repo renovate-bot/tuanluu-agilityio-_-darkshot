@@ -9,7 +9,7 @@
 use crate::hotkey;
 use crate::lang;
 use shotme_core::config::{
-    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys, R2Config,
+    normalize_public_base_url, Config, Expiry, Hotkey, HotkeyRole, Hotkeys, R2Config, UploadFormat,
 };
 use shotme_core::i18n::{self, expiry_label, t, Lang, Msg};
 use shotme_core::upload::R2Uploader;
@@ -76,6 +76,8 @@ pub struct Form {
     pub show_success_notices: bool,
     pub keep_selection: bool,
     pub include_cursor: bool,
+    pub upload_format: UploadFormat,
+    pub jpeg_quality: u8,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -95,6 +97,8 @@ impl std::fmt::Debug for Form {
             .field("show_success_notices", &self.show_success_notices)
             .field("keep_selection", &self.keep_selection)
             .field("include_cursor", &self.include_cursor)
+            .field("upload_format", &self.upload_format)
+            .field("jpeg_quality", &self.jpeg_quality)
             .finish()
     }
 }
@@ -116,6 +120,7 @@ fn is_bucket_char(c: char) -> bool {
 pub enum Tab {
     General,
     Hotkeys,
+    Format,
     R2,
 }
 
@@ -153,6 +158,7 @@ impl Tab {
         match self {
             Tab::General => 0,
             Tab::Hotkeys => 1,
+            Tab::Format => todo!(),
             Tab::R2 => 2,
         }
     }
@@ -161,6 +167,7 @@ impl Tab {
         match self {
             Tab::General => Msg::TabGeneral,
             Tab::Hotkeys => Msg::TabHotkeys,
+            Tab::Format => Msg::TabFormat,
             Tab::R2 => Msg::TabR2,
         }
     }
@@ -169,6 +176,18 @@ impl Tab {
     fn cycle(self, step: usize) -> Tab {
         Tab::ALL[(self.index() + step) % Tab::ALL.len()]
     }
+}
+
+/// Ba ô chất lượng (nhãn, thanh trượt, số) chỉ sáng khi tải lên bằng JPEG.
+pub fn quality_enabled(format: UploadFormat) -> bool {
+    let _ = format;
+    todo!()
+}
+
+/// Dải tab vừa một hàng: tổng bề rộng các tab không vượt `client_w` (cùng đơn vị).
+fn tabs_fit(tab_widths: &[i32], client_w: i32) -> bool {
+    let _ = (tab_widths, client_w);
+    todo!()
 }
 
 /// Lý do mở cửa sổ Tùy chọn.
@@ -544,7 +563,14 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (mut hotkeys, old_lang) = with_st(|s| (s.hotkeys, s.current.language))?;
+    let (mut hotkeys, old_lang, cur_fmt, cur_q) = with_st(|s| {
+        (
+            s.hotkeys,
+            s.current.language,
+            s.current.upload_format,
+            s.current.jpeg_quality,
+        )
+    })?;
     // Ô tích là nguồn đúng của trạng thái bật/tắt.
     for r in HotkeyRole::ALL {
         let mut slot = hotkeys.get(r);
@@ -569,6 +595,8 @@ fn read_form() -> Option<Form> {
         show_success_notices: is_checked(c.notices),
         keep_selection: is_checked(c.keep_selection),
         include_cursor: is_checked(c.include_cursor),
+        upload_format: cur_fmt,
+        jpeg_quality: cur_q,
     })
 }
 
@@ -589,6 +617,7 @@ fn first_ctl(c: &Ctl, t: Tab) -> HWND {
     match t {
         Tab::General => c.autostart,
         Tab::Hotkeys => c.hk_chk[0],
+        Tab::Format => todo!(),
         Tab::R2 => c.account,
     }
 }
@@ -1206,6 +1235,17 @@ impl Layout {
             ew,
             hk_chk_w,
         }
+    }
+
+    /// Bề rộng dành cho các mục của dải tab.
+    fn tab_strip_w(self) -> i32 {
+        todo!()
+    }
+
+    /// Nới `client_w` (và ô nhập theo cùng lượng) khi `tab_widths` không vừa một hàng.
+    fn widen_for_tabs(self, tab_widths: &[i32]) -> Layout {
+        let _ = tab_widths;
+        todo!()
     }
 }
 
@@ -2113,6 +2153,8 @@ mod tests {
             show_success_notices: c.show_success_notices,
             keep_selection: c.keep_selection,
             include_cursor: c.include_cursor,
+            upload_format: c.upload_format,
+            jpeg_quality: c.jpeg_quality,
         }
     }
 
@@ -2304,6 +2346,200 @@ mod tests {
         let n = apply_form(&c, &f, Lang::Vi).unwrap();
         assert!(!n.show_success_notices && n.keep_selection && n.include_cursor);
         assert_eq!(n.hotkeys, f.hotkeys);
+    }
+
+    #[test]
+    fn tab_order_has_four_tabs() {
+        let want = [Tab::General, Tab::Hotkeys, Tab::Format, Tab::R2];
+        assert_eq!(Tab::ALL.as_slice(), want.as_slice());
+        for (i, t) in want.iter().enumerate() {
+            assert_eq!(t.index(), i, "{t:?}");
+        }
+        assert_eq!(Tab::R2.index(), 3);
+        // Đi tới: qua đủ bốn tab rồi về đầu.
+        let mut t = Tab::General;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            seen.push(t);
+            t = t.cycle(1);
+        }
+        assert_eq!(seen, want.to_vec());
+        assert_eq!(t, Tab::General);
+        // Đi lùi: General, R2, Format, Hotkeys rồi về General.
+        let back = Tab::ALL.len() - 1;
+        let mut t = Tab::General;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            seen.push(t);
+            t = t.cycle(back);
+        }
+        assert_eq!(seen, vec![Tab::General, Tab::R2, Tab::Format, Tab::Hotkeys]);
+        assert_eq!(t, Tab::General);
+    }
+
+    #[test]
+    fn form_reads_and_writes_format() {
+        let current = base();
+        let mut src = base();
+        src.upload_format = UploadFormat::Jpeg;
+        src.jpeg_quality = 75;
+        let f = form_of(&src);
+        assert_eq!(f.upload_format, UploadFormat::Jpeg);
+        assert_eq!(f.jpeg_quality, 75);
+        let out = apply_form(&current, &f, Lang::Vi).unwrap();
+        assert_eq!(out.upload_format, UploadFormat::Jpeg);
+        assert_eq!(out.jpeg_quality, 75);
+    }
+
+    #[test]
+    fn quality_survives_png_selection() {
+        let mut current = base();
+        current.upload_format = UploadFormat::Jpeg;
+        current.jpeg_quality = 90;
+        let mut f = form_of(&current);
+        f.upload_format = UploadFormat::Png;
+        f.jpeg_quality = 70;
+        let out = apply_form(&current, &f, Lang::Vi).unwrap();
+        assert_eq!(out.upload_format, UploadFormat::Png);
+        assert_eq!(out.jpeg_quality, 70);
+    }
+
+    #[test]
+    fn quality_enabled_only_for_jpeg() {
+        assert!(quality_enabled(UploadFormat::Jpeg));
+        assert!(!quality_enabled(UploadFormat::Png));
+    }
+
+    #[test]
+    fn tabs_fit_compares_total_width() {
+        assert!(tabs_fit(&[100, 100, 100, 100], 401));
+        assert!(tabs_fit(&[100, 100, 100, 100], 400));
+        assert!(!tabs_fit(&[100, 100, 100, 101], 400));
+        assert!(!tabs_fit(&[300, 200], 499));
+        assert!(tabs_fit(&[], 0));
+    }
+
+    #[test]
+    fn layout_widens_for_tab_strip() {
+        let base = Layout::from_label_width(Some(50));
+        // Dải tab ngắn: giữ nguyên bố cục.
+        assert_eq!(base.widen_for_tabs(&[60, 60, 60, 60]), base);
+        // Dải tab dài: client_w và ô nhập nới cùng một lượng, dải tab vừa khít.
+        let wide = [200, 200, 200, 200];
+        let l = base.widen_for_tabs(&wide);
+        assert!(l.client_w > base.client_w);
+        assert_eq!(l.client_w - base.client_w, l.ew - base.ew);
+        assert_eq!(l.hk_chk_w, base.hk_chk_w);
+        assert_eq!(l.client_w, EX + l.ew + RIGHT_MARGIN);
+        assert!(tabs_fit(&wide, l.tab_strip_w()));
+        let mut one_less = l;
+        one_less.client_w -= 1;
+        assert!(!tabs_fit(&wide, one_less.tab_strip_w()));
+    }
+
+    /// Ảnh 64×48 gồm bốn ô màu phẳng 32×24 (đỏ, lục, lam, xám); kèm tâm và màu [R, G, B] của mỗi ô.
+    type Tiles = [(i32, i32, [u8; 3]); 4];
+    fn four_tiles() -> (shotme_core::image::Image, Tiles) {
+        let tiles: Tiles = [
+            (16, 12, [220, 30, 30]),
+            (48, 12, [30, 200, 40]),
+            (16, 36, [30, 50, 210]),
+            (48, 36, [128, 128, 128]),
+        ];
+        let (w, h) = (64u32, 48u32);
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let idx = usize::from(x >= 32) + 2 * usize::from(y >= 24);
+                let [r, g, b] = tiles[idx].2;
+                bgra.extend_from_slice(&[b, g, r, 255]);
+            }
+        }
+        let img = shotme_core::image::Image {
+            width: w,
+            height: h,
+            bgra,
+        };
+        (img, tiles)
+    }
+
+    /// Giải nén JPEG do core tạo bằng GDI+ (bộ giải nén độc lập), so kích thước và màu tâm mỗi ô.
+    #[test]
+    fn jpeg_decodes_with_gdiplus() {
+        use windows::Win32::Graphics::GdiPlus::{
+            GdipBitmapGetPixel, GdipCreateBitmapFromStream, GdipDisposeImage, GdipGetImageHeight,
+            GdipGetImageWidth, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap,
+            GpImage,
+        };
+        use windows::Win32::UI::Shell::SHCreateMemStream;
+
+        /// Tắt GDI+ khi ra khỏi phạm vi, kể cả khi một khẳng định thất bại.
+        struct Gdip(usize);
+        impl Drop for Gdip {
+            fn drop(&mut self) {
+                // SAFETY: token từ GdiplusStartup thành công; mọi bitmap đã được giải phóng trước đó.
+                unsafe { GdiplusShutdown(self.0) };
+            }
+        }
+        /// Giải phóng bitmap khi ra khỏi phạm vi.
+        struct Bmp(*mut GpBitmap);
+        impl Drop for Bmp {
+            fn drop(&mut self) {
+                if !self.0.is_null() {
+                    // SAFETY: bitmap do GdipCreateBitmapFromStream tạo, giải phóng đúng một lần.
+                    unsafe { GdipDisposeImage(self.0 as *mut GpImage) };
+                }
+            }
+        }
+
+        let input = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        let mut token = 0usize;
+        // SAFETY: tham số là biến cục bộ; không xin luồng nền của GDI+.
+        let st = unsafe { GdiplusStartup(&mut token, &input, std::ptr::null_mut()) };
+        assert_eq!(st.0, 0, "GdiplusStartup");
+        let _gdip = Gdip(token);
+
+        let (img, tiles) = four_tiles();
+        for (quality, tol) in [(90u8, 6i32), (50, 12), (100, 6)] {
+            let jpeg = shotme_core::image::encode_jpeg(&img, quality).unwrap();
+            // SAFETY: SHCreateMemStream chép dữ liệu vào stream của nó; IStream tự Release khi drop.
+            let stream = unsafe { SHCreateMemStream(Some(&jpeg)) }.expect("SHCreateMemStream");
+            let mut raw: *mut GpBitmap = std::ptr::null_mut();
+            // SAFETY: stream hợp lệ suốt lời gọi; bitmap mới (nếu có) do `Bmp` giải phóng.
+            let st = unsafe { GdipCreateBitmapFromStream(&stream, &mut raw) };
+            let bmp = Bmp(raw);
+            assert_eq!(st.0, 0, "GdipCreateBitmapFromStream q={quality}");
+            assert!(!bmp.0.is_null());
+            let (mut w, mut h) = (0u32, 0u32);
+            // SAFETY: bitmap hợp lệ; w, h là biến cục bộ.
+            unsafe {
+                GdipGetImageWidth(bmp.0 as *mut GpImage, &mut w);
+                GdipGetImageHeight(bmp.0 as *mut GpImage, &mut h);
+            }
+            assert_eq!((w, h), (64, 48), "q={quality}");
+            for (x, y, rgb) in tiles {
+                let mut argb = 0u32;
+                // SAFETY: bitmap hợp lệ, (x, y) nằm trong ảnh; argb là biến cục bộ.
+                let st = unsafe { GdipBitmapGetPixel(bmp.0, x, y, &mut argb) };
+                assert_eq!(st.0, 0, "GdipBitmapGetPixel");
+                let got = [(argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF];
+                for k in 0..3 {
+                    let d = (got[k] as i32 - i32::from(rgb[k])).abs();
+                    assert!(
+                        d <= tol,
+                        "q={quality} ({x},{y}) kênh {k}: {} so với {} lệch quá {tol}",
+                        got[k],
+                        rgb[k]
+                    );
+                }
+            }
+            // Bitmap giải phóng trước stream (GDI+ còn đọc stream tới lúc đó).
+            drop(bmp);
+            drop(stream);
+        }
     }
 
     #[test]
@@ -2634,7 +2870,8 @@ mod tests {
                 let want = match initial_tab(reason) {
                     Tab::General => 0,
                     Tab::Hotkeys => 1,
-                    Tab::R2 => 2,
+                    Tab::Format => 2,
+                    Tab::R2 => 3,
                 };
                 assert_eq!(sel, want, "{reason:?}");
             });

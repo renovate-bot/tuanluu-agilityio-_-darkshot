@@ -787,6 +787,16 @@ mod tests {
     }
 
     #[test]
+    fn help_text_mentions_format_tab() {
+        for l in Lang::ALL {
+            let s = help_text(l, &HelpKeys::default());
+            assert!(s.contains(t(l, Msg::TabFormat)), "{l:?} thiếu tên tab");
+            assert!(s.contains("PNG"), "{l:?} thiếu PNG");
+            assert!(s.contains("JPEG"), "{l:?} thiếu JPEG");
+        }
+    }
+
+    #[test]
     fn about_version_contains_version() {
         for l in Lang::ALL {
             assert!(about_version(l, "1.2.3").contains("1.2.3"));
