@@ -1,7 +1,5 @@
 #![windows_subsystem = "windows"]
 
-// Task 10 và 11 mới nối autostart, clipboard, secret vào luồng chạy; ở task này chỉ có kiểm thử gọi chúng.
-#[allow(dead_code)]
 mod app;
 mod autostart;
 mod capture;
