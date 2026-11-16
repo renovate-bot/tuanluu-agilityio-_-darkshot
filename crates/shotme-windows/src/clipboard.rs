@@ -2,24 +2,223 @@
 
 use shotme_core::actions::Clipboard;
 use shotme_core::image::Image;
+use std::time::Duration;
+use windows::core::w;
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+};
 
-/// Clipboard thật của hệ thống. Dùng được từ bất kỳ luồng nào.
+/// Định dạng chuẩn (winuser.h): CF_DIB = 8, CF_UNICODETEXT = 13.
+const CF_DIB: u32 = 8;
+const CF_UNICODETEXT: u32 = 13;
+/// `OpenClipboard` thất bại khi ứng dụng khác đang giữ clipboard: thử tối đa 10 lần, cách 30 ms.
+const OPEN_ATTEMPTS: u32 = 10;
+const OPEN_RETRY_DELAY: Duration = Duration::from_millis(30);
+const BITMAPINFOHEADER_SIZE: u32 = 40;
+
+/// Clipboard thật của hệ thống. Dùng được từ bất kỳ luồng nào: mỗi lần chép tạo một cửa sổ
+/// chỉ-thông-điệp riêng ở luồng gọi để làm chủ clipboard, rồi hủy nó.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WinClipboard;
 
 impl Clipboard for WinClipboard {
-    fn set_text(&self, _s: &str) -> Result<(), String> {
-        todo!()
+    fn set_text(&self, s: &str) -> Result<(), String> {
+        let bytes: Vec<u8> = s
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        put(CF_UNICODETEXT, &bytes)
     }
 
-    fn set_image(&self, _img: &Image) -> Result<(), String> {
-        todo!()
+    fn set_image(&self, img: &Image) -> Result<(), String> {
+        put(CF_DIB, &dib_from_image(img)?)
     }
 }
 
 /// Dựng khối CF_DIB 24 bit (BITMAPINFOHEADER + pixel từ dưới lên, mỗi hàng đệm tới bội của 4).
-pub(crate) fn dib_from_image(_img: &Image) -> Result<Vec<u8>, String> {
-    todo!()
+pub(crate) fn dib_from_image(img: &Image) -> Result<Vec<u8>, String> {
+    if !img.is_valid() {
+        return Err("Ảnh không hợp lệ".into());
+    }
+    let too_big = || "Ảnh quá lớn để chép vào clipboard".to_string();
+    let w = img.width as usize;
+    let width = i32::try_from(img.width).map_err(|_| too_big())?;
+    let height = i32::try_from(img.height).map_err(|_| too_big())?;
+    let stride = w
+        .checked_mul(3)
+        .and_then(|n| n.checked_add(3))
+        .map(|n| n & !3)
+        .ok_or_else(too_big)?;
+    let image_size = stride
+        .checked_mul(img.height as usize)
+        .ok_or_else(too_big)?;
+    let image_size_u32 = u32::try_from(image_size).map_err(|_| too_big())?;
+    let total = image_size
+        .checked_add(BITMAPINFOHEADER_SIZE as usize)
+        .ok_or_else(too_big)?;
+
+    let mut out = Vec::new();
+    out.try_reserve_exact(total).map_err(|_| too_big())?;
+    out.extend_from_slice(&BITMAPINFOHEADER_SIZE.to_le_bytes()); // biSize
+    out.extend_from_slice(&width.to_le_bytes()); // biWidth
+    out.extend_from_slice(&height.to_le_bytes()); // biHeight > 0: từ dưới lên
+    out.extend_from_slice(&1u16.to_le_bytes()); // biPlanes
+    out.extend_from_slice(&24u16.to_le_bytes()); // biBitCount
+    out.extend_from_slice(&0u32.to_le_bytes()); // biCompression = BI_RGB
+    out.extend_from_slice(&image_size_u32.to_le_bytes()); // biSizeImage
+    out.extend_from_slice(&0i32.to_le_bytes()); // biXPelsPerMeter
+    out.extend_from_slice(&0i32.to_le_bytes()); // biYPelsPerMeter
+    out.extend_from_slice(&0u32.to_le_bytes()); // biClrUsed
+    out.extend_from_slice(&0u32.to_le_bytes()); // biClrImportant
+
+    let pad = stride - w * 3;
+    // `is_valid` bảo đảm bgra dài đúng w * h * 4, nên có đúng h hàng.
+    for row in img.bgra.chunks_exact(w * 4).rev() {
+        for [b, g, r, _a] in row.as_chunks::<4>().0 {
+            out.extend([*b, *g, *r]);
+        }
+        out.extend(std::iter::repeat_n(0u8, pad));
+    }
+    Ok(out)
+}
+
+/// Cửa sổ chỉ-thông-điệp làm chủ clipboard; hủy khi drop (cùng luồng đã tạo).
+struct OwnerWindow(HWND);
+
+impl OwnerWindow {
+    fn new() -> Result<Self, String> {
+        // SAFETY: lớp "STATIC" có sẵn của hệ thống; cửa sổ con của HWND_MESSAGE không bao giờ
+        // hiện, và được hủy trong Drop ở chính luồng này.
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("shotme-clipboard"),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                None,
+                None,
+            )
+        }
+        .map(OwnerWindow)
+        .map_err(|e| {
+            format!(
+                "Không tạo được cửa sổ cho clipboard (mã lỗi {:#010x})",
+                e.code().0
+            )
+        })
+    }
+}
+
+impl Drop for OwnerWindow {
+    fn drop(&mut self) {
+        // SAFETY: cửa sổ do luồng này tạo và chỉ hủy một lần.
+        unsafe {
+            let _ = DestroyWindow(self.0);
+        }
+    }
+}
+
+/// Clipboard đang mở; đóng khi drop.
+struct OpenGuard;
+
+impl OpenGuard {
+    fn open(owner: &OwnerWindow) -> Result<Self, String> {
+        for attempt in 0..OPEN_ATTEMPTS {
+            if attempt > 0 {
+                std::thread::sleep(OPEN_RETRY_DELAY);
+            }
+            // SAFETY: owner là cửa sổ hợp lệ của luồng này; mở thành công thì Drop sẽ đóng.
+            if unsafe { OpenClipboard(Some(owner.0)) }.is_ok() {
+                return Ok(OpenGuard);
+            }
+        }
+        Err("Clipboard đang bị ứng dụng khác giữ".into())
+    }
+}
+
+impl Drop for OpenGuard {
+    fn drop(&mut self) {
+        // SAFETY: chỉ tạo OpenGuard sau khi OpenClipboard thành công.
+        unsafe {
+            let _ = CloseClipboard();
+        }
+    }
+}
+
+/// Vùng nhớ GMEM_MOVEABLE; được GlobalFree khi drop nếu chưa giao cho hệ thống.
+struct GlobalMem(HGLOBAL);
+
+impl GlobalMem {
+    fn from_bytes(data: &[u8]) -> Result<Self, String> {
+        let err = || "Không cấp phát được bộ nhớ cho clipboard".to_string();
+        // SAFETY: cấp phát vùng nhớ mới; quyền sở hữu nằm trong GlobalMem.
+        let mem =
+            GlobalMem(unsafe { GlobalAlloc(GMEM_MOVEABLE, data.len().max(1)) }.map_err(|_| err())?);
+        // SAFETY: khóa vùng nhớ vừa cấp (ít nhất data.len() byte), chép vào rồi mở khóa.
+        unsafe {
+            let p = GlobalLock(mem.0) as *mut u8;
+            if p.is_null() {
+                return Err(err());
+            }
+            std::ptr::copy_nonoverlapping(data.as_ptr(), p, data.len());
+            // GlobalUnlock trả "lỗi" NO_ERROR khi số lần khóa về 0; không phải lỗi thật.
+            let _ = GlobalUnlock(mem.0);
+        }
+        Ok(mem)
+    }
+
+    /// Giao vùng nhớ cho clipboard. Thành công: hệ thống sở hữu; thất bại: drop sẽ GlobalFree.
+    fn into_clipboard(self, format: u32) -> Result<(), String> {
+        // SAFETY: clipboard đang mở bởi luồng này; hMem cấp bằng GMEM_MOVEABLE và đã mở khóa.
+        match unsafe { SetClipboardData(format, Some(HANDLE(self.0 .0))) } {
+            Ok(_) => {
+                std::mem::forget(self);
+                Ok(())
+            }
+            Err(e) => Err(format!(
+                "Không đặt được dữ liệu vào clipboard (mã lỗi {:#010x})",
+                e.code().0
+            )),
+        }
+    }
+}
+
+impl Drop for GlobalMem {
+    fn drop(&mut self) {
+        // SAFETY: vùng nhớ vẫn thuộc ta (chưa giao cho clipboard) và chỉ giải phóng một lần.
+        unsafe {
+            let _ = GlobalFree(Some(self.0));
+        }
+    }
+}
+
+/// Thay nội dung clipboard bằng một định dạng duy nhất.
+fn put(format: u32, data: &[u8]) -> Result<(), String> {
+    // Cấp phát trước khi mở để giữ clipboard ngắn nhất có thể.
+    let mem = GlobalMem::from_bytes(data)?;
+    let owner = OwnerWindow::new()?;
+    let result = {
+        let _open = OpenGuard::open(&owner)?;
+        // SAFETY: clipboard đang mở với chủ là `owner`.
+        unsafe { EmptyClipboard() }
+            .map_err(|e| format!("Không xóa được clipboard (mã lỗi {:#010x})", e.code().0))
+            .and_then(|()| mem.into_clipboard(format))
+        // `_open` đóng clipboard ở đây, trước khi hủy cửa sổ chủ.
+    };
+    drop(owner);
+    result
 }
 
 #[cfg(test)]
@@ -69,8 +268,10 @@ mod tests {
     fn read_text() -> Option<String> {
         let bytes = read_clipboard(CF_UNICODETEXT_ID)?;
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_le_bytes(c))
             .take_while(|&u| u != 0)
             .collect();
         String::from_utf16(&units).ok()
