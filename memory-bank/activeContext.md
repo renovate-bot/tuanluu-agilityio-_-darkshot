@@ -6,7 +6,7 @@ Cập nhật: 2026-11-16
 
 - Giai đoạn: 5. Xây dựng.
 - Task vừa xong: Task 8 (chụp màn hình và lớp phủ), đã gộp vào `main`. Lõi 57 kiểm thử; lớp Windows 10 kiểm thử và 1 kiểm thử chạy tay (`overlay_round_trip_without_gdi_leaks`, `-- --ignored`). Rà soát hai lượt (lượt hai chỉ rà phần sửa).
-- Task đang làm: không. **ĐANG DỪNG** chờ chủ dự án thử tay. Task kế tiếp sau khi họ báo: Task 9, `docs/tasks/09-win-services.md`, agent `specialist`.
+- Task đang làm: **Task 9, `docs/tasks/09-win-services.md`**, nhánh `task/09-win-services`, agent `specialist`, trạng thái `đang làm`. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
 
 ## Bước kế tiếp
 
@@ -14,7 +14,7 @@ Chạy `/next-task` nối tiếp, không hỏi lại chủ dự án giữa các 
 
 ## Đang chờ chủ dự án
 
-- Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md`, mục "Vỏ ứng dụng" và "Lớp phủ". Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
+- (Không chặn task kế tiếp; chủ dự án chưa báo kết quả.) Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md`, mục "Vỏ ứng dụng" và "Lớp phủ". Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
 
 ## Điểm dừng sắp tới cần chủ dự án
 
