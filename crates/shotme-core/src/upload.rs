@@ -3,7 +3,7 @@
 use std::io::Read;
 use std::time::Duration;
 
-use crate::config::{normalize_public_base_url, Expiry, R2Config};
+use crate::config::{normalize_public_base_url, Expiry, R2Config, UploadFormat};
 use crate::i18n::{self, Lang, Msg};
 use crate::naming::random_object_name;
 use crate::sigv4::{amz_date_now, authorization_header, sha256_hex, Credentials, SignInput};
@@ -42,11 +42,11 @@ impl UploadError {
 
 pub trait Uploader: Send + Sync {
     /// Trả link công khai.
-    fn upload(&self, key: &str, png: &[u8]) -> Result<String, UploadError>;
+    fn upload(&self, key: &str, body: &[u8], content_type: &str) -> Result<String, UploadError>;
 }
 
-pub fn object_key(expiry: Expiry, name: &str) -> String {
-    format!("{}/{name}.png", expiry.prefix())
+pub fn object_key(_expiry: Expiry, _name: &str, _format: UploadFormat) -> String {
+    todo!()
 }
 
 pub fn public_url(base: &str, key: &str) -> String {
@@ -289,11 +289,11 @@ impl R2Uploader {
 }
 
 impl Uploader for R2Uploader {
-    fn upload(&self, key: &str, png: &[u8]) -> Result<String, UploadError> {
+    fn upload(&self, key: &str, body: &[u8], _content_type: &str) -> Result<String, UploadError> {
         if !self.complete || self.s3.is_none() {
             return Err(UploadError::NotConfigured);
         }
-        let status = self.s3_request("PUT", key, Some("image/png"), png)?;
+        let status = self.s3_request("PUT", key, Some("image/png"), body)?;
         Self::check_status(status)?;
         Ok(public_url(&self.public_base, key))
     }
@@ -432,8 +432,14 @@ mod tests {
 
     #[test]
     fn key_and_url() {
-        assert_eq!(object_key(Expiry::D30, "abc"), "d30/abc.png");
-        assert_eq!(object_key(Expiry::Keep, "abc"), "keep/abc.png");
+        assert_eq!(
+            object_key(Expiry::D30, "abc", UploadFormat::Png),
+            "d30/abc.png"
+        );
+        assert_eq!(
+            object_key(Expiry::Keep, "abc", UploadFormat::Png),
+            "keep/abc.png"
+        );
         assert_eq!(
             public_url("https://img.example.com", "d7/abc.png"),
             "https://img.example.com/d7/abc.png"
@@ -441,11 +447,32 @@ mod tests {
     }
 
     #[test]
+    fn object_key_follows_format() {
+        assert_eq!(
+            object_key(Expiry::D7, "abc", UploadFormat::Jpeg),
+            "d7/abc.jpg"
+        );
+    }
+
+    #[test]
+    fn upload_sends_given_content_type() {
+        let m = spawn_mock(vec![(200, "")], false);
+        let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
+        let url = up
+            .upload("d30/abc.jpg", b"\xFF\xD8 fake", "image/jpeg")
+            .unwrap();
+        assert!(url.ends_with("/d30/abc.jpg"));
+        let reqs = m.requests();
+        assert_eq!(reqs[0].request_line, "PUT /bkt/d30/abc.jpg HTTP/1.1");
+        assert_eq!(reqs[0].header("content-type"), Some("image/jpeg"));
+    }
+
+    #[test]
     fn upload_sends_signed_put_and_returns_public_url() {
         let m = spawn_mock(vec![(200, "")], false);
         let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
         let png = b"\x89PNG fake bytes".to_vec();
-        let url = up.upload("d30/abc.png", &png).unwrap();
+        let url = up.upload("d30/abc.png", &png, "image/png").unwrap();
         assert_eq!(url, "https://img.example.com/d30/abc.png");
         let reqs = m.requests();
         assert_eq!(reqs.len(), 1);
@@ -476,7 +503,11 @@ mod tests {
         for (code, expected) in cases {
             let m = spawn_mock(vec![(code, "")], false);
             let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
-            assert_eq!(up.upload("d30/a.png", b"x"), Err(expected), "status {code}");
+            assert_eq!(
+                up.upload("d30/a.png", b"x", "image/png"),
+                Err(expected),
+                "status {code}"
+            );
         }
     }
 
@@ -487,7 +518,10 @@ mod tests {
     fn forbidden_with_skew_code_is_clock_skew() {
         let m = spawn_mock(vec![(403, SKEW_BODY)], false);
         let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
-        assert_eq!(up.upload("d30/a.png", b"x"), Err(UploadError::ClockSkew));
+        assert_eq!(
+            up.upload("d30/a.png", b"x", "image/png"),
+            Err(UploadError::ClockSkew)
+        );
 
         let m = spawn_mock(vec![(403, SKEW_BODY)], false);
         let up = R2Uploader::with_endpoints(&cfg(), &m.url(), &m.url());
@@ -498,7 +532,10 @@ mod tests {
     fn forbidden_with_other_body_is_still_auth() {
         let m = spawn_mock(vec![(403, DENIED_BODY)], false);
         let up = R2Uploader::with_endpoints(&cfg(), &m.url(), "https://img.example.com");
-        assert_eq!(up.upload("d30/a.png", b"x"), Err(UploadError::Auth));
+        assert_eq!(
+            up.upload("d30/a.png", b"x", "image/png"),
+            Err(UploadError::Auth)
+        );
     }
 
     #[test]
@@ -519,7 +556,7 @@ mod tests {
         c.bucket.clear();
         let up = R2Uploader::with_endpoints(&c, &m.url(), "https://img.example.com");
         assert_eq!(
-            up.upload("d30/a.png", b"x"),
+            up.upload("d30/a.png", b"x", "image/png"),
             Err(UploadError::NotConfigured)
         );
         assert_eq!(up.test_connection(), Err(UploadError::NotConfigured));
@@ -542,7 +579,7 @@ mod tests {
             "https://img.example.com",
         );
         assert!(matches!(
-            up.upload("d30/a.png", b"x"),
+            up.upload("d30/a.png", b"x", "image/png"),
             Err(UploadError::Network(_))
         ));
     }
@@ -557,7 +594,7 @@ mod tests {
             Duration::from_secs(1),
         );
         let t = Instant::now();
-        let r = up.upload("d30/a.png", b"x");
+        let r = up.upload("d30/a.png", b"x", "image/png");
         assert!(matches!(r, Err(UploadError::Network(_))), "{r:?}");
         assert!(t.elapsed() < Duration::from_secs(5));
     }
@@ -602,7 +639,7 @@ mod tests {
             c.account_id = id.into();
             let up = R2Uploader::new(&c);
             assert_eq!(
-                up.upload("d30/x.png", b"x"),
+                up.upload("d30/x.png", b"x", "image/png"),
                 Err(UploadError::NotConfigured),
                 "account_id {id:?}"
             );
@@ -616,7 +653,7 @@ mod tests {
         c.public_base_url = "http://img.example.com".into();
         let up = R2Uploader::new(&c);
         assert_eq!(
-            up.upload("d30/x.png", b"x"),
+            up.upload("d30/x.png", b"x", "image/png"),
             Err(UploadError::NotConfigured)
         );
         assert_eq!(up.test_connection(), Err(UploadError::NotConfigured));

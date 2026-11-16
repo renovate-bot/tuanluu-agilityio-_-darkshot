@@ -22,7 +22,7 @@ use settings::OpenReason;
 use shotme_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
-use shotme_core::config::{Config, HotkeyRole, Hotkeys};
+use shotme_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use shotme_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use shotme_core::i18n::{self, Lang, Msg};
 use shotme_core::upload::{R2Uploader, Uploader};
@@ -417,6 +417,8 @@ fn run_on_image(
                 clipboard: clipboard.as_ref(),
                 notifier: notifier.as_ref(),
                 lang: lang::current(),
+                upload_format: UploadFormat::Png,
+                jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
             run_action(&ctx, action, &image);
         }
@@ -441,6 +443,8 @@ fn run_on_image(
                 on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
                 pending: Some((registry.clone(), pending_id)),
                 lang: lang::current(),
+                upload_format: config.upload_format,
+                jpeg_quality: config.jpeg_quality,
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.
@@ -459,6 +463,8 @@ fn run_on_image(
                     clipboard: clipboard.as_ref(),
                     notifier: notifier.as_ref(),
                     lang: lang::current(),
+                    upload_format: UploadFormat::Png,
+                    jpeg_quality: JPEG_QUALITY_DEFAULT,
                 };
                 run_action(&ctx, Action::Save, &image);
             }
