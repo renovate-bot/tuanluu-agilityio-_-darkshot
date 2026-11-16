@@ -1321,8 +1321,12 @@ impl Drop for EscHotkey {
 }
 
 /// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh.
-/// `Ok(None)` khi người dùng hủy; `Err` khi không mở được lớp phủ.
-pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> {
+/// `initial` (tọa độ ảnh): khung chọn sẵn, lớp phủ mở ở trạng thái đã chọn xong; khung không
+/// nằm trọn trong ảnh thì như `None`. `Ok(None)` khi người dùng hủy; `Err` khi không mở được.
+pub fn pick_region(
+    shot: &Screenshot,
+    initial: Option<Rect>,
+) -> Result<Option<(Action, Rect)>, String> {
     let img = &shot.image;
     let size = (i32::try_from(img.width), i32::try_from(img.height));
     let (Ok(w), Ok(h)) = size else {
@@ -1367,7 +1371,7 @@ pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> 
         focus_retries: 0,
         monitors: shot.monitors.clone(),
         dpis,
-        sel: Selection::new(Rect { x: 0, y: 0, w, h }),
+        sel: Selection::with_rect(Rect { x: 0, y: 0, w, h }, initial),
         new_drag: false,
         drag_cursor: IDC_CROSS,
         pressed: None,
@@ -1406,6 +1410,19 @@ pub fn pick_region(shot: &Screenshot) -> Result<Option<(Action, Rect)>, String> 
         // SAFETY: bộ hẹn giờ của cửa sổ lớp phủ; tự mất khi cửa sổ bị hủy.
         unsafe {
             SetTimer(Some(hwnd), FOCUS_TIMER_ID, FOCUS_RETRY_MS, None);
+        }
+    }
+    if initial.is_some() && with_state(|s| s.sel.rect().is_some()) == Some(true) {
+        // Mở với khung có sẵn: con trỏ chuột và nút đang rê theo chỗ chuột đứng ngay,
+        // không đợi lần di chuột đầu tiên.
+        let mut pt = POINT::default();
+        // SAFETY: chỉ đọc vị trí chuột.
+        if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+            let p = Point {
+                x: pt.x - shot.origin.x,
+                y: pt.y - shot.origin.y,
+            };
+            with_state(|s| s.on_move(p));
         }
     }
 
@@ -1496,7 +1513,7 @@ mod tests {
         unsafe {
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
-        let shot = capture_virtual_screen().unwrap();
+        let shot = capture_virtual_screen(false).unwrap();
         let m0 = shot.monitors[0];
         let (a, b) = (
             Point {
@@ -1559,7 +1576,7 @@ mod tests {
                 }
                 false
             });
-            let r = pick_region(&shot);
+            let r = pick_region(&shot, None);
             assert!(driver.join().unwrap(), "không thấy cửa sổ lớp phủ");
             r
         };
