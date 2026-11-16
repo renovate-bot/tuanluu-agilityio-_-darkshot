@@ -17,6 +17,7 @@ Cập nhật: 2026-11-16
 | Cổng kiểm tra trước khi gộp | `powershell -File scripts/check.ps1` (phải in `ALL CHECKS PASSED`) |
 | Định dạng mã trước khi commit | `cargo fmt --all` |
 | Kiểm thử một crate | `cargo test -p shotme-core <bộ lọc>` |
+| Kiểm thử chạy tay ba cửa sổ (mở cửa sổ thật, cần người nhìn) | `cargo test -p shotme-windows -- --ignored about_window help_window settings_window --test-threads=1` |
 | Build bản phát hành | `cargo build --release` (ra `target/release/shotme.exe`) |
 | Thêm crate | `cargo add -p <crate của dự án> <tên>` |
 
@@ -48,3 +49,5 @@ Dùng bản mới nhất tại thời điểm thêm. Phiên bản thực tế n�
 - Task 5: `ureq` 3.5.2 với `default-features = false, features = ["rustls"]` (provider `ring`, `webpki-roots`). Agent HTTP đặt `proxy(None)`, `max_redirects(0)`, `http_status_as_error(false)`, thời hạn kết nối 10 giây, toàn bộ 60 giây.
 - Task 6: `png` 0.18. Task 7: `windows` 0.62.2 (features: Win32_Foundation, Win32_UI_WindowsAndMessaging, Win32_UI_Shell, Win32_UI_Input_KeyboardAndMouse, Win32_System_LibraryLoader, Win32_System_Threading, Win32_System_SystemInformation, Win32_System_Com, Win32_Graphics_Gdi, Win32_Security), `embed-resource` 3.0.12 (build).
 - Cổng kiểm tra có thêm `cargo fmt --all --check` (từ sau Task 5).
+- Đợt 1 (Task 16): `scripts/check.ps1` có bước `no hard-coded Vietnamese strings`. Bước này quét `crates/*/src/*.rs`, bỏ qua `i18n.rs`, tìm chuỗi có chữ Latin có dấu (U+00C0–U+024F, U+1E00–U+1EFF) viết thẳng trong mã, và dừng ở `#[cfg(test)]` đứng trước `mod`. Chuỗi English viết thẳng không bị bắt. Crate `windows` bật thêm `Win32_Globalization` (Task 16, `lang::os_default`) và `Win32_UI_Controls` (Task 17, dải tab `SysTabControl32`).
+- Lệnh kiểm thử chạy tay: `cargo test -p shotme-windows -- --ignored about_window help_window settings_window --test-threads=1` chạy `about_window_opens_and_closes`, `help_window_opens_and_closes`, `settings_window_opens_and_cancels`. Các kiểm thử này mở cửa sổ thật trên máy, nên không nằm trong `scripts/check.ps1`.
