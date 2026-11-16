@@ -21,13 +21,14 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-Đợt 1 (Task 15–19) đã xong. Hoàn tất Task 19b, rồi brainstorm thiết kế đợt 2 với chủ dự án (thiết kế riêng, kế hoạch riêng, gói task từ số 20). Khi đã có task `chờ`: chạy `/next-task` nối tiếp, không hỏi lại giữa các task (quyết định 18).
+Đợt 1 (Task 15–19 và 19b) đã xong. Brainstorm thiết kế đợt 2 với chủ dự án (thiết kế riêng, kế hoạch riêng, gói task từ số 20). Khi đã có task `chờ`: chạy `/next-task` nối tiếp, không hỏi lại giữa các task (quyết định 18).
 
 ## Đang chờ chủ dự án
 
 - **Đợt 1 đã xong và đã được nghiệm thu:** chủ dự án báo "đã nghiệm thu" (2026-11-16) sau khi thử tay; họ không nói rõ có gồm nghiệm thu R2 thật của bản đầu hay không, nên mục R2 thật vẫn coi là còn chờ cho tới khi họ xác nhận. Task 19 (tài liệu) đã gộp vào `main` (rà soát DUYỆT, bốn chỗ đã sửa). `memory-bank/systemPatterns.md` có mục "Thêm một ô hoặc một tab" cho đợt 2 và 3.
-- **Task 19b đang làm** trên nhánh `task/19b-flaky-test-help-text` (agent `builder`): kiểm thử `upload::tests::connection_refused_is_network_error` chập chờn (lấy cổng rồi thả, kiểm thử song song lấy lại cổng) và chữ "Đổi..." trong `help_text` bản Việt phải là "Đổi…".
-- **Việc kế tiếp sau 19b:** brainstorm thiết kế đợt 2 (phím tắt lưu và tải lên toàn màn hình, chụp cả con trỏ, giữ vị trí vùng chọn, bật/tắt thông báo) bằng `/superpowers:brainstorming`; không có task `chờ` nào để `/next-task` chạy.
+- Task 19b đã gộp vào `main`: kiểm thử `upload::tests::connection_refused_is_network_error` hết chập chờn (khóa `PORT_LOCK` trong module kiểm thử; 20 lần chạy liên tiếp đều qua); `help_text` lấy nhãn nút Đổi từ bảng. Không task nào đang làm.
+- Bản release mới nhất (gồm 19b): `target/release/shotme.exe` (1.587.200 byte, build 2026-11-16 20:47). Chủ dự án đang chạy bản cũ hơn ở `target/batch1/release/shotme.exe` (chưa có sửa chữ "Đổi…"); không tắt tiến trình đó, và lần build sau dùng thư mục nào không bị khóa.
+- **Việc kế tiếp:** brainstorm thiết kế đợt 2 (phím tắt lưu và tải lên toàn màn hình, chụp cả con trỏ, giữ vị trí vùng chọn, bật/tắt thông báo) bằng `/superpowers:brainstorming`; không có task `chờ` nào để `/next-task` chạy.
 - Đã xong, để tham khảo: thử tay đợt 1 theo hai mục "Đợt 1" của `docs/testing/manual-checklist.md` bằng `target/batch1/release/shotme.exe` (thoát bản đang chạy trước), và đọc lời văn Trợ giúp ở cả hai ngôn ngữ. Lỗi họ báo: nhánh `task/18b-...`, agent theo độ khó (tab, tiêu điểm, bắt phím: `specialist`; chữ, bố cục đơn giản: `builder`).
 
 - Thử `target/release/shotme.exe` theo `docs/testing/manual-checklist.md` (mọi mục), rồi làm theo `README.md` mục "Chuẩn bị Cloudflare R2" và mục "Nghiệm thu với R2 thật" của checklist. Họ tự nhập khóa vào ứng dụng; phiên điều phối và agent không nhận, đọc hay ghi khóa. Cần họ xác nhận thêm: quyền "Object Read & Write" có cho xóa file thử của "Kiểm tra kết nối" không. Lỗi họ báo: giao agent `specialist` sửa trên nhánh mới `task/08b-...` trước khi sang Task 9.
