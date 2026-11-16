@@ -243,6 +243,7 @@ fn capture_flow(hwnd: HWND) {
                 uploader: None,
                 clipboard: clipboard.as_ref(),
                 notifier: notifier.as_ref(),
+                lang: shotme_core::i18n::Lang::Vi,
             };
             run_action(&ctx, action, &image);
         }
@@ -283,6 +284,7 @@ fn capture_flow(hwnd: HWND) {
                     uploader: None,
                     clipboard: clipboard.as_ref(),
                     notifier: notifier.as_ref(),
+                    lang: shotme_core::i18n::Lang::Vi,
                 };
                 run_action(&ctx, Action::Save, &image);
             }

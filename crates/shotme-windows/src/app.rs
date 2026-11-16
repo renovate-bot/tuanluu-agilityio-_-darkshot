@@ -2,6 +2,7 @@
 
 use shotme_core::actions::{run_action, Action, Clipboard, Ctx, Notifier, Outcome};
 use shotme_core::config::{Config, ConfigError, SecretStore};
+use shotme_core::i18n::Lang;
 use shotme_core::image::Image;
 use shotme_core::naming::LocalTime;
 use shotme_core::upload::Uploader;
@@ -24,13 +25,14 @@ pub struct AppState {
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
 pub fn startup(path: &Path, store: &dyn SecretStore, default_save_dir: &Path) -> AppState {
-    let defaults = || Config::defaults(default_save_dir);
-    let (config, config_notice) = match shotme_core::config::load(path, store, default_save_dir) {
-        Ok(l) if l.secret_lost => (l.config, Some(NOTICE_SECRET_LOST.to_string())),
-        Ok(l) => (l.config, None),
-        Err(ConfigError::Corrupt(_)) => (defaults(), Some(NOTICE_CORRUPT.to_string())),
-        Err(_) => (defaults(), Some(NOTICE_UNREADABLE.to_string())),
-    };
+    let defaults = || Config::defaults(default_save_dir, Lang::Vi);
+    let (config, config_notice) =
+        match shotme_core::config::load(path, store, default_save_dir, Lang::Vi) {
+            Ok(l) if l.secret_lost => (l.config, Some(NOTICE_SECRET_LOST.to_string())),
+            Ok(l) => (l.config, None),
+            Err(ConfigError::Corrupt(_)) => (defaults(), Some(NOTICE_CORRUPT.to_string())),
+            Err(_) => (defaults(), Some(NOTICE_UNREADABLE.to_string())),
+        };
     AppState {
         config,
         config_notice,
@@ -140,6 +142,7 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
                 uploader: None,
                 clipboard: &NoClipboard,
                 notifier: &SilentNotifier,
+                lang: Lang::Vi,
             };
             matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
         })
@@ -173,6 +176,7 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 uploader: job.uploader.as_deref(),
                 clipboard: job.clipboard.as_ref(),
                 notifier: job.notifier.as_ref(),
+                lang: Lang::Vi,
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
             // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
@@ -232,7 +236,7 @@ mod tests {
     }
 
     fn complete_config() -> Config {
-        let mut c = Config::defaults(Path::new("C:/pics"));
+        let mut c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         c.r2 = R2Config {
             account_id: "acc123".into(),
             access_key_id: "AKIDEXAMPLE".into(),
@@ -256,7 +260,7 @@ mod tests {
         let path = temp_dir().join("config.json");
         std::fs::write(&path, "{not json").unwrap();
         let s = startup(&path, &XorStore, Path::new("C:/pics"));
-        assert_eq!(s.config, Config::defaults(Path::new("C:/pics")));
+        assert_eq!(s.config, Config::defaults(Path::new("C:/pics"), Lang::Vi));
         assert_eq!(s.config_notice.as_deref(), Some(NOTICE_CORRUPT));
         assert!(needs_settings_on_start(&s, true));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json");

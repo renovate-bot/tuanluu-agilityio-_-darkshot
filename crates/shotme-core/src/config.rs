@@ -1,5 +1,6 @@
 //! Cấu hình ứng dụng và lưu trữ.
 
+use crate::i18n::{t, Lang, Msg};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -92,16 +93,18 @@ pub struct Config {
     pub hotkey: Hotkey,
     pub save_dir: PathBuf,
     pub autostart: bool,
+    pub language: Lang,
 }
 
 impl Config {
-    pub fn defaults(default_save_dir: &Path) -> Config {
+    pub fn defaults(default_save_dir: &Path, language: Lang) -> Config {
         Config {
             r2: R2Config::default(),
             expiry: Expiry::default(),
             hotkey: Hotkey::default(),
             save_dir: default_save_dir.to_path_buf(),
             autostart: false,
+            language,
         }
     }
 }
@@ -164,6 +167,7 @@ struct FileConfig {
     hotkey: FileHotkey,
     save_dir: Option<PathBuf>,
     autostart: bool,
+    language: String,
 }
 
 impl Default for FileConfig {
@@ -174,6 +178,7 @@ impl Default for FileConfig {
             hotkey: FileHotkey::default(),
             save_dir: None,
             autostart: false,
+            language: String::new(),
         }
     }
 }
@@ -182,12 +187,13 @@ pub fn load(
     path: &Path,
     store: &dyn SecretStore,
     default_save_dir: &Path,
+    os_lang: Lang,
 ) -> Result<Loaded, ConfigError> {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(Loaded {
-                config: Config::defaults(default_save_dir),
+                config: Config::defaults(default_save_dir, os_lang),
                 secret_lost: false,
             })
         }
@@ -233,6 +239,7 @@ pub fn load(
         },
         save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
         autostart: f.autostart,
+        language: Lang::from_code(&f.language).unwrap_or(Lang::Vi),
     };
     Ok(Loaded {
         config,
@@ -267,6 +274,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         },
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
+        language: cfg.language.code().to_string(),
     };
     let json = serde_json::to_string_pretty(&f).map_err(|e| ConfigError::Io(e.to_string()))?;
 
@@ -297,19 +305,39 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
     })
 }
 
-pub fn normalize_public_base_url(input: &str) -> Result<String, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlError {
+    NotHttps,
+    MissingHost,
+    Whitespace,
+    ForbiddenChar,
+}
+
+impl UrlError {
+    pub fn message(&self, lang: Lang) -> String {
+        let m = match self {
+            UrlError::NotHttps => Msg::UrlNotHttps,
+            UrlError::MissingHost => Msg::UrlMissingHost,
+            UrlError::Whitespace => Msg::UrlWhitespace,
+            UrlError::ForbiddenChar => Msg::UrlForbiddenChar,
+        };
+        t(lang, m).to_string()
+    }
+}
+
+pub fn normalize_public_base_url(input: &str) -> Result<String, UrlError> {
     let s = input.trim().trim_end_matches('/');
     let Some(rest) = s.strip_prefix("https://") else {
-        return Err("Địa chỉ công khai phải bắt đầu bằng https://".into());
+        return Err(UrlError::NotHttps);
     };
     if rest.is_empty() {
-        return Err("Địa chỉ công khai thiếu tên miền sau https://".into());
+        return Err(UrlError::MissingHost);
     }
     if s.chars().any(char::is_whitespace) {
-        return Err("Địa chỉ công khai không được chứa khoảng trắng".into());
+        return Err(UrlError::Whitespace);
     }
     if rest.contains(['?', '#', '@']) {
-        return Err("Địa chỉ công khai không được chứa các ký tự ?, # hoặc @".into());
+        return Err(UrlError::ForbiddenChar);
     }
     let authority = rest.split('/').next().unwrap_or("");
     let host = match authority.rsplit_once(':') {
@@ -317,7 +345,7 @@ pub fn normalize_public_base_url(input: &str) -> Result<String, String> {
         None => authority,
     };
     if host.is_empty() {
-        return Err("Địa chỉ công khai thiếu tên miền sau https://".into());
+        return Err(UrlError::MissingHost);
     }
     Ok(s.to_string())
 }
@@ -356,7 +384,7 @@ mod tests {
     }
 
     fn sample() -> Config {
-        let mut c = Config::defaults(Path::new("C:/pics"));
+        let mut c = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         c.r2 = R2Config {
             account_id: "acc".into(),
             access_key_id: "kid".into(),
@@ -381,9 +409,10 @@ mod tests {
             &temp_dir().join("config.json"),
             &XorStore,
             Path::new("C:/pics"),
+            Lang::Vi,
         )
         .unwrap();
-        assert_eq!(l.config, Config::defaults(Path::new("C:/pics")));
+        assert_eq!(l.config, Config::defaults(Path::new("C:/pics"), Lang::Vi));
         assert_eq!(l.config.hotkey.vk, 0x2C);
         assert!(!l.config.r2.is_complete() && !l.secret_lost && !l.config.autostart);
     }
@@ -397,7 +426,9 @@ mod tests {
             .unwrap()
             .contains("TOP-SECRET-VALUE"));
         assert_eq!(
-            load(&path, &XorStore, Path::new("C:/pics")).unwrap().config,
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
             c
         );
     }
@@ -418,7 +449,7 @@ mod tests {
         let path = temp_dir().join("config.json");
         std::fs::write(&path, "{not json").unwrap();
         assert!(matches!(
-            load(&path, &XorStore, Path::new("C:/pics")),
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi),
             Err(ConfigError::Corrupt(_))
         ));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json");
@@ -428,7 +459,7 @@ mod tests {
     fn undecryptable_secret_keeps_other_fields() {
         let path = temp_dir().join("config.json");
         save(&path, &sample(), &XorStore).unwrap();
-        let l = load(&path, &FailStore, Path::new("C:/pics")).unwrap();
+        let l = load(&path, &FailStore, Path::new("C:/pics"), Lang::Vi).unwrap();
         assert!(l.secret_lost);
         assert_eq!(l.config.r2.secret_access_key, "");
         assert_eq!(l.config.r2.bucket, "b");
@@ -444,10 +475,14 @@ mod tests {
             normalize_public_base_url("https://pub-1a2b.r2.dev").unwrap(),
             "https://pub-1a2b.r2.dev"
         );
-        assert!(normalize_public_base_url("http://img.example.com").is_err());
-        assert!(normalize_public_base_url("img.example.com").is_err());
-        assert!(normalize_public_base_url("https://").is_err());
-        assert!(normalize_public_base_url("https://img.exa mple.com").is_err());
+        let err = |s: &str| normalize_public_base_url(s).unwrap_err();
+        assert_eq!(err("http://x"), UrlError::NotHttps);
+        assert_eq!(err("http://img.example.com"), UrlError::NotHttps);
+        assert_eq!(err("img.example.com"), UrlError::NotHttps);
+        assert_eq!(err("https://"), UrlError::MissingHost);
+        assert_eq!(err("https://:443"), UrlError::MissingHost);
+        assert_eq!(err("https://img.exa mple.com"), UrlError::Whitespace);
+        assert_eq!(err("https://a.com?x"), UrlError::ForbiddenChar);
     }
 
     #[test]
@@ -463,12 +498,88 @@ mod tests {
             "https://:443",
             "https://:443/path",
         ] {
-            assert!(normalize_public_base_url(bad).is_err(), "{bad:?}");
+            let e = normalize_public_base_url(bad).unwrap_err();
+            let want = if bad.starts_with("https:///") || bad.starts_with("https://:") {
+                UrlError::MissingHost
+            } else {
+                UrlError::ForbiddenChar
+            };
+            assert_eq!(e, want, "{bad:?}");
         }
         // Có đường dẫn con và cổng thì vẫn hợp lệ.
         assert_eq!(
             normalize_public_base_url("https://img.example.com:8443/shots/").unwrap(),
             "https://img.example.com:8443/shots"
+        );
+    }
+
+    #[test]
+    fn url_error_messages_differ_between_languages() {
+        let all = [
+            UrlError::NotHttps,
+            UrlError::MissingHost,
+            UrlError::Whitespace,
+            UrlError::ForbiddenChar,
+        ];
+        for e in all {
+            let (vi, en) = (e.message(Lang::Vi), e.message(Lang::En));
+            assert!(!vi.is_empty() && !en.is_empty() && vi != en, "{e:?}");
+        }
+    }
+
+    #[test]
+    fn missing_file_uses_os_language() {
+        let l = load(
+            &temp_dir().join("config.json"),
+            &XorStore,
+            Path::new("C:/pics"),
+            Lang::En,
+        )
+        .unwrap();
+        assert_eq!(l.config.language, Lang::En);
+    }
+
+    #[test]
+    fn file_without_language_field_is_vietnamese() {
+        let p = temp_dir().join("config.json");
+        std::fs::write(&p, "{}").unwrap();
+        assert_eq!(
+            load(&p, &XorStore, Path::new("C:/pics"), Lang::En)
+                .unwrap()
+                .config
+                .language,
+            Lang::Vi
+        );
+    }
+
+    #[test]
+    fn unknown_language_value_is_vietnamese() {
+        let p = temp_dir().join("config.json");
+        std::fs::write(&p, r#"{"language":"fr"}"#).unwrap();
+        assert_eq!(
+            load(&p, &XorStore, Path::new("C:/pics"), Lang::En)
+                .unwrap()
+                .config
+                .language,
+            Lang::Vi
+        );
+    }
+
+    #[test]
+    fn language_round_trips() {
+        let p = temp_dir().join("config.json");
+        let mut c = sample();
+        c.language = Lang::En;
+        save(&p, &c, &XorStore).unwrap();
+        assert!(std::fs::read_to_string(&p)
+            .unwrap()
+            .contains(r#""language": "en""#));
+        assert_eq!(
+            load(&p, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config
+                .language,
+            Lang::En
         );
     }
 }

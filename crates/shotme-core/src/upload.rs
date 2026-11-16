@@ -4,6 +4,7 @@ use std::io::Read;
 use std::time::Duration;
 
 use crate::config::{normalize_public_base_url, Expiry, R2Config};
+use crate::i18n::{self, Lang, Msg};
 use crate::naming::random_object_name;
 use crate::sigv4::{amz_date_now, authorization_header, sha256_hex, Credentials, SignInput};
 
@@ -25,29 +26,17 @@ pub enum UploadError {
 }
 
 impl UploadError {
-    pub fn message_vi(&self) -> String {
-        match self {
-            UploadError::NotConfigured => {
-                "Chưa cấu hình kho lưu trữ. Hãy nhập đủ thông tin trong cài đặt.".into()
-            }
-            UploadError::Network(_) => {
-                "Không kết nối được tới máy chủ. Kiểm tra mạng rồi thử lại.".into()
-            }
-            UploadError::Auth => {
-                "Khóa truy cập không hợp lệ hoặc không đủ quyền. Kiểm tra lại khóa.".into()
-            }
-            UploadError::BucketNotFound => {
-                "Không tìm thấy kho. Kiểm tra lại tên kho và mã tài khoản.".into()
-            }
-            UploadError::Http(code) => format!("Máy chủ trả về lỗi {code}."),
-            UploadError::PublicUrl(_) => {
-                "Không đọc được ảnh qua địa chỉ công khai. Kiểm tra lại địa chỉ công khai của kho."
-                    .into()
-            }
-            UploadError::ClockSkew => {
-                "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại.".into()
-            }
-        }
+    pub fn message(&self, lang: Lang) -> String {
+        let m = match self {
+            UploadError::NotConfigured => Msg::UploadNotConfigured,
+            UploadError::Network(_) => Msg::UploadNetwork,
+            UploadError::Auth => Msg::UploadAuth,
+            UploadError::BucketNotFound => Msg::UploadBucketNotFound,
+            UploadError::Http(code) => return i18n::http_error(lang, *code),
+            UploadError::PublicUrl(_) => Msg::UploadPublicUrl,
+            UploadError::ClockSkew => Msg::UploadClockSkew,
+        };
+        i18n::t(lang, m).to_string()
     }
 }
 
@@ -509,10 +498,10 @@ mod tests {
     fn clock_skew_message_does_not_echo_body() {
         let e = UploadError::ClockSkew;
         assert_eq!(
-            e.message_vi(),
+            e.message(Lang::Vi),
             "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại."
         );
-        assert!(!e.message_vi().contains("RequestTimeTooSkewed"));
+        assert!(!e.message(Lang::Vi).contains("RequestTimeTooSkewed"));
         assert!(!format!("{e:?}").contains("server's time"));
     }
 
@@ -635,9 +624,39 @@ mod tests {
             UploadError::ClockSkew,
         ];
         for e in errs {
-            assert!(!e.message_vi().contains(SECRET));
+            assert!(!e.message(Lang::Vi).contains(SECRET));
             assert!(!format!("{e:?}").contains(SECRET));
-            assert!(!e.message_vi().is_empty());
+            assert!(!e.message(Lang::Vi).is_empty());
         }
+    }
+
+    #[test]
+    fn message_in_both_languages() {
+        let errs = [
+            UploadError::NotConfigured,
+            UploadError::Network("SECRETNET".into()),
+            UploadError::Auth,
+            UploadError::BucketNotFound,
+            UploadError::Http(503),
+            UploadError::PublicUrl("SECRETURL".into()),
+            UploadError::ClockSkew,
+        ];
+        for e in &errs {
+            let (vi, en) = (e.message(Lang::Vi), e.message(Lang::En));
+            assert!(!vi.is_empty() && !en.is_empty() && vi != en, "{e:?}");
+            for m in [&vi, &en] {
+                assert!(
+                    !m.contains("SECRETNET") && !m.contains("SECRETURL"),
+                    "{e:?}"
+                );
+            }
+        }
+        for l in Lang::ALL {
+            assert!(UploadError::Http(503).message(l).contains("503"));
+        }
+        assert_eq!(
+            UploadError::ClockSkew.message(Lang::Vi),
+            "Giờ máy không đúng. Hãy chỉnh lại ngày giờ của Windows rồi thử lại."
+        );
     }
 }
