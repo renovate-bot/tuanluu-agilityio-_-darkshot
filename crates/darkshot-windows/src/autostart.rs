@@ -7,7 +7,7 @@ use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_ANY,
     RRF_RT_REG_SZ,
 };
 
@@ -24,6 +24,29 @@ pub fn is_enabled() -> bool {
 /// Bật: ghi đường dẫn file chạy hiện tại (trong dấu nháy kép). Tắt: xóa giá trị.
 pub fn set_enabled(on: bool) -> Result<(), String> {
     set_enabled_as(VALUE_NAME, on)
+}
+
+/// Đúng khi khóa Run có giá trị tên `name` (bất kể kiểu dữ liệu).
+pub(crate) fn value_exists(name: &str) -> bool {
+    let mut size = 0u32;
+    // SAFETY: chỉ hỏi kích thước giá trị, không có bộ đệm; RegGetValueW tự mở và đóng khóa con.
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(RUN_KEY),
+            &HSTRING::from(name),
+            RRF_RT_ANY,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
+    r == ERROR_SUCCESS
+}
+
+/// Xóa giá trị tên `name` khỏi khóa Run; không có sẵn thì coi là xong.
+pub(crate) fn delete_value(name: &str) -> Result<(), String> {
+    set_enabled_as(name, false)
 }
 
 fn is_enabled_as(name: &str) -> bool {

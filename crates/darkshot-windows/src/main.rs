@@ -8,6 +8,7 @@ mod clipboard;
 mod help;
 mod hotkey;
 mod lang;
+mod legacy;
 mod overlay;
 mod paths;
 mod secret;
@@ -816,6 +817,8 @@ fn main() {
     }
     TRAY.with(|t| *t.borrow_mut() = Some(Rc::new(tray)));
 
+    // Chép cấu hình của bản cũ (nếu cần) trước khi đọc cấu hình; lỗi thì bỏ qua, báo sau.
+    let mut migration_failed = legacy::run_before_startup();
     let config_path = paths::config_path();
     let state = app::startup(
         &config_path,
@@ -826,15 +829,24 @@ fn main() {
     lang::set(state.config.language);
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
     let keys = state.config.hotkeys;
-    APP.with(|a| *a.borrow_mut() = Some(state));
-    // Ghi lại đường dẫn exe hiện tại phòng khi file đã được chuyển chỗ; lỗi thì bỏ qua.
-    if autostart::is_enabled() {
-        let _ = autostart::set_enabled(true);
+    // Khóa Run theo đúng cấu hình darkshot: bỏ giá trị cũ, ghi lại đường dẫn exe hiện tại.
+    // Cấu hình hỏng hoặc không đọc được thì không đụng khóa Run.
+    if app::should_sync_autostart(state.config_notice) {
+        migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
+    APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
 
     if open_settings_now {
         post_open_settings(hwnd.0 as isize);
+    }
+    // Sau thông báo cấu hình (nếu có); loại Info nên không bị ô "thông báo lưu và sao chép" lọc.
+    if migration_failed {
+        notifier.notify(
+            NoticeKind::Info,
+            lang::tr(Msg::NoticeMigrationIncompleteTitle),
+            lang::tr(Msg::NoticeMigrationIncomplete),
+        );
     }
 
     let mut msg = MSG::default();

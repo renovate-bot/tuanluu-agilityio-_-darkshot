@@ -57,6 +57,15 @@ pub fn startup(
     }
 }
 
+/// Có đồng bộ khóa Run theo cấu hình không. Cấu hình hỏng hoặc không đọc được thì giá trị
+/// `autostart` thật là chưa biết: giữ nguyên mọi giá trị Run (kể cả của bản cũ).
+pub fn should_sync_autostart(notice: Option<ConfigNotice>) -> bool {
+    match notice {
+        None | Some(ConfigNotice::SecretLost) => true,
+        Some(ConfigNotice::Corrupt) | Some(ConfigNotice::Unreadable) => false,
+    }
+}
+
 pub fn needs_settings_on_start(s: &AppState, config_file_exists: bool) -> bool {
     !config_file_exists || s.config_notice.is_some()
 }
@@ -335,6 +344,14 @@ mod tests {
         ] {
             assert_ne!(n.message(Lang::Vi), n.message(Lang::En));
         }
+    }
+
+    #[test]
+    fn autostart_sync_only_when_config_is_known() {
+        assert!(should_sync_autostart(None));
+        assert!(should_sync_autostart(Some(ConfigNotice::SecretLost)));
+        assert!(!should_sync_autostart(Some(ConfigNotice::Corrupt)));
+        assert!(!should_sync_autostart(Some(ConfigNotice::Unreadable)));
     }
 
     #[test]
