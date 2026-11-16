@@ -275,6 +275,38 @@ pub fn should_retry(added: bool, attempts: u32) -> bool {
 mod tests {
     use super::*;
 
+    /// Phân tích ICONDIR của `res/shotme.ico`: đủ tám cỡ, 32 bit, offset/kích thước hợp lệ.
+    #[test]
+    fn ico_has_all_sizes_32bit_within_file() {
+        let ico: &[u8] = include_bytes!("../res/shotme.ico");
+        assert!(ico.len() >= 6, "file quá ngắn");
+        let u16at = |o: usize| u16::from_le_bytes([ico[o], ico[o + 1]]) as usize;
+        let u32at =
+            |o: usize| u32::from_le_bytes([ico[o], ico[o + 1], ico[o + 2], ico[o + 3]]) as usize;
+        assert_eq!(u16at(0), 0, "reserved");
+        assert_eq!(u16at(2), 1, "type phải là icon");
+        let count = u16at(4);
+        assert!(ico.len() >= 6 + 16 * count, "thiếu mục ICONDIRENTRY");
+        let mut sizes = Vec::new();
+        for i in 0..count {
+            let e = 6 + 16 * i;
+            let w = if ico[e] == 0 { 256 } else { ico[e] as usize };
+            let h = if ico[e + 1] == 0 {
+                256
+            } else {
+                ico[e + 1] as usize
+            };
+            assert_eq!(w, h, "cỡ phải vuông");
+            assert_eq!(u16at(e + 6), 32, "cỡ {w} phải 32 bit");
+            let size = u32at(e + 8);
+            let off = u32at(e + 12);
+            assert!(size > 0 && off + size <= ico.len(), "cỡ {w} vượt file");
+            sizes.push(w);
+        }
+        sizes.sort_unstable();
+        assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
+    }
+
     #[test]
     fn tray_add_retry_policy() {
         assert!(!should_retry(true, 0));
