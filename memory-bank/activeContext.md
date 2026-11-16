@@ -21,6 +21,13 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
+**Đợt 4 (2026-11-17): đổi tên darkshot, giao diện luôn tối.** Thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`; gói task 27–31. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề để họ xem sau (mục "Vấn đề chờ chủ dự án xem" dưới đây). Task đang làm: 27 trên nhánh `task/27-rename-darkshot`.
+
+### Vấn đề chờ chủ dự án xem (đợt 4)
+
+- Thiết kế mục 7.1 ghi tỉ lệ tương phản cao hơn thực tế và màu nút chính khi trỏ `#3D7BF0` chỉ đạt 3,97:1; kế hoạch dùng `#2563EB` (5,17:1). Số đúng ở mục "Bảng màu đã kiểm" của kế hoạch.
+- Repo GitHub và thư mục dự án vẫn tên shotme: cần chủ dự án quyết có đổi không (thao tác bên ngoài).
+
 Đợt 1 (Task 15–19 và 19b) đã xong. **Đợt 2** (phím tắt toàn màn hình, con trỏ, giữ vị trí vùng, bật/tắt thông báo): thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md` đã duyệt (2026-11-16); kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md`; gói task `docs/tasks/20-...` đến `23-...`; quyết định 33–38. Đợt 2 (Task 20–23) đã xong và đã nghiệm thu. Bước kế tiếp: brainstorm đợt 3 với chủ dự án (thiết kế riêng, kế hoạch riêng, gói task từ số 24).
 
 ## Đang chờ chủ dự án

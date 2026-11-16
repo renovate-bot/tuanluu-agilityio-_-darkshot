@@ -37,6 +37,11 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 24 Lõi đợt 3: định dạng tải lên, bộ nén JPEG | task/24-upload-format-core | builder | sonnet | xong | 143.728 | 46.466 | 3.060 | 193.254 |
 | 25 Tab Định dạng | task/25-format-tab | specialist | opus | xong | 184.196 | 118.542 | 4.661 | 307.399 |
 | 26 Tài liệu đợt 3 | task/26-docs-batch3 | scaffolder | haiku | xong | 140.579 | 44.680 | 0 | 185.259 |
+| 27 Đổi tên darkshot | task/27-rename-darkshot | builder | sonnet | đang làm | | | | |
+| 28 Chuyển dữ liệu từ shotme | task/28-legacy-migration | specialist | opus | chờ | | | | |
+| 29 Lõi giao diện tối, Thông tin, Trợ giúp, menu khay, lớp phủ | task/29-dark-theme-core | builder | sonnet | chờ | | | | |
+| 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | chờ | | | | |
+| 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | chờ | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -44,7 +49,9 @@ Task 20–23 là đợt 2 (kế hoạch `docs/superpowers/plans/2026-11-16-captu
 
 Task 24–26 là đợt 3 (kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md`). Trước khi xây: đọc soát thiết kế đợt 3 (general-purpose) 129.579. Cộng Task 24–26: 685.912 (làm 468.503; rà soát 209.688; sửa 7.721); kể cả đọc soát thiết kế: 815.491. Theo model: opus (Task 25) 307.399; sonnet (Task 24 và rà soát 26) 237.934; haiku (Task 26) 140.579. Chủ dự án báo "đã duyệt. Đúng yêu cầu" (2026-11-16).
 
-Rà soát Task 4, 8, 9, 17, 21, 22, 25 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
+Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075.
+
+Rà soát Task 4, 8, 9, 17, 21, 22, 25, 28, 30 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
 Ghi chú về "Token sửa": khi một agent được gọi tiếp để sửa, công cụ báo một con số duy nhất cho agent đó (Task 3: 69.217 sau lượt sửa, so với 66.710 sau lượt làm). Sổ này coi con số đó là cộng dồn và ghi phần chênh lệch vào cột "Token sửa". Đây là giả định, chưa kiểm chứng; nếu con số là riêng của lượt sửa thì Token sửa của Task 3 là 69.217. Task 4: agent làm báo 58.879 (lượt bị dừng vì không truy cập được tài liệu AWS), 73.515 (sau khi làm xong), 79.057 (sau lượt sửa); mức tăng nhỏ giữa các lượt cho thấy con số có thể là kích thước ngữ cảnh cuối của agent, thấp hơn lượng token thực tính tiền. Coi bảng này là số tương đối giữa các task.
 
