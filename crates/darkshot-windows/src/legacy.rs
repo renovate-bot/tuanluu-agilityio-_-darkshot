@@ -8,6 +8,7 @@ use darkshot_core::migrate::{
     migrated_config, plan_run, should_copy_config, RunAction, LEGACY_APP_DIR, LEGACY_EXE,
     LEGACY_RUN_VALUE,
 };
+use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use windows::core::HSTRING;
@@ -105,11 +106,24 @@ fn remove_legacy_wer() -> Result<(), String> {
     }
 }
 
+/// Đúng khi tên file exe là tên exe cũ (không phân biệt hoa thường): khi đó loại trừ WER đang
+/// thuộc về chính tiến trình này, không gỡ.
+fn is_legacy_exe(file_name: &OsStr) -> bool {
+    file_name
+        .to_str()
+        .is_some_and(|n| n.eq_ignore_ascii_case(LEGACY_EXE))
+}
+
 /// Gọi lúc khởi động, trước app::startup: migrate_config với thư mục thật, rồi
 /// WerRemoveExcludedApplication(LEGACY_EXE, FALSE) (lỗi "không có" không tính là lỗi).
 pub fn run_before_startup() -> bool {
     let config_failed = migrate_config(&paths::appdata_dir(), &paths::pictures_dir()).is_err();
-    let wer_failed = remove_legacy_wer().is_err();
+    let exe = std::env::current_exe().ok();
+    let running_as_legacy = exe
+        .as_deref()
+        .and_then(Path::file_name)
+        .is_some_and(is_legacy_exe);
+    let wer_failed = !running_as_legacy && remove_legacy_wer().is_err();
     config_failed || wer_failed
 }
 
@@ -186,6 +200,14 @@ mod tests {
   "autostart": true,
   "language": "en"
 }"#;
+
+    #[test]
+    fn legacy_exe_name_ignores_case() {
+        assert!(is_legacy_exe(OsStr::new(LEGACY_EXE)));
+        assert!(is_legacy_exe(OsStr::new(&LEGACY_EXE.to_uppercase())));
+        assert!(!is_legacy_exe(OsStr::new("darkshot.exe")));
+        assert!(!is_legacy_exe(OsStr::new("")));
+    }
 
     #[test]
     fn migration_round_trip_in_temp_dir() {

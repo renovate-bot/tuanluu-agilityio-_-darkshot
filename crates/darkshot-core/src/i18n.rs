@@ -124,6 +124,7 @@ messages! {
         "Không đọc được file cấu hình. Đang dùng tùy chọn mặc định; bấm OK để ghi lại.",
         "Could not read the config file. Using default options; click OK to write it again."
     ),
+    NoticeMigrationIncompleteTitle => ("Chưa chuyển xong thiết lập", "Settings not fully moved"),
     NoticeMigrationIncomplete => (
         "Chưa chuyển được hết thiết lập từ phiên bản cũ. Hãy mở Tùy chọn để kiểm tra.",
         "Some settings from the previous version could not be moved. Open Options to check them."
@@ -764,6 +765,15 @@ mod tests {
     #[test]
     fn migration_notice_in_both_languages() {
         assert!(Msg::ALL.contains(&Msg::NoticeMigrationIncomplete));
+        assert!(Msg::ALL.contains(&Msg::NoticeMigrationIncompleteTitle));
+        assert_eq!(
+            t(Lang::Vi, Msg::NoticeMigrationIncompleteTitle),
+            "Chưa chuyển xong thiết lập"
+        );
+        assert_eq!(
+            t(Lang::En, Msg::NoticeMigrationIncompleteTitle),
+            "Settings not fully moved"
+        );
         let (vi, en) = (
             t(Lang::Vi, Msg::NoticeMigrationIncomplete),
             t(Lang::En, Msg::NoticeMigrationIncomplete),

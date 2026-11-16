@@ -220,3 +220,4 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] (d) Máy chưa từng có shotme: không có thông báo nào về phiên bản cũ; ảnh lưu vào `Pictures\darkshot`.
 - [ ] (e) File `%APPDATA%\shotme\config.json` hỏng (chưa có cấu hình darkshot): darkshot vẫn chạy với mặc định và hiện thông báo "Chưa chuyển được hết thiết lập từ phiên bản cũ..."; file cũ không bị đổi.
 - [ ] (f) Sau (a): `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` không còn `shotme.exe`, còn `darkshot.exe`.
+- [ ] (g) Cấu hình darkshot hỏng (ví dụ ghi `not json` vào `%APPDATA%\darkshot\config.json`), khởi động cùng Windows đang bật (có giá trị Run `darkshot`, thêm tay `shotme`): chạy darkshot, giá trị Run `darkshot` và `shotme` còn nguyên.

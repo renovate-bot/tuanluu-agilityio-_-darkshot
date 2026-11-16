@@ -830,7 +830,10 @@ fn main() {
     let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
     let keys = state.config.hotkeys;
     // Khóa Run theo đúng cấu hình darkshot: bỏ giá trị cũ, ghi lại đường dẫn exe hiện tại.
-    migration_failed |= legacy::sync_autostart(state.config.autostart);
+    // Cấu hình hỏng hoặc không đọc được thì không đụng khóa Run.
+    if app::should_sync_autostart(state.config_notice) {
+        migration_failed |= legacy::sync_autostart(state.config.autostart);
+    }
     APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
 
@@ -841,7 +844,7 @@ fn main() {
     if migration_failed {
         notifier.notify(
             NoticeKind::Info,
-            "",
+            lang::tr(Msg::NoticeMigrationIncompleteTitle),
             lang::tr(Msg::NoticeMigrationIncomplete),
         );
     }
