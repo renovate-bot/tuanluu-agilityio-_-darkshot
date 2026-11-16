@@ -180,13 +180,17 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
         GateAction::StartTimer => {
             // Chờ menu khay tắt hẳn (hiệu ứng mờ dần) để nó không lọt vào ảnh.
             // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
-            unsafe {
+            let timer = unsafe {
                 SetTimer(
                     Some(hwnd),
                     MENU_CAPTURE_TIMER_ID,
                     MENU_CAPTURE_DELAY_MS,
                     None,
-                );
+                )
+            };
+            if timer == 0 {
+                // Không đặt được hẹn giờ: chụp ngay thay vì để cổng kẹt ở PendingMenu.
+                return gate(hwnd, GateEvent::TimerFired);
             }
         }
         GateAction::CaptureNow => {
