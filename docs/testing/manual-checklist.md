@@ -5,8 +5,8 @@
 - [ ] Biểu tượng mới hiện đúng ở ba nơi: khay hệ thống, nút của cửa sổ Tùy chọn trên thanh tác vụ (và thanh tiêu đề, Alt+Tab), và `shotme.exe` trong Explorer (thử các cỡ biểu tượng nhỏ, vừa, lớn, rất lớn). Thử thêm ở tỷ lệ hiển thị 100%, 125%, 150%.
 - [ ] Bấm chuột phải (hoặc trái) vào biểu tượng: menu có năm mục (xem "Đợt 1: menu, Thông tin, Trợ giúp").
 - [ ] Chọn "Tùy chọn...": cửa sổ Tùy chọn mở (xem mục "Tùy chọn").
-- [ ] Chọn "Chụp màn hình" hoặc bấm PrintScreen: lớp phủ mở (xem mục "Lớp phủ").
-- [ ] Khi Lightshot (hoặc ứng dụng khác giữ PrintScreen) đang chạy: shotme vẫn chạy và hiện thông báo "Phím PrintScreen đang bị ứng dụng khác chiếm".
+- [ ] Chọn "Chụp màn hình" hoặc bấm phím của dòng "Chụp vùng màn hình" (mặc định PrintScreen): lớp phủ mở (xem mục "Lớp phủ"). Hai phím toàn màn hình không mở lớp phủ.
+- [ ] Khi Lightshot (hoặc ứng dụng khác giữ PrintScreen) đang chạy: shotme vẫn chạy và hiện thông báo "Phím tắt chưa hoạt động" nêu "PrintScreen".
 - [ ] Chạy `shotme.exe` lần thứ hai: bản thứ hai thoát ngay, chỉ còn một tiến trình.
 - [ ] Khởi động lại Explorer (Task Manager, Restart): biểu tượng khay hiện lại.
 - [ ] Chọn "Thoát": biểu tượng biến mất khỏi khay và tiến trình kết thúc.
@@ -57,7 +57,7 @@
 - [ ] "Kiểm tra kết nối": bấm liên tiếp nhiều lần chỉ chạy một lần; trong lúc nút mờ, Enter vẫn là OK chỉ khi bạn muốn (focus đã chuyển sang ô Account ID, không rơi vào trạng thái không phím nào hoạt động).
 - [ ] Đổi phím tắt sang tổ hợp khác, bấm OK: phím mới chụp được, phím cũ không còn tác dụng. Đổi về PrintScreen, bấm OK: PrintScreen chụp được lại.
 - [ ] Bấm "Đổi…" rồi bấm Hủy: phím tắt cũ vẫn chụp được.
-- [ ] Chọn phím đang bị ứng dụng khác chiếm rồi bấm OK: hiện lỗi "đang bị ứng dụng khác chiếm" trong cửa sổ, cửa sổ không đóng.
+- [ ] Chọn phím đang bị ứng dụng khác chiếm rồi bấm OK: hiện lỗi "... đang được ứng dụng khác dùng. Hãy chọn phím khác." trong cửa sổ, cửa sổ không đóng.
 - [ ] "Kiểm tra kết nối" với khóa sai: nút mờ trong lúc chờ, cửa sổ vẫn kéo và bấm được, rồi hiện thông báo lỗi tiếng Việt (không chứa khóa). Với khóa đúng: "Thành công: tải lên được và link mở được."
 - [ ] Đóng cửa sổ (nút X) lúc đang kiểm tra kết nối: ứng dụng không treo, không báo lỗi; mở lại cửa sổ thì dòng kết quả rỗng.
 - [ ] Mở Tùy chọn lần hai khi đã có một cửa sổ: không mở thêm, cửa sổ đang có được đưa ra trước.
@@ -94,7 +94,7 @@
 - [ ] Che cửa sổ Tùy chọn bằng cửa sổ khác (hoặc thu nhỏ nó), rồi bấm biểu tượng khay: cửa sổ Tùy chọn hiện ra trước (khôi phục nếu đang thu nhỏ), không có menu khay và không mở cửa sổ thứ hai.
 - [ ] Tải lên khi chưa cấu hình, nhưng lúc đó đang mở lớp phủ chụp lần khác: lớp phủ đóng xong thì Tùy chọn mới mở (yêu cầu không bị mất).
 - [ ] Menu khay đang mở mà một lượt tải lên báo cần Tùy chọn: menu đóng rồi Tùy chọn mở, không treo.
-- [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\shotme` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím … hiện không hoạt động" kèm hướng dẫn mở Tùy chọn chọn lại.
+- [ ] Khi lưu cài đặt thất bại (ví dụ thư mục `%APPDATA%\shotme` bị khóa ghi) và phím cũ không đăng ký lại được: có thông báo "Phím tắt chưa hoạt động" nêu tổ hợp bị chiếm, kèm hướng dẫn mở Tùy chọn chọn lại.
 - [ ] Bật "Khởi động cùng Windows" rồi bấm OK: mục `shotme` xuất hiện trong `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; tắt rồi bấm OK thì mất.
 
 ## Nghiệm thu với R2 thật
@@ -112,7 +112,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 
 ## Đợt 1: cửa sổ Tùy chọn
 
-- [ ] Ba tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (Chụp vùng màn hình + ô chỉ đọc + Đổi…), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
+- [ ] Ba tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; ba ô tích đợt 2; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (ba dòng, mỗi dòng có ô tích, ô chỉ đọc và Đổi…), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
 - [ ] Cửa sổ không đổi cỡ khi chuyển tab.
 - [ ] Giá trị gõ ở một tab còn nguyên sau khi sang tab khác và quay lại.
 - [ ] Tab/Shift+Tab đi vòng: dải tab → các ô của tab đang hiện → OK → Hủy → dải tab; không bao giờ vào ô của tab đang ẩn. Mũi tên trái/phải đổi tab khi dải tab giữ tiêu điểm. Ctrl+Tab và Ctrl+Shift+Tab đổi tab (vòng tròn) từ bất cứ ô nào, kể cả khi hộp chọn đang thả.

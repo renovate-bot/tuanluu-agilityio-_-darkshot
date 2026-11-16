@@ -75,14 +75,29 @@ Mọi trait có ràng buộc `Send + Sync`.
 
 ### Thêm một ô hoặc một tab (đợt 2, 3)
 
+- Bề rộng lấy từ `Layout` (`settings.rs`), tính một lần trong `build_controls` từ nhãn dài nhất của dòng phím tắt và lưu ở `Builder.layout`. Ô mới dùng `b.layout.client_w` và `b.layout.ew`, không ghi số cứng.
 - Ô trong tab có sẵn (`settings.rs`):
-  1. Thêm `const ID_...` (dãy hiện có 101 đến 114) và tạo điều khiển trong `build_general` hoặc `build_hotkeys` (trả về bộ giá trị) hoặc `build_r2` (trả về `R2Ctl`) bằng `row_edit`, `combo` hoặc `b.button`.
-  2. Thêm HWND vào `struct Ctl` và gán trong `build_controls`, chỗ dựng `let ctl = Ctl { ... }`.
-  3. Điền giá trị ban đầu trong `show` (các `set_text(c.account, ...)`), và đọc giá trị trong `read_form` vào trường mới của `Form`.
-  4. Kiểm trong `apply_form`; trường cấu hình thêm vào `Config` ở core và `config::load`/`save`.
-  5. Nếu ô có thể sai: thêm biến thể vào `Field`, vào `tab_of` và `field_ctl`. Nếu ô đứng đầu tab (theo thứ tự Tab) thì thêm vào `first_ctl`.
+  1. Thêm `const ID_...` (dãy hiện có 101 đến 117; khung tab là 120 đến 122; dòng phím tắt là `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135)). Tạo điều khiển trong `build_general` (trả `GeneralCtl`), `build_hotkeys` (trả `HotkeysCtl`) hoặc `build_r2` (trả `R2Ctl`) bằng `row_edit`, `combo` hoặc `b.button`. Ô tích là `b.button` với `BS_AUTOCHECKBOX`, như `check` trong `build_general`.
+  2. Thêm HWND vào `struct Ctl` và gán trong `build_controls`: trong chỗ dựng `let ctl = Ctl { ... }`, và thêm vào mảng `all` (kiểm HWND rỗng) phía trên. Lưu ý: các ô của dòng phím tắt không nằm trong `all`; `build_controls` kiểm chúng riêng qua `hk.chk`, `hk.edit` và `hk.btn`.
+  3. Điền giá trị ban đầu trong `show` (ô nhập bằng `set_text(c.account, ...)`, ô tích bằng `set_checked`), và đọc giá trị trong `read_form` vào trường mới của `Form` (ô tích bằng `is_checked`).
+  4. Kiểm trong `apply_form`; trường cấu hình thêm vào `Config` ở core, rồi vào `FileConfig` và hai chiều trong `config::load`/`save`.
+  5. Nếu ô có thể sai: thêm biến thể vào `Field`, vào `tab_of` và `field_ctl`. Nếu ô đứng đầu tab (theo thứ tự Tab) thì sửa `first_ctl`.
+- Dòng phím tắt mới, ở core (`crates/shotme-core/src/config.rs`): thêm biến thể vào `HotkeyRole`, rồi sửa `HotkeyRole::ALL` (`[HotkeyRole; 3]`), `label()` (trỏ tới một `Msg` nhãn mới trong `i18n.rs`, có đủ hai ngôn ngữ), `default_slot`, `Hotkeys` (trường mới, `Default`), `get`, `set` và `first_conflict`. Thêm trường của dòng vào `FileConfig` và ánh xạ hai chiều trong `config::load`/`save`.
+- Trong `crates/shotme-core/src/i18n.rs`: thêm trường vào `HelpKeys` và nhánh tương ứng trong `help_text`.
+- Trong `crates/shotme-windows/src/hotkey.rs`: thêm nhánh vào `id_of` và trường trong `help_keys`. `role_of` duyệt `HotkeyRole::ALL` nên không cần sửa. Mã đăng ký phải khác các mã đang có (1 đến 3).
+- Trong `settings.rs`: `HotkeyRole::ALL` được duyệt trong `show`, `read_form`, `build_hotkeys` và `save`, nên các vòng này tự nhận dòng mới. Độ dài các mảng `hk_chk`, `hk_edit`, `hk_btn` (`[HWND; 3]`) trong `struct Ctl`, và `struct HotkeysCtl` (`chk`, `edit`, `btn`, cùng độ dài 3) phải đổi cùng nhau.
+- ID của dòng là dãy liền nhau: `ID_HK_CHANGE0 + i` (130 đến 132) và `ID_HK_CHECK0 + i` (133 đến 135). Khi số dòng tăng, dãy nút "Đổi…" sẽ đè lên ô tích, nên phải dời `ID_HK_CHECK0` (hoặc đổi cả hai) trước khi thêm dòng.
+- Nếu dòng là loại chụp mới: thêm vào `CaptureKind` và `kind_of` trong `crates/shotme-windows/src/main.rs`, rồi thêm nhánh trong `capture_flow`.
 - Tab mới (`settings.rs`):
   1. Thêm biến thể vào `Tab`, rồi `Tab::ALL` (`[Tab; 3]`, đổi độ dài), `index` và `label` (kèm `Msg` mới).
-  2. Đổi độ dài mảng `frames: [HWND; 3]` trong `struct Ctl` và thêm `b.frame(ID_FRAME0 + n)` trong `build_controls`.
+  2. Đổi độ dài mảng `frames: [HWND; 3]` trong `struct Ctl`. Trong `build_controls`, thêm `b.frame(ID_FRAME0 + n)` vào mảng `frames`, thêm `frames[n]` vào mảng `all`, và đặt `b.parent = frames[Tab::X.index()]` trước khi gọi `build_*`.
   3. `show_frame` duyệt mảng `frames` để ẩn và tắt các khung còn lại, nên không cần sửa.
   4. Thêm hàm `build_*` cho tab, và nhánh trong `first_ctl`. Trình biên dịch báo các `match` còn thiếu nhánh.
+
+## Mẫu của đợt 2 (phím tắt, chụp, thông báo)
+
+- **Phím tắt:** nguồn là `config::Hotkeys` (ba `HotkeySlot`, mỗi slot có `enabled` và `key`). `hotkey::id_of` cho mã đăng ký (Region 1, SaveFull 2, UploadFull 3); `role_of(id)` đổi ngược khi nhận `WM_HOTKEY`. `hotkey::register_enabled` luôn hủy cả ba trước rồi đăng ký dòng đang bật, và trả về các dòng không đăng ký được (vì `RegisterHotKey` không thay phím cũ). Dùng khi khởi động (`main.rs`, qua `register_hotkeys_or_notify`), khi lưu lỗi (`main.rs`) và khi Hủy (`settings.rs`, `cancel`). Khi OK, `settings.rs` (`save`) chỉ đăng ký lại khi `s.hk_unregistered` (đã hủy một dòng trong phiên mở này, qua "Đổi…" hoặc một lần OK lỗi) hoặc khi `cfg.hotkeys` khác `s.current.hotkeys` (cấu hình lúc mở cửa sổ). Khi đó nó gọi `hotkey::unregister_all` rồi `hotkey::register` cho từng dòng đang bật. `help_keys` và `taken_combos` lấy tổ hợp cho Trợ giúp và thông báo.
+- **Cổng chụp:** `main::request(hwnd, ev, requested)` là lối vào duy nhất. Nó chạy `gate_step` (hàm thuần, có kiểm thử) và đặt loại chụp `CAPTURE_KIND` bằng `next_kind`, chỉ đổi khi yêu cầu được nhận (`StartTimer` hoặc `CaptureNow`). `capture_flow` đọc loại từ `CAPTURE_KIND`. Không gọi `capture_flow` từ chỗ khác.
+- **Lọc thông báo:** chỗ duy nhất là nhánh `WM_NOTICE` trong `wndproc` (`main.rs`), gọi `actions::notice_visible(kind, show_success_notices)`. Mọi thông báo của `TrayNotifier` đi qua `WM_NOTICE`, và hàng đợi `pending` chỉ nhận thông báo đã qua bước lọc. Thông báo `Success` bị ẩn theo ô tích; lỗi và thông tin luôn hiện.
+- **Con trỏ:** `capture::capture_virtual_screen(include_cursor)` vẽ con trỏ bằng `draw_cursor` (`DrawIconEx`) vào DIB khi DIB còn được chọn trong DC bộ nhớ, rồi `GdiFlush`. `Screenshot.cursor` giữ vị trí con trỏ theo tọa độ màn hình, dùng cho "toàn màn hình" (`full_screen_rect`). Lớp phủ hiển thị chính ảnh này nên con trỏ đứng yên như lúc chụp.
+- **Khung nhớ:** `LAST_SELECTION` (thread-local, `Cell<Option<Rect>>`) lưu khung theo tọa độ màn hình, chỉ trong bộ nhớ. `remember_after` nhớ khung khi Lưu, Chép, Tải lên và giữ khung cũ khi Hủy. Khi ghi, `capture::to_screen_coords` đổi khung ảnh sang tọa độ màn hình trước khi nhớ. `geometry::restore_selection` nhận khung tọa độ màn hình và tự trừ `origin`, nên danh sách màn hình truyền vào cũng phải là tọa độ màn hình. `shot.monitors` ở tọa độ ảnh, phải đổi bằng `to_screen_coords` trước (đã làm trong `capture_flow`). Truyền thẳng là lệch khi gốc âm.
