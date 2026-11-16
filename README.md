@@ -18,7 +18,7 @@ darkshot là tên mới của shotme. Nếu máy đang có shotme:
 
 1. Thoát shotme (menu khay, **Thoát**) trước khi chạy `darkshot.exe`. Hai bản cùng chạy sẽ tranh phím tắt; khi đó darkshot báo "Phím tắt chưa hoạt động".
 2. Lần chạy đầu, darkshot tự chép `%APPDATA%\shotme\config.json` sang `%APPDATA%\darkshot\config.json`, kể cả khóa R2 đã mã hóa. Không phải nhập lại R2. Nếu `%APPDATA%\darkshot\config.json` đã có thì darkshot giữ nguyên file đó, không ghi đè.
-3. Khởi động cùng Windows: nếu shotme đã bật thì darkshot cũng bật, và mục khởi động của shotme được gỡ. Từ đó khởi động cùng Windows theo cấu hình của darkshot.
+3. Khởi động cùng Windows theo cấu hình của darkshot, và mục khởi động của shotme được gỡ. Khi cấu hình được chép từ shotme ở lần chạy đầu, shotme đang bật thì darkshot cũng bật. Nếu darkshot đã có cấu hình riêng với khởi động tắt thì vẫn tắt. Ngoại lệ: nếu `%APPDATA%\darkshot\config.json` hỏng hoặc không đọc được, darkshot không đụng tới mục khởi động nào (của cả hai bản) để không ai mất khởi động cùng Windows.
 4. Thư mục ảnh cũ vẫn được dùng: nếu shotme lưu vào `Pictures\shotme` (mặc định cũ), darkshot tiếp tục lưu vào đó. Cấu hình mới của darkshot dùng `Pictures\darkshot`.
 5. `%APPDATA%\shotme` không bị xóa. Sau khi thấy darkshot chạy đúng, có thể xóa thư mục này bằng tay.
 
