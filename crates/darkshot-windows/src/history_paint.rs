@@ -2,26 +2,27 @@
 //! Chỉ vẽ; trạng thái và bố cục do `history_window` và `history_layout` lo.
 
 use crate::history_layout::{
-    empty_state_rects, empty_text_width, expires_text, fit_rect, row_subtitle, Layout, META_ROW,
+    center_msg_plan, empty_state_rects, empty_text_width, expires_text, fit_rect, row_subtitle,
+    Layout, SearchParts, META_ROW,
 };
-use crate::theme::{self, ButtonKind, ControlState};
+use crate::theme::{self, ButtonKind};
 use crate::winutil::scale;
 use darkshot_core::history::{format_dims, format_full, format_size, format_when, is_expired};
 use darkshot_core::history::{Entry, Kind};
 use darkshot_core::i18n::{Lang, Msg};
 use darkshot_core::naming::LocalTime;
 use darkshot_core::theme::{
-    Rgb, ACCENT, ACCENT_BUTTON, BG, BUTTON_BORDER, DANGER, INPUT, LINE, SUCCESS, SURFACE,
+    Rgb, ACCENT, ACCENT_BUTTON, BG, BUTTON, BUTTON_BORDER, DANGER, INPUT, LINE, SUCCESS, SURFACE,
     TAB_HOVER, TEXT, TEXT_DISABLED, TEXT_MUTED, WHITE,
 };
 use std::ffi::c_void;
 use windows::Win32::Foundation::{LRESULT, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-    SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO, BITMAPINFOHEADER,
-    BI_RGB, DIB_RGB_COLORS, DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
-    DT_NOPREFIX, DT_PATH_ELLIPSIS, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, HALFTONE, HBITMAP, HDC,
-    HFONT, HGDIOBJ, SRCCOPY,
+    AlphaBlend, BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC,
+    ReleaseDC, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, AC_SRC_OVER, BITMAPINFO,
+    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DRAW_TEXT_FORMAT, DT_CALCRECT,
+    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_PATH_ELLIPSIS, DT_SINGLELINE, DT_VCENTER,
+    DT_WORDBREAK, HALFTONE, HBITMAP, HDC, HFONT, HGDIOBJ, SRCCOPY,
 };
 use windows::Win32::UI::Controls::{CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_SKIPDEFAULT, NMCUSTOMDRAW};
 
@@ -385,23 +386,16 @@ pub fn draw_row(
     }
 }
 
-/// Thanh trên ở trạng thái tĩnh: ô tìm (chữ gợi ý), bốn viên thuốc (Tất cả đang chọn), nút xóa lịch sử.
-pub fn draw_header(dc: HDC, l: &Layout, fonts: &Fonts, lang: Lang, has_entries: bool) {
+/// Khung ô tìm (nền, viền, gạch dưới `ACCENT` khi có tiêu điểm) và kính lúp. Ô EDIT con không viền nằm
+/// ở `parts.edit`; nút `×`, bốn viên lọc và nút "Xóa lịch sử" là điều khiển con tự vẽ.
+pub fn draw_search_field(dc: HDC, l: &Layout, parts: &SearchParts, focused: bool, enabled: bool) {
     let dpi = l.dpi;
     let s = |x: i32| scale(x, dpi);
-    let t = |m: Msg| darkshot_core::i18n::t(lang, m);
-    // Ô tìm.
-    theme::draw_field(dc, &l.search, dpi, theme::edit_border(false, true));
-    let cy = (l.search.top + l.search.bottom) / 2;
-    let d = s(12);
-    let lens = RECT {
-        left: l.search.left + s(10),
-        top: cy - d / 2 - s(1),
-        right: l.search.left + s(10) + d,
-        bottom: cy + d / 2 - s(1),
-    };
-    let bw = s(2).max(1) * 3 / 4;
-    theme::ellipse(dc, &lens, INPUT, TEXT_MUTED, bw.max(1));
+    theme::draw_field(dc, &l.search, dpi, theme::edit_border(focused, enabled));
+    let lens = parts.lens;
+    let bw = (s(2).max(1) * 3 / 4).max(1);
+    let c = if enabled { TEXT_MUTED } else { TEXT_DISABLED };
+    theme::ellipse(dc, &lens, INPUT, c, bw);
     theme::polyline(
         dc,
         &[
@@ -414,70 +408,108 @@ pub fn draw_header(dc: HDC, l: &Layout, fonts: &Fonts, lang: Lang, has_entries: 
                 y: lens.bottom + s(3),
             },
         ],
-        TEXT_MUTED,
-        bw.max(1) + 1,
+        c,
+        bw + 1,
     );
-    let hint = RECT {
-        left: lens.right + s(10),
-        right: l.search.right - s(10),
-        ..l.search
+}
+
+/// Chữ gợi ý của ô tìm (ô trống, không có tiêu điểm), vẽ trong vùng client `r` của ô EDIT.
+pub fn draw_placeholder(dc: HDC, r: &RECT, hint: &str, font: Option<HFONT>, enabled: bool) {
+    theme::fill(dc, r, INPUT);
+    let c = if enabled { TEXT_MUTED } else { TEXT_DISABLED };
+    let tr = RECT {
+        left: r.left + 1,
+        ..*r
     };
+    text(dc, hint, &tr, c, font, ONE_LINE | DT_LEFT);
+}
+
+/// Chữ của dòng trạng thái (lỗi `DANGER`, còn lại `TEXT_MUTED`).
+pub fn draw_status(dc: HDC, r: &RECT, msg: &str, error: bool, font: Option<HFONT>, center: bool) {
+    let c = if error { DANGER } else { TEXT_MUTED };
+    let align = if center { DT_CENTER } else { DT_LEFT };
+    text(dc, msg, r, c, font, ONE_LINE | align);
+}
+
+/// Phủ một lớp `BG` mờ (độ đục `alpha`/255) lên `r` của `dc` bằng `AlphaBlend` từ một điểm ảnh.
+pub fn dim(dc: HDC, r: &RECT, alpha: u8) {
+    let (w, h) = (r.right - r.left, r.bottom - r.top);
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let px = [(u32::from(BG.0) << 16) | (u32::from(BG.1) << 8) | u32::from(BG.2)];
+    let Some(b) = bmp_from_pixels(1, 1, &px) else {
+        return;
+    };
+    // SAFETY: DC tạm tạo ở đây được trả bitmap cũ và xóa trên mọi đường đi; bitmap thuộc `b` (xóa khi
+    // `b` bị bỏ, sau khi đã bỏ chọn).
+    unsafe {
+        let mem = CreateCompatibleDC(Some(dc));
+        if mem.is_invalid() {
+            return;
+        }
+        let old = SelectObject(mem, HGDIOBJ(b.handle.0));
+        let bf = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: alpha,
+            AlphaFormat: 0,
+        };
+        let _ = AlphaBlend(dc, r.left, r.top, w, h, mem, 0, 0, 1, 1, bf);
+        SelectObject(mem, old);
+        let _ = DeleteDC(mem);
+    }
+}
+
+/// Thẻ xác nhận trong vùng client `card` của cửa sổ thẻ (gốc 0,0): nền `SURFACE` bo 8 viền `LINE`,
+/// tiêu đề và đoạn giải thích (`title_rc`, `text_rc` cùng hệ tọa độ).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_card(
+    dc: HDC,
+    card: &RECT,
+    title_rc: &RECT,
+    text_rc: &RECT,
+    title: &str,
+    body: &str,
+    fonts: &Fonts,
+    dpi: u32,
+) {
+    theme::fill(dc, card, BG);
+    theme::round_rect(
+        dc,
+        card,
+        scale(crate::history_layout::CARD_RADIUS, dpi),
+        SURFACE,
+        LINE,
+        scale(1, dpi).max(1),
+    );
+    text(dc, title, title_rc, TEXT, fonts.title, ONE_LINE | DT_LEFT);
     text(
         dc,
-        t(Msg::HistorySearchPlaceholder),
-        &hint,
+        body,
+        text_rc,
         TEXT_MUTED,
         fonts.normal,
-        ONE_LINE | DT_LEFT,
+        DT_WORDBREAK | DT_LEFT,
     );
-    // Viên thuốc lọc.
-    let labels = [
-        Msg::HistoryFilterAll,
-        Msg::HistoryFilterSaved,
-        Msg::HistoryFilterUploaded,
-        Msg::HistoryFilterCopied,
-    ];
-    for (k, chip) in l.chips.iter().enumerate() {
-        let radius = (chip.bottom - chip.top) / 2;
-        let (fill, border, fg) = if k == 0 {
-            (ACCENT_BUTTON, ACCENT_BUTTON, WHITE)
-        } else {
-            (BG, BUTTON_BORDER, TEXT_MUTED)
-        };
-        theme::round_rect(dc, chip, radius, fill, border, s(1).max(1));
-        let inner = RECT {
-            left: chip.left + s(6),
-            right: chip.right - s(6),
-            ..*chip
-        };
-        text(
-            dc,
-            t(labels[k]),
-            &inner,
-            fg,
-            fonts.normal,
-            ONE_LINE | DT_CENTER,
-        );
-    }
-    // Nút "Xóa lịch sử".
-    let wtext = wide(t(Msg::HistoryClear));
-    let state = ControlState {
-        hot: false,
-        pressed: false,
-        focused: false,
-        enabled: has_entries,
-        checked: false,
-    };
-    theme::draw_button(
+}
+
+/// Chiều cao đoạn chữ xuống dòng, căn trái (đoạn giải thích của thẻ xác nhận).
+pub fn measure_wrapped_left(dc: HDC, font: Option<HFONT>, s: &str, width: i32) -> i32 {
+    let r = theme::draw_text(
         dc,
-        &l.clear_btn,
-        &wtext,
-        ButtonKind::Normal,
-        state,
-        dpi,
-        fonts.normal,
-        (false, false),
+        &wide(s),
+        &RECT {
+            left: 0,
+            top: 0,
+            right: width.max(1),
+            bottom: 0,
+        },
+        TEXT,
+        font,
+        DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_LEFT,
     );
+    r.bottom - r.top
 }
 
 /// Đường kẻ dưới thanh trên và giữa danh sách với khung chi tiết.
@@ -592,10 +624,11 @@ pub fn draw_detail(
     fonts: &Fonts,
     lang: Lang,
     today: &LocalTime,
-) {
+) -> Vec<Tip> {
     let dpi = l.dpi;
     let s = |x: i32| scale(x, dpi);
     let t = |m: Msg| darkshot_core::i18n::t(lang, m);
+    let mut tips = Vec::new();
     let Some((e, exists)) = e else {
         let area = RECT {
             left: l.detail.left + s(16),
@@ -623,7 +656,7 @@ pub fn draw_detail(
             fonts.normal,
             ONE_LINE | DT_CENTER,
         );
-        return;
+        return tips;
     };
     // Vùng xem trước.
     theme::round_rect(dc, &l.preview_area, s(6), INPUT, INPUT, 0);
@@ -631,16 +664,28 @@ pub fn draw_detail(
     let center_msg = |dc: HDC, icon: bool, title: &str, hint: Option<&str>| {
         let tw = (inner.right - inner.left).clamp(1, s(380));
         let hint_h = hint.map_or(0, |h| measure_wrapped(dc, fonts.normal, h, tw));
-        let ih = if icon { s(36) + s(12) } else { 0 };
-        let total = ih + s(22) + if hint.is_some() { s(6) + hint_h } else { 0 };
+        // Thiếu chỗ (cửa sổ thấp): co biểu tượng, rồi bỏ biểu tượng, rồi bỏ dòng gợi ý.
+        let mut plan = center_msg_plan(inner.bottom - inner.top, hint_h, dpi);
+        if !icon {
+            plan.icon = 0;
+        }
+        let hint = hint.filter(|_| plan.hint);
+        let total = plan.height(if hint.is_some() { hint_h } else { 0 }, dpi)
+            - if hint.is_none() && plan.hint { s(6) } else { 0 };
+        let ih = if plan.icon > 0 {
+            plan.icon + if plan.icon >= s(36) { s(12) } else { s(8) }
+        } else {
+            0
+        };
         let top = inner.top + ((inner.bottom - inner.top) - total).max(0) / 2;
         let cx = (inner.left + inner.right) / 2;
-        if icon {
+        if plan.icon > 0 {
+            let iw = plan.icon * 4 / 3;
             let ic = RECT {
-                left: cx - s(24),
+                left: cx - iw / 2,
                 top,
-                right: cx + s(24),
-                bottom: top + s(36),
+                right: cx - iw / 2 + iw,
+                bottom: top + plan.icon,
             };
             broken_icon(dc, &ic, TEXT_MUTED, INPUT, dpi);
         }
@@ -781,13 +826,42 @@ pub fn draw_detail(
         // `mode`: DT_PATH_ELLIPSIS (đường dẫn, liên kết: cắt giữa) hoặc DT_END_ELLIPSIS.
         let flags = DT_SINGLELINE | DT_VCENTER | DT_LEFT | *mode;
         text(dc, value, &vr, *c, fonts.normal, flags);
+        // Đường dẫn và liên kết bị cắt: tooltip hiện đủ (thiết kế 3.5).
+        let tool = match label {
+            Msg::HistoryLabelFile => Some(TIP_PATH),
+            Msg::HistoryLabelLink => Some(TIP_LINK),
+            _ => None,
+        };
+        if let Some(id) = tool {
+            if measure(dc, fonts.normal, value).0 > vr.right - vr.left {
+                tips.push(Tip {
+                    id,
+                    rect: vr,
+                    text: value.clone(),
+                });
+            }
+        }
         y += s(META_ROW);
     }
+    tips
 }
 
-/// Vẽ nút "Xóa khỏi lịch sử": dáng nút thường, chữ `DANGER` (nguy hiểm nhẹ). Như
+/// Mã công cụ tooltip của đường dẫn và liên kết trong khung chi tiết.
+pub const TIP_PATH: usize = 2;
+pub const TIP_LINK: usize = 3;
+
+/// Một vùng chữ bị cắt cần tooltip hiện đủ (tọa độ client cửa sổ chính).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tip {
+    pub id: usize,
+    pub rect: RECT,
+    pub text: String,
+}
+
+/// Vẽ nút "Xóa khỏi lịch sử" (`hot_only` = false: chữ luôn `DANGER`, nguy hiểm nhẹ) hoặc "Xóa lịch sử"
+/// (`hot_only` = true: chữ chuyển `DANGER` khi trỏ): dáng nút thường. Như
 /// `theme::custom_draw_button`: vẽ hết ở `CDDS_PREPAINT`, điều khiển gốc lo bàn phím và trợ năng.
-pub fn custom_draw_danger(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32) -> LRESULT {
+pub fn custom_draw_danger(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32, hot_only: bool) -> LRESULT {
     if nmcd.dwDrawStage != CDDS_PREPAINT {
         return LRESULT(CDRF_DODEFAULT as isize);
     }
@@ -798,7 +872,11 @@ pub fn custom_draw_danger(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32) -> LRESULT {
     let cues = theme::ui_cues(hwnd);
     let font = theme::control_font(hwnd);
     let c = theme::button_colors(ButtonKind::Normal, state);
-    let fg = if state.enabled { DANGER } else { c.text };
+    let fg = if state.enabled && (state.hot || !hot_only) {
+        DANGER
+    } else {
+        c.text
+    };
     theme::buffered(nmcd.hdc, &rc, |dc| {
         theme::fill(dc, &rc, bg);
         theme::round_rect(
@@ -820,6 +898,97 @@ pub fn custom_draw_danger(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32) -> LRESULT {
         if state.focused && cues.0 {
             theme::focus_frame(dc, &inset(&rc, scale(3, dpi)), dpi);
         }
+    });
+    LRESULT(CDRF_SKIPDEFAULT as isize)
+}
+
+/// Vẽ một viên thuốc lọc (cao 28, bo tròn hoàn toàn): đang chọn nền `ACCENT_BUTTON` chữ trắng; trỏ nền
+/// `TAB_HOVER`; còn lại viền `BUTTON_BORDER` chữ `TEXT_MUTED`. Bàn phím và trợ năng do nút gốc lo.
+pub fn custom_draw_chip(nmcd: &NMCUSTOMDRAW, selected: bool, dpi: u32) -> LRESULT {
+    if nmcd.dwDrawStage != CDDS_PREPAINT {
+        return LRESULT(CDRF_DODEFAULT as isize);
+    }
+    let hwnd = nmcd.hdr.hwndFrom;
+    let rc = nmcd.rc;
+    let state = theme::button_state(hwnd);
+    let label = theme::window_text(hwnd);
+    let cues = theme::ui_cues(hwnd);
+    let font = theme::control_font(hwnd);
+    let (fill, border, fg) = match (selected, state.enabled, state.hot || state.pressed) {
+        (true, true, _) => (ACCENT_BUTTON, ACCENT_BUTTON, WHITE),
+        (true, false, _) => (BUTTON, BUTTON, TEXT_DISABLED),
+        (false, false, _) => (BG, BUTTON_BORDER, TEXT_DISABLED),
+        (false, true, true) => (TAB_HOVER, BUTTON_BORDER, TEXT),
+        (false, true, false) => (BG, BUTTON_BORDER, TEXT_MUTED),
+    };
+    theme::buffered(nmcd.hdc, &rc, |dc| {
+        theme::fill(dc, &rc, BG);
+        let radius = (rc.bottom - rc.top) / 2;
+        theme::round_rect(dc, &rc, radius, fill, border, scale(1, dpi).max(1));
+        let inner = RECT {
+            left: rc.left + scale(6, dpi),
+            right: rc.right - scale(6, dpi),
+            ..rc
+        };
+        theme::draw_text(
+            dc,
+            &label,
+            &inner,
+            fg,
+            font,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | theme::prefix_flag(cues.1),
+        );
+        if state.focused && cues.0 {
+            let k = scale(3, dpi);
+            let fr = RECT {
+                left: rc.left + radius / 2,
+                top: rc.top + k,
+                right: rc.right - radius / 2,
+                bottom: rc.bottom - k,
+            };
+            theme::focus_frame(dc, &fr, dpi);
+        }
+    });
+    LRESULT(CDRF_SKIPDEFAULT as isize)
+}
+
+/// Vẽ nút `×` trong ô tìm: dấu nhân `TEXT_MUTED` trên `INPUT`; trỏ thì nền tròn `TAB_HOVER`, nét `TEXT`.
+pub fn custom_draw_search_clear(nmcd: &NMCUSTOMDRAW, dpi: u32) -> LRESULT {
+    if nmcd.dwDrawStage != CDDS_PREPAINT {
+        return LRESULT(CDRF_DODEFAULT as isize);
+    }
+    let hwnd = nmcd.hdr.hwndFrom;
+    let rc = nmcd.rc;
+    let state = theme::button_state(hwnd);
+    theme::buffered(nmcd.hdc, &rc, |dc| {
+        theme::fill(dc, &rc, INPUT);
+        let hot = state.enabled && (state.hot || state.pressed);
+        let w = (rc.right - rc.left).min(rc.bottom - rc.top);
+        let (cx, cy) = ((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2);
+        if hot {
+            let d = w * 3 / 4;
+            let r = RECT {
+                left: cx - d / 2,
+                top: cy - d / 2,
+                right: cx - d / 2 + d,
+                bottom: cy - d / 2 + d,
+            };
+            theme::ellipse(dc, &r, TAB_HOVER, TAB_HOVER, 0);
+        }
+        let c = if !state.enabled {
+            TEXT_DISABLED
+        } else if hot {
+            TEXT
+        } else {
+            TEXT_MUTED
+        };
+        let a = scale(4, dpi);
+        let bw = scale(3, dpi) / 2 + 1;
+        let line = |x0: i32, y0: i32, x1: i32, y1: i32| {
+            theme::polyline(dc, &[POINT { x: x0, y: y0 }, POINT { x: x1, y: y1 }], c, bw);
+        };
+        line(cx - a, cy - a, cx + a + 1, cy + a + 1);
+        line(cx + a, cy - a, cx - a - 1, cy + a + 1);
     });
     LRESULT(CDRF_SKIPDEFAULT as isize)
 }

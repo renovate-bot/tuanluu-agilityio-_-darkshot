@@ -4,13 +4,14 @@
 //! Mọi số đo là DIP (thiết kế mục 3.2–3.5) và được quy đổi sang pixel theo `dpi`.
 
 use crate::winutil::scale;
-use darkshot_core::history::{format_dims, format_size, Entry, Kind};
-use darkshot_core::i18n::Lang;
+use darkshot_core::history::{filter_entries, format_dims, format_size, Entry, Filter, Kind};
+use darkshot_core::i18n::{Lang, Msg};
 use darkshot_core::image::Image;
 use darkshot_core::theme::Rgb;
 use darkshot_core::thumb::fit_within;
 use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
+use std::path::Path;
 use windows::Win32::Foundation::{POINT, RECT};
 
 /// Lề ngoài và đệm khung chi tiết.
@@ -30,10 +31,10 @@ const LIST_MAX: i32 = 420;
 pub const ROW_H: i32 = 72;
 pub const THUMB_W: i32 = 88;
 pub const THUMB_H: i32 = 56;
-/// Ô tìm: cao 32, rộng 220 co xuống 160.
+/// Ô tìm: cao 32, rộng tối đa 260 (thiết kế ghi 220; nới để chữ gợi ý tiếng Việt hiện đủ), co xuống 160.
 const SEARCH_H: i32 = 32;
 const SEARCH_MIN: i32 = 160;
-const SEARCH_MAX: i32 = 220;
+const SEARCH_MAX: i32 = 260;
 /// Viên thuốc lọc: cao 28; bề rộng cố định đủ cho nhãn dài nhất của hai ngôn ngữ.
 const CHIP_H: i32 = 28;
 const CHIP_W: [i32; 4] = [68, 76, 92, 80];
@@ -381,14 +382,14 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
             remove: Avail::Enabled,
         },
         Kind::Uploaded => ActionSet {
-            open: if e.url.as_deref().is_some_and(|u| u.starts_with("https://")) {
+            open: if e.url.as_deref().is_some_and(url_openable) {
                 Avail::Enabled
             } else {
                 Avail::Disabled
             },
             open_is_link: true,
             copy_image: file,
-            copy_link: if e.url.is_some() {
+            copy_link: if e.url.as_deref().is_some_and(|u| !u.is_empty()) {
                 Avail::Enabled
             } else {
                 Avail::Hidden
@@ -719,6 +720,458 @@ pub fn row_subtitle(lang: Lang, e: &Entry) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tìm và lọc (thiết kế mục 3.3, 6)
+// ---------------------------------------------------------------------------
+
+/// Bộ lọc theo thứ tự bốn viên thuốc: Tất cả, Đã lưu, Đã tải lên, Đã chép.
+pub const CHIP_FILTERS: [Filter; 4] =
+    [Filter::All, Filter::Saved, Filter::Uploaded, Filter::Copied];
+
+/// Bộ lọc của viên thứ `k` (`None` khi ngoài bốn viên).
+pub fn chip_filter(k: usize) -> Option<Filter> {
+    CHIP_FILTERS.get(k).copied()
+}
+
+/// Viên thuốc của bộ lọc `f`.
+pub fn filter_chip(f: Filter) -> usize {
+    CHIP_FILTERS.iter().position(|x| *x == f).unwrap_or(0)
+}
+
+/// Viên nào có `WS_TABSTOP`: chỉ viên đang chọn (như nhóm nút radio).
+pub fn chip_tabstops(f: Filter) -> [bool; 4] {
+    let sel = filter_chip(f);
+    std::array::from_fn(|k| k == sel)
+}
+
+/// Bộ lọc sau phím mũi tên (`dir` âm = trái), dừng ở hai đầu.
+pub fn chip_step(f: Filter, dir: i32) -> Filter {
+    let k = filter_chip(f) as i32 + dir.signum();
+    chip_filter(k.clamp(0, 3) as usize).unwrap_or(f)
+}
+
+/// Chỉ số vào `entries` (theo thứ tự hiển thị) của các mục qua `history::filter_entries`.
+pub fn visible_indices(entries: &[Entry], filter: Filter, query: &str, lang: Lang) -> Vec<usize> {
+    let base = entries.as_ptr() as usize;
+    let size = std::mem::size_of::<Entry>().max(1);
+    filter_entries(entries, filter, query, lang)
+        .into_iter()
+        .map(|e| (e as *const Entry as usize - base) / size)
+        .collect()
+}
+
+/// Mục chọn sau khi đổi bộ lọc hoặc ô tìm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refiltered {
+    /// Vị trí trong danh sách hiển thị mới.
+    pub selected: Option<usize>,
+    /// Cuộn về đầu (mục chọn cũ đã rời khỏi danh sách).
+    pub scroll_top: bool,
+}
+
+/// Giữ mục chọn nếu còn trong `new` (id theo thứ tự hiển thị); không thì chọn mục đầu và cuộn về đầu.
+pub fn after_filter(selected: Option<&str>, new: &[&str]) -> Refiltered {
+    if let Some(p) = selected.and_then(|id| new.iter().position(|x| *x == id)) {
+        return Refiltered {
+            selected: Some(p),
+            scroll_top: false,
+        };
+    }
+    Refiltered {
+        selected: (!new.is_empty()).then_some(0),
+        scroll_top: true,
+    }
+}
+
+/// Mục chọn sau khi nạp lại mà mục đang chọn là `removed`: còn thì giữ theo id; đã bị xóa thì mục kế ở
+/// cùng vị trí, hết thì mục cuối; không còn gì thì `None`.
+pub fn select_after_remove(old: &[&str], removed: &str, new: &[&str]) -> Option<usize> {
+    reselect(old, Some(removed), new)
+}
+
+// ---------------------------------------------------------------------------
+// Hành động (thiết kế mục 3.6)
+// ---------------------------------------------------------------------------
+
+/// Liên kết mở được trên trình duyệt: đúng tiền tố `https://` (chữ thường), có máy chủ, không có ký
+/// tự điều khiển hay khoảng trắng.
+pub fn url_openable(u: &str) -> bool {
+    let Some(rest) = u.strip_prefix("https://") else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.starts_with('/')
+        && !u.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+/// Đối số của `explorer.exe` để mở thư mục và chọn sẵn tệp `p`: đường dẫn trong ngoặc kép, nên dấu
+/// cách và dấu phẩy không cắt đường dẫn. `None` (không gọi explorer) khi đường dẫn không tuyệt đối, có
+/// dấu `"` hay ký tự điều khiển (không thể là tệp thật, và có thể chèn thêm đối số).
+pub fn explorer_select_args(p: &Path) -> Option<String> {
+    let s = p.to_str()?;
+    if !p.is_absolute() || s.chars().any(|c| c == '"' || c.is_control()) {
+        return None;
+    }
+    Some(format!("/select,\"{s}\""))
+}
+
+/// Đường dẫn đầy đủ của `explorer.exe` trong thư mục Windows `windir`; không biết (hoặc giá trị lạ) thì
+/// dự phòng tên trần `explorer.exe`.
+pub fn explorer_exe(windir: Option<&str>) -> String {
+    let Some(d) = windir.map(|d| d.trim_end_matches('\\')) else {
+        return "explorer.exe".to_string();
+    };
+    let exe = format!("{d}\\explorer.exe");
+    if Path::new(&exe).is_absolute() && !d.chars().any(|c| c == '"' || c.is_control()) {
+        exe
+    } else {
+        "explorer.exe".to_string()
+    }
+}
+
+/// Phím mũi tên trên nhóm viên lọc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChipKey {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Hướng đổi bộ lọc của phím mũi tên: Lên như Trái, Xuống như Phải (như nhóm nút radio).
+pub fn chip_key_dir(k: ChipKey) -> i32 {
+    match k {
+        ChipKey::Left | ChipKey::Up => -1,
+        ChipKey::Right | ChipKey::Down => 1,
+    }
+}
+
+/// Kết quả một hành động, gửi về cửa sổ trong `WPARAM` của `WM_APP+10`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Status {
+    /// Xong, không cần báo (mở tệp, mở thư mục).
+    None = 0,
+    ImageCopied = 1,
+    LinkCopied = 2,
+    Removed = 3,
+    Cleared = 4,
+    Failed = 5,
+}
+
+impl Status {
+    pub fn from_wparam(v: usize) -> Status {
+        match v {
+            1 => Status::ImageCopied,
+            2 => Status::LinkCopied,
+            3 => Status::Removed,
+            4 => Status::Cleared,
+            5 => Status::Failed,
+            _ => Status::None,
+        }
+    }
+
+    /// Chữ của dòng trạng thái.
+    pub fn msg(self) -> Option<Msg> {
+        Some(match self {
+            Status::None => return None,
+            Status::ImageCopied => Msg::HistoryStatusImageCopied,
+            Status::LinkCopied => Msg::HistoryStatusLinkCopied,
+            Status::Removed => Msg::HistoryStatusRemoved,
+            Status::Cleared => Msg::HistoryStatusCleared,
+            Status::Failed => Msg::HistoryStatusFailed,
+        })
+    }
+
+    /// Lỗi: vẽ bằng `DANGER`.
+    pub fn is_error(self) -> bool {
+        self == Status::Failed
+    }
+}
+
+/// Một mục của menu chuột phải.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuItem {
+    /// Chỉ số hành động (0–4, như thứ tự nút).
+    pub action: usize,
+    pub label: Msg,
+    pub enabled: bool,
+    /// Phím tắt in bên phải (tên phím, giống nhau ở mọi ngôn ngữ).
+    pub shortcut: Option<&'static str>,
+    pub separator_before: bool,
+}
+
+/// Các mục menu theo bảng hành động: ẩn mục không áp dụng, vô hiệu mục không làm được, vạch ngăn trước
+/// "Xóa khỏi lịch sử".
+pub fn menu_items(a: &ActionSet) -> Vec<MenuItem> {
+    let labels = [
+        if a.open_is_link {
+            Msg::HistoryOpenLink
+        } else {
+            Msg::HistoryOpen
+        },
+        Msg::HistoryCopyImage,
+        Msg::HistoryCopyLink,
+        Msg::HistoryShowInFolder,
+        Msg::HistoryRemove,
+    ];
+    let keys = [
+        Some("Enter"),
+        Some("Ctrl+C"),
+        Some("Ctrl+Shift+C"),
+        None,
+        Some("Del"),
+    ];
+    a.as_array()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, av)| *av != Avail::Hidden)
+        .map(|(k, av)| MenuItem {
+            action: k,
+            label: labels[k],
+            enabled: av == Avail::Enabled,
+            shortcut: keys[k],
+            separator_before: k == 4,
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Thẻ xác nhận "Xóa toàn bộ lịch sử?" (thiết kế mục 3.7)
+// ---------------------------------------------------------------------------
+
+/// Hai nút của thẻ xác nhận.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConfirmBtn {
+    #[default]
+    Cancel,
+    Yes,
+}
+
+/// Phím thẻ xác nhận tự xử lý.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmKey {
+    Esc,
+    Enter,
+    Tab,
+    ShiftTab,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmOutcome {
+    /// Thẻ vẫn mở (hoặc đang đóng sẵn).
+    Stay,
+    Cancel,
+    Confirm,
+}
+
+/// Trạng thái thẻ xác nhận: mở/đóng và nút đang có tiêu điểm (Hủy là mặc định).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Confirm {
+    open: bool,
+    focus: ConfirmBtn,
+}
+
+impl Confirm {
+    pub fn open(&mut self) {
+        self.open = true;
+        self.focus = ConfirmBtn::Cancel;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn focus(&self) -> ConfirmBtn {
+        self.focus
+    }
+
+    pub fn set_focus(&mut self, b: ConfirmBtn) {
+        self.focus = b;
+    }
+
+    /// Esc = Hủy; Enter = nút đang có tiêu điểm; Tab/Shift+Tab xoay giữa hai nút.
+    pub fn key(&mut self, k: ConfirmKey) -> ConfirmOutcome {
+        if !self.open {
+            return ConfirmOutcome::Stay;
+        }
+        match k {
+            ConfirmKey::Esc => {
+                self.open = false;
+                ConfirmOutcome::Cancel
+            }
+            ConfirmKey::Enter => {
+                self.open = false;
+                match self.focus {
+                    ConfirmBtn::Cancel => ConfirmOutcome::Cancel,
+                    ConfirmBtn::Yes => ConfirmOutcome::Confirm,
+                }
+            }
+            ConfirmKey::Tab | ConfirmKey::ShiftTab => {
+                self.focus = match self.focus {
+                    ConfirmBtn::Cancel => ConfirmBtn::Yes,
+                    ConfirmBtn::Yes => ConfirmBtn::Cancel,
+                };
+                ConfirmOutcome::Stay
+            }
+        }
+    }
+}
+
+const CARD_W: i32 = 400;
+const CARD_PAD: i32 = 24;
+const CARD_TITLE_GAP: i32 = 8;
+const CARD_BTN_TOP: i32 = 24;
+pub const CARD_RADIUS: i32 = 8;
+
+/// Vị trí thẻ xác nhận và các phần của nó (pixel, tọa độ client cửa sổ chính).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CardRects {
+    pub card: RECT,
+    pub title: RECT,
+    pub text: RECT,
+    pub cancel: RECT,
+    pub yes: RECT,
+}
+
+/// Bề rộng đoạn giải thích của thẻ xác nhận (để đo chiều cao chữ xuống dòng).
+pub fn card_text_width(dpi: u32) -> i32 {
+    scale(CARD_W - 2 * CARD_PAD, dpi)
+}
+
+/// Thẻ rộng 400 DIP giữa thân; `title_h`, `text_h` = chiều cao chữ đã đo; `btn_w` = bề rộng nút Hủy và
+/// nút xóa. Hai nút cùng hàng ở góc dưới phải, Hủy bên trái.
+pub fn confirm_card(l: &Layout, title_h: i32, text_h: i32, btn_w: [i32; 2]) -> CardRects {
+    let s = |v: i32| scale(v, l.dpi);
+    let w = s(CARD_W);
+    let h = 2 * s(CARD_PAD) + title_h + s(CARD_TITLE_GAP) + text_h + s(CARD_BTN_TOP) + s(BTN_H);
+    let b = &l.body;
+    let left = b.left + (b.right - b.left - w) / 2;
+    let top = (b.top + (b.bottom - b.top - h) / 2).max(b.top);
+    let card = rc(left, top, left + w, top + h);
+    let (x0, x1) = (left + s(CARD_PAD), left + w - s(CARD_PAD));
+    let title = rc(x0, top + s(CARD_PAD), x1, top + s(CARD_PAD) + title_h);
+    let tt = title.bottom + s(CARD_TITLE_GAP);
+    let text = rc(x0, tt, x1, tt + text_h);
+    let bt = text.bottom + s(CARD_BTN_TOP);
+    let yw = btn_w[1].min(x1 - x0);
+    let yes = rc(x1 - yw, bt, x1, bt + s(BTN_H));
+    let cw = btn_w[0].min((yes.left - s(BTN_GAP) - x0).max(0));
+    let cancel = rc(
+        yes.left - s(BTN_GAP) - cw,
+        bt,
+        yes.left - s(BTN_GAP),
+        bt + s(BTN_H),
+    );
+    CardRects {
+        card,
+        title,
+        text,
+        cancel,
+        yes,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vùng xem trước, ô tìm
+// ---------------------------------------------------------------------------
+
+/// Cách vẽ thông báo giữa vùng xem trước: cỡ biểu tượng (0 = không vẽ) và có dòng gợi ý hay không.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MsgPlan {
+    pub icon: i32,
+    pub hint: bool,
+}
+
+const MSG_TITLE_H: i32 = 22;
+const MSG_HINT_GAP: i32 = 6;
+
+impl MsgPlan {
+    /// Chiều cao cả khối (biểu tượng, tiêu đề, gợi ý cao `hint_h`).
+    pub fn height(&self, hint_h: i32, dpi: u32) -> i32 {
+        let s = |v: i32| scale(v, dpi);
+        let icon = if self.icon > 0 {
+            self.icon + if self.icon >= s(36) { s(12) } else { s(8) }
+        } else {
+            0
+        };
+        let hint = if self.hint {
+            s(MSG_HINT_GAP) + hint_h
+        } else {
+            0
+        };
+        icon + s(MSG_TITLE_H) + hint
+    }
+}
+
+/// Chọn cách vẽ vừa vùng cao `inner_h`: đủ chỗ thì biểu tượng 36 DIP và gợi ý; thiếu thì co biểu
+/// tượng còn 24, rồi bỏ biểu tượng, rồi mới bỏ dòng gợi ý (chữ quan trọng hơn hình).
+pub fn center_msg_plan(inner_h: i32, hint_h: i32, dpi: u32) -> MsgPlan {
+    let s = |v: i32| scale(v, dpi);
+    let plans = [
+        MsgPlan {
+            icon: s(36),
+            hint: true,
+        },
+        MsgPlan {
+            icon: s(24),
+            hint: true,
+        },
+        MsgPlan {
+            icon: 0,
+            hint: true,
+        },
+        MsgPlan {
+            icon: s(24),
+            hint: false,
+        },
+    ];
+    plans
+        .into_iter()
+        .find(|p| p.height(hint_h, dpi) <= inner_h)
+        .unwrap_or(MsgPlan {
+            icon: 0,
+            hint: false,
+        })
+}
+
+/// Các phần của ô tìm: kính lúp, ô EDIT con (không viền, căn giữa dọc), nút `×`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SearchParts {
+    pub lens: RECT,
+    pub edit: RECT,
+    pub clear: RECT,
+}
+
+/// Xếp ô tìm `search`; `text_h` = chiều cao một dòng chữ của phông thường.
+pub fn search_parts(search: &RECT, dpi: u32, text_h: i32) -> SearchParts {
+    let s = |v: i32| scale(v, dpi);
+    let cy = (search.top + search.bottom) / 2;
+    let d = s(12);
+    let lens = rc(
+        search.left + s(10),
+        cy - d / 2 - s(1),
+        search.left + s(10) + d,
+        cy + d / 2 - s(1),
+    );
+    let cs = s(24);
+    let clear = rc(
+        search.right - s(4) - cs,
+        cy - cs / 2,
+        search.right - s(4),
+        cy - cs / 2 + cs,
+    );
+    let max_h = (search.bottom - search.top - 2 * s(3)).max(1);
+    let eh = (text_h + s(2)).clamp(1, max_h);
+    let top = cy - eh / 2;
+    let edit = rc(lens.right + s(10), top, clear.left - s(2), top + eh);
+    SearchParts { lens, edit, clear }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -837,7 +1290,8 @@ mod tests {
                     assert_eq!(l.thumb, (scale(88, dpi), scale(56, dpi)));
                     // Ô tìm co từ 220 xuống 160 DIP.
                     let sw = l.search.right - l.search.left;
-                    assert!(sw >= scale(160, dpi) - 1 && sw <= scale(220, dpi) + 1);
+                    // Rộng tối đa 260 DIP (nới từ 220 để chữ gợi ý tiếng Việt hiện đủ).
+                    assert!(sw >= scale(160, dpi) - 1 && sw <= scale(260, dpi) + 1);
                     // Ô ảnh vừa trong dòng, chữ còn chỗ.
                     assert!(l.thumb.1 < l.row_h);
                     assert!(l.list_client_w > l.thumb.0 + scale(150, dpi));
@@ -1276,5 +1730,442 @@ mod tests {
         assert_eq!(expires_text(Lang::Vi, "2026-12-18"), "18/12/2026");
         assert_eq!(expires_text(Lang::En, "2026-12-18"), "2026-12-18");
         assert_eq!(expires_text(Lang::Vi, "rác"), "rác");
+    }
+
+    // ---- Task 57: tìm, lọc, hành động, xác nhận ----
+
+    use darkshot_core::history::Filter;
+
+    #[test]
+    fn chips_map_to_filters_and_back() {
+        let want = [Filter::All, Filter::Saved, Filter::Uploaded, Filter::Copied];
+        for (k, f) in want.iter().enumerate() {
+            assert_eq!(chip_filter(k), Some(*f));
+            assert_eq!(filter_chip(*f), k);
+        }
+        assert_eq!(chip_filter(4), None);
+        assert_eq!(chip_filter(usize::MAX), None);
+        // Chỉ viên đang chọn nằm trong vòng Tab.
+        assert_eq!(chip_tabstops(Filter::All), [true, false, false, false]);
+        assert_eq!(chip_tabstops(Filter::Copied), [false, false, false, true]);
+        // Mũi tên trái/phải đổi bộ lọc, dừng ở hai đầu.
+        assert_eq!(chip_step(Filter::All, 1), Filter::Saved);
+        assert_eq!(chip_step(Filter::Saved, -1), Filter::All);
+        assert_eq!(chip_step(Filter::All, -1), Filter::All);
+        assert_eq!(chip_step(Filter::Copied, 1), Filter::Copied);
+        assert_eq!(chip_step(Filter::Uploaded, 1), Filter::Copied);
+    }
+
+    fn sample() -> Vec<Entry> {
+        let mut v = Vec::new();
+        let mut mk = |n: u32, kind: Kind, file: Option<&str>, day: u8| {
+            let mut e = entry(n, kind);
+            e.local.day = day;
+            e.path = file.map(|f| PathBuf::from(format!("C:\\Users\\Tuấn\\Ảnh\\{f}")));
+            if kind == Kind::Uploaded {
+                e.url = Some(format!("https://img.example.com/{n}/shot.png"));
+            }
+            v.push(e);
+        };
+        mk(0, Kind::Saved, Some("darkshot_meo.png"), 18);
+        mk(1, Kind::Uploaded, None, 18);
+        mk(2, Kind::Copied, None, 17);
+        mk(3, Kind::UploadFallback, Some("darkshot_cho.png"), 16);
+        mk(4, Kind::Saved, Some("bao cao.png"), 16);
+        mk(5, Kind::Uploaded, None, 15);
+        v
+    }
+
+    #[test]
+    fn visible_follows_filter_and_query() {
+        let e = sample();
+        let v = |f, q: &str, lang| visible_indices(&e, f, q, lang);
+        assert_eq!(v(Filter::All, "", Lang::Vi), vec![0, 1, 2, 3, 4, 5]);
+        // Đã lưu = Lưu + Lưu dự phòng.
+        assert_eq!(v(Filter::Saved, "", Lang::Vi), vec![0, 3, 4]);
+        assert_eq!(v(Filter::Uploaded, "", Lang::Vi), vec![1, 5]);
+        assert_eq!(v(Filter::Copied, "", Lang::Vi), vec![2]);
+        // Tên tệp, không phân biệt hoa thường và dấu.
+        assert_eq!(v(Filter::All, "MEO", Lang::Vi), vec![0]);
+        assert_eq!(v(Filter::All, "darkshot", Lang::Vi), vec![0, 3]);
+        assert_eq!(
+            v(Filter::Uploaded, "darkshot", Lang::Vi),
+            Vec::<usize>::new()
+        );
+        // Mọi từ phải khớp.
+        assert_eq!(v(Filter::All, "darkshot cho", Lang::Vi), vec![3]);
+        assert_eq!(v(Filter::All, "bao cao", Lang::Vi), vec![4]);
+        // Ngày theo hai dạng.
+        assert_eq!(v(Filter::All, "2026-11-16", Lang::En), vec![3, 4]);
+        assert_eq!(v(Filter::All, "17/11/2026", Lang::Vi), vec![2]);
+        assert_eq!(v(Filter::Saved, "2026-11-16", Lang::En), vec![3, 4]);
+        // Liên kết.
+        assert_eq!(v(Filter::All, "img.example.com/5", Lang::En), vec![5]);
+        // Tên loại theo ngôn ngữ.
+        let vi_label = Kind::Copied.label(Lang::Vi);
+        assert_eq!(v(Filter::All, vi_label, Lang::Vi), vec![2]);
+        let en_label = Kind::Copied.label(Lang::En);
+        assert_eq!(v(Filter::All, en_label, Lang::En), vec![2]);
+        // Khoảng trắng thừa không đổi kết quả; không khớp thì rỗng.
+        assert_eq!(v(Filter::All, "   ", Lang::Vi), vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(v(Filter::All, "zzzz", Lang::Vi), Vec::<usize>::new());
+        assert_eq!(
+            visible_indices(&[], Filter::All, "", Lang::Vi),
+            Vec::<usize>::new()
+        );
+    }
+
+    #[test]
+    fn selection_is_kept_when_filtering() {
+        // Mục chọn còn trong kết quả: giữ, không cuộn về đầu.
+        let r = after_filter(Some("c"), &["a", "c", "d"]);
+        assert_eq!(
+            r,
+            Refiltered {
+                selected: Some(1),
+                scroll_top: false
+            }
+        );
+        // Mục chọn rời khỏi danh sách: chọn mục đầu, cuộn về đầu.
+        let r = after_filter(Some("b"), &["a", "c"]);
+        assert_eq!(
+            r,
+            Refiltered {
+                selected: Some(0),
+                scroll_top: true
+            }
+        );
+        // Chưa chọn gì, danh sách khác rỗng: chọn mục đầu.
+        assert_eq!(after_filter(None, &["x"]).selected, Some(0));
+        // Danh sách rỗng: không chọn gì.
+        let r = after_filter(Some("b"), &[]);
+        assert_eq!(r.selected, None);
+        assert!(r.scroll_top);
+        assert_eq!(after_filter(None, &[]).selected, None);
+    }
+
+    #[test]
+    fn next_selection_after_remove() {
+        let old = ["a", "b", "c", "d"];
+        // Đầu: mục kế (cùng vị trí 0).
+        assert_eq!(select_after_remove(&old, "a", &["b", "c", "d"]), Some(0));
+        // Giữa: cùng vị trí.
+        assert_eq!(select_after_remove(&old, "b", &["a", "c", "d"]), Some(1));
+        // Cuối: mục cuối mới.
+        assert_eq!(select_after_remove(&old, "d", &["a", "b", "c"]), Some(2));
+        // Mục cuối cùng còn lại: không còn gì để chọn.
+        assert_eq!(select_after_remove(&["a"], "a", &[]), None);
+    }
+
+    #[test]
+    fn action_table_rejects_non_https_links() {
+        use Avail::*;
+        for bad in [
+            "http://x.example/a.png",
+            "file:///C:/a.png",
+            "javascript:alert(1)",
+            "",
+            "https://",
+            "https://x.example/a\u{7}.png",
+            "https://x.example/\na.png",
+            "HTTPS://x.example/a.png",
+            " https://x.example/a.png",
+        ] {
+            assert!(!url_openable(bad), "{bad:?}");
+            let mut e = entry(3, Kind::Uploaded);
+            e.url = Some(bad.to_string());
+            let a = actions_for(&e, true);
+            assert_eq!(a.open, Disabled, "{bad:?}");
+            // Liên kết vẫn chép được (trừ chuỗi rỗng: không có gì để chép).
+            let want = if bad.is_empty() { Hidden } else { Enabled };
+            assert_eq!(a.copy_link, want, "{bad:?}");
+        }
+        for good in [
+            "https://x.example/a.png",
+            "https://pub-1.r2.dev/darkshot/2026/11/a%20b.png?X-Amz-Expires=3600&X-Amz-Signature=ab",
+        ] {
+            assert!(url_openable(good), "{good}");
+            let mut e = entry(4, Kind::Uploaded);
+            e.url = Some(good.to_string());
+            assert_eq!(actions_for(&e, false).open, Enabled);
+        }
+    }
+
+    #[test]
+    fn explorer_select_args_quote_paths() {
+        use std::path::Path;
+        assert_eq!(
+            explorer_select_args(Path::new("C:\\Users\\Tuấn\\Ảnh chụp\\a b.png")).as_deref(),
+            Some("/select,\"C:\\Users\\Tuấn\\Ảnh chụp\\a b.png\"")
+        );
+        assert_eq!(
+            explorer_select_args(Path::new("D:\\x,y\\日本.png")).as_deref(),
+            Some("/select,\"D:\\x,y\\日本.png\"")
+        );
+        assert_eq!(
+            explorer_select_args(Path::new("\\\\server\\share\\a.png")).as_deref(),
+            Some("/select,\"\\\\server\\share\\a.png\"")
+        );
+        // Từ chối: có dấu ngoặc kép, ký tự điều khiển, đường dẫn tương đối hoặc rỗng.
+        for bad in [
+            "C:\\a\"b.png",
+            "C:\\a\nb.png",
+            "C:\\a\u{1}b.png",
+            "a\\b.png",
+            "\\a.png",
+            "C:a.png",
+            "",
+        ] {
+            assert_eq!(explorer_select_args(Path::new(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn explorer_runs_from_windows_directory() {
+        assert_eq!(
+            explorer_exe(Some("C:\\Windows")),
+            "C:\\Windows\\explorer.exe"
+        );
+        assert_eq!(explorer_exe(Some("D:\\WIN\\")), "D:\\WIN\\explorer.exe");
+        // Không biết thư mục Windows (hoặc giá trị lạ): dự phòng tên trần.
+        assert_eq!(explorer_exe(None), "explorer.exe");
+        assert_eq!(explorer_exe(Some("")), "explorer.exe");
+        assert_eq!(explorer_exe(Some("Windows")), "explorer.exe");
+        assert_eq!(explorer_exe(Some("C:\\W\"in")), "explorer.exe");
+    }
+
+    #[test]
+    fn chips_treat_up_down_like_left_right() {
+        // Lên = trái, Xuống = phải (như nhóm nút radio).
+        assert_eq!(chip_key_dir(ChipKey::Up), -1);
+        assert_eq!(chip_key_dir(ChipKey::Left), -1);
+        assert_eq!(chip_key_dir(ChipKey::Down), 1);
+        assert_eq!(chip_key_dir(ChipKey::Right), 1);
+    }
+
+    #[test]
+    fn vietnamese_search_hint_fits_at_default_size() {
+        let hint =
+            darkshot_core::i18n::t(Lang::Vi, darkshot_core::i18n::Msg::HistorySearchPlaceholder);
+        for dpi in DPIS {
+            let (w, h) = crate::history_window::default_client_size(dpi);
+            let l = layout(w, h, dpi, false);
+            let font = crate::winutil::system_font(dpi);
+            let (tw, th) = crate::history_paint::with_screen_dc(|dc| {
+                crate::history_paint::measure(dc, font, hint)
+            });
+            if let Some(f) = font {
+                // SAFETY: phông vừa tạo cho kiểm thử, không còn dùng.
+                unsafe {
+                    let _ = windows::Win32::Graphics::Gdi::DeleteObject(
+                        windows::Win32::Graphics::Gdi::HGDIOBJ(f.0),
+                    );
+                }
+            }
+            let p = search_parts(&l.search, dpi, th);
+            // Ô trống: ô EDIT kéo tới gần nút `×` (đang ẩn), trừ 4 DIP.
+            let room = p.clear.right - scale(4, dpi) - p.edit.left;
+            assert!(tw <= room, "hint {tw} > {room} @{dpi}");
+        }
+    }
+
+    #[test]
+    fn confirm_card_state_machine() {
+        use ConfirmBtn::*;
+        use ConfirmKey::*;
+        let mut c = Confirm::default();
+        assert!(!c.is_open());
+        // Đóng thì phím không làm gì.
+        assert_eq!(c.key(Enter), ConfirmOutcome::Stay);
+        assert_eq!(c.key(Esc), ConfirmOutcome::Stay);
+        c.open();
+        assert!(c.is_open());
+        assert_eq!(c.focus(), Cancel, "Hủy là mặc định");
+        // Tab xoay giữa hai nút, hai chiều.
+        assert_eq!(c.key(Tab), ConfirmOutcome::Stay);
+        assert_eq!(c.focus(), Yes);
+        assert_eq!(c.key(Tab), ConfirmOutcome::Stay);
+        assert_eq!(c.focus(), Cancel);
+        assert_eq!(c.key(ShiftTab), ConfirmOutcome::Stay);
+        assert_eq!(c.focus(), Yes);
+        assert_eq!(c.key(ShiftTab), ConfirmOutcome::Stay);
+        assert_eq!(c.focus(), Cancel);
+        // Enter trên Hủy: đóng, không xóa.
+        assert_eq!(c.key(Enter), ConfirmOutcome::Cancel);
+        assert!(!c.is_open());
+        // Esc = Hủy, dù tiêu điểm ở nút xóa.
+        c.open();
+        c.set_focus(Yes);
+        assert_eq!(c.key(Esc), ConfirmOutcome::Cancel);
+        assert!(!c.is_open());
+        // Mở lại: tiêu điểm về Hủy.
+        c.open();
+        assert_eq!(c.focus(), Cancel);
+        c.key(Tab);
+        assert_eq!(c.key(Enter), ConfirmOutcome::Confirm);
+        assert!(!c.is_open());
+        c.open();
+        c.close();
+        assert!(!c.is_open());
+    }
+
+    #[test]
+    fn confirm_body_text_for_one_and_fifty() {
+        use darkshot_core::i18n::history_clear_confirm_body as body;
+        assert_eq!(
+            body(Lang::En, 1),
+            "1 entry will be removed from history. Screenshots you saved and links you uploaded are not deleted."
+        );
+        assert_eq!(
+            body(Lang::En, 50),
+            "50 entries will be removed from history. Screenshots you saved and links you uploaded are not deleted."
+        );
+        assert!(body(Lang::Vi, 1).starts_with("1 mục sẽ bị gỡ khỏi lịch sử."));
+        assert!(body(Lang::Vi, 50).starts_with("50 mục sẽ bị gỡ khỏi lịch sử."));
+    }
+
+    #[test]
+    fn confirm_card_is_centered_and_fits() {
+        for dpi in DPIS {
+            for (w, h) in sizes(dpi) {
+                for banner in [false, true] {
+                    let l = layout(w, h, dpi, banner);
+                    let c = confirm_card(
+                        &l,
+                        scale(26, dpi),
+                        scale(40, dpi),
+                        [scale(72, dpi), scale(120, dpi)],
+                    );
+                    assert_eq!(c.card.right - c.card.left, scale(400, dpi), "{w}x{h}@{dpi}");
+                    assert!(inside(&c.card, &l.body), "{:?} at {w}x{h}@{dpi}", c.card);
+                    let cx = (l.body.left + l.body.right) / 2;
+                    assert!(((c.card.left + c.card.right) / 2 - cx).abs() <= 1);
+                    for r in [c.title, c.text, c.cancel, c.yes] {
+                        assert!(inside(&r, &c.card), "{r:?} at {w}x{h}@{dpi}");
+                    }
+                    assert!(c.title.bottom <= c.text.top);
+                    assert!(c.text.bottom <= c.cancel.top);
+                    assert!(!overlap(&c.cancel, &c.yes));
+                    // Hủy bên trái nút xóa, cùng hàng, nút xóa sát lề phải trong thẻ.
+                    assert!(c.cancel.right <= c.yes.left);
+                    assert_eq!(c.cancel.top, c.yes.top);
+                    assert_eq!(c.yes.bottom - c.yes.top, scale(32, dpi));
+                    assert_eq!(c.text.bottom - c.text.top, scale(40, dpi));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn preview_message_shrinks_to_fit() {
+        for dpi in DPIS {
+            let s = |v| scale(v, dpi);
+            // Đủ chỗ: biểu tượng đầy đủ và dòng gợi ý.
+            let p = center_msg_plan(s(300), s(34), dpi);
+            assert_eq!(
+                p,
+                MsgPlan {
+                    icon: s(36),
+                    hint: true
+                }
+            );
+            assert!(p.height(s(34), dpi) <= s(300));
+            // Mọi chiều cao: khối luôn nằm trọn, ưu tiên bỏ biểu tượng lớn rồi dòng gợi ý.
+            for inner in 0..s(300) {
+                let p = center_msg_plan(inner, s(34), dpi);
+                let need = p.height(s(34), dpi);
+                assert!(
+                    need <= inner.max(s(22)),
+                    "inner {inner}@{dpi}: {p:?} needs {need}"
+                );
+                // Chữ được ưu tiên hơn biểu tượng: chỉ bỏ dòng gợi ý khi không biểu tượng cũng không vừa.
+                if !p.hint {
+                    assert!(s(22) + s(6) + s(34) > inner, "{inner}@{dpi}: {p:?}");
+                }
+                assert!(p.icon == 0 || p.icon == s(36) || p.icon == s(24));
+            }
+            // Cỡ tối thiểu 760×520 (thực tế, có và không có dải thông báo): chữ không tràn.
+            for banner in [false, true] {
+                let (w, h) = crate::history_window::min_client_size(dpi);
+                let l = layout(w, h, dpi, banner);
+                let inner = l.preview_area.bottom - l.preview_area.top - 2 * s(16);
+                let p = center_msg_plan(inner, s(36), dpi);
+                assert!(
+                    p.height(s(36), dpi) <= inner,
+                    "{dpi} banner={banner}: {p:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn search_box_parts_fit_inside_field() {
+        for dpi in DPIS {
+            for (w, h) in sizes(dpi) {
+                let l = layout(w, h, dpi, false);
+                let th = scale(16, dpi);
+                let p = search_parts(&l.search, dpi, th);
+                for r in [p.lens, p.edit, p.clear] {
+                    assert!(inside(&r, &l.search), "{r:?} at {w}x{h}@{dpi}");
+                }
+                assert!(p.lens.right <= p.edit.left);
+                assert!(p.edit.right <= p.clear.left);
+                assert!(p.edit.bottom - p.edit.top >= th);
+                assert!(p.edit.right - p.edit.left >= scale(80, dpi));
+                // Căn giữa dọc.
+                let cy = (l.search.top + l.search.bottom) / 2;
+                assert!(((p.edit.top + p.edit.bottom) / 2 - cy).abs() <= 1);
+            }
+        }
+    }
+
+    #[test]
+    fn status_codes_round_trip() {
+        for s in [
+            Status::None,
+            Status::ImageCopied,
+            Status::LinkCopied,
+            Status::Removed,
+            Status::Cleared,
+            Status::Failed,
+        ] {
+            assert_eq!(Status::from_wparam(s as usize), s);
+        }
+        assert_eq!(Status::from_wparam(999), Status::None);
+        assert_eq!(Status::None.msg(), None);
+        assert_eq!(
+            Status::ImageCopied.msg(),
+            Some(darkshot_core::i18n::Msg::HistoryStatusImageCopied)
+        );
+        assert!(Status::Failed.is_error());
+        assert!(!Status::Removed.is_error());
+    }
+
+    #[test]
+    fn context_menu_follows_action_table() {
+        use darkshot_core::i18n::Msg;
+        // Đã lưu, còn tệp: Mở, Sao chép ảnh, Mở thư mục, vạch, Xóa (không có Sao chép liên kết).
+        let m = menu_items(&actions_for(&entry(1, Kind::Saved), true));
+        let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
+        assert_eq!(ids, vec![0, 1, 3, 4]);
+        assert!(m.iter().all(|i| i.enabled));
+        assert_eq!(m[0].label, Msg::HistoryOpen);
+        assert_eq!(m[0].shortcut, Some("Enter"));
+        assert_eq!(m[1].shortcut, Some("Ctrl+C"));
+        assert_eq!(m[2].shortcut, None);
+        assert_eq!(m[3].shortcut, Some("Del"));
+        assert!(m[3].separator_before);
+        assert!(!m[0].separator_before && !m[1].separator_before && !m[2].separator_before);
+        // Tệp mất: Mở, Sao chép ảnh, Mở thư mục vô hiệu; Xóa vẫn dùng được.
+        let m = menu_items(&actions_for(&entry(1, Kind::Saved), false));
+        let en: Vec<bool> = m.iter().map(|i| i.enabled).collect();
+        assert_eq!(en, vec![false, false, false, true]);
+        // Tải lên: Mở liên kết, Sao chép liên kết có Ctrl+Shift+C.
+        let m = menu_items(&actions_for(&entry(1, Kind::Uploaded), true));
+        let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
+        assert_eq!(ids, vec![0, 1, 2, 4]);
+        assert_eq!(m[0].label, Msg::HistoryOpenLink);
+        assert_eq!(m[2].label, Msg::HistoryCopyLink);
+        assert_eq!(m[2].shortcut, Some("Ctrl+Shift+C"));
     }
 }
