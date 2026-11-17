@@ -285,6 +285,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         language: form.language,
         upload_format: form.upload_format,
         jpeg_quality: clamp_jpeg_quality(i64::from(form.jpeg_quality)),
+        custom_colors: current.custom_colors,
     })
 }
 

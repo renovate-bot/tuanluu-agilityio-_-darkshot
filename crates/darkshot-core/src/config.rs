@@ -1,5 +1,6 @@
 //! Cấu hình ứng dụng và lưu trữ.
 
+use crate::color::{parse_hex, to_hex, CustomColors, CUSTOM_SLOTS};
 use crate::i18n::{t, Lang, Msg};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
@@ -247,6 +248,7 @@ pub struct Config {
     pub include_cursor: bool,
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
+    pub custom_colors: CustomColors,
 }
 
 impl Config {
@@ -263,6 +265,7 @@ impl Config {
             include_cursor: false,
             upload_format: UploadFormat::Png,
             jpeg_quality: JPEG_QUALITY_DEFAULT,
+            custom_colors: CustomColors::default(),
         }
     }
 }
@@ -369,6 +372,7 @@ struct FileConfig {
     include_cursor: bool,
     upload_format: String,
     jpeg_quality: i64,
+    custom_colors: serde_json::Value,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -388,11 +392,34 @@ impl Default for FileConfig {
             include_cursor: false,
             upload_format: UploadFormat::default().code().to_string(),
             jpeg_quality: i64::from(JPEG_QUALITY_DEFAULT),
+            custom_colors: serde_json::Value::Null,
             save_dir: None,
             autostart: false,
             language: String::new(),
         }
     }
+}
+
+fn custom_from_json(v: &serde_json::Value) -> CustomColors {
+    let mut slots = [None; CUSTOM_SLOTS];
+    if let Some(arr) = v.as_array() {
+        for (slot, item) in slots.iter_mut().zip(arr) {
+            *slot = item.as_str().and_then(parse_hex);
+        }
+    }
+    CustomColors::from_slots(slots)
+}
+
+fn custom_to_json(c: &CustomColors) -> serde_json::Value {
+    serde_json::Value::Array(
+        c.slots
+            .iter()
+            .map(|s| match s {
+                Some(rgb) => serde_json::Value::String(to_hex(*rgb)),
+                None => serde_json::Value::Null,
+            })
+            .collect(),
+    )
 }
 
 pub fn load(
@@ -470,6 +497,7 @@ pub fn load(
         include_cursor: f.include_cursor,
         upload_format: UploadFormat::from_code(&f.upload_format).unwrap_or_default(),
         jpeg_quality: clamp_jpeg_quality(f.jpeg_quality),
+        custom_colors: custom_from_json(&f.custom_colors),
     };
     Ok(Loaded {
         config,
@@ -510,6 +538,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         include_cursor: cfg.include_cursor,
         upload_format: cfg.upload_format.code().to_string(),
         jpeg_quality: i64::from(clamp_jpeg_quality(i64::from(cfg.jpeg_quality))),
+        custom_colors: custom_to_json(&cfg.custom_colors),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
@@ -1090,5 +1119,45 @@ mod tests {
             h.first_conflict(),
             Some((HotkeyRole::Region, HotkeyRole::SaveFull))
         );
+    }
+
+    #[test]
+    fn config_custom_colors_round_trip() {
+        use crate::theme::Rgb;
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.custom_colors.add(Rgb(0xFF, 0x3B, 0x30), None);
+        c.custom_colors.add(Rgb(1, 2, 3), Some(9));
+        save(&path, &c, &XorStore).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["custom_colors"][0], "#FF3B30");
+        assert_eq!(v["custom_colors"][9], "#010203");
+        assert!(v["custom_colors"][1].is_null());
+        assert_eq!(v["custom_colors"].as_array().unwrap().len(), 16);
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+        // File không có trường: trống.
+        let l = load_text(r#"{"language":"vi"}"#);
+        assert_eq!(l.config.custom_colors, CustomColors::default());
+        // Phần tử sai định dạng: ô trống; dài hơn 16: bỏ phần thừa; sai kiểu: trống.
+        let mut arr = vec![serde_json::Value::from("#0A0B0C"), "xyz".into(), 5.into()];
+        arr.resize(20, serde_json::Value::from("#FFFFFF"));
+        let text = serde_json::json!({ "custom_colors": arr }).to_string();
+        let l = load_text(&text);
+        let s = l.config.custom_colors.slots;
+        assert_eq!(s[0], Some(Rgb(10, 11, 12)));
+        assert_eq!((s[1], s[2]), (None, None));
+        assert_eq!(s[15], Some(Rgb(255, 255, 255)));
+        // Mảng ngắn.
+        let l = load_text(r##"{"custom_colors":["#000001"]}"##);
+        assert_eq!(l.config.custom_colors.slots[0], Some(Rgb(0, 0, 1)));
+        assert_eq!(l.config.custom_colors.slots[1], None);
+        let l = load_text(r#"{"custom_colors":"oops"}"#);
+        assert_eq!(l.config.custom_colors, CustomColors::default());
     }
 }

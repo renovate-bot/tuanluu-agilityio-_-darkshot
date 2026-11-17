@@ -271,6 +271,16 @@ messages! {
         "Không vẽ được các nét đánh dấu lên ảnh nên ảnh chưa được lưu, chép hay tải lên. Hãy chụp lại.",
         "Could not draw the markings onto the image, so it was not saved, copied or uploaded. Please capture again."
     ),
+    PickerBasic => ("Màu cơ bản", "Basic colors"),
+    PickerCustom => ("Màu tự chọn", "Custom colors"),
+    PickerDefine => ("Định nghĩa màu tự chọn >>", "Define custom colors >>"),
+    PickerAdd => ("Thêm vào màu tự chọn", "Add to custom colors"),
+    PickerHue => ("Sắc độ", "Hue"),
+    PickerSat => ("Bão hòa", "Sat"),
+    PickerLum => ("Độ sáng", "Lum"),
+    PickerRed => ("Đỏ", "Red"),
+    PickerGreen => ("Lục", "Green"),
+    PickerBlue => ("Lam", "Blue"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -920,6 +930,35 @@ mod tests {
         }
         for r in HotkeyRole::ALL {
             assert_ne!(t(Lang::Vi, r.label()), t(Lang::En, r.label()));
+        }
+    }
+
+    #[test]
+    fn picker_strings_match_design() {
+        let want = [
+            (Msg::PickerBasic, "Màu cơ bản", "Basic colors"),
+            (Msg::PickerCustom, "Màu tự chọn", "Custom colors"),
+            (
+                Msg::PickerDefine,
+                "Định nghĩa màu tự chọn >>",
+                "Define custom colors >>",
+            ),
+            (
+                Msg::PickerAdd,
+                "Thêm vào màu tự chọn",
+                "Add to custom colors",
+            ),
+            (Msg::PickerHue, "Sắc độ", "Hue"),
+            (Msg::PickerSat, "Bão hòa", "Sat"),
+            (Msg::PickerLum, "Độ sáng", "Lum"),
+            (Msg::PickerRed, "Đỏ", "Red"),
+            (Msg::PickerGreen, "Lục", "Green"),
+            (Msg::PickerBlue, "Lam", "Blue"),
+            (Msg::BtnCancel, "Hủy", "Cancel"),
+        ];
+        for (m, vi, en) in want {
+            assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
+            assert_eq!(t(Lang::En, m), en, "{m:?}");
         }
     }
 }
