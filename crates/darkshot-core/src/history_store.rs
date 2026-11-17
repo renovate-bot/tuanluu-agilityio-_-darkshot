@@ -118,6 +118,12 @@ fn read_for_write(root: &Path) -> Result<Vec<Entry>, StoreError> {
     }
 }
 
+/// Ghi `bytes` vào `path` rồi `sync_all` (dữ liệu xuống đĩa trước khi đổi tên).
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let _ = (path, bytes);
+    Ok(())
+}
+
 /// Ghi chỉ mục nguyên tử: `index.json.tmp` rồi đổi tên đè (gọi khi đã giữ khóa).
 fn write_index(root: &Path, entries: &[Entry]) -> Result<(), StoreError> {
     std::fs::create_dir_all(root).map_err(io_err)?;
@@ -437,6 +443,25 @@ mod tests {
         let d = std::env::temp_dir().join(format!("darkshot_hist_{name}"));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn index_written_via_sync_path() {
+        let root = temp_root();
+        let f = root.join("synced.bin");
+        write_synced(&f, b"hello").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"hello");
+        // Ghi đè: nội dung mới thay hẳn nội dung cũ.
+        write_synced(&f, b"hi").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"hi");
+        // Thư mục cha không tồn tại: lỗi, không tạo tệp.
+        let missing = root.join("nope").join("x.bin");
+        assert!(write_synced(&missing, b"x").is_err());
+        assert!(!missing.exists());
+        // Chỉ mục ghi qua đường đồng bộ đọc lại được, không để lại tệp tạm.
+        write_index(&root, &[]).unwrap();
+        assert!(root.join(INDEX).exists());
+        assert!(!root.join(INDEX_TMP).exists());
     }
 
     fn lt() -> LocalTime {

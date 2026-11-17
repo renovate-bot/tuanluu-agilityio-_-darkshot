@@ -1501,6 +1501,23 @@ fn fix_focus(hwnd: HWND, c: &Controls, focus_options: bool) {
     }
 }
 
+/// Trạng thái mũi tên của thanh cuộn danh sách sau `SetScrollInfo`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScrollArrows {
+    /// Thẻ xác nhận mở: thanh cuộn mờ, không bấm được.
+    Disabled,
+    /// Nội dung dài hơn khung nhìn: bật lại (có thể đã bị vô hiệu khi thẻ mở).
+    Enabled,
+    /// Không cần cuộn: để `SIF_DISABLENOSCROLL` quyết định.
+    Auto,
+}
+
+/// Quyết định thuần cho thanh cuộn danh sách.
+fn scrollbar_arrows(card_open: bool, content: i32, view: i32) -> ScrollArrows {
+    let _ = (card_open, content, view);
+    ScrollArrows::Auto
+}
+
 fn update_scrollbar(list: HWND) {
     let Some((content, view, pos)) = with_state(|s| {
         (
@@ -3281,6 +3298,18 @@ mod tests {
             right: r,
             bottom: b,
         }
+    }
+
+    #[test]
+    fn scrollbar_arrows_follow_card_and_content() {
+        // Thẻ mở: luôn vô hiệu, dù nội dung dài hay ngắn.
+        assert_eq!(scrollbar_arrows(true, 2000, 500), ScrollArrows::Disabled);
+        assert_eq!(scrollbar_arrows(true, 100, 500), ScrollArrows::Disabled);
+        // Thẻ đóng, nội dung dài hơn khung nhìn: bật lại.
+        assert_eq!(scrollbar_arrows(false, 2000, 500), ScrollArrows::Enabled);
+        // Thẻ đóng, vừa khung hoặc ngắn hơn: để hệ thống tự làm mờ.
+        assert_eq!(scrollbar_arrows(false, 500, 500), ScrollArrows::Auto);
+        assert_eq!(scrollbar_arrows(false, 0, 500), ScrollArrows::Auto);
     }
 
     #[test]

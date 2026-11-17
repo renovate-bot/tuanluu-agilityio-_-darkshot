@@ -133,6 +133,12 @@ impl PendingUploads {
         }
     }
 
+    /// Trao lượt `id` đúng một lần: nếu còn trong sổ thì rút ra và chạy `f`, trả `true`.
+    pub fn finish(&self, id: u64, f: impl FnOnce()) -> bool {
+        let _ = (id, f);
+        false
+    }
+
     /// Lấy ra mọi lượt còn trong sổ (theo thứ tự thêm vào), sổ trở thành rỗng.
     pub fn drain(&self) -> Vec<PendingUpload> {
         std::mem::take(&mut self.lock().items)
@@ -737,5 +743,94 @@ mod tests {
         };
         assert_eq!(save_pending(items, fixed_now(), &hook), 0);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn finish_after_drain_skips_hook() {
+        let reg = PendingUploads::new();
+        let id = reg.add(pixel(1), PathBuf::from("C:/a"));
+        assert_eq!(reg.drain().len(), 1);
+        let ran = AtomicBool::new(false);
+        assert!(!reg.finish(id, || ran.store(true, Ordering::SeqCst)));
+        assert!(!ran.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn drain_after_finish_sees_nothing() {
+        let reg = PendingUploads::new();
+        let id = reg.add(pixel(1), PathBuf::from("C:/a"));
+        let runs = AtomicU32::new(0);
+        assert!(reg.finish(id, || {
+            runs.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        assert!(reg.drain().is_empty());
+        // Lần thứ hai: lượt đã trao, không chạy lại.
+        assert!(!reg.finish(id, || {
+            runs.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn finish_runs_hook_under_lock() {
+        let reg = Arc::new(PendingUploads::new());
+        let id = reg.add(pixel(1), PathBuf::from("C:/a"));
+        let done = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let (r2, d2) = (reg.clone(), done.clone());
+        let h = std::thread::spawn(move || {
+            r2.finish(id, || {
+                started_tx.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(100));
+                d2.store(true, Ordering::SeqCst);
+            })
+        });
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // `f` đang chạy: drain phải chờ nó xong và không thấy lượt.
+        let left = reg.drain();
+        assert!(
+            done.load(Ordering::SeqCst),
+            "drain trả về trước khi móc xong"
+        );
+        assert!(left.is_empty());
+        assert!(h.join().unwrap());
+    }
+
+    /// Uploader chờ tín hiệu rồi mới trả link.
+    struct GatedUploader(Mutex<std::sync::mpsc::Receiver<()>>);
+    impl Uploader for GatedUploader {
+        fn upload(&self, _key: &str, _body: &[u8], _ct: &str) -> Result<String, UploadError> {
+            let _ = self.0.lock().unwrap().recv_timeout(Duration::from_secs(5));
+            Ok("https://x/gated".into())
+        }
+    }
+
+    #[test]
+    fn spawn_upload_records_once_when_drained_first() {
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let up: Arc<dyn Uploader> = Arc::new(GatedUploader(Mutex::new(go_rx)));
+        let reg = Arc::new(PendingUploads::new());
+        let n = Arc::new(FakeNotifier::default());
+        let mut j = job(temp_dir(), Some(up), n.clone(), Box::new(|| {}));
+        let id = reg.add(j.image.clone(), j.save_dir.clone());
+        j.pending = Some((reg.clone(), id));
+        let calls = Arc::new(AtomicU32::new(0));
+        let c2 = calls.clone();
+        j.on_outcome = Some(Box::new(move |_: &Outcome, _: &Image| {
+            c2.fetch_add(1, Ordering::SeqCst);
+        }));
+        let h = spawn_upload(j).unwrap();
+        // Thoát giành lượt trước khi tải lên xong (lúc đó sẽ ghi dự phòng).
+        assert_eq!(reg.drain().len(), 1);
+        go_tx.send(()).unwrap();
+        h.join().unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "lượt đã trao cho lúc thoát"
+        );
+        // Thông báo của lượt tải lên vẫn chạy như cũ.
+        assert_eq!(n.notes.lock().unwrap().len(), 1);
     }
 }

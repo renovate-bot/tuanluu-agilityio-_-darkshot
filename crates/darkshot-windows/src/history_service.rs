@@ -12,9 +12,10 @@ use darkshot_core::image::Image;
 use darkshot_core::naming::LocalTime;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
-use std::thread::JoinHandle;
+use std::sync::Arc;
+use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
 
@@ -126,31 +127,46 @@ fn write_entry(root: PathBuf, new: NewEntry, img: &Image) {
     }
 }
 
-/// Như `record_outcome` nhưng với thư mục gốc và cờ bật truyền vào; trả luồng đã tạo (nếu có).
-fn record_with(
-    enabled: bool,
+/// Một việc ghi trong hàng đợi; nhận thư mục gốc của kho.
+type Job = Box<dyn FnOnce(&Path) + Send>;
+
+/// Ảnh của một mục: mượn (sao chép một lần khi đẩy vào hàng) hoặc đã chia sẻ.
+enum ImgSrc<'a> {
+    Borrowed(&'a Image),
+    Shared(Arc<Image>),
+}
+
+/// Hàng đợi ghi lịch sử: một luồng `darkshot-history` sinh lười, ghi tuần tự theo thứ tự đẩy vào.
+struct Writer {
     root: PathBuf,
-    outcome: &Outcome,
-    img: &Image,
-    expiry: Expiry,
-    now: LocalTime,
-) -> Option<JoinHandle<()>> {
-    if !enabled {
-        return None;
+}
+
+impl Writer {
+    fn new(root: PathBuf) -> Writer {
+        Writer { root }
     }
-    let new = plan(outcome, expiry, &now, unix_millis_now())?;
-    // Bản sao duy nhất của ảnh, giao cho luồng ghi.
-    let img = img.clone();
-    match std::thread::Builder::new()
-        .name("darkshot-history".into())
-        .spawn(move || write_entry(root, new, &img))
-    {
-        Ok(h) => Some(h),
-        Err(_) => {
-            fail();
-            None
-        }
+
+    fn push(&self, _job: Job) {}
+
+    fn flush(&self, _timeout: Duration) -> bool {
+        false
     }
+
+    fn spawn_count(&self) -> u32 {
+        0
+    }
+}
+
+/// Như `record_outcome` nhưng với hàng đợi và cờ bật truyền vào; `true` nếu đã đẩy một việc.
+fn record_with(
+    _enabled: bool,
+    _w: &Writer,
+    _outcome: &Outcome,
+    _img: ImgSrc<'_>,
+    _expiry: Expiry,
+    _now: LocalTime,
+) -> bool {
+    false
 }
 
 /// Như `record_outcome_blocking` nhưng với thư mục gốc và cờ bật truyền vào.
@@ -176,7 +192,18 @@ pub fn record_outcome(outcome: &Outcome, img: &Image, expiry: Expiry, now: Local
     if !is_enabled() {
         return;
     }
-    let _ = record_with(true, paths::history_dir(), outcome, img, expiry, now);
+    let _ = (outcome, img, expiry, now);
+}
+
+/// Như `record_outcome` nhưng nhận ảnh đã chia sẻ (không sao chép lần hai).
+pub fn record_outcome_arc(outcome: &Outcome, img: Arc<Image>, expiry: Expiry, now: LocalTime) {
+    let _ = (outcome, img, expiry, now);
+}
+
+/// Chờ mọi việc đã đẩy vào hàng ghi xong, tối đa `timeout`; `true` khi hàng rỗng.
+pub fn flush(timeout: Duration) -> bool {
+    let _ = timeout;
+    false
 }
 
 /// Như `record_outcome` nhưng ghi xong mới trả về (dùng khi thoát: lưu dự phòng).
@@ -198,6 +225,8 @@ mod tests {
     use darkshot_core::naming::LocalTime;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     fn now() -> LocalTime {
         LocalTime {
@@ -317,18 +346,41 @@ mod tests {
         assert_eq!(as_fallback(Outcome::Copied), Outcome::Copied);
     }
 
-    #[test]
-    fn disabled_does_nothing() {
-        let root = temp_dir().join("history");
-        let h = record_with(
-            false,
-            root.clone(),
+    fn copied(w: &Writer, img: &Image) -> bool {
+        record_with(
+            true,
+            w,
             &Outcome::Copied,
-            &img(),
+            ImgSrc::Borrowed(img),
             Expiry::D7,
             now(),
-        );
-        assert!(h.is_none());
+        )
+    }
+
+    const LONG: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn disabled_spawns_no_thread_and_no_dir() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        assert!(!record_with(
+            false,
+            &w,
+            &Outcome::Copied,
+            ImgSrc::Borrowed(&img()),
+            Expiry::D7,
+            now(),
+        ));
+        assert!(!record_with(
+            false,
+            &w,
+            &Outcome::Copied,
+            ImgSrc::Shared(Arc::new(img())),
+            Expiry::D7,
+            now(),
+        ));
+        assert_eq!(w.spawn_count(), 0);
+        assert!(w.flush(Duration::from_millis(10)));
         assert!(!root.exists());
         record_blocking_with(
             false,
@@ -344,36 +396,132 @@ mod tests {
     #[test]
     fn useless_outcome_spawns_nothing() {
         let root = temp_dir().join("history");
-        assert!(record_with(
+        let w = Writer::new(root.clone());
+        assert!(!record_with(
             true,
-            root.clone(),
+            &w,
             &Outcome::Failed,
-            &img(),
+            ImgSrc::Borrowed(&img()),
             Expiry::D7,
             now()
-        )
-        .is_none());
+        ));
+        assert_eq!(w.spawn_count(), 0);
         assert!(!root.exists());
     }
 
     #[test]
     fn enabled_records_on_background_thread() {
         let root = temp_dir().join("history");
-        let h = record_with(
-            true,
-            root.clone(),
-            &Outcome::Copied,
-            &img(),
-            Expiry::D7,
-            now(),
-        )
-        .expect("thread");
-        assert_eq!(h.thread().name(), Some("darkshot-history"));
-        h.join().unwrap();
+        let w = Writer::new(root.clone());
+        assert!(copied(&w, &img()));
+        assert!(w.flush(LONG));
         let l = Store::new(root).load();
         assert_eq!(l.entries.len(), 1);
         assert_eq!(l.entries[0].kind, Kind::Copied);
         assert_eq!((l.entries[0].width, l.entries[0].height), (4, 3));
+    }
+
+    #[test]
+    fn writer_flush_waits_for_queued_entries() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        for i in 0..5u8 {
+            let link = format!("https://x/{i}.png");
+            assert!(record_with(
+                true,
+                &w,
+                &Outcome::Uploaded(link),
+                ImgSrc::Shared(Arc::new(img())),
+                Expiry::D30,
+                now(),
+            ));
+            // Mốc thời gian tăng dần theo thứ tự đẩy vào.
+            std::thread::sleep(Duration::from_millis(3));
+        }
+        assert!(w.flush(LONG));
+        let l = Store::new(root).load();
+        assert_eq!(l.entries.len(), 5);
+        let mut entries = l.entries.clone();
+        entries.sort_by_key(|e| e.unix);
+        let urls: Vec<_> = entries.iter().filter_map(|e| e.url.clone()).collect();
+        let want: Vec<_> = (0..5).map(|i| format!("https://x/{i}.png")).collect();
+        assert_eq!(urls, want);
+        let mut ids: Vec<_> = entries.iter().map(|e| e.id.clone()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 5);
+    }
+
+    #[test]
+    fn writer_flush_times_out() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        w.push(Box::new(move |_root: &Path| {
+            let _ = started_tx.send(());
+            let _ = release_rx.recv();
+        }));
+        // Việc sau việc chặn cũng phải chờ.
+        assert!(copied(&w, &img()));
+        started_rx.recv_timeout(LONG).unwrap();
+        assert!(!w.flush(Duration::from_millis(50)));
+        release_tx.send(()).unwrap();
+        assert!(w.flush(LONG));
+        assert_eq!(Store::new(root).load().entries.len(), 1);
+    }
+
+    type Seen = Arc<Mutex<Vec<(std::thread::ThreadId, Option<String>)>>>;
+
+    #[test]
+    fn writer_uses_one_thread() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        let seen: Seen = Arc::default();
+        for _ in 0..6 {
+            assert!(copied(&w, &img()));
+            let s = seen.clone();
+            w.push(Box::new(move |_root: &Path| {
+                let t = std::thread::current();
+                s.lock()
+                    .unwrap()
+                    .push((t.id(), t.name().map(str::to_string)));
+            }));
+        }
+        assert!(w.flush(LONG));
+        assert_eq!(w.spawn_count(), 1);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 6);
+        assert!(seen.iter().all(|(id, _)| *id == seen[0].0));
+        assert!(seen
+            .iter()
+            .all(|(_, n)| n.as_deref() == Some("darkshot-history")));
+        assert_ne!(seen[0].0, std::thread::current().id());
+        assert_eq!(Store::new(root).load().entries.len(), 6);
+    }
+
+    #[test]
+    fn writer_panic_does_not_wedge_flush() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        let bad = Image {
+            width: 5,
+            height: 5,
+            bgra: vec![0; 3],
+        };
+        let before = failure_count();
+        assert!(copied(&w, &bad));
+        assert!(w.flush(LONG));
+        assert!(failure_count() > before);
+        // Một việc panic thật: luồng ghi vẫn sống, bộ đếm vẫn giảm.
+        let before = failure_count();
+        w.push(Box::new(|_root: &Path| panic!("boom")));
+        assert!(w.flush(LONG));
+        assert!(failure_count() > before);
+        assert!(copied(&w, &img()));
+        assert!(w.flush(LONG));
+        assert_eq!(Store::new(root).load().entries.len(), 1);
+        assert_eq!(w.spawn_count(), 1);
     }
 
     #[test]
@@ -405,17 +553,10 @@ mod tests {
         // Gốc là một TỆP: không tạo được thư mục con.
         let root = temp_dir().join("not_a_dir");
         std::fs::write(&root, b"x").unwrap();
+        let w = Writer::new(root.clone());
         let before = failure_count();
-        let h = record_with(
-            true,
-            root.clone(),
-            &Outcome::Copied,
-            &img(),
-            Expiry::D7,
-            now(),
-        )
-        .expect("thread");
-        assert!(h.join().is_ok(), "luồng ghi không được panic");
+        assert!(copied(&w, &img()));
+        assert!(w.flush(LONG), "luồng ghi không được kẹt");
         assert!(failure_count() > before);
         let before = failure_count();
         record_blocking_with(
@@ -431,50 +572,30 @@ mod tests {
     }
 
     #[test]
-    fn invalid_image_counts_failure_without_panic() {
-        let root = temp_dir().join("history");
-        let bad = Image {
-            width: 5,
-            height: 5,
-            bgra: vec![0; 3],
-        };
-        let before = failure_count();
-        let h = record_with(
-            true,
-            root.clone(),
-            &Outcome::Copied,
-            &bad,
-            Expiry::D7,
-            now(),
-        )
-        .expect("thread");
-        assert!(h.join().is_ok());
-        assert!(failure_count() > before);
-    }
-
-    #[test]
     fn concurrent_uploads_make_two_entries() {
         let root = temp_dir().join("history");
-        let a = record_with(
-            true,
-            root.clone(),
-            &Outcome::Uploaded("https://x/a.png".into()),
-            &img(),
-            Expiry::D30,
-            now(),
-        )
-        .unwrap();
-        let b = record_with(
-            true,
-            root.clone(),
-            &Outcome::Uploaded("https://x/b.png".into()),
-            &img(),
-            Expiry::D30,
-            now(),
-        )
-        .unwrap();
-        a.join().unwrap();
-        b.join().unwrap();
+        let w = Arc::new(Writer::new(root.clone()));
+        let hs: Vec<_> = ["https://x/a.png", "https://x/b.png"]
+            .into_iter()
+            .map(|link| {
+                let w = w.clone();
+                std::thread::spawn(move || {
+                    record_with(
+                        true,
+                        &w,
+                        &Outcome::Uploaded(link.into()),
+                        ImgSrc::Shared(Arc::new(img())),
+                        Expiry::D30,
+                        now(),
+                    )
+                })
+            })
+            .collect();
+        for h in hs {
+            assert!(h.join().unwrap());
+        }
+        assert!(w.flush(LONG));
+        assert_eq!(w.spawn_count(), 1);
         let l = Store::new(root).load();
         assert_eq!(l.entries.len(), 2);
         let mut urls: Vec<_> = l.entries.iter().filter_map(|e| e.url.clone()).collect();
