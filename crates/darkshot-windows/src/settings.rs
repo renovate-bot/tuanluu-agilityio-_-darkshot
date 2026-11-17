@@ -27,10 +27,10 @@ use std::sync::Mutex;
 use windows::core::{w, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, DeleteObject, EndPaint, ExcludeClipRect, FillRect, GetDC, GetTextExtentPoint32W,
-    GetWindowDC, InvalidateRect, RedrawWindow, ReleaseDC, ScreenToClient, SelectObject, DT_CENTER,
-    DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, HDC, HFONT,
-    HGDIOBJ, PAINTSTRUCT, RDW_INVALIDATE, RDW_UPDATENOW,
+    BeginPaint, DeleteObject, DrawTextW, EndPaint, ExcludeClipRect, FillRect, GetDC,
+    GetTextExtentPoint32W, GetWindowDC, InvalidateRect, RedrawWindow, ReleaseDC, ScreenToClient,
+    SelectObject, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE,
+    DT_VCENTER, DT_WORDBREAK, HDC, HFONT, HGDIOBJ, PAINTSTRUCT, RDW_INVALIDATE, RDW_UPDATENOW,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -95,7 +95,7 @@ pub struct Form {
     pub include_cursor: bool,
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
-    /// Chưa có ô trên cửa sổ (Task 55): lấy từ cấu hình hiện tại để lưu không làm mất giá trị.
+    /// Hộp tích "Bật lịch sử ảnh chụp" ở tab Thông thường.
     pub history_enabled: bool,
 }
 
@@ -473,6 +473,9 @@ const ID_QUALITY_VALUE: i32 = 141;
 const ID_SECRET_NOTE: i32 = 150;
 const ID_PNG_NOTE: i32 = 151;
 const ID_CHECK_UPDATES: i32 = 152;
+/// Hộp tích "Bật lịch sử ảnh chụp" và dòng ghi chú (chữ phụ, tự xuống dòng) ngay dưới nó.
+const ID_HISTORY: i32 = 153;
+const ID_HISTORY_NOTE: i32 = 154;
 /// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
@@ -519,6 +522,7 @@ struct Ctl {
     autostart: HWND,
     notices: HWND,
     check_updates: HWND,
+    history: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     err: HWND,
@@ -621,8 +625,7 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (mut hotkeys, old_lang, history_enabled) =
-        with_st(|s| (s.hotkeys, s.current.language, s.current.history_enabled))?;
+    let (mut hotkeys, old_lang) = with_st(|s| (s.hotkeys, s.current.language))?;
     let upload_format = if is_checked(c.fmt_jpeg) {
         UploadFormat::Jpeg
     } else {
@@ -656,7 +659,7 @@ fn read_form() -> Option<Form> {
         upload_format,
         // Đọc cả khi đang chọn PNG: giá trị được giữ cho lần chọn lại JPEG.
         jpeg_quality: trackbar_pos(c.quality),
-        history_enabled,
+        history_enabled: is_checked(c.history),
     })
 }
 
@@ -1468,7 +1471,7 @@ fn static_colors(from: HWND) -> (Rgb, Rgb) {
     }
     // SAFETY: chỉ đọc mã điều khiển.
     let id = unsafe { GetDlgCtrlID(from) };
-    if id == ID_SECRET_NOTE || id == ID_PNG_NOTE {
+    if id == ID_SECRET_NOTE || id == ID_PNG_NOTE || id == ID_HISTORY_NOTE {
         return (TEXT_MUTED, SURFACE);
     }
     (TEXT, bg_under(from))
@@ -2182,6 +2185,7 @@ struct GeneralCtl {
     autostart: HWND,
     notices: HWND,
     check_updates: HWND,
+    history: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     dir: HWND,
@@ -2189,53 +2193,219 @@ struct GeneralCtl {
     height: i32,
 }
 
-/// Ô của tab Thông thường.
-fn build_general(b: &mut Builder) -> GeneralCtl {
+/// Hình chữ nhật `(x, y, w, h)` theo DIP, tính từ góc khung tab.
+type DipRect = (i32, i32, i32, i32);
+
+/// Bố cục tab Thông thường (DIP). Hàm thuần để kiểm thử: không ô nào đè ô nào, tất cả trong khung.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GeneralLayout {
+    autostart: DipRect,
+    notices: DipRect,
+    check_updates: DipRect,
+    history: DipRect,
+    history_note: DipRect,
+    keep_selection: DipRect,
+    include_cursor: DipRect,
+    dir_label: DipRect,
+    dir: DipRect,
+    browse: DipRect,
+    lang_label: DipRect,
+    /// Phần hộp chọn nhìn thấy khi đóng (cửa sổ thật cao hơn để chứa danh sách thả).
+    language: DipRect,
+    height: i32,
+}
+
+#[cfg(test)]
+impl GeneralLayout {
+    fn rects(&self) -> [DipRect; 12] {
+        [
+            self.autostart,
+            self.notices,
+            self.check_updates,
+            self.history,
+            self.history_note,
+            self.keep_selection,
+            self.include_cursor,
+            self.dir_label,
+            self.dir,
+            self.browse,
+            self.lang_label,
+            self.language,
+        ]
+    }
+}
+
+/// Ghi chú Lịch sử thụt vào bằng ô vuông của ô tích cộng khe (theme: 18 + 6 DIP) để thẳng hàng với chữ.
+const NOTE_INDENT: i32 = 24;
+/// Chiều cao ô tích, bước giữa hai ô tích liền nhau, khe dưới ghi chú.
+const CHECK_H: i32 = 22;
+const CHECK_STEP: i32 = 26;
+const NOTE_GAP: i32 = 6;
+
+/// Bề rộng (DIP) của ô tích một dòng trên tab Thông thường.
+fn general_check_width(l: Layout) -> i32 {
+    l.client_w - 60
+}
+
+/// Bề rộng (DIP) của dòng ghi chú Lịch sử.
+fn general_note_width(l: Layout) -> i32 {
+    general_check_width(l) - NOTE_INDENT
+}
+
+/// Vị trí các ô của tab Thông thường; `note_h` là chiều cao (DIP) dòng ghi chú Lịch sử.
+/// Nhóm hệ thống (khởi động, thông báo, bản mới, Lịch sử + ghi chú), rồi nhóm chụp, thư mục, ngôn ngữ.
+fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
+    let cw = general_check_width(l);
     let mut y = 12;
-    let autostart = b.button(
-        lang::tr(Msg::ChkAutostart),
-        ws(BS_AUTOCHECKBOX),
-        (LX, y, 300, 22),
-        ID_AUTOSTART,
-    );
-    // Ba ô tích của đợt 2, liền nhau ngay dưới "Khởi động cùng Windows".
-    let mut check = |b: &mut Builder, msg: Msg, id: i32| {
-        y += 26;
-        let w = b.layout.client_w - 60;
-        b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), (LX, y, w, 22), id)
-    };
-    let notices = check(b, Msg::ChkShowSuccessNotices, ID_NOTICES);
-    let check_updates = check(b, Msg::ChkCheckUpdates, ID_CHECK_UPDATES);
-    let keep_selection = check(b, Msg::ChkKeepSelection, ID_KEEP_SELECTION);
-    let include_cursor = check(b, Msg::ChkIncludeCursor, ID_INCLUDE_CURSOR);
+    let autostart = (LX, y, 300.min(cw), CHECK_H);
+    y += CHECK_STEP;
+    let notices = (LX, y, cw, CHECK_H);
+    y += CHECK_STEP;
+    let check_updates = (LX, y, cw, CHECK_H);
+    y += CHECK_STEP;
+    let history = (LX, y, cw, CHECK_H);
+    y += CHECK_H + 2;
+    let history_note = (LX + NOTE_INDENT, y, general_note_width(l), note_h);
+    y += note_h + NOTE_GAP;
+    let keep_selection = (LX, y, cw, CHECK_H);
+    y += CHECK_STEP;
+    let include_cursor = (LX, y, cw, CHECK_H);
     y += 32;
-    let dir = row_edit(
-        b,
-        lang::tr(Msg::LabelSaveDir),
-        y,
-        b.layout.ew - 76,
+    let dir_label = (LX, y + 3, EX - LX - 4, 20);
+    let dir = (EX, y, l.ew - 76, 24);
+    let browse = (EX + l.ew - 70, y - 1, 70, 26);
+    y += 34;
+    let lang_label = (LX, y + 3, EX - LX - 4, 20);
+    let language = (EX, y, 160, 24);
+    y += 32;
+    GeneralLayout {
+        autostart,
+        notices,
+        check_updates,
+        history,
+        history_note,
+        keep_selection,
+        include_cursor,
+        dir_label,
+        dir,
+        browse,
+        lang_label,
+        language,
+        height: y + 4,
+    }
+}
+
+/// Chiều cao (pixel) của `text` khi xuống dòng theo từ trong bề rộng `w_px`, vẽ bằng `font`.
+fn text_height_px(font: HFONT, text: &str, w_px: i32) -> Option<i32> {
+    let mut buf: Vec<u16> = text.encode_utf16().collect();
+    let mut rc = RECT {
+        left: 0,
+        top: 0,
+        right: w_px.max(1),
+        bottom: 0,
+    };
+    // SAFETY: DC màn hình lấy và trả trong khối này; phông cũ được chọn lại trước khi trả DC.
+    unsafe {
+        let hdc = GetDC(None);
+        if hdc.is_invalid() {
+            return None;
+        }
+        let old = SelectObject(hdc, HGDIOBJ(font.0));
+        let h = DrawTextW(
+            hdc,
+            &mut buf,
+            &mut rc,
+            DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_LEFT,
+        );
+        SelectObject(hdc, old);
+        ReleaseDC(None, hdc);
+        (h > 0).then_some(rc.bottom - rc.top)
+    }
+}
+
+/// Chiều cao (DIP, làm tròn lên, cộng 2 DIP dư) đủ cho chữ cao nhất trong `texts` khi xuống dòng
+/// trong bề rộng `w_dip`; đo ở đúng bề rộng pixel mà điều khiển sẽ có.
+fn note_height_dip(font: HFONT, dpi: i32, texts: &[&str], w_dip: i32) -> Option<i32> {
+    let dpi = dpi.max(1);
+    let w_px = (w_dip * dpi + 48) / 96;
+    let mut px = 0;
+    for t in texts {
+        px = px.max(text_height_px(font, t, w_px)?);
+    }
+    Some((px * 96 + dpi - 1) / dpi + 2)
+}
+
+/// Giá trị các ô tích của tab Thông thường theo cấu hình, theo thứ tự Tab.
+fn general_checks(c: &Config) -> [(i32, bool); 6] {
+    [
+        (ID_AUTOSTART, c.autostart),
+        (ID_NOTICES, c.show_success_notices),
+        (ID_CHECK_UPDATES, c.check_updates),
+        (ID_HISTORY, c.history_enabled),
+        (ID_KEEP_SELECTION, c.keep_selection),
+        (ID_INCLUDE_CURSOR, c.include_cursor),
+    ]
+}
+
+/// Ô của tab Thông thường. Thứ tự tạo là thứ tự Tab.
+fn build_general(b: &mut Builder) -> GeneralCtl {
+    let notes = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
+    let note_w = general_note_width(b.layout);
+    // Không đo được (không có phông): đủ ba dòng chữ thường.
+    let note_h = b
+        .font
+        .and_then(|f| note_height_dip(f, b.dpi, &notes, note_w))
+        .unwrap_or(54);
+    let g = general_layout(b.layout, note_h);
+    let check = |b: &mut Builder, msg: Msg, r: DipRect, id: i32| {
+        b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), r, id)
+    };
+    let autostart = check(b, Msg::ChkAutostart, g.autostart, ID_AUTOSTART);
+    let notices = check(b, Msg::ChkShowSuccessNotices, g.notices, ID_NOTICES);
+    let check_updates = check(b, Msg::ChkCheckUpdates, g.check_updates, ID_CHECK_UPDATES);
+    let history = check(b, Msg::ChkHistory, g.history, ID_HISTORY);
+    // STATIC kiểu SS_LEFT tự xuống dòng; không có WS_TABSTOP.
+    b.make(
+        w!("STATIC"),
+        lang::tr(Msg::NoteHistory),
         WINDOW_STYLE(0),
-        ID_DIR,
+        g.history_note,
+        ID_HISTORY_NOTE,
     );
+    let keep_selection = check(
+        b,
+        Msg::ChkKeepSelection,
+        g.keep_selection,
+        ID_KEEP_SELECTION,
+    );
+    let include_cursor = check(
+        b,
+        Msg::ChkIncludeCursor,
+        g.include_cursor,
+        ID_INCLUDE_CURSOR,
+    );
+    let (lx, ly, lw, lh) = g.dir_label;
+    b.label(lang::tr(Msg::LabelSaveDir), lx, ly, lw, lh);
+    let dir = b.edit(WINDOW_STYLE(0), g.dir, ID_DIR);
     b.button(
         lang::tr(Msg::BtnChoose),
         ws(BS_PUSHBUTTON),
-        (EX + b.layout.ew - 70, y - 1, 70, 26),
+        g.browse,
         ID_BROWSE,
     );
-    y += 34;
-    b.label(lang::tr(Msg::LabelLanguage), LX, y + 3, EX - LX - 4, 20);
-    let language = combo(b, y, ID_LANGUAGE);
-    y += 32;
+    let (lx, ly, lw, lh) = g.lang_label;
+    b.label(lang::tr(Msg::LabelLanguage), lx, ly, lw, lh);
+    let language = combo(b, g.language.1, ID_LANGUAGE);
     GeneralCtl {
         autostart,
         notices,
         check_updates,
+        history,
         keep_selection,
         include_cursor,
         dir,
         language,
-        height: y + 4,
+        height: g.height,
     }
 }
 
@@ -2662,6 +2832,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         g.autostart,
         g.notices,
         g.check_updates,
+        g.history,
         g.keep_selection,
         g.include_cursor,
         err,
@@ -2699,6 +2870,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         autostart: g.autostart,
         notices: g.notices,
         check_updates: g.check_updates,
+        history: g.history,
         keep_selection: g.keep_selection,
         include_cursor: g.include_cursor,
         err,
@@ -2862,11 +3034,17 @@ pub fn show(
         apply_row_enabled(&c, r, on);
         refresh_hotkey_text(r);
     }
-    set_checked(c.autostart, current.autostart);
-    set_checked(c.notices, current.show_success_notices);
-    set_checked(c.check_updates, current.check_updates);
-    set_checked(c.keep_selection, current.keep_selection);
-    set_checked(c.include_cursor, current.include_cursor);
+    for (id, on) in general_checks(current) {
+        let h = match id {
+            ID_AUTOSTART => c.autostart,
+            ID_NOTICES => c.notices,
+            ID_CHECK_UPDATES => c.check_updates,
+            ID_HISTORY => c.history,
+            ID_KEEP_SELECTION => c.keep_selection,
+            _ => c.include_cursor,
+        };
+        set_checked(h, on);
+    }
     set_checked(c.fmt_png, current.upload_format == UploadFormat::Png);
     set_checked(c.fmt_jpeg, current.upload_format == UploadFormat::Jpeg);
     let range = (usize::from(JPEG_QUALITY_MAX) << 16) | usize::from(JPEG_QUALITY_MIN);
@@ -3124,6 +3302,89 @@ mod tests {
             let n = apply_form(&c, &form_of(&c), Lang::Vi).unwrap();
             assert_eq!(n.history_enabled, on);
             assert_eq!(n, c);
+        }
+    }
+
+    #[test]
+    fn history_ids_are_153_and_154() {
+        assert_eq!(ID_HISTORY, 153);
+        assert_eq!(ID_HISTORY_NOTE, 154);
+    }
+
+    /// Cấu hình → hộp tích (`general_checks`, theo thứ tự Tab) và hộp tích → cấu hình (`apply_form`).
+    #[test]
+    fn history_check_box_round_trips_config() {
+        for on in [false, true] {
+            let mut c = base();
+            c.history_enabled = on;
+            let checks = general_checks(&c);
+            assert_eq!(
+                checks.map(|(id, _)| id),
+                [
+                    ID_AUTOSTART,
+                    ID_NOTICES,
+                    ID_CHECK_UPDATES,
+                    ID_HISTORY,
+                    ID_KEEP_SELECTION,
+                    ID_INCLUDE_CURSOR
+                ]
+            );
+            assert!(checks.contains(&(ID_HISTORY, on)));
+            let mut f = form_of(&c);
+            f.history_enabled = !on;
+            assert_eq!(apply_form(&c, &f, Lang::Vi).unwrap().history_enabled, !on);
+        }
+    }
+
+    /// Hộp Lịch sử và ghi chú nằm sau "Báo có bản mới", trước nhóm chụp; ghi chú đủ cao cho chữ dài
+    /// nhất (đo thật bằng phông hệ thống) ở 100/150/200%; không ô nào đè ô nào và tất cả trong khung.
+    #[test]
+    fn general_tab_fits_history_note_at_common_dpis() {
+        let texts = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
+        for label_w in [None, Some(250)] {
+            for dpi in [96u32, 144, 192] {
+                let font = crate::winutil::system_font(dpi).expect("system font");
+                let l = Layout::from_label_width(label_w);
+                let w = general_note_width(l);
+                let note_h = note_height_dip(font, dpi as i32, &texts, w).expect("measure");
+                for text in texts {
+                    let need = text_height_px(font, text, scale(w, dpi)).expect("measure px");
+                    assert!(
+                        scale(note_h, dpi) >= need,
+                        "dpi {dpi}: note {note_h} DIP < {need} px"
+                    );
+                }
+                // Câu dài: ít nhất hai dòng ở bề rộng tối thiểu, không quá năm dòng.
+                let one = text_height_px(font, "Ag", 10_000).unwrap();
+                assert!(scale(note_h, dpi) >= one, "dpi {dpi}");
+                assert!(scale(note_h, dpi) <= one * 5 + scale(4, dpi), "dpi {dpi}");
+                // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn nó.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(font.0));
+                }
+
+                let g = general_layout(l, note_h);
+                assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
+                assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
+                assert!(g.history_note.1 < g.keep_selection.1, "dpi {dpi}");
+                assert_eq!(g.history_note.3, note_h);
+                let rects = g.rects();
+                let px = |r: (i32, i32, i32, i32)| {
+                    let (x, y) = (scale(r.0, dpi), scale(r.1, dpi));
+                    (x, y, x + scale(r.2, dpi), y + scale(r.3, dpi))
+                };
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.0 >= LX && a.1 >= 0, "dpi {dpi}: {a:?}");
+                    // Khung rộng `client_w - 24` trừ viền dải tab: chừa thêm 12 DIP.
+                    assert!(a.0 + a.2 <= l.client_w - 36, "dpi {dpi}: {a:?}");
+                    assert!(a.1 + a.3 <= g.height, "dpi {dpi}: {a:?}");
+                    for b in &rects[i + 1..] {
+                        let (pa, pb) = (px(*a), px(*b));
+                        let apart = pa.2 <= pb.0 || pb.2 <= pa.0 || pa.3 <= pb.1 || pb.3 <= pa.1;
+                        assert!(apart, "dpi {dpi}: {a:?} overlaps {b:?}");
+                    }
+                }
+            }
         }
     }
 
@@ -3881,7 +4142,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..12 {
+            for _ in 0..13 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -3890,6 +4151,7 @@ mod tests {
                 ID_AUTOSTART,
                 ID_NOTICES,
                 ID_CHECK_UPDATES,
+                ID_HISTORY,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
                 ID_DIR,
