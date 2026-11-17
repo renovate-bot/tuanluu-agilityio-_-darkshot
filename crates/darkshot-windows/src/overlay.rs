@@ -54,9 +54,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, HTCLIENT, IDC_ARROW,
     IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG,
     NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY,
+    WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER,
+    WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-overlay");
@@ -272,6 +272,12 @@ fn key_held(vk: VIRTUAL_KEY) -> bool {
     }
     // SAFETY: đọc trạng thái phím của luồng này.
     unsafe { GetKeyState(i32::from(vk.0)) < 0 }
+}
+
+/// `WM_KEYDOWN` là lần lặp của phím đang giữ (bit 30 của `lParam`: phím đã xuống trước đó).
+fn key_repeat(lp: LPARAM) -> bool {
+    let _ = lp;
+    todo!()
 }
 
 /// Nét đang vẽ: công cụ, điểm đầu (tọa độ ảnh chụp) và hình hiện tại.
@@ -2474,6 +2480,18 @@ mod tests {
         let p = r.unwrap().unwrap();
         assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 1));
         assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        // Vòng có chữ: mở ô, gõ, bấm chỗ khác (chốt, mở ô mới), gõ, Ctrl+S.
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(inside(30, 40)));
+        steps.extend(live::chars("ab"));
+        steps.extend(live::click(inside(60, 120)));
+        steps.extend(live::chars("c"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 2);
+        assert!(p.shapes.iter().all(|s| matches!(s, Shape::Text { .. })));
         assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
@@ -2623,6 +2641,15 @@ mod tests {
             Up(Point),
             /// WM_KEYDOWN không phím bổ trợ.
             Key(u16),
+            /// WM_KEYDOWN lặp (phím đang giữ: bit 30 của lParam).
+            KeyRepeat(u16),
+            /// WM_CHAR với một đơn vị UTF-16.
+            Char(u16),
+            /// Gửi WM_CLOSE (đóng lớp phủ như khi hệ thống yêu cầu).
+            Close,
+            /// Phím Esc toàn cục đang trống (`true`: không ai giữ, kể cả lớp phủ) hay đang bị giữ.
+            /// Kiểm bằng `RegisterHotKey` ở luồng phụ, gỡ ngay nếu đăng ký được.
+            EscFree(bool),
             /// WM_KEYDOWN khi Ctrl đang giữ.
             Ctrl(u16),
             /// Phím tắt Esc toàn cục.
@@ -2754,6 +2781,13 @@ mod tests {
                         Step::Move(p) => post(WM_MOUSEMOVE, 1, lp(p)),
                         Step::Up(p) => post(WM_LBUTTONUP, 0, lp(p)),
                         Step::Key(vk) => post(WM_KEYDOWN, usize::from(vk), LPARAM(0)),
+                        Step::KeyRepeat(vk) => post(WM_KEYDOWN, usize::from(vk), LPARAM(1 << 30)),
+                        Step::Char(c) => post(WM_CHAR, usize::from(c), LPARAM(1)),
+                        Step::Close => post(WM_CLOSE, 0, LPARAM(0)),
+                        Step::EscFree(want) => {
+                            std::thread::sleep(Duration::from_millis(300));
+                            ok &= esc_free() == want;
+                        }
                         Step::Ctrl(vk) => {
                             TEST_MODS.store(1, Ordering::SeqCst);
                             post(WM_KEYDOWN, usize::from(vk), LPARAM(0));
@@ -2780,6 +2814,25 @@ mod tests {
             let r = pick_region(shot, initial);
             let ok = driver.join().unwrap();
             (r, ok)
+        }
+
+        /// Thử đăng ký Esc toàn cục ở luồng này; được thì gỡ ngay và trả `true`.
+        fn esc_free() -> bool {
+            const PROBE_ID: i32 = 0x0E5D;
+            // SAFETY: phím tắt gắn với luồng này (không cửa sổ); gỡ ngay khi đăng ký được.
+            unsafe {
+                let free =
+                    RegisterHotKey(None, PROBE_ID, MOD_NOREPEAT, u32::from(VK_ESCAPE.0)).is_ok();
+                if free {
+                    let _ = UnregisterHotKey(None, PROBE_ID);
+                }
+                free
+            }
+        }
+
+        /// Các bước gửi chuỗi `s` bằng WM_CHAR (mỗi đơn vị UTF-16 một bước).
+        pub fn chars(s: &str) -> Vec<Step> {
+            s.encode_utf16().map(Step::Char).collect()
         }
 
         pub fn pt(p: Point) -> Pt {
@@ -2948,6 +3001,294 @@ mod tests {
         steps.push(live::Step::Hotkey);
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok, "phím tắt Esc thứ nhất phải chỉ đóng bảng màu");
+        assert_eq!(r, Ok(None));
+    }
+
+    #[test]
+    fn key_repeat_bit_is_read() {
+        assert!(!key_repeat(LPARAM(0)));
+        assert!(!key_repeat(LPARAM(1)));
+        assert!(key_repeat(LPARAM(1 << 30)));
+        assert!(key_repeat(LPARAM((1 << 30) | 1)));
+    }
+
+    /// Chữ (origin, nội dung) của các hình Text trong `shapes`; hình khác làm kiểm thử thất bại.
+    fn texts(shapes: &[Shape]) -> Vec<(Pt, String)> {
+        shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Text { origin, text, .. } => (*origin, text.clone()),
+                other => panic!("không phải Text: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored held_tool_key_does_not_toggle --test-threads=1"]
+    fn held_tool_key_does_not_toggle() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        // Giữ P: một WM_KEYDOWN rồi các lần lặp; công cụ phải vẫn là Bút vẽ.
+        let mut steps = vec![
+            live::Step::Key(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+        ];
+        steps.extend(live::drag(at(30, 40), at(150, 90)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored wm_char_sequence_builds_text --test-threads=1"]
+    fn wm_char_sequence_builds_text() {
+        use darkshot_core::annotate::{dip_to_px, TEXT_DIP};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        const BS: u16 = 0x08;
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(at));
+        // Unikey: gõ "Viet" kiểu Telex, bộ gõ xóa rồi gửi lại ký tự dựng sẵn.
+        steps.extend(live::chars("Vie"));
+        steps.push(live::Step::Char(BS));
+        steps.extend(live::chars("\u{ea}t"));
+        steps.push(live::Step::Char(BS));
+        steps.push(live::Step::Char(BS));
+        steps.extend(live::chars("\u{1ec7}t"));
+        // Enter rồi "2".
+        steps.extend(live::chars("\r2"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        assert_eq!(
+            texts(&p.shapes),
+            vec![(live::pt(at), "Vi\u{1ec7}t\n2".to_string())]
+        );
+        let Shape::Text { size, .. } = &p.shapes[0] else {
+            unreachable!()
+        };
+        assert_eq!(*size, dip_to_px(TEXT_DIP, live::dpi_at(&shot, at)));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored esc_cancels_text_not_overlay --test-threads=1"]
+    fn esc_cancels_text_not_overlay() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        let typing = || {
+            let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+            steps.extend(live::click(at));
+            steps.extend(live::chars("abc"));
+            steps
+        };
+        // Esc bằng WM_KEYDOWN: lần đầu hủy ô, lần sau đóng lớp phủ.
+        let mut steps = typing();
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "Esc thứ nhất phải chỉ hủy ô chữ");
+        assert_eq!(r, Ok(None));
+        // Esc qua phím tắt toàn cục.
+        let mut steps = typing();
+        steps.push(live::Step::Hotkey);
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Hotkey);
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "phím tắt Esc thứ nhất phải chỉ hủy ô chữ");
+        assert_eq!(r, Ok(None));
+        // Ô bị hủy không được chốt.
+        let mut steps = typing();
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, Vec::new());
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_elsewhere_commits --test-threads=1"]
+    fn click_elsewhere_commits() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = (
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 120,
+                y: sel.y + 130,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(a));
+        steps.extend(live::chars("A"));
+        steps.extend(live::click(b));
+        steps.extend(live::chars("B"));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.action, Action::Save);
+        assert_eq!(
+            texts(&p.shapes),
+            vec![
+                (live::pt(a), "A".to_string()),
+                (live::pt(b), "B".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored empty_text_is_dropped --test-threads=1"]
+    fn empty_text_is_dropped() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(Point {
+            x: sel.x + 30,
+            y: sel.y + 40,
+        }));
+        // Đổi công cụ bằng nút Bút vẽ trên thanh dọc (phím P lúc này đi vào ô chữ).
+        steps.extend(live::click(l.item(0)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.shapes), (Action::Save, Vec::new()));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored ctrl_z_while_typing --test-threads=1"]
+    fn ctrl_z_while_typing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let setup = || {
+            let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'T')));
+            steps.extend(live::click(at(40, 140)));
+            steps.extend(live::chars("x"));
+            steps
+        };
+        // Ctrl+Z một lần: xóa ô đang gõ, nét Pen còn.
+        let mut steps = setup();
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        // Ctrl+Z lần nữa: hoàn tác nét Pen.
+        let mut steps = setup();
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, Vec::new());
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored tool_letters_go_into_text --test-threads=1"]
+    fn tool_letters_go_into_text() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let (a, b) = (
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 120,
+                y: sel.y + 130,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(a));
+        // Bàn phím thật gửi WM_KEYDOWN 'P' rồi WM_CHAR 'p'.
+        steps.push(live::Step::Key(u16::from(b'P')));
+        steps.extend(live::chars("p"));
+        // Công cụ vẫn là Chữ: bấm chỗ khác mở ô mới (không vẽ chấm Bút vẽ).
+        steps.extend(live::click(b));
+        steps.extend(live::chars("q"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(
+            texts(&r.unwrap().unwrap().shapes),
+            vec![
+                (live::pt(a), "p".to_string()),
+                (live::pt(b), "q".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; cần Esc toàn cục không bị ứng dụng khác giữ; chạy tay: cargo test -p darkshot-windows -- --ignored escape_hotkey_restored --test-threads=1"]
+    fn escape_hotkey_restored() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        // Lớp phủ giữ Esc toàn cục; nhả khi ô chữ mở; giữ lại khi ô đóng.
+        let mut steps = vec![live::Step::EscFree(false), live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(at));
+        steps.extend(live::chars("a"));
+        steps.push(live::Step::EscFree(true));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::EscFree(false));
+        // Mở ô lần nữa rồi đóng lớp phủ giữa lúc đang gõ.
+        steps.extend(live::click(at));
+        steps.extend(live::chars("b"));
+        steps.push(live::Step::EscFree(true));
+        steps.push(live::Step::Close);
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r, Ok(None));
+        // Lần mở sau: Esc toàn cục được giữ lại và đóng lớp phủ.
+        let steps = vec![live::Step::EscFree(false), live::Step::Hotkey];
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
         assert_eq!(r, Ok(None));
     }
 }
