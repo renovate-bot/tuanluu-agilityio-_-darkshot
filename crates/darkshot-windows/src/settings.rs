@@ -95,6 +95,8 @@ pub struct Form {
     pub include_cursor: bool,
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
+    /// Chưa có ô trên cửa sổ (Task 55): lấy từ cấu hình hiện tại để lưu không làm mất giá trị.
+    pub history_enabled: bool,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -117,6 +119,7 @@ impl std::fmt::Debug for Form {
             .field("include_cursor", &self.include_cursor)
             .field("upload_format", &self.upload_format)
             .field("jpeg_quality", &self.jpeg_quality)
+            .field("history_enabled", &self.history_enabled)
             .finish()
     }
 }
@@ -290,6 +293,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         custom_colors: current.custom_colors,
         check_updates: form.check_updates,
         update_notified: current.update_notified,
+        history_enabled: form.history_enabled,
     })
 }
 
@@ -617,7 +621,8 @@ fn read_form() -> Option<Form> {
         .ok()
         .and_then(|i| Expiry::ALL.get(i).copied())
         .unwrap_or_default();
-    let (mut hotkeys, old_lang) = with_st(|s| (s.hotkeys, s.current.language))?;
+    let (mut hotkeys, old_lang, history_enabled) =
+        with_st(|s| (s.hotkeys, s.current.language, s.current.history_enabled))?;
     let upload_format = if is_checked(c.fmt_jpeg) {
         UploadFormat::Jpeg
     } else {
@@ -651,6 +656,7 @@ fn read_form() -> Option<Form> {
         upload_format,
         // Đọc cả khi đang chọn PNG: giá trị được giữ cho lần chọn lại JPEG.
         jpeg_quality: trackbar_pos(c.quality),
+        history_enabled,
     })
 }
 
@@ -3106,6 +3112,18 @@ mod tests {
             include_cursor: c.include_cursor,
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
+            history_enabled: c.history_enabled,
+        }
+    }
+
+    #[test]
+    fn history_enabled_is_kept_when_saving() {
+        for on in [false, true] {
+            let mut c = base();
+            c.history_enabled = on;
+            let n = apply_form(&c, &form_of(&c), Lang::Vi).unwrap();
+            assert_eq!(n.history_enabled, on);
+            assert_eq!(n, c);
         }
     }
 
