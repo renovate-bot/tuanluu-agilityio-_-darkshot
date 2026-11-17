@@ -610,7 +610,10 @@ e) Mở Tùy chọn, tab Lưu trữ R2, nhập Account ID, Access Key ID, Secret
 f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 \n\
 5. Khi tải lên không được\n\
-Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại."
+Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại.
+\n
+\n6. Lịch sử ảnh chụp
+\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -646,7 +649,10 @@ e) Open Options, the R2 storage tab, and enter the Account ID, Access Key ID, Se
 f) Click Test connection, wait for the success message, then click OK.\n\
 \n\
 5. When an upload fails\n\
-The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again."
+The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again.
+\n
+\n6. Screenshot history
+\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2."
         ),
     }
 }

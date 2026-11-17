@@ -228,11 +228,23 @@ Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích b�
 - Con trỏ đang ẩn thì không được vẽ.
 - Con trỏ được vẽ ở cỡ mà Windows trả về lúc chụp. Trên màn hình có DPI khác 100%, hoặc khi con trỏ được phóng to trong Cài đặt Windows, con trỏ trong ảnh có thể nhỏ hơn trên màn hình.
 
+### Lịch sử ảnh chụp
+
+Mặc định **tắt**. Bật ở Tùy chọn, tab Thông thường, ô "Bật lịch sử ảnh chụp". Khi bật, mỗi lần Lưu, Chép hoặc Tải lên (kể cả lưu dự phòng khi tải lên không được) thêm một mục vào lịch sử; khi tắt, không có gì được ghi thêm và các mục cũ giữ nguyên.
+
+- Mở từ menu khay, mục "Lịch sử ảnh chụp". Danh sách bên trái (ảnh nhỏ, ngày giờ, loại, kích thước), khung xem trước và hành động bên phải.
+- Hành động: Mở (ảnh đã lưu mở bằng trình xem ảnh; ảnh đã tải lên mở liên kết `https://` trên trình duyệt), Sao chép ảnh, Sao chép liên kết (ảnh đã tải lên), Mở thư mục chứa ảnh (ảnh đã lưu), Xóa khỏi lịch sử. Chuột phải trên một dòng cho cùng các mục. Phím: Enter mở, Delete xóa mục, Ctrl+C chép ảnh, Ctrl+Shift+C chép liên kết, Ctrl+F tìm, Esc đóng.
+- Tìm theo tên tệp, ngày, loại hoặc liên kết (không phân biệt hoa thường và dấu); lọc Tất cả, Đã lưu, Đã tải lên, Đã chép.
+- Giữ 50 mục gần nhất. Dữ liệu nằm ở `%LOCALAPPDATA%\darkshot\history\` (chỉ mục `index.json`, ảnh nhỏ, và bản sao PNG của ảnh đã tải lên hoặc đã chép). Ảnh đã lưu chỉ được tham chiếu, không chép lại. Không gửi đi đâu.
+- Xóa một mục hoặc "Xóa lịch sử" chỉ xóa phần do ứng dụng giữ. Ảnh bạn đã lưu và ảnh trên R2 không bị xóa.
+- Mục có thể mất nếu thoát ứng dụng ngay sau khi chụp (ghi lịch sử chạy nền); lưu dự phòng khi thoát được ghi ngay.
+
 ### Menu khay
 
 | Mục | Việc làm |
 |---|---|
 | Chụp màn hình | Mở lớp phủ chụp. |
+| Lịch sử ảnh chụp | Mở cửa sổ Lịch sử (xem mục "Lịch sử ảnh chụp"). Nếu đã mở thì đưa ra trước. |
 | Tùy chọn... | Mở cửa sổ Tùy chọn. Nếu đã mở thì đưa cửa sổ đó ra trước. |
 | Thông tin... | Mở cửa sổ Thông tin: biểu tượng, tên, phiên bản và mô tả ngắn. |
 | Trợ giúp | Mở cửa sổ Trợ giúp: các bước dùng darkshot và chuẩn bị Cloudflare R2, theo phím tắt đang đặt. |
@@ -368,7 +380,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 
 ## Phạm vi
 
-Ứng dụng làm việc chính: chụp vùng màn hình, đánh dấu nhanh bằng các công cụ vẽ, chữ, làm mờ, đánh số và chọn để sửa từng hình (mục "Đánh dấu ảnh"), lưu hoặc tải lên và chép link. Không có lịch sử ảnh, và không xóa ảnh từ ứng dụng. Phần đánh dấu chưa có chọn nhiều hình, đổi thứ tự trên dưới hay xoay, nhân bản hình (xem danh sách ở mục "Đánh dấu ảnh").
+Ứng dụng làm việc chính: chụp vùng màn hình, đánh dấu nhanh bằng các công cụ vẽ, chữ, làm mờ, đánh số và chọn để sửa từng hình (mục "Đánh dấu ảnh"), lưu hoặc tải lên và chép link. Có lịch sử ảnh chụp cục bộ (mục "Lịch sử ảnh chụp"); không xóa ảnh đã tải lên từ ứng dụng. Phần đánh dấu chưa có chọn nhiều hình, đổi thứ tự trên dưới hay xoay, nhân bản hình (xem danh sách ở mục "Đánh dấu ảnh").
 
 ## Thư viện bên thứ ba
 

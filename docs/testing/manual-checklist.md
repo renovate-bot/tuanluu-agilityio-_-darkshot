@@ -315,6 +315,31 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Esc lùi từng bước: bảng Cỡ, bảng Hình (từ Task 50) hoặc bảng màu → ô chữ → hủy kéo hình → bỏ chọn hình → đóng lớp phủ.
 - [ ] Nút Hoàn tác và Làm lại (từ Task 50 nằm trên thanh ngang) làm đúng như Ctrl+Z và Ctrl+Y.
 
+## Đợt 7: Lịch sử ảnh chụp
+
+Chạy bản demo cách ly: đặt `DARKSHOT_PROFILE_DIR` vào một thư mục tạm, chạy `darkshot.exe --history` (xem hướng dẫn trong báo cáo đợt 7). Ghi chú: các mục dưới đây chưa được ai thử tay.
+
+- [ ] Mặc định tắt: Tùy chọn, tab Thông thường có ô "Bật lịch sử ảnh chụp" (bỏ tích) kèm dòng ghi chú không bị cắt ở DPI 100%, 150%, 200%, Tiếng Việt và English; Tab đi qua ô đúng thứ tự.
+- [ ] Tắt: chụp, Lưu, Chép, Tải lên như cũ; mở Lịch sử thấy trạng thái "Lịch sử đang tắt" kèm nút "Mở Tùy chọn" (bấm mở Tùy chọn).
+- [ ] Bật rồi OK: Lưu một ảnh, Chép một ảnh, Tải lên một ảnh (R2 thật hoặc không cấu hình để rơi về lưu dự phòng): mỗi lần có thêm một mục đúng loại (Đã lưu, Đã chép, Đã tải lên, Lưu dự phòng), mới nhất ở đầu.
+- [ ] Mở Lịch sử khi đang mở: mục mới xuất hiện sau khi tải lên xong, mục đang chọn giữ nguyên.
+- [ ] Thoát và chạy lại darkshot: các mục còn đó, ảnh nhỏ hiện lại.
+- [ ] Chọn một mục: xem trước đúng tỉ lệ, ảnh 4K không làm đơ cửa sổ; thông tin Loại, Kích thước, Dung lượng, Tệp hoặc Liên kết, Hết hạn đúng; đường dẫn dài bị cắt giữa và rê chuột hiện tooltip đủ.
+- [ ] Mở (nút, Enter, nháy đúp) ảnh đã lưu mở bằng trình xem ảnh; mục đã tải lên mở liên kết trên trình duyệt.
+- [ ] Sao chép ảnh rồi dán vào Paint: đúng ảnh. Sao chép liên kết rồi dán: đúng link.
+- [ ] Mở thư mục chứa ảnh: Explorer mở và chọn đúng tệp.
+- [ ] Tìm: gõ một phần tên tệp, ngày (`2026-11-18`, `18/11/2026`), "luu" (khớp "lưu"), một phần liên kết: danh sách lọc ngay. Nút `×` và Esc xóa chữ tìm. Bốn bộ lọc đổi đúng; mũi tên trái phải đổi bộ lọc khi tiêu điểm ở viên lọc.
+- [ ] Không khớp: hiện "Không tìm thấy ảnh nào" và nút "Xóa bộ lọc" hoạt động.
+- [ ] Xóa tệp ảnh đã lưu bằng Explorer rồi mở lại Lịch sử: mục hiện "Không tìm thấy tệp ảnh", Mở/Sao chép ảnh/Mở thư mục bị vô hiệu, Xóa khỏi lịch sử còn dùng được.
+- [ ] Xóa khỏi lịch sử (nút, Delete, menu chuột phải): mục biến mất, mục kế được chọn; tệp ảnh đã lưu vẫn còn trong thư mục lưu.
+- [ ] Menu chuột phải tối, đúng mục theo loại; Shift+F10 và phím Menu cũng mở.
+- [ ] "Xóa lịch sử": hiện thẻ xác nhận, mặc định ở "Hủy"; Esc hủy; Tab chỉ xoay hai nút; phía sau không cuộn được; đồng ý thì danh sách trống và các tệp đã lưu vẫn còn.
+- [ ] Hơn 50 ảnh: chỉ còn 50 mục mới nhất; tệp ảnh đã lưu của mục cũ vẫn còn; thư mục `%LOCALAPPDATA%\darkshot\history\images` không phình.
+- [ ] Đổi ngôn ngữ trong Tùy chọn khi Lịch sử đang mở: cửa sổ Lịch sử tự đóng; mở lại đúng ngôn ngữ mới.
+- [ ] Đổi cỡ cửa sổ (nhỏ nhất 760×520), phóng to, kéo sang màn hình DPI khác: không chồng, không cắt chữ.
+- [ ] Hồi quy: Annotation Pro (hoàn tác, chọn/dời, elip, đánh số, làm mờ), phím tắt chụp và tải lên R2 chạy như trước.
+- [ ] Chạy tay các kiểm thử `#[ignore]` của Lịch sử, từng cái với `--test-threads=1`: `history_window_opens_and_closes_without_leaks`, `history_window_with_entries_has_no_gdi_leak`, và bốn kiểm thử `history_*` mới của Task 57.
+
 ## Thanh gọn (Task 50)
 
 - [ ] Thanh dọc có 9 mục theo thứ tự Chọn | Bút vẽ, Hình, Bút dạ quang, Làm mờ, Chữ, Đánh số | Cỡ, Màu; vạch ngăn đúng chỗ; chú thích nút Hình là "Hình (L, A, R, E)" (English: "Shapes (L, A, R, E)").
