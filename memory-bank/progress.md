@@ -64,6 +64,14 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 49 Tài liệu đợt 6 | task/49-docs-batch6 | scaffolder | haiku | xong | 212.730 | 45.326 | 0 | 258.056 |
 | 50 Thanh gọn: nút Hình, Hoàn tác/Làm lại sang thanh ngang | task/50-compact-toolbar | specialist | opus | xong | 257.514 | 119.667 | 0 | 377.181 |
 | 51 Tài liệu cuối đợt 6 | task/51-docs-batch6-final | phiên chính | opus | xong | không đo | | | |
+| 52 Lịch sử: mô hình, chỉ mục JSON, tìm/lọc, chuỗi i18n | task/52-history-model | builder | sonnet | xong | 77.884 | 41.246 | 0 | 119.130 |
+| 53 Lịch sử: kho trên đĩa, ảnh nhỏ, đồng thời | task/53-history-store | specialist | opus | xong | 115.645 | 91.600 | 19.493 | 226.738 |
+| 54 Lịch sử: cấu hình, dịch vụ ghi nền, chế độ cách ly | task/54-history-integration | specialist | opus | xong | 155.145 | 88.401 | 0 | 243.546 |
+| 55 Lịch sử: hộp tích, menu khay, khung cửa sổ | task/55-history-entry-points | specialist | opus | xong | 183.575 | 47.504 | 0 | 231.079 |
+| 56 Lịch sử: vẽ danh sách, ảnh nhỏ, xem trước | task/56-history-window | specialist | opus | xong | 352.841 | 160.615 | 0 | 513.456 |
+| 57 Lịch sử: tìm, lọc, hành động, xác nhận | task/57-history-actions | specialist | opus | xong | 397.112 | 169.162 | 22.987 | 589.261 |
+| Rà soát toàn đợt 7 | feature/screenshot-history | specialist | opus | xong (DUYỆT) | | 137.492 | | 137.492 |
+| 58 Tài liệu, demo đợt 7 | task/58-history-docs | phiên chính | opus | xong | không đo | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -143,3 +151,5 @@ Task 43 (báo có bản mới, thiết kế `docs/superpowers/specs/2026-11-17-u
 Đợt 6 (Annotation Pro, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`): đọc soát thiết kế (general-purpose, sonnet) 77.149.
 
 Đợt 6 xong (2026-11-17), chủ dự án duyệt trên bản demo. Cộng Task 44–50: 2.321.154 (làm 1.345.538; rà soát 729.481; sửa 246.135); kể cả đọc soát thiết kế: 2.398.303. Task 48 tốn nhất (707.729) vì một lượt sửa lỗi tay nắm. Chưa thử tay.
+
+Đợt 7 (Lịch sử ảnh chụp, thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`): làm trên nhánh `feature/screenshot-history`, CHƯA gộp vào `main`, chưa đẩy. Cộng Task 52–57 và rà soát toàn đợt: 2.060.702 (số "sửa" của Task 53 và 57 là phần chênh do agent báo). Chưa thử tay.
