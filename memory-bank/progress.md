@@ -43,6 +43,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 30 Tùy chọn tự vẽ | task/30-dark-options | specialist | opus | xong | 308.654 | 146.553 | 3.810 | 459.017 |
 | 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | xong | 171.829 | 50.900 | 0 (phiên điều phối sửa một câu README) | 222.729 |
 | 30b Ô tích, nút chọn mịn | task/30b-check-radio-aa | specialist | opus | xong | 146.263 | 67.580 | 0 (phiên điều phối dời một chú thích) | 213.843 |
+| 30c Ô nhập một viền bo mịn | task/30c-edit-frame | specialist | opus | xong | 171.111 | (rà soát specialist, chưa ghi số) | 0 | 171.111+ |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -50,7 +51,7 @@ Task 20–23 là đợt 2 (kế hoạch `docs/superpowers/plans/2026-11-16-captu
 
 Task 24–26 là đợt 3 (kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md`). Trước khi xây: đọc soát thiết kế đợt 3 (general-purpose) 129.579. Cộng Task 24–26: 685.912 (làm 468.503; rà soát 209.688; sửa 7.721); kể cả đọc soát thiết kế: 815.491. Theo model: opus (Task 25) 307.399; sonnet (Task 24 và rà soát 26) 237.934; haiku (Task 26) 140.579. Chủ dự án báo "đã duyệt. Đúng yêu cầu" (2026-11-16).
 
-Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075. Cộng Task 27–31: 1.162.436 (làm 781.735; rà soát 367.839; sửa 12.862); kể cả đọc soát thiết kế: 1.227.511. Theo model: opus (Task 28, 30) 688.408; sonnet (Task 27, 29 và rà soát 31) 302.199; haiku (Task 31) 171.829. Sửa sau đợt 4: Task 30b (chủ dự án báo ô tích và nút chọn không như mong đợi: răng cưa) 213.843. Chưa thử tay, chưa nghiệm thu.
+Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075. Cộng Task 27–31: 1.162.436 (làm 781.735; rà soát 367.839; sửa 12.862); kể cả đọc soát thiết kế: 1.227.511. Theo model: opus (Task 28, 30) 688.408; sonnet (Task 27, 29 và rà soát 31) 302.199; haiku (Task 31) 171.829. Sửa sau đợt 4: Task 30b (chủ dự án báo ô tích và nút chọn không như mong đợi: răng cưa) 213.843; Task 30c (chủ dự án báo ô nhập trộn góc vuông và bo tròn) 171.111 cộng rà soát. Chưa thử tay, chưa nghiệm thu.
 
 Rà soát Task 4, 8, 9, 17, 21, 22, 25, 28, 30 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
