@@ -1,8 +1,5 @@
 //! Vẽ các hình đánh dấu bằng GDI+: một hàm vẽ dùng chung cho lớp phủ và cho ảnh ra (`burn`).
 
-// Lớp phủ (Task 36, 37) nối các hàm này vào; tới lúc đó chỉ kiểm thử dùng.
-#![allow(dead_code)]
-
 use crate::gdiplus::{GdiPlus, Gp};
 use darkshot_core::annotate::{
     arrow_geometry, arrow_min_head, outline_color, Pt, Shape, TextEdit, MARKER_ALPHA, TEXT_DIP,
@@ -44,6 +41,12 @@ fn ok(st: Status) -> bool {
 
 fn argb(c: Rgb, a: u8) -> u32 {
     (u32::from(a) << 24) | (u32::from(c.0) << 16) | (u32::from(c.1) << 8) | u32::from(c.2)
+}
+
+/// Điểm chung khi mọi điểm của nét trùng nhau (nét chỉ là một chấm); `None` khi rỗng hoặc có điểm khác.
+fn single_spot(points: &[Pt]) -> Option<Pt> {
+    let first = *points.first()?;
+    points.iter().all(|p| *p == first).then_some(first)
 }
 
 fn pf(p: Pt) -> PointF {
@@ -288,15 +291,18 @@ fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool
             color,
         } => {
             let c = argb(*color, 255);
-            match points.as_slice() {
-                [] => true,
-                [p] => {
+            if points.is_empty() {
+                return true;
+            }
+            match single_spot(points) {
+                Some(p) => {
                     let Some(b) = Brush::new(c) else { return false };
                     let r = width / 2.0;
                     // SAFETY: g và chổi hợp lệ.
                     ok(unsafe { GdipFillEllipse(g, b.raw(), p.x - r, p.y - r, *width, *width) })
                 }
-                pts => {
+                None => {
+                    let pts = points.as_slice();
                     let Some(pen) = Pen::new(c, *width, LineCapRound, LineJoinRound) else {
                         return false;
                     };
@@ -389,13 +395,14 @@ fn draw_arrow(g: *mut GpGraphics, a: Pt, b: Pt, width: f32, color: Rgb) -> bool 
 /// Bút dạ quang: nới đường thành viền (`GdipWidenPath`) rồi tô một lần với `FillModeWinding`,
 /// nên chỗ nét tự cắt chỉ được phủ một lần (không đậm hơn).
 fn draw_marker(g: *mut GpGraphics, points: &[Pt], width: f32, color: Rgb) -> bool {
-    let Some(first) = points.first() else {
+    if points.is_empty() {
         return true;
-    };
+    }
     let Some(brush) = Brush::new(argb(color, MARKER_ALPHA)) else {
         return false;
     };
-    if points.len() == 1 {
+    // Mọi điểm trùng nhau: `GdipWidenPath` không nới được đường dài 0, vẽ ô vuông như nét một điểm.
+    if let Some(first) = single_spot(points) {
         let r = width / 2.0;
         // SAFETY: g và chổi hợp lệ.
         return ok(unsafe {
@@ -583,6 +590,8 @@ fn advance_width(style: &TextStyle, s: &str, size: f32) -> Option<f32> {
 }
 
 /// Vị trí và chiều cao con trỏ nháy (tọa độ ảnh chụp) của ô chữ đang soạn (Task 37 dùng).
+// Task 37 (ô chữ) dùng; tới lúc đó chỉ kiểm thử gọi.
+#[allow(dead_code)]
 pub fn caret_rect(edit: &TextEdit) -> Rect {
     // TextEdit không cho đọc gốc và cỡ chữ: lấy qua bản sao có thêm một ký tự (to_shape luôn Some).
     let mut probe = edit.clone();
@@ -917,6 +926,40 @@ mod tests {
         assert_eq!(burn(&mut img, &[m], crop), Ok(()));
         let p = px(&img, 30, 21);
         assert!(p[2].abs_diff(102) <= 6, "{p:?}");
+        assert!(all_opaque(&img));
+    }
+
+    /// Pen và Marker có hai điểm trở lên trùng nhau vẽ như nét một điểm (chấm tròn, ô vuông),
+    /// không làm `burn` lỗi.
+    #[test]
+    fn coincident_points_draw_a_dot() {
+        let mut img = solid(50, 40, 0);
+        let pen = Shape::Pen {
+            points: vec![pt(10.0, 20.0); 3],
+            width: 6.0,
+            color: RED,
+        };
+        let marker = Shape::Marker {
+            points: vec![pt(30.0, 20.0), pt(30.0, 20.0)],
+            width: 8.0,
+            color: Rgb(255, 255, 255),
+        };
+        let crop = full(&img);
+        assert_eq!(burn(&mut img, &[pen, marker], crop), Ok(()));
+        // Chấm tròn bán kính 3 ở (10, 20).
+        assert!(
+            near(px(&img, 10, 20), [0, 0, 255, 255], 2),
+            "{:?}",
+            px(&img, 10, 20)
+        );
+        assert_eq!(px(&img, 15, 20), [0, 0, 0, 255]);
+        assert_eq!(px(&img, 10, 25), [0, 0, 0, 255]);
+        // Ô vuông cạnh 8 quanh (30, 20): phủ 40% cả ở góc (ngoài hình tròn bán kính 4).
+        let mid = px(&img, 30, 20);
+        assert!(mid[2].abs_diff(102) <= 6, "{mid:?}");
+        let corner = px(&img, 26, 16);
+        assert!(corner[2].abs_diff(102) <= 6, "{corner:?}");
+        assert_eq!(px(&img, 35, 20), [0, 0, 0, 255]);
         assert!(all_opaque(&img));
     }
 
