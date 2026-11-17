@@ -23,6 +23,7 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 - Đợt 4 (đổi tên darkshot, giao diện luôn tối): thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md`, kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`. Thiết kế đã duyệt cũng không sửa.
 - Đợt 5 (công cụ đánh dấu trên ảnh chụp): thiết kế `docs/superpowers/specs/2026-11-17-annotate-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotate.md`. Thiết kế đã duyệt cũng không sửa.
 - Đợt 6 (Annotation Pro: hoàn tác/làm lại nhiều bước, chọn và sửa hình, Hình elip, Đánh số, mức cỡ): thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`. Thiết kế đã duyệt cũng không sửa.
+- Sau đợt 6, Task 50 (thanh công cụ gọn: thanh dọc 9 mục, nút Hình, Hoàn tác/Làm lại sang thanh ngang): thiết kế `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, gói `docs/tasks/50-compact-toolbar.md`. Chủ dự án đã duyệt đợt 6 và Task 50 trên bản demo (2026-11-17).
 - Mọi chữ người dùng nhìn thấy lấy từ bảng `darkshot_core::i18n` (Tiếng Việt và English), không viết cứng trong mã.
 - Không bàn lại quyết định đã có trong `memory-bank/decisions.md` nếu chủ dự án không yêu cầu.
 - Chỉ đẩy mã lên remote `origin` (repo GitHub riêng tư của chủ dự án). Không gửi dữ liệu dự án ra dịch vụ nào khác.

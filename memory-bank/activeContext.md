@@ -1,6 +1,6 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-16
+Cập nhật: 2026-11-17
 
 ## Đang ở đâu
 
@@ -21,7 +21,12 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Đợt 6 – Annotation Pro (2026-11-17), đang chạy.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `49-…`, quyết định 75. Chạy 44 → 49 không dừng. Task đang làm: không.
+**Đợt 6 – Annotation Pro và Task 50 (2026-11-17): XONG, chủ dự án đã duyệt trên bản demo.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md` và `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `51-…`, quyết định 75–85. Task đang làm: không.
+- Bản demo: `target/demo50/release/darkshot.exe` (1.806.336 byte; demo đợt 5 1.717.248). `target/demo6/` là bản trước Task 50 (thanh 14 mục), có thể bị khóa vì đang chạy.
+- Đã đẩy `main` và nhánh `task/44…50` lên `origin`. Repo GitHub đang ở chế độ PUBLIC, khác dòng "riêng tư" trong CLAUDE.md: chờ chủ dự án xem lại.
+- Chưa thử tay: mục "Đợt 6" và "Thanh gọn (Task 50)" của `docs/testing/manual-checklist.md` còn `[ ]` (DPI 100/150/200%, hai cột ở 1366×768@250%, Unikey, màn hình tọa độ âm).
+- Việc còn để lại (nhỏ): `help_text` trong `i18n.rs` chưa nói về công cụ đánh dấu và câu Esc đã cũ; `Annotations::undo/redo` chuyển mục sổ khi `apply` trả None; `ellipse_circle_symmetric` đếm lệch một cột; hình rất nhỏ đang chọn thì kéo ở viền chỉ đổi cỡ; nhánh `SideItem::Shapes if shapes_open` trong `activate` không tới được bằng chuột; kiểm thử chạy tay nhạy với chuột thật và focus.
+- Task 51: cập nhật tài liệu cuối đợt (phiên điều phối tự làm vì chỉ là tài liệu).
 - Task 50: thanh gọn: thanh dọc 9 mục (531→342 DIP ở 96 DPI), nút Hình nhớ hình gần nhất (mặc định Mũi tên) có bảng 4 ô, Hoàn tác/Làm lại sang đầu thanh ngang (BarItem, bar_layout). Rà soát DUYỆT.
 - Task 50 (thêm sau đợt 6, chủ dự án chọn "Gộp nhóm + dời" 2026-11-17): thanh dọc 14 → 9 mục (nút Hình nhớ hình gần nhất; Hoàn tác/Làm lại sang thanh ngang). Thiết kế `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, gói `docs/tasks/50-compact-toolbar.md`.
 - Task 49: tài liệu đợt 6: README, checklist, CLAUDE.md, next-task, decisions 76–83, systemPatterns, techContext. Rà soát DUYỆT; ghi chú: help_text trong i18n chưa nói về công cụ đánh dấu.

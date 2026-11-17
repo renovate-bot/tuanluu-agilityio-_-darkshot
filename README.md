@@ -70,12 +70,12 @@ Nếu thanh một cột cao hơn màn hình (trừ lề trên và dưới) thì 
 | Nút | Phím | Việc làm |
 |---|---|---|
 | Chọn | `V` | Chọn, di chuyển, đổi cỡ, xóa và đổi màu hay cỡ của từng hình đã vẽ. Xem "Sửa hình đã vẽ". |
-| Bút vẽ | `P` | Kéo để vẽ nét tự do, nét 3 DIP. Bấm một cái tạo một chấm. |
-| Hình: Đường thẳng | `L` | Kéo từ điểm đầu tới điểm cuối, nét 3 DIP. |
+| Bút vẽ | `P` | Kéo để vẽ nét tự do, nét 3 DIP ở mức Vừa. Bấm một cái tạo một chấm. |
+| Hình: Đường thẳng | `L` | Kéo từ điểm đầu tới điểm cuối, nét 3 DIP ở mức Vừa. |
 | Hình: Mũi tên | `A` | Như đường thẳng, có đầu mũi tên ở điểm cuối. |
 | Hình: Hình chữ nhật | `R` | Kéo theo đường chéo, chỉ vẽ viền. |
 | Hình: Hình elip | `E` | Kéo theo hộp như Hình chữ nhật, chỉ vẽ viền. Giữ Shift: hình tròn. |
-| Bút dạ quang | `H` | Nét 16 DIP, trong mờ. Chỗ nét tự chồng lên nhau không đậm thêm. |
+| Bút dạ quang | `H` | Nét 16 DIP ở mức Vừa, trong mờ. Chỗ nét tự chồng lên nhau không đậm thêm. |
 | Làm mờ | `B` | Tô kín vùng kéo bằng một màu trung bình của ảnh; không khôi phục được chữ bên dưới. |
 | Chữ | `T` | Bấm để đặt ô chữ rồi gõ. |
 | Đánh số | `N` | Bấm trong vùng chọn để đặt một vòng tròn có số tại điểm bấm. Số tự đánh lại 1, 2, 3… theo thứ tự vẽ. |
