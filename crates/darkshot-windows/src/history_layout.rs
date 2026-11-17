@@ -1,5 +1,723 @@
 //! Lịch sử ảnh chụp: phần thuần của cửa sổ (bố cục theo DPI, chạm, cuộn, bảng hành động, đệm ảnh nhỏ,
 //! mã thế hệ, giữ mục chọn). Không gọi hệ điều hành nên kiểm thử được.
+//!
+//! Mọi số đo là DIP (thiết kế mục 3.2–3.5) và được quy đổi sang pixel theo `dpi`.
+
+use crate::winutil::scale;
+use darkshot_core::history::{format_dims, format_size, Entry, Kind};
+use darkshot_core::i18n::Lang;
+use darkshot_core::image::Image;
+use darkshot_core::theme::Rgb;
+use darkshot_core::thumb::fit_within;
+use std::collections::{HashMap, VecDeque};
+use std::ops::Range;
+use windows::Win32::Foundation::{POINT, RECT};
+
+/// Lề ngoài và đệm khung chi tiết.
+pub const MARGIN: i32 = 16;
+/// Thanh trên; dải thông báo (khi tắt mà còn mục) cộng thêm.
+pub const HEADER_H: i32 = 56;
+pub const BANNER_H: i32 = 44;
+/// Dải thông báo thật cao 36, phần còn lại của 44 là khoảng cách với thân.
+const BANNER_STRIP: i32 = 36;
+const BANNER_BTN_W: i32 = 120;
+const BANNER_BTN_H: i32 = 28;
+/// Cột danh sách: 40% bề rộng, kẹp 320–420.
+const LIST_PERCENT: i32 = 40;
+const LIST_MIN: i32 = 320;
+const LIST_MAX: i32 = 420;
+/// Dòng danh sách và ô ảnh nhỏ.
+pub const ROW_H: i32 = 72;
+pub const THUMB_W: i32 = 88;
+pub const THUMB_H: i32 = 56;
+/// Ô tìm: cao 32, rộng 220 co xuống 160.
+const SEARCH_H: i32 = 32;
+const SEARCH_MIN: i32 = 160;
+const SEARCH_MAX: i32 = 220;
+/// Viên thuốc lọc: cao 28; bề rộng cố định đủ cho nhãn dài nhất của hai ngôn ngữ.
+const CHIP_H: i32 = 28;
+const CHIP_W: [i32; 4] = [68, 76, 92, 80];
+const CHIP_GAP: i32 = 6;
+/// Nút "Xóa lịch sử" ở mép phải thanh trên.
+const CLEAR_W: i32 = 112;
+const CLEAR_H: i32 = 32;
+/// Khoảng giữa ô tìm, nhóm lọc và nút xóa.
+const HEAD_GAP: i32 = 16;
+/// Chỗ dành cho thanh cuộn dọc (cửa sổ thay bằng bề rộng thật sau khi tạo).
+pub const SCROLLBAR_W: i32 = 17;
+/// Nút hành động: cao 32, cách nhau 8, tối đa hai hàng.
+pub const BTN_H: i32 = 32;
+pub const BTN_GAP: i32 = 8;
+/// Khung chi tiết: tiêu đề, sáu dòng nhãn–giá trị, dòng trạng thái.
+const TITLE_H: i32 = 28;
+const TITLE_GAP: i32 = 6;
+pub const META_ROW: i32 = 22;
+pub const META_ROWS: i32 = 6;
+const STATUS_H: i32 = 20;
+const STATUS_GAP: i32 = 8;
+const SECTION_GAP: i32 = 12;
+/// Đệm ảnh nhỏ tối đa; cạnh dài của bản xem trước.
+pub const MAX_THUMBS: usize = 120;
+pub const PREVIEW_MAX: i32 = 2400;
+
+/// Vị trí các phần của cửa sổ (pixel, tọa độ client của cửa sổ chính).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Layout {
+    pub dpi: u32,
+    pub header: RECT,
+    pub search: RECT,
+    pub chips: [RECT; 4],
+    pub clear_btn: RECT,
+    /// Rỗng khi không có dải thông báo.
+    pub banner: RECT,
+    pub banner_btn: RECT,
+    /// Phần dưới thanh trên (và dải thông báo): danh sách + khung chi tiết.
+    pub body: RECT,
+    /// Cửa sổ con danh sách (gồm cả thanh cuộn).
+    pub list: RECT,
+    /// Bề rộng vùng client của danh sách (trừ thanh cuộn).
+    pub list_client_w: i32,
+    pub detail: RECT,
+    pub preview_area: RECT,
+    pub meta_area: RECT,
+    /// Dòng tiêu đề (ngày giờ đầy đủ), nằm đầu `meta_area`.
+    pub title: RECT,
+    pub buttons_row: RECT,
+    /// Năm nút hành động (Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Xóa); rỗng khi ẩn.
+    pub buttons: [RECT; 5],
+    pub status_line: RECT,
+    pub row_h: i32,
+    /// Cỡ ô ảnh nhỏ (pixel).
+    pub thumb: (i32, i32),
+}
+
+/// Chỗ con trỏ trúng.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Row(usize),
+    Chip(usize),
+    Clear,
+    Preview,
+    Button(usize),
+    None,
+}
+
+fn rc(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+    RECT {
+        left,
+        top,
+        right,
+        bottom,
+    }
+}
+
+fn contains(r: &RECT, p: POINT) -> bool {
+    p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom
+}
+
+/// Bố cục cho vùng client `client_w` x `client_h` pixel ở `dpi`; `banner` = có dải "Lịch sử đang tắt".
+pub fn layout(client_w: i32, client_h: i32, dpi: u32, banner: bool) -> Layout {
+    let s = |v: i32| scale(v, dpi);
+    let (w, h) = (client_w.max(0), client_h.max(0));
+    let m = s(MARGIN);
+    let head_h = s(HEADER_H);
+    let header = rc(0, 0, w, head_h);
+
+    // Thanh trên: ô tìm bên trái, bốn viên thuốc, nút xóa ở mép phải.
+    let chip_w = CHIP_W.map(s);
+    let chips_total: i32 = chip_w.iter().sum::<i32>() + 3 * s(CHIP_GAP);
+    let clear_w = s(CLEAR_W);
+    let avail = w - 2 * m - chips_total - clear_w - 2 * s(HEAD_GAP);
+    let search_w = avail.clamp(s(SEARCH_MIN), s(SEARCH_MAX));
+    let st = (head_h - s(SEARCH_H)) / 2;
+    let search = rc(m, st, m + search_w, st + s(SEARCH_H));
+    let ct = (head_h - s(CHIP_H)) / 2;
+    let mut chips = [RECT::default(); 4];
+    let mut x = search.right + s(HEAD_GAP);
+    for (k, cw) in chip_w.iter().enumerate() {
+        chips[k] = rc(x, ct, x + cw, ct + s(CHIP_H));
+        x += cw + s(CHIP_GAP);
+    }
+    let bt = (head_h - s(CLEAR_H)) / 2;
+    let clear_btn = rc(w - m - clear_w, bt, w - m, bt + s(CLEAR_H));
+
+    // Dải thông báo dưới thanh trên.
+    let (banner_rc, banner_btn, body_top) = if banner {
+        let b = rc(m, head_h, w - m, head_h + s(BANNER_STRIP));
+        let bh = s(BANNER_BTN_H);
+        let top = b.top + (s(BANNER_STRIP) - bh) / 2;
+        let btn = rc(
+            b.right - s(4) - s(BANNER_BTN_W),
+            top,
+            b.right - s(4),
+            top + bh,
+        );
+        (b, btn, head_h + s(BANNER_H))
+    } else {
+        (RECT::default(), RECT::default(), head_h)
+    };
+    let body = rc(0, body_top, w, h);
+
+    // Danh sách bên trái, chi tiết bên phải.
+    let list_w = (w * LIST_PERCENT / 100).clamp(s(LIST_MIN), s(LIST_MAX));
+    let list = rc(0, body_top, list_w, h);
+    let detail = rc(list_w, body_top, w, h);
+    let (x0, x1) = (list_w + m, w - m);
+    let (top, bottom) = (body_top + m, h - m);
+    let status_line = rc(x0, bottom - s(STATUS_H), x1, bottom);
+    let btn_rows_h = 2 * s(BTN_H) + s(BTN_GAP);
+    let buttons_row = rc(
+        x0,
+        status_line.top - s(STATUS_GAP) - btn_rows_h,
+        x1,
+        status_line.top - s(STATUS_GAP),
+    );
+    let meta_h = s(TITLE_H) + s(TITLE_GAP) + META_ROWS * s(META_ROW);
+    let meta_area = rc(
+        x0,
+        buttons_row.top - s(SECTION_GAP) - meta_h,
+        x1,
+        buttons_row.top - s(SECTION_GAP),
+    );
+    let title = rc(x0, meta_area.top, x1, meta_area.top + s(TITLE_H));
+    let preview_area = rc(x0, top, x1, meta_area.top - s(SECTION_GAP));
+
+    Layout {
+        dpi,
+        header,
+        search,
+        chips,
+        clear_btn,
+        banner: banner_rc,
+        banner_btn,
+        body,
+        list,
+        list_client_w: (list_w - s(SCROLLBAR_W)).max(0),
+        detail,
+        preview_area,
+        meta_area,
+        title,
+        buttons_row,
+        buttons: [RECT::default(); 5],
+        status_line,
+        row_h: s(ROW_H).max(1),
+        thumb: (s(THUMB_W), s(THUMB_H)),
+    }
+}
+
+impl Layout {
+    fn view_h(&self) -> i32 {
+        (self.list.bottom - self.list.top).max(0)
+    }
+
+    /// Dòng `i` trong tọa độ client của danh sách khi đã cuộn `scroll` pixel.
+    pub fn row_rect(&self, i: usize, scroll: i32) -> RECT {
+        let top = i as i32 * self.row_h - scroll;
+        rc(0, top, self.list_client_w, top + self.row_h)
+    }
+
+    /// Số dòng trọn vẹn thấy được (ít nhất 1): bước của PageUp/PageDown.
+    pub fn visible_rows(&self) -> usize {
+        (self.view_h() / self.row_h).max(1) as usize
+    }
+
+    /// Chiều cao toàn bộ `count` dòng.
+    pub fn content_h(&self, count: usize) -> i32 {
+        (count as i32).saturating_mul(self.row_h)
+    }
+
+    /// Kẹp độ cuộn vào [0, nội dung − khung].
+    pub fn scroll_clamp(&self, scroll: i32, count: usize) -> i32 {
+        let max = (self.content_h(count) - self.view_h()).max(0);
+        scroll.clamp(0, max)
+    }
+
+    /// Độ cuộn mới ít thay đổi nhất để dòng `i` nằm trọn trong khung.
+    pub fn ensure_visible(&self, i: usize, scroll: i32, count: usize) -> i32 {
+        let top = i as i32 * self.row_h;
+        let bottom = top + self.row_h;
+        let view = self.view_h();
+        let s = if top < scroll {
+            top
+        } else if bottom > scroll + view {
+            bottom - view
+        } else {
+            scroll
+        };
+        self.scroll_clamp(s, count)
+    }
+
+    /// Các dòng giao dải [`top`, `bottom`) của client danh sách.
+    pub fn rows_in(&self, top: i32, bottom: i32, scroll: i32, count: usize) -> Range<usize> {
+        if count == 0 || bottom <= top {
+            return 0..0;
+        }
+        let first = ((top + scroll).max(0) / self.row_h) as usize;
+        let last = ((((bottom + scroll - 1).max(0)) / self.row_h) as usize + 1).min(count);
+        first.min(last)..last
+    }
+
+    /// Chỗ trúng của điểm `pt` (tọa độ client cửa sổ chính).
+    pub fn hit_test(&self, pt: POINT, scroll: i32, count: usize) -> Hit {
+        if let Some(k) = self.chips.iter().position(|r| contains(r, pt)) {
+            return Hit::Chip(k);
+        }
+        if contains(&self.clear_btn, pt) {
+            return Hit::Clear;
+        }
+        if let Some(k) = self.buttons.iter().position(|r| contains(r, pt)) {
+            return Hit::Button(k);
+        }
+        if contains(&self.preview_area, pt) {
+            return Hit::Preview;
+        }
+        let rows = rc(
+            self.list.left,
+            self.list.top,
+            self.list.left + self.list_client_w,
+            self.list.bottom,
+        );
+        if contains(&rows, pt) {
+            let i = ((pt.y - self.list.top + scroll) / self.row_h) as usize;
+            if i < count {
+                return Hit::Row(i);
+            }
+        }
+        Hit::None
+    }
+
+    /// Xếp năm nút hành động (bề rộng pixel `widths`, `shown` = hiện) trong `buttons_row`: bốn nút đầu
+    /// chảy từ trái, xuống hàng khi hết chỗ; "Xóa khỏi lịch sử" sát mép phải của hàng cuối (hoặc hàng
+    /// dưới nếu không đủ chỗ). Tối đa hai hàng.
+    pub fn place_buttons(&mut self, widths: [i32; 5], shown: [bool; 5]) {
+        let r = self.buttons_row;
+        let (gap, bh) = (scale(BTN_GAP, self.dpi), scale(BTN_H, self.dpi));
+        let row_w = (r.right - r.left).max(0);
+        let line_top = |line: i32| r.top + line.min(1) * (bh + gap);
+        let (mut x, mut line) = (r.left, 0);
+        for k in 0..4 {
+            if !shown[k] {
+                self.buttons[k] = RECT::default();
+                continue;
+            }
+            let bw = widths[k].clamp(0, row_w);
+            if x > r.left && x + bw > r.right {
+                line += 1;
+                x = r.left;
+            }
+            let t = line_top(line);
+            self.buttons[k] = rc(x, t, x + bw, t + bh);
+            x += bw + gap;
+        }
+        if shown[4] {
+            let bw = widths[4].clamp(0, row_w);
+            if x > r.left && x + bw > r.right {
+                line += 1;
+            }
+            let t = line_top(line);
+            self.buttons[4] = rc(r.right - bw, t, r.right, t + bh);
+        } else {
+            self.buttons[4] = RECT::default();
+        }
+        // Đủ một hàng: đặt ở hàng dưới, sát dòng trạng thái (nút luôn neo đáy khung chi tiết).
+        if line == 0 {
+            for (k, b) in self.buttons.iter_mut().enumerate() {
+                if shown[k] {
+                    b.top += bh + gap;
+                    b.bottom += bh + gap;
+                }
+            }
+        }
+    }
+}
+
+/// Một hành động: ẩn (không áp dụng), vô hiệu (áp dụng nhưng không làm được), hoặc dùng được.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Avail {
+    Hidden,
+    Disabled,
+    Enabled,
+}
+
+/// Bảng hành động của một mục (thiết kế mục 3.6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActionSet {
+    pub open: Avail,
+    /// Nút Mở mở liên kết trên trình duyệt (nhãn "Mở liên kết").
+    pub open_is_link: bool,
+    pub copy_image: Avail,
+    pub copy_link: Avail,
+    pub show_folder: Avail,
+    pub remove: Avail,
+}
+
+impl ActionSet {
+    /// Theo thứ tự nút: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Xóa khỏi lịch sử.
+    pub fn as_array(&self) -> [Avail; 5] {
+        [
+            self.open,
+            self.copy_image,
+            self.copy_link,
+            self.show_folder,
+            self.remove,
+        ]
+    }
+}
+
+/// Hành động áp dụng cho `e`; `file_exists` = tệp ảnh (`image_path`) còn trên đĩa.
+pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
+    let file = if file_exists {
+        Avail::Enabled
+    } else {
+        Avail::Disabled
+    };
+    match e.kind {
+        Kind::Saved | Kind::UploadFallback => ActionSet {
+            open: file,
+            open_is_link: false,
+            copy_image: file,
+            copy_link: Avail::Hidden,
+            show_folder: file,
+            remove: Avail::Enabled,
+        },
+        Kind::Uploaded => ActionSet {
+            open: if e.url.as_deref().is_some_and(|u| u.starts_with("https://")) {
+                Avail::Enabled
+            } else {
+                Avail::Disabled
+            },
+            open_is_link: true,
+            copy_image: file,
+            copy_link: if e.url.is_some() {
+                Avail::Enabled
+            } else {
+                Avail::Hidden
+            },
+            show_folder: Avail::Hidden,
+            remove: Avail::Enabled,
+        },
+        Kind::Copied => ActionSet {
+            open: file,
+            open_is_link: false,
+            copy_image: file,
+            copy_link: Avail::Hidden,
+            show_folder: Avail::Hidden,
+            remove: Avail::Enabled,
+        },
+    }
+}
+
+/// Khung ảnh `img_w` x `img_h` vừa trong `cell`, giữ tỉ lệ, không phóng to, căn giữa.
+pub fn fit_rect(img_w: u32, img_h: u32, cell: &RECT) -> RECT {
+    let cw = (cell.right - cell.left).max(0) as u32;
+    let ch = (cell.bottom - cell.top).max(0) as u32;
+    let (fw, fh) = fit_within(img_w, img_h, cw, ch);
+    let (fw, fh) = (fw as i32, fh as i32);
+    let left = cell.left + (cell.right - cell.left - fw) / 2;
+    let top = cell.top + (cell.bottom - cell.top - fh) / 2;
+    rc(left, top, left + fw, top + fh)
+}
+
+/// Điểm ảnh `0x00RRGGBB` của `img` đã trộn alpha lên nền `bg` (đục hoàn toàn).
+pub fn compose_over(img: &Image, bg: Rgb) -> Vec<u32> {
+    let mix = |s: u8, b: u8, a: u32| (u32::from(s) * a + u32::from(b) * (255 - a) + 127) / 255;
+    img.bgra
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| {
+            let a = u32::from(p[3]);
+            (mix(p[2], bg.0, a) << 16) | (mix(p[1], bg.1, a) << 8) | mix(p[0], bg.2, a)
+        })
+        .collect()
+}
+
+/// Cỡ đích (pixel) khi thu nhỏ bản xem trước cho vùng `w` x `h`: kẹp 1..=2400 mỗi cạnh.
+pub fn preview_target(w: i32, h: i32) -> (u32, u32) {
+    (
+        w.clamp(1, PREVIEW_MAX) as u32,
+        h.clamp(1, PREVIEW_MAX) as u32,
+    )
+}
+
+/// Ô của đệm ảnh nhỏ.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ThumbSlot<B> {
+    /// Đã nhờ luồng nền nạp, chưa có kết quả.
+    Loading,
+    Ready(B),
+    /// Nạp lỗi: vẽ biểu tượng ảnh vỡ, không thử lại cho tới lần nạp lại.
+    Broken,
+}
+
+/// Đệm ảnh nhỏ theo id, loại mục ít dùng nhất khi vượt `cap`. `B` là bitmap; mọi bitmap bị loại hay
+/// bị thay đều được trả về cho bên gọi giải phóng.
+pub struct ThumbCache<B> {
+    cap: usize,
+    map: HashMap<String, ThumbSlot<B>>,
+    /// Đầu = ít dùng nhất.
+    order: VecDeque<String>,
+}
+
+impl<B> ThumbCache<B> {
+    pub fn new(cap: usize) -> ThumbCache<B> {
+        ThumbCache {
+            cap: cap.max(1),
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Số ô đang chờ luồng nền.
+    #[allow(dead_code)]
+    pub fn loading(&self) -> usize {
+        self.map
+            .values()
+            .filter(|v| matches!(v, ThumbSlot::Loading))
+            .count()
+    }
+
+    fn touch(&mut self, id: &str) {
+        if let Some(pos) = self.order.iter().position(|k| k == id) {
+            if let Some(k) = self.order.remove(pos) {
+                self.order.push_back(k);
+            }
+        }
+    }
+
+    /// `true` khi bên gọi phải nhờ nạp `id` (chưa có gì); ghi nhận "đang nạp" để không nạp lặp.
+    pub fn request(&mut self, id: &str) -> bool {
+        if self.map.contains_key(id) {
+            self.touch(id);
+            return false;
+        }
+        self.map.insert(id.to_string(), ThumbSlot::Loading);
+        self.order.push_back(id.to_string());
+        true
+    }
+
+    /// Ô của `id` (đánh dấu vừa dùng).
+    pub fn get(&mut self, id: &str) -> Option<&ThumbSlot<B>> {
+        if self.map.contains_key(id) {
+            self.touch(id);
+        }
+        self.map.get(id)
+    }
+
+    /// Ghi kết quả nạp (`None` = lỗi). Trả các bitmap bị thay hoặc bị loại.
+    pub fn fulfill(&mut self, id: &str, bmp: Option<B>) -> Vec<B> {
+        let slot = match bmp {
+            Some(b) => ThumbSlot::Ready(b),
+            None => ThumbSlot::Broken,
+        };
+        let mut out = Vec::new();
+        match self.map.insert(id.to_string(), slot) {
+            Some(ThumbSlot::Ready(old)) => {
+                out.push(old);
+                self.touch(id);
+            }
+            Some(_) => self.touch(id),
+            None => self.order.push_back(id.to_string()),
+        }
+        while self.map.len() > self.cap {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if oldest == id {
+                self.order.push_back(oldest);
+                if self.order.len() <= 1 {
+                    break;
+                }
+                continue;
+            }
+            if let Some(ThumbSlot::Ready(b)) = self.map.remove(&oldest) {
+                out.push(b);
+            }
+        }
+        out
+    }
+
+    /// Quên các ô hỏng (lần nạp lại sẽ thử lại).
+    pub fn forget_broken(&mut self) {
+        self.map.retain(|_, v| !matches!(v, ThumbSlot::Broken));
+        let map = &self.map;
+        self.order.retain(|k| map.contains_key(k));
+    }
+
+    /// Xóa hết; trả mọi bitmap còn giữ.
+    pub fn clear(&mut self) -> Vec<B> {
+        self.order.clear();
+        self.map
+            .drain()
+            .filter_map(|(_, v)| match v {
+                ThumbSlot::Ready(b) => Some(b),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// Mã thế hệ: mỗi yêu cầu mới tăng mã; kết quả mang mã cũ bị bỏ.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Generation(u64);
+
+impl Generation {
+    pub fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
+
+    pub fn current(&self) -> u64 {
+        self.0
+    }
+
+    pub fn is_current(&self, g: u64) -> bool {
+        g == self.0
+    }
+}
+
+/// Chỉ số mục chọn sau khi danh sách đổi từ `old` sang `new` (đều là id theo thứ tự hiển thị):
+/// còn thì giữ theo id; mất thì chọn mục kế còn lại (hết thì mục trước); không còn gì để dựa thì
+/// mục cùng vị trí. Chưa chọn gì thì vẫn không chọn.
+pub fn reselect(old: &[&str], selected: Option<&str>, new: &[&str]) -> Option<usize> {
+    let sel = selected?;
+    let pos = |id: &str| new.iter().position(|x| *x == id);
+    if let Some(i) = pos(sel) {
+        return Some(i);
+    }
+    let oi = old.iter().position(|x| *x == sel)?;
+    if let Some(i) = old[oi + 1..].iter().find_map(|id| pos(id)) {
+        return Some(i);
+    }
+    if let Some(i) = old[..oi].iter().rev().find_map(|id| pos(id)) {
+        return Some(i);
+    }
+    (!new.is_empty()).then(|| oi.min(new.len() - 1))
+}
+
+/// Phím di chuyển trong danh sách.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Nav {
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+}
+
+/// Mục chọn sau phím `nav` (danh sách `count` mục, trang `page` dòng).
+pub fn step_selection(cur: Option<usize>, count: usize, nav: Nav, page: usize) -> Option<usize> {
+    if count == 0 {
+        return None;
+    }
+    let last = count - 1;
+    let Some(c) = cur else {
+        return Some(if nav == Nav::End { last } else { 0 });
+    };
+    let c = c.min(last);
+    let p = page.max(1);
+    Some(match nav {
+        Nav::Up => c.saturating_sub(1),
+        Nav::Down => (c + 1).min(last),
+        Nav::Home => 0,
+        Nav::End => last,
+        Nav::PageUp => c.saturating_sub(p),
+        Nav::PageDown => (c + p).min(last),
+    })
+}
+
+/// Ngày hết hạn `YYYY-MM-DD` theo ngôn ngữ (tiếng Việt `dd/mm/yyyy`); dạng lạ giữ nguyên.
+pub fn expires_text(lang: Lang, s: &str) -> String {
+    let b = s.as_bytes();
+    let ok = b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+    match (lang, ok) {
+        (Lang::Vi, true) => format!("{}/{}/{}", &s[8..10], &s[5..7], &s[0..4]),
+        _ => s.to_string(),
+    }
+}
+
+/// Trạng thái đặc biệt (trống, tắt) vẽ giữa thân: biểu tượng, tiêu đề, đoạn giải thích, nút (nếu có).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EmptyRects {
+    pub icon: RECT,
+    pub title: RECT,
+    pub body: RECT,
+    /// Rỗng khi không có nút.
+    pub button: RECT,
+}
+
+const EMPTY_TEXT_MAX: i32 = 420;
+const EMPTY_ICON: (i32, i32) = (64, 48);
+const EMPTY_TITLE_H: i32 = 28;
+
+/// Bề rộng đoạn giải thích của trạng thái đặc biệt trong thân `body`.
+pub fn empty_text_width(body: &RECT, dpi: u32) -> i32 {
+    ((body.right - body.left) - 2 * scale(32, dpi)).clamp(1, scale(EMPTY_TEXT_MAX, dpi))
+}
+
+/// Xếp khối trạng thái đặc biệt giữa `body`, hơi lệch lên; `text_h` = chiều cao đoạn giải thích đã đo,
+/// `button_w` = bề rộng nút (pixel) nếu có nút.
+pub fn empty_state_rects(body: &RECT, dpi: u32, text_h: i32, button_w: Option<i32>) -> EmptyRects {
+    let s = |v: i32| scale(v, dpi);
+    let (iw, ih) = (s(EMPTY_ICON.0), s(EMPTY_ICON.1));
+    let btn_h = if button_w.is_some() {
+        s(20) + s(BTN_H)
+    } else {
+        0
+    };
+    let total = ih + s(16) + s(EMPTY_TITLE_H) + s(6) + text_h.max(0) + btn_h;
+    let top = (body.top + (body.bottom - body.top - total) / 2 - s(16)).max(body.top + s(16));
+    let cx = (body.left + body.right) / 2;
+    let tw = empty_text_width(body, dpi);
+    let icon = rc(cx - iw / 2, top, cx - iw / 2 + iw, top + ih);
+    let title_top = icon.bottom + s(16);
+    let title = rc(
+        cx - tw / 2,
+        title_top,
+        cx - tw / 2 + tw,
+        title_top + s(EMPTY_TITLE_H),
+    );
+    let body_top = title.bottom + s(6);
+    let text = rc(title.left, body_top, title.right, body_top + text_h.max(0));
+    let button = match button_w {
+        Some(bw) => {
+            let t = text.bottom + s(20);
+            rc(cx - bw / 2, t, cx - bw / 2 + bw, t + s(BTN_H))
+        }
+        None => RECT::default(),
+    };
+    EmptyRects {
+        icon,
+        title,
+        body: text,
+        button,
+    }
+}
+
+/// Dòng phụ của một dòng danh sách: `rộng × cao · dung lượng`.
+pub fn row_subtitle(lang: Lang, e: &Entry) -> String {
+    let dims = format_dims(e.width, e.height);
+    match e.bytes {
+        Some(b) => format!("{dims} \u{b7} {}", format_size(lang, b)),
+        None => dims,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -519,6 +1237,38 @@ mod tests {
         assert_eq!(step_selection(Some(2), 10, PageDown, 0), Some(3));
         // Chỉ số cũ quá cuối (danh sách vừa ngắn đi): kẹp.
         assert_eq!(step_selection(Some(20), 10, Up, 4), Some(8));
+    }
+
+    #[test]
+    fn empty_state_block_is_centered_and_stacked() {
+        for dpi in DPIS {
+            for (w, h) in sizes(dpi) {
+                let l = layout(w, h, dpi, false);
+                let th = scale(40, dpi);
+                let e = empty_state_rects(&l.body, dpi, th, Some(scale(140, dpi)));
+                for r in [e.icon, e.title, e.body, e.button] {
+                    assert!(inside(&r, &l.body), "{r:?} at {w}x{h}@{dpi}");
+                }
+                assert!(e.icon.bottom <= e.title.top);
+                assert!(e.title.bottom <= e.body.top);
+                assert!(e.body.bottom <= e.button.top);
+                assert_eq!(e.body.bottom - e.body.top, th);
+                let cx = (l.body.left + l.body.right) / 2;
+                assert!(((e.button.left + e.button.right) / 2 - cx).abs() <= 1);
+                assert!(e.body.right - e.body.left <= scale(420, dpi));
+                let none = empty_state_rects(&l.body, dpi, th, None);
+                assert_eq!(area(&none.button), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn row_subtitle_shows_dims_and_size() {
+        let mut e = entry(1, Kind::Saved);
+        e.bytes = Some(421_888);
+        assert_eq!(row_subtitle(Lang::En, &e), "1920 × 1080 · 412 KB");
+        e.bytes = None;
+        assert_eq!(row_subtitle(Lang::En, &e), "1920 × 1080");
     }
 
     #[test]

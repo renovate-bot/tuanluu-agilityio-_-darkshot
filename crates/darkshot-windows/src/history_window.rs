@@ -1,48 +1,111 @@
 //! Cửa sổ Lịch sử ảnh chụp: không chặn, tối đa một cửa sổ, đổi cỡ được, vẽ theo DPI của cửa sổ.
-//! Thông điệp do vòng lặp của ứng dụng phân phối; `pre_translate` lo phím Esc.
-//! Khung (Task 55): chỉ lớp cửa sổ và nền `BG`; nội dung do task sau vẽ.
+//! Thông điệp do vòng lặp của ứng dụng phân phối; `pre_translate` lo Esc và Tab (`IsDialogMessageW`).
+//!
+//! Bố cục thuần ở `history_layout`, vẽ GDI ở `history_paint`. Danh sách là cửa sổ con riêng
+//! (`darkshot-history-list`, có `WS_TABSTOP` và thanh cuộn thật `WS_VSCROLL` theo chủ đề
+//! `DarkMode_Explorer`); khung chi tiết vẽ trên cửa sổ chính, nút hành động là `BUTTON` con tự vẽ.
+//! Nạp chỉ mục, ảnh nhỏ, bản xem trước chạy ở luồng nền và báo về bằng `PostMessageW` kèm mã thế hệ.
 
-use crate::history_service;
+use crate::history_layout::{
+    actions_for, compose_over, layout, preview_target, reselect, step_selection, Avail, Generation,
+    Layout, Nav, ThumbCache, ThumbSlot, MAX_THUMBS,
+};
+use crate::history_paint::{self as hp, Bmp, Fonts, PreviewView, RowView, ThumbView};
+use crate::history_service::{self, WM_HISTORY_CHANGED};
 use crate::lang;
-use crate::theme;
+use crate::paths;
+use crate::theme::{self, ButtonKind};
 use crate::winutil::{self, scale};
+use darkshot_core::history::Entry;
+use darkshot_core::history_store::Store;
 use darkshot_core::i18n::Msg;
-use darkshot_core::theme::BG;
-use std::cell::Cell;
+use darkshot_core::theme::{BG, INPUT, SURFACE};
+use darkshot_core::thumb::{decode_png_file, downscale};
+use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use windows::core::{w, BOOL, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, HDC, HMONITOR,
-    MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    BeginPaint, DeleteObject, EndPaint, EnumDisplayMonitors, GetMonitorInfoW, InvalidateRect,
+    MonitorFromPoint, ScreenToClient, HDC, HFONT, HGDIOBJ, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::{SetScrollInfo, NMHDR, NM_CUSTOMDRAW, WM_MOUSELEAVE};
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, GetFocus, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_DOWN, VK_END,
+    VK_ESCAPE, VK_HOME, VK_NEXT, VK_PRIOR, VK_UP,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, IsWindow,
-    RegisterClassW, SetForegroundWindow, SetWindowPos, ShowWindow, MINMAXINFO, MSG, SWP_NOACTIVATE,
-    SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW,
-    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetScrollInfo,
+    GetWindow, IsChild, IsDialogMessageW, IsWindow, KillTimer, LoadCursorW, MoveWindow,
+    PeekMessageW, PostMessageW, RegisterClassW, SendMessageW, SetCursor, SetForegroundWindow,
+    SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, BS_PUSHBUTTON, DLGC_WANTARROWS,
+    DLGC_WANTCHARS, GW_OWNER, HMENU, HTCLIENT, IDC_ARROW, IDC_HAND, MINMAXINFO, MSG, PM_REMOVE,
+    SB_BOTTOM, SB_LINEDOWN, SB_LINEUP, SB_PAGEDOWN, SB_PAGEUP, SB_THUMBPOSITION, SB_THUMBTRACK,
+    SB_TOP, SB_VERT, SCROLLBAR_COMMAND, SCROLLINFO, SIF_DISABLENOSCROLL, SIF_PAGE, SIF_POS,
+    SIF_RANGE, SIF_TRACKPOS, SWP_NOACTIVATE, SWP_NOZORDER, SW_HIDE, SW_SHOW, WA_INACTIVE,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_GETDLGCODE, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETCURSOR, WM_SETFOCUS,
+    WM_SETFONT, WM_SIZE, WM_TIMER, WM_UPDATEUISTATE, WM_VSCROLL, WNDCLASSW, WS_CAPTION, WS_CHILD,
+    WS_CLIPCHILDREN, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+    WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VSCROLL,
 };
 
 const CLASS: PCWSTR = w!("darkshot-history");
+const LIST_CLASS: PCWSTR = w!("darkshot-history-list");
 /// Cỡ vùng client mặc định và tối thiểu (DIP).
 const DEFAULT_W: i32 = 960;
 const DEFAULT_H: i32 = 640;
 const MIN_W: i32 = 760;
 const MIN_H: i32 = 520;
 const STYLE: WINDOW_STYLE = WINDOW_STYLE(
-    WS_CAPTION.0 | WS_SYSMENU.0 | WS_THICKFRAME.0 | WS_MINIMIZEBOX.0 | WS_MAXIMIZEBOX.0,
+    WS_CAPTION.0
+        | WS_SYSMENU.0
+        | WS_THICKFRAME.0
+        | WS_MINIMIZEBOX.0
+        | WS_MAXIMIZEBOX.0
+        | WS_CLIPCHILDREN.0,
 );
-const EX_STYLE: WINDOW_EX_STYLE = WS_EX_APPWINDOW;
+const EX_STYLE: WINDOW_EX_STYLE = WINDOW_EX_STYLE(WS_EX_APPWINDOW.0 | WS_EX_CONTROLPARENT.0);
+
+/// Kết quả nạp chỉ mục (`LPARAM` = `Box<LoadMsg>`).
+pub const WM_HISTORY_LOADED: u32 = WM_APP + 7;
+/// Một ảnh nhỏ đã giải mã (`LPARAM` = `Box<ThumbMsg>`).
+pub const WM_HISTORY_THUMB: u32 = WM_APP + 8;
+/// Bản xem trước đã giải mã (`LPARAM` = `Box<PreviewMsg>`).
+pub const WM_HISTORY_PREVIEW: u32 = WM_APP + 9;
+
+const ID_LIST: i32 = 200;
+/// Nút hành động: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục chứa ảnh, Xóa khỏi lịch sử.
+const ACTION_IDS: [i32; 5] = [201, 202, 203, 204, 205];
+const ID_REMOVE: i32 = 205;
+/// Nút "Mở Tùy chọn" (trạng thái tắt và dải thông báo).
+const ID_OPEN_OPTIONS: i32 = 210;
+/// Hẹn giờ giải mã lại bản xem trước lớn hơn sau khi cửa sổ to ra.
+const PREVIEW_TIMER: usize = 1;
+const PREVIEW_REFRESH_MS: u32 = 200;
+/// Một "dòng" cuộn (nút mũi tên của thanh cuộn) và số dòng mỗi nấc bánh xe.
+const LINE_DIP: i32 = 24;
+const WHEEL_LINES: i32 = 3;
+/// Đệm chữ hai bên nút hành động, bề rộng tối thiểu (DIP).
+const BTN_PAD: i32 = 16;
+const BTN_MIN: i32 = 72;
 
 thread_local! {
     /// HWND của cửa sổ đang mở (0 = không có).
     static OPEN: Cell<isize> = const { Cell::new(0) };
+    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+    /// Những gì `NM_CUSTOMDRAW` cần, giữ ngoài `STATE` để vẽ nút không bao giờ đụng khóa của nó:
+    /// DPI, phông đậm, nút "Mở Tùy chọn" đang nằm trên dải thông báo.
+    static DRAW: Cell<(u32, Option<HFONT>, bool)> = const { Cell::new((96, None, false)) };
 }
 
 /// DPI 0 (không hỏi được) coi như 96.
@@ -198,8 +261,427 @@ pub fn hwnd() -> isize {
     current().0 as isize
 }
 
+// ---------------------------------------------------------------------------
+// Luồng nền: nạp chỉ mục, ảnh nhỏ, bản xem trước
+// ---------------------------------------------------------------------------
+
+/// Kết quả nạp chỉ mục; `exists[i]` = tệp ảnh của `entries[i]` còn trên đĩa.
+struct LoadMsg {
+    gen: u64,
+    entries: Vec<Entry>,
+    exists: Vec<bool>,
+}
+
+/// Ảnh nhỏ của mục `id` (điểm ảnh `0x00RRGGBB` đã trộn lên `INPUT`), `None` = lỗi.
+struct ThumbMsg {
+    gen: u64,
+    id: String,
+    px: Option<(u32, u32, Vec<u32>)>,
+}
+
+enum PreviewResult {
+    Ready(u32, u32, Vec<u32>),
+    Missing,
+    Unreadable,
+}
+
+struct PreviewMsg {
+    gen: u64,
+    result: PreviewResult,
+}
+
+/// Đăng `Box` thành `LPARAM`; gửi không được (cửa sổ đã hủy) thì tự giải phóng.
+fn post_box<T>(hwnd: isize, msg: u32, b: Box<T>) {
+    let p = Box::into_raw(b);
+    // SAFETY: PostMessageW an toàn từ luồng bất kỳ; khi thất bại không ai nhận con trỏ nên ta lấy lại.
+    unsafe {
+        let ok = PostMessageW(
+            Some(HWND(hwnd as *mut c_void)),
+            msg,
+            WPARAM(0),
+            LPARAM(p as isize),
+        )
+        .is_ok();
+        if !ok {
+            drop(Box::from_raw(p));
+        }
+    }
+}
+
+struct ThumbJob {
+    gen: u64,
+    entry: Entry,
+    cell: (u32, u32),
+}
+
+struct PreviewJob {
+    gen: u64,
+    path: Option<PathBuf>,
+    target: (u32, u32),
+}
+
+type PreviewSlot = Arc<(Mutex<Option<PreviewJob>>, Condvar)>;
+
+/// Hai luồng nền sống cùng cửa sổ: ảnh nhỏ (hàng đợi) và xem trước (chỉ giữ yêu cầu mới nhất).
+/// Bỏ `Workers` thì hai luồng dừng sau việc đang làm và không đăng gì nữa.
+struct Workers {
+    stop: Arc<AtomicBool>,
+    thumbs: Option<mpsc::Sender<ThumbJob>>,
+    preview: PreviewSlot,
+}
+
+fn decode_preview(path: Option<PathBuf>, target: (u32, u32)) -> PreviewResult {
+    let Some(p) = path else {
+        return PreviewResult::Missing;
+    };
+    if !p.exists() {
+        return PreviewResult::Missing;
+    }
+    let r = std::panic::catch_unwind(|| {
+        decode_png_file(&p).ok().map(|img| {
+            // Ảnh gốc bị bỏ ngay sau khi thu nhỏ; giao diện chỉ nhận bản đã thu.
+            let small = downscale(&img, target.0, target.1);
+            drop(img);
+            (small.width, small.height, compose_over(&small, INPUT))
+        })
+    });
+    match r {
+        Ok(Some((w, h, px))) => PreviewResult::Ready(w, h, px),
+        _ => PreviewResult::Unreadable,
+    }
+}
+
+impl Workers {
+    fn start(hwnd: isize, root: PathBuf) -> Workers {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel::<ThumbJob>();
+        let st = stop.clone();
+        let thumb_root = root;
+        let thumbs = std::thread::Builder::new()
+            .name("darkshot-history-thumb".into())
+            .spawn(move || {
+                let store = Store::new(thumb_root);
+                for job in rx {
+                    if st.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let px = std::panic::catch_unwind(|| {
+                        store.thumbnail(&job.entry).ok().map(|img| {
+                            let small = downscale(&img, job.cell.0, job.cell.1);
+                            (small.width, small.height, compose_over(&small, INPUT))
+                        })
+                    })
+                    .ok()
+                    .flatten();
+                    if st.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    post_box(
+                        hwnd,
+                        WM_HISTORY_THUMB,
+                        Box::new(ThumbMsg {
+                            gen: job.gen,
+                            id: job.entry.id,
+                            px,
+                        }),
+                    );
+                }
+            })
+            .is_ok()
+            .then_some(tx);
+        let preview: PreviewSlot = Arc::new((Mutex::new(None), Condvar::new()));
+        let (slot, st) = (preview.clone(), stop.clone());
+        let _ = std::thread::Builder::new()
+            .name("darkshot-history-preview".into())
+            .spawn(move || loop {
+                let job = {
+                    let (m, cv) = &*slot;
+                    let mut g = m.lock().unwrap_or_else(|e| e.into_inner());
+                    loop {
+                        if st.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        if let Some(j) = g.take() {
+                            break j;
+                        }
+                        g = cv.wait(g).unwrap_or_else(|e| e.into_inner());
+                    }
+                };
+                let result = decode_preview(job.path, job.target);
+                if st.load(Ordering::SeqCst) {
+                    return;
+                }
+                post_box(
+                    hwnd,
+                    WM_HISTORY_PREVIEW,
+                    Box::new(PreviewMsg {
+                        gen: job.gen,
+                        result,
+                    }),
+                );
+            });
+        Workers {
+            stop,
+            thumbs,
+            preview,
+        }
+    }
+
+    fn thumb(&self, job: ThumbJob) {
+        if let Some(tx) = &self.thumbs {
+            let _ = tx.send(job);
+        }
+    }
+
+    fn preview(&self, job: PreviewJob) {
+        let (m, cv) = &*self.preview;
+        *m.lock().unwrap_or_else(|e| e.into_inner()) = Some(job);
+        cv.notify_one();
+    }
+}
+
+impl Drop for Workers {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.thumbs.take();
+        let (m, cv) = &*self.preview;
+        m.lock().unwrap_or_else(|e| e.into_inner()).take();
+        cv.notify_all();
+    }
+}
+
+/// Nạp chỉ mục trên luồng `darkshot-history-load`, kiểm tệp ảnh còn hay mất, báo về `hwnd`.
+fn spawn_load(hwnd: isize, root: PathBuf, gen: u64) {
+    let _ = std::thread::Builder::new()
+        .name("darkshot-history-load".into())
+        .spawn(move || {
+            let entries = Store::new(root.clone()).load().entries;
+            let exists = entries
+                .iter()
+                .map(|e| e.image_path(&root).is_some_and(|p| p.exists()))
+                .collect();
+            post_box(
+                hwnd,
+                WM_HISTORY_LOADED,
+                Box::new(LoadMsg {
+                    gen,
+                    entries,
+                    exists,
+                }),
+            );
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Trạng thái
+// ---------------------------------------------------------------------------
+
+/// Bản xem trước của mục đang chọn; `Ready` giữ đúng một bitmap.
+enum Preview {
+    Idle,
+    Loading,
+    Ready(Bmp),
+    Missing,
+    Unreadable,
+}
+
+/// Phông của cửa sổ; xóa khi bị bỏ (sau khi mọi điều khiển dùng chúng đã hủy hoặc đổi phông).
+struct FontSet(Fonts);
+
+impl FontSet {
+    fn new(dpi: u32) -> FontSet {
+        FontSet(Fonts {
+            normal: winutil::system_font(dpi),
+            bold: winutil::system_font_styled(dpi, 100, true),
+            title: winutil::system_font_styled(dpi, 130, true),
+        })
+    }
+}
+
+impl Drop for FontSet {
+    fn drop(&mut self) {
+        for f in [self.0.normal, self.0.bold, self.0.title]
+            .into_iter()
+            .flatten()
+        {
+            // SAFETY: phông do CreateFontIndirectW tạo, không còn điều khiển nào dùng.
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(f.0));
+            }
+        }
+    }
+}
+
+struct State {
+    hwnd: HWND,
+    list: HWND,
+    buttons: [HWND; 5],
+    options: HWND,
+    root: PathBuf,
+    entries: Vec<Entry>,
+    /// Song song với `entries`: tệp ảnh còn trên đĩa.
+    exists: Vec<bool>,
+    /// Chỉ số vào `entries` theo thứ tự hiển thị (Task 57 điền theo bộ lọc; ở đây là tất cả).
+    visible: Vec<usize>,
+    loaded: bool,
+    selected: Option<String>,
+    scroll: i32,
+    thumbs: ThumbCache<Bmp>,
+    thumb_gen: Generation,
+    preview: Preview,
+    preview_gen: Generation,
+    preview_id: Option<String>,
+    load_gen: Generation,
+    hover: Option<usize>,
+    tracking: bool,
+    dpi: u32,
+    enabled: bool,
+    layout: Layout,
+    fonts: FontSet,
+    /// Điều khiển có tiêu điểm lúc cửa sổ mất kích hoạt.
+    last_focus: HWND,
+    workers: Workers,
+}
+
+impl State {
+    fn sel_pos(&self) -> Option<usize> {
+        let id = self.selected.as_deref()?;
+        self.visible
+            .iter()
+            .position(|&i| self.entries.get(i).is_some_and(|e| e.id == id))
+    }
+
+    fn sel_entry(&self) -> Option<(&Entry, bool)> {
+        let p = self.sel_pos()?;
+        let i = *self.visible.get(p)?;
+        Some((
+            self.entries.get(i)?,
+            self.exists.get(i).copied().unwrap_or(false),
+        ))
+    }
+
+    fn has_entries(&self) -> bool {
+        self.loaded && !self.entries.is_empty()
+    }
+
+    fn banner(&self) -> bool {
+        self.has_entries() && !self.enabled
+    }
+
+    /// Kích thước đích của bản xem trước (vùng xem trước trừ đệm).
+    fn preview_inner(&self) -> (i32, i32) {
+        let pad = scale(16, self.dpi);
+        let a = self.layout.preview_area;
+        (a.right - a.left - 2 * pad, a.bottom - a.top - 2 * pad)
+    }
+
+    /// Nhờ luồng nền giải mã bản xem trước của mục đang chọn. `refresh`: giữ bản đang hiện tới khi có
+    /// bản mới (đổi cỡ cửa sổ).
+    fn request_preview(&mut self, refresh: bool) {
+        let gen = self.preview_gen.next();
+        let Some((e, _)) = self.sel_entry() else {
+            self.preview = Preview::Idle;
+            self.preview_id = None;
+            return;
+        };
+        let id = e.id.clone();
+        let path = e.image_path(&self.root);
+        if !refresh || self.preview_id.as_deref() != Some(id.as_str()) {
+            self.preview = Preview::Loading;
+        }
+        self.preview_id = Some(id);
+        let (w, h) = self.preview_inner();
+        self.workers.preview(PreviewJob {
+            gen,
+            path,
+            target: preview_target(w, h),
+        });
+    }
+
+    /// Bản xem trước đang hiện nhỏ hơn mức có thể (cửa sổ vừa to ra).
+    fn preview_can_grow(&self) -> bool {
+        let (Preview::Ready(b), Some((e, _))) = (&self.preview, self.sel_entry()) else {
+            return false;
+        };
+        let (w, h) = self.preview_inner();
+        let (tw, th) = preview_target(w, h);
+        let (fw, fh) = darkshot_core::thumb::fit_within(e.width, e.height, tw, th);
+        fw as i32 > b.w + 1 || fh as i32 > b.h + 1
+    }
+}
+
+fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
+    STATE.with(|st| {
+        let mut g = st.try_borrow_mut().ok()?;
+        g.as_mut().map(f)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Mở, đóng, bàn phím
+// ---------------------------------------------------------------------------
+
 /// Mở cửa sổ Lịch sử, hoặc đưa cửa sổ đang mở ra trước.
 pub fn show(owner: HWND) {
+    show_with_root(owner, paths::history_dir());
+}
+
+fn register_classes(hinst: windows::Win32::Foundation::HINSTANCE) {
+    // SAFETY: con trỏ hệ thống dùng chung, không phải hủy; đăng ký lại lần hai báo lỗi vô hại.
+    unsafe {
+        let arrow = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(wndproc),
+            hInstance: hinst,
+            lpszClassName: CLASS,
+            hbrBackground: theme::brush(BG),
+            hCursor: arrow,
+            ..Default::default()
+        };
+        RegisterClassW(&wc);
+        let lc = WNDCLASSW {
+            lpfnWndProc: Some(list_proc),
+            hInstance: hinst,
+            lpszClassName: LIST_CLASS,
+            hCursor: arrow,
+            ..Default::default()
+        };
+        RegisterClassW(&lc);
+    }
+}
+
+fn child(parent: HWND, class: PCWSTR, style: WINDOW_STYLE, id: i32) -> HWND {
+    // SAFETY: tạo cửa sổ con của cửa sổ Lịch sử ở luồng chính; vị trí đặt sau ở `relayout`.
+    unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            class,
+            &HSTRING::new(),
+            WS_CHILD | style,
+            0,
+            0,
+            0,
+            0,
+            Some(parent),
+            Some(HMENU(id as usize as *mut c_void)),
+            None,
+            None,
+        )
+        .unwrap_or_default()
+    }
+}
+
+fn set_font(h: HWND, f: Option<HFONT>) {
+    if let (Some(f), false) = (f, h.is_invalid()) {
+        // SAFETY: phông sống tới khi cửa sổ Lịch sử hủy (hoặc tới khi được thay bằng phông mới).
+        unsafe {
+            SendMessageW(h, WM_SETFONT, Some(WPARAM(f.0 as usize)), Some(LPARAM(1)));
+        }
+    }
+}
+
+/// Như `show` nhưng với thư mục kho truyền vào (kiểm thử dùng kho tạm).
+pub fn show_with_root(owner: HWND, root: PathBuf) {
     let open = current();
     if !open.is_invalid() {
         winutil::bring_to_front(open);
@@ -216,19 +698,12 @@ pub fn show(owner: HWND) {
     let (ww, wh) = window_size(cw, ch, dpi);
     let (x, y, w, h) = place_window((pt.x, pt.y), &monitors(), (ww, wh));
     let title = HSTRING::from(lang::tr(Msg::HistoryTitle));
-    // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; đăng ký lại lần hai báo lỗi vô hại.
+    // SAFETY: tạo cửa sổ ở luồng chính.
     let created = unsafe {
         let Ok(hinst) = GetModuleHandleW(None) else {
             return;
         };
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(wndproc),
-            hInstance: hinst.into(),
-            lpszClassName: CLASS,
-            hbrBackground: theme::brush(BG),
-            ..Default::default()
-        };
-        RegisterClassW(&wc);
+        register_classes(hinst.into());
         CreateWindowExW(
             EX_STYLE,
             CLASS,
@@ -247,14 +722,75 @@ pub fn show(owner: HWND) {
     let Ok(hwnd) = created else {
         return;
     };
-    OPEN.with(|o| o.set(hwnd.0 as isize));
-    history_service::set_window(hwnd.0 as isize);
+    // SAFETY: hwnd vừa tạo ở luồng này.
+    let dpi = norm_dpi(unsafe { GetDpiForWindow(hwnd) });
+    let fonts = FontSet::new(dpi);
+    let list = child(
+        hwnd,
+        LIST_CLASS,
+        WINDOW_STYLE(WS_TABSTOP.0 | WS_VSCROLL.0),
+        ID_LIST,
+    );
+    theme::set_dark_control_theme(list, theme::DarkClass::Explorer);
+    let button_style = WINDOW_STYLE(WS_TABSTOP.0 | BS_PUSHBUTTON as u32);
+    let buttons = ACTION_IDS.map(|id| child(hwnd, w!("BUTTON"), button_style, id));
+    let options = child(hwnd, w!("BUTTON"), button_style, ID_OPEN_OPTIONS);
+    let labels = [
+        Msg::HistoryOpen,
+        Msg::HistoryCopyImage,
+        Msg::HistoryCopyLink,
+        Msg::HistoryShowInFolder,
+        Msg::HistoryRemove,
+    ];
+    for (b, m) in buttons.iter().zip(labels) {
+        set_text(*b, lang::tr(m));
+        set_font(*b, fonts.0.normal);
+    }
+    set_text(options, lang::tr(Msg::HistoryOpenOptions));
+    set_font(options, fonts.0.normal);
+    DRAW.with(|d| d.set((dpi, fonts.0.bold, false)));
+    let hwnd_i = hwnd.0 as isize;
+    let mut load_gen = Generation::default();
+    let gen = load_gen.next();
+    let state = State {
+        hwnd,
+        list,
+        buttons,
+        options,
+        root: root.clone(),
+        entries: Vec::new(),
+        exists: Vec::new(),
+        visible: Vec::new(),
+        loaded: false,
+        selected: None,
+        scroll: 0,
+        thumbs: ThumbCache::new(MAX_THUMBS),
+        thumb_gen: Generation::default(),
+        preview: Preview::Idle,
+        preview_gen: Generation::default(),
+        preview_id: None,
+        load_gen,
+        hover: None,
+        tracking: false,
+        dpi,
+        enabled: crate::history_enabled_now(),
+        layout: layout(0, 0, dpi, false),
+        fonts,
+        last_focus: list,
+        workers: Workers::start(hwnd_i, root.clone()),
+    };
+    STATE.with(|s| *s.borrow_mut() = Some(state));
+    OPEN.with(|o| o.set(hwnd_i));
+    history_service::set_window(hwnd_i);
+    spawn_load(hwnd_i, root, gen);
     winutil::set_app_icons(hwnd);
     theme::apply_dark_title_bar(hwnd);
-    // SAFETY: hwnd vừa tạo ở luồng này.
+    relayout(hwnd);
+    // SAFETY: hwnd và list vừa tạo ở luồng này.
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(Some(list));
     }
 }
 
@@ -269,7 +805,20 @@ pub fn close_if_open() {
     }
 }
 
-/// `true`: thông điệp đã được xử lý, vòng lặp bỏ qua. Esc trong cửa sổ (hoặc con của nó) đóng cửa sổ.
+/// Cấu hình vừa đổi (Tùy chọn lưu xong): đọc lại cờ bật lịch sử, vẽ lại dải thông báo.
+pub fn refresh_enabled() {
+    let h = current();
+    if h.is_invalid() {
+        return;
+    }
+    let on = crate::history_enabled_now();
+    if with_state(|s| std::mem::replace(&mut s.enabled, on) != on) == Some(true) {
+        relayout(h);
+    }
+}
+
+/// `true`: thông điệp đã được xử lý, vòng lặp bỏ qua. Esc trong cửa sổ (hoặc con của nó) đóng cửa sổ;
+/// Tab và phím mũi tên giữa các điều khiển qua `IsDialogMessageW`.
 pub fn pre_translate(msg: &MSG) -> bool {
     let h = current();
     if h.is_invalid() || !winutil::belongs_to(h, msg) {
@@ -279,7 +828,750 @@ pub fn pre_translate(msg: &MSG) -> bool {
         close_if_open();
         return true;
     }
-    false
+    // SAFETY: xử lý phím điều hướng của cửa sổ Lịch sử (cửa sổ của luồng này).
+    unsafe { IsDialogMessageW(h, msg).as_bool() }
+}
+
+// ---------------------------------------------------------------------------
+// Bố cục, cuộn, chọn
+// ---------------------------------------------------------------------------
+
+fn set_text(h: HWND, s: &str) {
+    if theme::window_text(h) != s.encode_utf16().collect::<Vec<u16>>() {
+        // SAFETY: đổi chữ của điều khiển con thuộc luồng này.
+        unsafe {
+            let _ = SetWindowTextW(h, &HSTRING::from(s));
+        }
+    }
+}
+
+/// Bề rộng nút cho nhãn `text` (pixel).
+fn button_width(font: Option<HFONT>, text: &str, dpi: u32) -> i32 {
+    let (w, _) = hp::with_screen_dc(|dc| hp::measure(dc, font, text));
+    (w + 2 * scale(BTN_PAD, dpi)).max(scale(BTN_MIN, dpi))
+}
+
+/// Việc phải làm với các điều khiển con sau khi tính bố cục (làm ngoài khóa `STATE`).
+struct ChildPlan {
+    list: (RECT, bool),
+    buttons: [(RECT, Avail); 5],
+    open_label: Msg,
+    options: Option<(RECT, bool)>,
+}
+
+/// Tính lại bố cục theo cỡ client hiện tại rồi đặt các cửa sổ con; vẽ lại cả cửa sổ.
+fn relayout(hwnd: HWND) {
+    let mut rc = RECT::default();
+    // SAFETY: rc là biến cục bộ.
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let lang = lang::current();
+    let plan = with_state(|s| {
+        let dpi = s.dpi;
+        let mut l = layout(rc.right, rc.bottom, dpi, s.banner());
+        let normal = s.fonts.0.normal;
+        let bold = s.fonts.0.bold;
+        let acts = s.sel_entry().map(|(e, ok)| actions_for(e, ok));
+        let open_label = if acts.is_some_and(|a| a.open_is_link) {
+            Msg::HistoryOpenLink
+        } else {
+            Msg::HistoryOpen
+        };
+        let labels = [
+            open_label,
+            Msg::HistoryCopyImage,
+            Msg::HistoryCopyLink,
+            Msg::HistoryShowInFolder,
+            Msg::HistoryRemove,
+        ];
+        let widths: [i32; 5] = std::array::from_fn(|k| {
+            let f = if k == 0 { bold } else { normal };
+            button_width(f, darkshot_core::i18n::t(lang, labels[k]), dpi)
+        });
+        let avail = acts.map_or([Avail::Hidden; 5], |a| a.as_array());
+        let shown = avail.map(|a| a != Avail::Hidden && s.has_entries());
+        l.place_buttons(widths, shown);
+        s.layout = l;
+        let options = if s.loaded && !s.enabled {
+            let bw = button_width(
+                if s.has_entries() { normal } else { bold },
+                darkshot_core::i18n::t(lang, Msg::HistoryOpenOptions),
+                dpi,
+            );
+            if s.has_entries() {
+                let b = l.banner_btn;
+                Some((
+                    RECT {
+                        left: (b.right - bw).min(b.left),
+                        ..b
+                    },
+                    true,
+                ))
+            } else {
+                let body = darkshot_core::i18n::t(lang, Msg::HistoryDisabledBody);
+                let tw = crate::history_layout::empty_text_width(&l.body, dpi);
+                let th = hp::with_screen_dc(|dc| hp::measure_wrapped(dc, normal, body, tw));
+                let e = crate::history_layout::empty_state_rects(&l.body, dpi, th, Some(bw));
+                Some((e.button, false))
+            }
+        } else {
+            None
+        };
+        ChildPlan {
+            list: (l.list, s.has_entries()),
+            buttons: std::array::from_fn(|k| {
+                let a = if shown[k] { avail[k] } else { Avail::Hidden };
+                (l.buttons[k], a)
+            }),
+            open_label,
+            options,
+        }
+    });
+    let Some(plan) = plan else {
+        return;
+    };
+    let Some((list, buttons, options)) = with_state(|s| (s.list, s.buttons, s.options)) else {
+        return;
+    };
+    let mv = |h: HWND, r: &RECT, show: bool| {
+        // SAFETY: đặt vị trí và hiện/ẩn cửa sổ con của luồng này (không giữ khóa STATE).
+        unsafe {
+            let _ = MoveWindow(h, r.left, r.top, r.right - r.left, r.bottom - r.top, false);
+            let _ = ShowWindow(h, if show { SW_SHOW } else { SW_HIDE });
+        }
+    };
+    mv(list, &plan.list.0, plan.list.1);
+    set_text(buttons[0], lang::tr(plan.open_label));
+    for (k, b) in buttons.iter().enumerate() {
+        let (r, a) = plan.buttons[k];
+        // SAFETY: bật/tắt nút con của luồng này.
+        unsafe {
+            let _ = EnableWindow(*b, a == Avail::Enabled);
+        }
+        mv(*b, &r, a != Avail::Hidden);
+    }
+    match plan.options {
+        Some((r, in_banner)) => {
+            DRAW.with(|d| {
+                let (dpi, bold, _) = d.get();
+                d.set((dpi, bold, in_banner));
+            });
+            mv(options, &r, true);
+        }
+        None => mv(options, &RECT::default(), false),
+    }
+    // Bề rộng client thật của danh sách (trừ thanh cuộn thật).
+    let mut lc = RECT::default();
+    // SAFETY: lc là biến cục bộ.
+    unsafe {
+        let _ = GetClientRect(list, &mut lc);
+    }
+    with_state(|s| {
+        if lc.right > 0 {
+            s.layout.list_client_w = lc.right;
+        }
+        s.scroll = s.layout.scroll_clamp(s.scroll, s.visible.len());
+    });
+    update_scrollbar(list);
+    // SAFETY: chỉ đánh dấu vùng cần vẽ lại.
+    unsafe {
+        let _ = InvalidateRect(Some(hwnd), None, false);
+        let _ = InvalidateRect(Some(list), None, false);
+        for b in buttons.iter().chain([&options]) {
+            let _ = InvalidateRect(Some(*b), None, false);
+        }
+    }
+}
+
+fn update_scrollbar(list: HWND) {
+    let Some((content, view, pos)) = with_state(|s| {
+        (
+            s.layout.content_h(s.visible.len()),
+            s.layout.list.bottom - s.layout.list.top,
+            s.scroll,
+        )
+    }) else {
+        return;
+    };
+    let si = SCROLLINFO {
+        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL,
+        nMin: 0,
+        nMax: (content - 1).max(0),
+        nPage: view.max(0) as u32,
+        nPos: pos,
+        nTrackPos: 0,
+    };
+    // SAFETY: si là biến cục bộ đủ cbSize; list là cửa sổ con của luồng này.
+    unsafe {
+        SetScrollInfo(list, SB_VERT, &si, true);
+    }
+}
+
+/// Cuộn danh sách tới `target` pixel (đã kẹp).
+fn scroll_to(list: HWND, target: i32) {
+    let changed = with_state(|s| {
+        let n = s.layout.scroll_clamp(target, s.visible.len());
+        let c = n != s.scroll;
+        s.scroll = n;
+        s.hover = None;
+        c
+    });
+    if changed == Some(true) {
+        update_scrollbar(list);
+        // SAFETY: chỉ đánh dấu vùng cần vẽ lại.
+        unsafe {
+            let _ = InvalidateRect(Some(list), None, false);
+        }
+    }
+}
+
+/// Chọn dòng hiển thị thứ `pos`: cuộn cho thấy, nạp bản xem trước, cập nhật nút.
+fn select_pos(pos: usize) {
+    let changed = with_state(|s| {
+        let i = *s.visible.get(pos)?;
+        let id = s.entries.get(i)?.id.clone();
+        s.scroll = s.layout.ensure_visible(pos, s.scroll, s.visible.len());
+        if s.selected.as_deref() == Some(id.as_str()) {
+            return Some(false);
+        }
+        s.selected = Some(id);
+        s.request_preview(false);
+        Some(true)
+    })
+    .flatten();
+    let Some((hwnd, list)) = with_state(|s| (s.hwnd, s.list)) else {
+        return;
+    };
+    match changed {
+        Some(true) => relayout(hwnd),
+        Some(false) => {
+            update_scrollbar(list);
+            // SAFETY: chỉ đánh dấu vùng cần vẽ lại.
+            unsafe {
+                let _ = InvalidateRect(Some(list), None, false);
+            }
+        }
+        None => {}
+    }
+}
+
+fn nav_of(vk: u16) -> Option<Nav> {
+    Some(match vk {
+        v if v == VK_UP.0 => Nav::Up,
+        v if v == VK_DOWN.0 => Nav::Down,
+        v if v == VK_HOME.0 => Nav::Home,
+        v if v == VK_END.0 => Nav::End,
+        v if v == VK_PRIOR.0 => Nav::PageUp,
+        v if v == VK_NEXT.0 => Nav::PageDown,
+        _ => return None,
+    })
+}
+
+fn on_loaded(hwnd: HWND, m: LoadMsg) {
+    let enabled = crate::history_enabled_now();
+    let done = with_state(|s| {
+        if !s.load_gen.is_current(m.gen) {
+            return false;
+        }
+        let old: Vec<String> = s
+            .visible
+            .iter()
+            .filter_map(|&i| s.entries.get(i).map(|e| e.id.clone()))
+            .collect();
+        let old_refs: Vec<&str> = old.iter().map(String::as_str).collect();
+        let sel = s.selected.take();
+        s.entries = m.entries;
+        s.exists = m.exists;
+        s.exists.resize(s.entries.len(), false);
+        s.visible = (0..s.entries.len()).collect();
+        let new_refs: Vec<&str> = s.entries.iter().map(|e| e.id.as_str()).collect();
+        let pos = reselect(&old_refs, sel.as_deref(), &new_refs);
+        s.selected = pos.map(|p| s.entries[p].id.clone());
+        s.thumbs.forget_broken();
+        s.loaded = true;
+        s.enabled = enabled;
+        s.hover = None;
+        s.scroll = s.layout.scroll_clamp(s.scroll, s.visible.len());
+        if s.selected != s.preview_id {
+            s.request_preview(false);
+        }
+        true
+    });
+    if done == Some(true) {
+        relayout(hwnd);
+    }
+}
+
+fn start_load(hwnd: HWND) {
+    if let Some((root, gen)) = with_state(|s| (s.root.clone(), s.load_gen.next())) {
+        spawn_load(hwnd.0 as isize, root, gen);
+    }
+}
+
+fn on_thumb(m: ThumbMsg) {
+    let row = with_state(|s| {
+        if !s.thumb_gen.is_current(m.gen) {
+            return None;
+        }
+        let bmp = m.px.and_then(|(w, h, px)| hp::bmp_from_pixels(w, h, &px));
+        // Bitmap bị thay hoặc bị loại khỏi đệm bị xóa ngay tại đây (Drop của Bmp).
+        drop(s.thumbs.fulfill(&m.id, bmp));
+        let pos = s
+            .visible
+            .iter()
+            .position(|&i| s.entries.get(i).is_some_and(|e| e.id == m.id))?;
+        Some((s.list, s.layout.row_rect(pos, s.scroll)))
+    })
+    .flatten();
+    if let Some((list, r)) = row {
+        // SAFETY: chỉ đánh dấu dòng cần vẽ lại.
+        unsafe {
+            let _ = InvalidateRect(Some(list), Some(&r), false);
+        }
+    }
+}
+
+fn on_preview(m: PreviewMsg) {
+    let target = with_state(|s| {
+        if !s.preview_gen.is_current(m.gen) {
+            return None;
+        }
+        s.preview = match m.result {
+            PreviewResult::Ready(w, h, px) => match hp::bmp_from_pixels(w, h, &px) {
+                Some(b) => Preview::Ready(b),
+                None => Preview::Unreadable,
+            },
+            PreviewResult::Missing => Preview::Missing,
+            PreviewResult::Unreadable => Preview::Unreadable,
+        };
+        Some((s.hwnd, s.layout.preview_area))
+    })
+    .flatten();
+    if let Some((h, r)) = target {
+        // SAFETY: chỉ đánh dấu vùng cần vẽ lại.
+        unsafe {
+            let _ = InvalidateRect(Some(h), Some(&r), false);
+        }
+    }
+}
+
+/// Giải phóng các `Box` còn nằm trong hàng đợi thông điệp của cửa sổ sắp hủy.
+fn drain_results(hwnd: HWND) {
+    let mut msg = MSG::default();
+    // SAFETY: lấy ra đúng các thông điệp kết quả của cửa sổ này; mỗi LPARAM là Box do post_box cấp
+    // phát với đúng kiểu theo mã thông điệp, chưa ai nhận.
+    unsafe {
+        while PeekMessageW(
+            &mut msg,
+            Some(hwnd),
+            WM_HISTORY_LOADED,
+            WM_HISTORY_PREVIEW,
+            PM_REMOVE,
+        )
+        .as_bool()
+        {
+            let p = msg.lParam.0;
+            if p == 0 {
+                continue;
+            }
+            match msg.message {
+                WM_HISTORY_LOADED => drop(Box::from_raw(p as *mut LoadMsg)),
+                WM_HISTORY_THUMB => drop(Box::from_raw(p as *mut ThumbMsg)),
+                WM_HISTORY_PREVIEW => drop(Box::from_raw(p as *mut PreviewMsg)),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Hành động của nút 201–205. Task 57 thay bằng hành động thật.
+fn on_action(_id: i32) {}
+
+/// Nút "Mở Tùy chọn": nhờ cửa sổ chính mở Tùy chọn như mục menu khay.
+fn open_options(hwnd: HWND) {
+    // SAFETY: chỉ hỏi cửa sổ chủ.
+    if let Ok(owner) = unsafe { GetWindow(hwnd, GW_OWNER) } {
+        crate::post_open_options(owner);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vẽ
+// ---------------------------------------------------------------------------
+
+fn paint_main(hwnd: HWND) {
+    let lang = lang::current();
+    let today = paths::local_now();
+    let mut ps = PAINTSTRUCT::default();
+    // SAFETY: BeginPaint/EndPaint cặp đôi trong WM_PAINT của chính cửa sổ này.
+    let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+    let mut client = RECT::default();
+    // SAFETY: client là biến cục bộ.
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut client);
+    }
+    with_state(|s| {
+        theme::buffered(hdc, &ps.rcPaint, |dc| {
+            theme::fill(dc, &client, BG);
+            let l = &s.layout;
+            let fonts = &s.fonts.0;
+            hp::draw_header(dc, l, fonts, lang, s.has_entries());
+            if !s.loaded {
+                hp::draw_separators(dc, l, false);
+                return;
+            }
+            if s.entries.is_empty() {
+                hp::draw_separators(dc, l, false);
+                let t = |m: Msg| darkshot_core::i18n::t(lang, m);
+                if s.enabled {
+                    hp::draw_empty(
+                        dc,
+                        l,
+                        fonts,
+                        t(Msg::HistoryEmptyTitle),
+                        t(Msg::HistoryEmptyBody),
+                        None,
+                    );
+                } else {
+                    let bw = button_width(fonts.bold, t(Msg::HistoryOpenOptions), l.dpi);
+                    hp::draw_empty(
+                        dc,
+                        l,
+                        fonts,
+                        t(Msg::HistoryDisabledTitle),
+                        t(Msg::HistoryDisabledBody),
+                        Some(bw),
+                    );
+                }
+                return;
+            }
+            if s.banner() {
+                hp::draw_banner(dc, l, fonts, lang);
+            }
+            hp::draw_separators(dc, l, true);
+            let view = match &s.preview {
+                Preview::Idle => PreviewView::Idle,
+                Preview::Loading => PreviewView::Loading,
+                Preview::Ready(b) => PreviewView::Ready(b),
+                Preview::Missing => PreviewView::Missing,
+                Preview::Unreadable => PreviewView::Unreadable,
+            };
+            hp::draw_detail(dc, l, s.sel_entry(), view, fonts, lang, &today);
+        });
+    });
+    // SAFETY: kết thúc lần vẽ đã mở ở trên.
+    unsafe {
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+fn paint_list(list: HWND) {
+    let lang = lang::current();
+    let now = paths::local_now();
+    // Hỏi trước khi khóa STATE: các hàm này gửi thông điệp tới chính danh sách.
+    let (show_focus, _) = theme::ui_cues(list);
+    // SAFETY: chỉ hỏi cửa sổ có tiêu điểm.
+    let focused = unsafe { GetFocus() } == list && show_focus;
+    let mut ps = PAINTSTRUCT::default();
+    // SAFETY: BeginPaint/EndPaint cặp đôi trong WM_PAINT của danh sách.
+    let hdc = unsafe { BeginPaint(list, &mut ps) };
+    let mut client = RECT::default();
+    // SAFETY: client là biến cục bộ.
+    unsafe {
+        let _ = GetClientRect(list, &mut client);
+    }
+    with_state(|s| {
+        let mut jobs = Vec::new();
+        let sel = s.sel_pos();
+        let rows = s
+            .layout
+            .rows_in(ps.rcPaint.top, ps.rcPaint.bottom, s.scroll, s.visible.len());
+        let cell = (
+            s.layout.thumb.0.max(1) as u32,
+            s.layout.thumb.1.max(1) as u32,
+        );
+        let gen = s.thumb_gen.current();
+        // Nhờ nạp ảnh nhỏ còn thiếu của các dòng sắp vẽ (không nạp lặp).
+        for pos in rows.clone() {
+            let i = s.visible[pos];
+            let (e, ok) = (&s.entries[i], s.exists.get(i).copied().unwrap_or(false));
+            if ok && s.thumbs.request(&e.id) {
+                jobs.push(ThumbJob {
+                    gen,
+                    entry: e.clone(),
+                    cell,
+                });
+            }
+        }
+        let State {
+            entries,
+            exists,
+            visible,
+            thumbs,
+            layout: l,
+            fonts,
+            scroll,
+            hover,
+            dpi,
+            ..
+        } = s;
+        theme::buffered(hdc, &ps.rcPaint, |dc| {
+            theme::fill(dc, &client, BG);
+            for pos in rows {
+                let i = visible[pos];
+                let e = &entries[i];
+                let ok = exists.get(i).copied().unwrap_or(false);
+                let thumb = match thumbs.get(&e.id) {
+                    Some(ThumbSlot::Ready(b)) => ThumbView::Ready(b),
+                    Some(ThumbSlot::Broken) => ThumbView::Broken,
+                    _ => ThumbView::Pending,
+                };
+                let mut r = l.row_rect(pos, *scroll);
+                r.right = client.right;
+                let v = RowView {
+                    entry: e,
+                    exists: ok,
+                    selected: sel == Some(pos),
+                    hover: *hover == Some(pos),
+                    focused,
+                    thumb,
+                };
+                hp::draw_row(dc, &r, &v, &fonts.0, lang, &now, *dpi);
+            }
+            if focused && sel.is_none() && !visible.is_empty() {
+                theme::focus_frame(dc, &client, *dpi);
+            }
+        });
+        for j in jobs {
+            s.workers.thumb(j);
+        }
+    });
+    // SAFETY: kết thúc lần vẽ đã mở ở trên.
+    unsafe {
+        let _ = EndPaint(list, &ps);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Thủ tục cửa sổ
+// ---------------------------------------------------------------------------
+
+fn lo_word(v: usize) -> u32 {
+    (v & 0xFFFF) as u32
+}
+
+fn hi_word_i16(v: usize) -> i16 {
+    ((v >> 16) & 0xFFFF) as u16 as i16
+}
+
+fn point_of(lp: LPARAM) -> POINT {
+    POINT {
+        x: (lp.0 & 0xFFFF) as u16 as i16 as i32,
+        y: ((lp.0 >> 16) & 0xFFFF) as u16 as i16 as i32,
+    }
+}
+
+/// Dòng hiển thị dưới điểm `pt` (tọa độ client danh sách).
+fn row_at(pt: POINT) -> Option<usize> {
+    with_state(|s| {
+        let p = POINT {
+            x: pt.x + s.layout.list.left,
+            y: pt.y + s.layout.list.top,
+        };
+        match s.layout.hit_test(p, s.scroll, s.visible.len()) {
+            crate::history_layout::Hit::Row(i) => Some(i),
+            _ => None,
+        }
+    })
+    .flatten()
+}
+
+fn invalidate_row(list: HWND, pos: Option<usize>) {
+    let Some(pos) = pos else {
+        return;
+    };
+    if let Some(mut r) = with_state(|s| s.layout.row_rect(pos, s.scroll)) {
+        r.right = i32::MAX / 2;
+        // SAFETY: chỉ đánh dấu dòng cần vẽ lại.
+        unsafe {
+            let _ = InvalidateRect(Some(list), Some(&r), false);
+        }
+    }
+}
+
+unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            paint_list(hwnd);
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => LRESULT(1),
+        // Danh sách nhận phím mũi tên (và chữ) dù `IsDialogMessageW` đang lo Tab.
+        WM_GETDLGCODE => LRESULT((DLGC_WANTARROWS | DLGC_WANTCHARS) as isize),
+        WM_SETFOCUS | WM_KILLFOCUS | WM_UPDATEUISTATE => {
+            // SAFETY: chỉ đánh dấu vẽ lại rồi để xử lý mặc định.
+            unsafe {
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                DefWindowProcW(hwnd, msg, wp, lp)
+            }
+        }
+        WM_KEYDOWN => {
+            let Some(nav) = nav_of(wp.0 as u16) else {
+                // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+                return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+            };
+            let next = with_state(|s| {
+                step_selection(s.sel_pos(), s.visible.len(), nav, s.layout.visible_rows())
+            })
+            .flatten();
+            if let Some(p) = next {
+                select_pos(p);
+            }
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            // SAFETY: đưa tiêu điểm vào danh sách (không giữ khóa STATE).
+            unsafe {
+                let _ = SetFocus(Some(hwnd));
+            }
+            if let Some(p) = row_at(point_of(lp)) {
+                select_pos(p);
+            }
+            LRESULT(0)
+        }
+        WM_MOUSEMOVE => {
+            let row = row_at(point_of(lp));
+            let change = with_state(|s| {
+                let old = std::mem::replace(&mut s.hover, row);
+                let track = !s.tracking;
+                s.tracking = true;
+                (old, track)
+            });
+            if let Some((old, track)) = change {
+                if track {
+                    let mut tme = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
+                    };
+                    // SAFETY: tme là biến cục bộ đủ cbSize; theo dõi chính cửa sổ này.
+                    unsafe {
+                        let _ = TrackMouseEvent(&mut tme);
+                    }
+                }
+                if old != row {
+                    invalidate_row(hwnd, old);
+                    invalidate_row(hwnd, row);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_MOUSELEAVE => {
+            if let Some(old) = with_state(|s| {
+                s.tracking = false;
+                s.hover.take()
+            }) {
+                invalidate_row(hwnd, old);
+            }
+            LRESULT(0)
+        }
+        WM_SETCURSOR if lo_word(lp.0 as usize) == HTCLIENT => {
+            let mut pt = POINT::default();
+            // SAFETY: pt là biến cục bộ; đổi tọa độ sang client của chính danh sách.
+            unsafe {
+                let _ = GetCursorPos(&mut pt);
+                let _ = ScreenToClient(hwnd, &mut pt);
+            }
+            if row_at(pt).is_some() {
+                // SAFETY: con trỏ hệ thống dùng chung, không phải hủy.
+                unsafe {
+                    if let Ok(c) = LoadCursorW(None, IDC_HAND) {
+                        SetCursor(Some(c));
+                    }
+                }
+                return LRESULT(1);
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_MOUSEWHEEL => {
+            let delta = i32::from(hi_word_i16(wp.0));
+            if let Some((scroll, line)) = with_state(|s| (s.scroll, scale(LINE_DIP, s.dpi))) {
+                scroll_to(hwnd, scroll - delta * WHEEL_LINES * line / 120);
+            }
+            LRESULT(0)
+        }
+        WM_VSCROLL => {
+            let code = SCROLLBAR_COMMAND(lo_word(wp.0) as i32);
+            let Some((scroll, line, page, max)) = with_state(|s| {
+                let view = s.layout.list.bottom - s.layout.list.top;
+                (
+                    s.scroll,
+                    scale(LINE_DIP, s.dpi),
+                    (view - scale(LINE_DIP, s.dpi)).max(1),
+                    s.layout.content_h(s.visible.len()),
+                )
+            }) else {
+                return LRESULT(0);
+            };
+            let target = match code {
+                SB_LINEUP => scroll - line,
+                SB_LINEDOWN => scroll + line,
+                SB_PAGEUP => scroll - page,
+                SB_PAGEDOWN => scroll + page,
+                SB_TOP => 0,
+                SB_BOTTOM => max,
+                SB_THUMBTRACK | SB_THUMBPOSITION => {
+                    let mut si = SCROLLINFO {
+                        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+                        fMask: SIF_TRACKPOS,
+                        ..Default::default()
+                    };
+                    // SAFETY: si là biến cục bộ đủ cbSize; hỏi thanh cuộn của chính cửa sổ này.
+                    unsafe {
+                        let _ = GetScrollInfo(hwnd, SB_VERT, &mut si);
+                    }
+                    si.nTrackPos
+                }
+                _ => scroll,
+            };
+            scroll_to(hwnd, target);
+            LRESULT(0)
+        }
+        // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+        _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
+}
+
+/// Đổi DPI: phông mới cho điều khiển, đệm ảnh nhỏ làm lại theo cỡ ô mới.
+fn on_dpi_changed(hwnd: HWND, dpi: u32) {
+    let fonts = FontSet::new(dpi);
+    let normal = fonts.0.normal;
+    let bold = fonts.0.bold;
+    let Some((old, controls)) = with_state(|s| {
+        s.dpi = dpi;
+        drop(s.thumbs.clear());
+        s.thumb_gen.next();
+        let old = std::mem::replace(&mut s.fonts, fonts);
+        let mut c = s.buttons.to_vec();
+        c.push(s.options);
+        (old, c)
+    }) else {
+        return;
+    };
+    DRAW.with(|d| {
+        let (_, _, banner) = d.get();
+        d.set((dpi, bold, banner));
+    });
+    for c in controls {
+        set_font(c, normal);
+    }
+    // Các nút đã dùng phông mới: phông cũ xóa được.
+    drop(old);
+    let _ = hwnd;
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -291,14 +1583,143 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             LRESULT(0)
         }
-        WM_ERASEBKGND => {
-            let mut rc = RECT::default();
-            // SAFETY: rc là biến cục bộ; wp là HDC hệ thống cấp cho lần xóa nền này.
-            unsafe {
-                let _ = GetClientRect(hwnd, &mut rc);
+        WM_ERASEBKGND => LRESULT(1),
+        WM_PAINT => {
+            paint_main(hwnd);
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            relayout(hwnd);
+            if with_state(|s| s.preview_can_grow()) == Some(true) {
+                // SAFETY: hẹn giờ của chính cửa sổ này; đặt lại thì chỉ dời mốc.
+                unsafe {
+                    SetTimer(Some(hwnd), PREVIEW_TIMER, PREVIEW_REFRESH_MS, None);
+                }
             }
-            theme::fill(HDC(wp.0 as *mut c_void), &rc, BG);
-            LRESULT(1)
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == PREVIEW_TIMER => {
+            // SAFETY: hủy hẹn giờ một lần của chính cửa sổ này.
+            unsafe {
+                let _ = KillTimer(Some(hwnd), PREVIEW_TIMER);
+            }
+            with_state(|s| {
+                if s.preview_can_grow() {
+                    s.request_preview(true);
+                }
+            });
+            LRESULT(0)
+        }
+        WM_ACTIVATE => {
+            if lo_word(wp.0) == WA_INACTIVE {
+                // SAFETY: chỉ hỏi cửa sổ có tiêu điểm và quan hệ cha con.
+                let f = unsafe { GetFocus() };
+                if !f.is_invalid() && unsafe { IsChild(hwnd, f).as_bool() } {
+                    with_state(|s| s.last_focus = f);
+                }
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_SETFOCUS => {
+            // Cửa sổ chính không nhận phím: trả tiêu điểm cho điều khiển dùng gần nhất.
+            if let Some(f) = with_state(|s| s.last_focus) {
+                // SAFETY: f là con của cửa sổ này (hoặc đã hủy: SetFocus báo lỗi vô hại).
+                unsafe {
+                    if IsWindow(Some(f)).as_bool() {
+                        let _ = SetFocus(Some(f));
+                    }
+                }
+            }
+            LRESULT(0)
+        }
+        WM_MOUSEWHEEL => {
+            // Bánh xe khi tiêu điểm ở nút: cuộn danh sách.
+            if let Some(list) = with_state(|s| s.list) {
+                // SAFETY: gửi đồng bộ cho danh sách của cửa sổ này (không giữ khóa STATE).
+                return unsafe { SendMessageW(list, msg, Some(wp), Some(lp)) };
+            }
+            LRESULT(0)
+        }
+        WM_COMMAND => {
+            let (id, code) = ((wp.0 & 0xFFFF) as i32, (wp.0 >> 16) & 0xFFFF);
+            if code == 0 {
+                if ACTION_IDS.contains(&id) {
+                    on_action(id);
+                } else if id == ID_OPEN_OPTIONS {
+                    open_options(hwnd);
+                }
+            }
+            LRESULT(0)
+        }
+        WM_NOTIFY => {
+            // SAFETY: lp của WM_NOTIFY trỏ tới NMHDR hợp lệ suốt lời gọi.
+            let hdr = unsafe { (lp.0 as *const NMHDR).as_ref() };
+            if let Some(h) = hdr.filter(|h| h.code == NM_CUSTOMDRAW) {
+                let id = h.idFrom as i32;
+                let (dpi, bold, in_banner) = DRAW.with(|d| d.get());
+                // SAFETY: mã NM_CUSTOMDRAW nên lp trỏ tới NMCUSTOMDRAW.
+                if let Some(cd) = unsafe { theme::nmcd_of(lp) } {
+                    match id {
+                        201 => {
+                            return theme::custom_draw_button(
+                                cd,
+                                ButtonKind::Primary,
+                                BG,
+                                dpi,
+                                bold,
+                            )
+                        }
+                        202..=204 => {
+                            return theme::custom_draw_button(cd, ButtonKind::Normal, BG, dpi, None)
+                        }
+                        ID_REMOVE => return hp::custom_draw_danger(cd, BG, dpi),
+                        ID_OPEN_OPTIONS if in_banner => {
+                            return theme::custom_draw_button(
+                                cd,
+                                ButtonKind::Normal,
+                                SURFACE,
+                                dpi,
+                                None,
+                            )
+                        }
+                        ID_OPEN_OPTIONS => {
+                            return theme::custom_draw_button(
+                                cd,
+                                ButtonKind::Primary,
+                                BG,
+                                dpi,
+                                bold,
+                            )
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_HISTORY_CHANGED => {
+            start_load(hwnd);
+            LRESULT(0)
+        }
+        WM_HISTORY_LOADED => {
+            // SAFETY: con trỏ do post_box cấp phát cho đúng mã thông điệp này, chuyển quyền cho ta.
+            let m = unsafe { Box::from_raw(lp.0 as *mut LoadMsg) };
+            on_loaded(hwnd, *m);
+            LRESULT(0)
+        }
+        WM_HISTORY_THUMB => {
+            // SAFETY: như trên.
+            let m = unsafe { Box::from_raw(lp.0 as *mut ThumbMsg) };
+            on_thumb(*m);
+            LRESULT(0)
+        }
+        WM_HISTORY_PREVIEW => {
+            // SAFETY: như trên.
+            let m = unsafe { Box::from_raw(lp.0 as *mut PreviewMsg) };
+            on_preview(*m);
+            LRESULT(0)
         }
         WM_GETMINMAXINFO => {
             // SAFETY: hwnd là cửa sổ này (có thể đang được tạo); chỉ hỏi DPI.
@@ -313,10 +1734,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_DPICHANGED => {
+            on_dpi_changed(hwnd, norm_dpi(lo_word(wp.0)));
             // Tài liệu WM_DPICHANGED: dùng đúng RECT đề nghị trong lp.
             // SAFETY: lp trỏ tới RECT hợp lệ suốt lời gọi.
             if let Some(r) = unsafe { (lp.0 as *const RECT).as_ref() } {
-                // SAFETY: đổi vị trí và cỡ chính cửa sổ này.
+                // SAFETY: đổi vị trí và cỡ chính cửa sổ này (WM_SIZE sẽ tính lại bố cục).
                 unsafe {
                     let _ = SetWindowPos(
                         hwnd,
@@ -327,16 +1749,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         r.bottom - r.top,
                         SWP_NOZORDER | SWP_NOACTIVATE,
                     );
-                    let _ = InvalidateRect(Some(hwnd), None, true);
                 }
             }
+            relayout(hwnd);
+            with_state(|s| s.request_preview(true));
             LRESULT(0)
         }
         WM_NCDESTROY => {
-            // Quên handle, dù đóng bằng đường nào.
+            // Quên handle, dù đóng bằng đường nào; các con đã hủy nên phông, bitmap, luồng nền được trả.
             if OPEN.with(|o| o.get()) == hwnd.0 as isize {
                 OPEN.with(|o| o.set(0));
                 history_service::set_window(0);
+                // SAFETY: hủy hẹn giờ (nếu còn) của chính cửa sổ này.
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), PREVIEW_TIMER);
+                }
+                let state = STATE.with(|s| s.borrow_mut().take());
+                drop(state);
+                drain_results(hwnd);
+                DRAW.with(|d| d.set((96, None, false)));
             }
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
             unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
@@ -344,6 +1775,31 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
         _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
     }
+}
+
+#[cfg(test)]
+fn loaded_count() -> Option<usize> {
+    with_state(|s| s.loaded.then_some(s.entries.len())).flatten()
+}
+
+#[cfg(test)]
+fn list_hwnd() -> isize {
+    with_state(|s| s.list.0 as isize).unwrap_or(0)
+}
+
+#[cfg(test)]
+fn pending_thumbs() -> usize {
+    with_state(|s| s.thumbs.loading()).unwrap_or(0)
+}
+
+#[cfg(test)]
+fn preview_loading() -> bool {
+    with_state(|s| matches!(s.preview, Preview::Loading)).unwrap_or(false)
+}
+
+#[cfg(test)]
+fn selected_index() -> Option<usize> {
+    with_state(|s| s.sel_pos()).flatten()
 }
 
 #[cfg(test)]
@@ -700,7 +2156,7 @@ mod tests {
                     SendMessageW(
                         list,
                         WM_MOUSEWHEEL,
-                        Some(WPARAM(((delta as u16 as usize) << 16) as usize)),
+                        Some(WPARAM((delta as u16 as usize) << 16)),
                         Some(LPARAM(0)),
                     );
                     SendMessageW(list, WM_VSCROLL, Some(WPARAM(3)), Some(LPARAM(0)));
