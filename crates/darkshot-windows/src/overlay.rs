@@ -4,14 +4,15 @@
 //! Mọi trạng thái kéo thả nằm trong `geometry::Selection`; hình đánh dấu trong
 //! `annotate::Annotations`. Ở đây chỉ vẽ và nhận sự kiện.
 
-use crate::annotate_draw::{draw_shapes, shape_bounds};
+use crate::annotate_draw::{caret_rect, draw_shapes, shape_bounds};
 use crate::capture::Screenshot;
 use crate::gdiplus::{GdiPlus, Gp};
 use crate::lang;
 use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
-    add_point, constrain_45, constrain_square, dip_to_px, press_mode, too_short, Annotations,
-    PressMode, Pt, Shape, Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE, STROKE_DIP,
+    add_point, constrain_45, constrain_square, dip_to_px, press_mode, sanitize_paste, too_short,
+    Annotations, PressMode, Pt, Shape, TextEdit, Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE,
+    STROKE_DIP, TEXT_DIP,
 };
 use darkshot_core::geometry::{
     monitor_containing, place_side_toolbar, place_toolbar, Handle, Hit, Point, Rect, Selection,
@@ -31,7 +32,7 @@ use windows::Win32::Graphics::Gdi::{
     FillRect, GetStockObject, GetTextExtentPoint32W, IntersectClipRect, InvalidateRect,
     MonitorFromPoint, Rectangle, RoundRect, SelectClipRgn, SelectObject, SetBkMode, SetTextColor,
     StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DT_CENTER,
-    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTW,
+    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_BOLD, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTW,
     MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::Graphics::GdiPlus::{
@@ -43,20 +44,27 @@ use windows::Win32::Graphics::GdiPlus::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, SystemParametersInfoForDpi, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::Input::Ime::{
+    ImmGetCompositionStringW, ImmGetContext, ImmNotifyIME, ImmReleaseContext,
+    ImmSetCompositionFontW, ImmSetCompositionWindow, CFS_DEFAULT, CFS_POINT, COMPOSITIONFORM,
+    CPS_CANCEL, GCS_COMPSTR, NI_COMPOSITIONSTR,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus, UnregisterHotKey,
-    MOD_NOREPEAT, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_MENU, VK_SHIFT,
+    MOD_NOREPEAT, VIRTUAL_KEY, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT,
+    VK_MENU, VK_RIGHT, VK_SHIFT, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-    GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowRect,
-    GetWindowThreadProcessId, KillTimer, LoadCursorW, PostQuitMessage, RegisterClassExW, SetCursor,
-    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, HTCLIENT, IDC_ARROW,
-    IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG,
-    NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    GetCaretBlinkTime, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
+    GetWindowRect, GetWindowThreadProcessId, KillTimer, LoadCursorW, PostQuitMessage,
+    RegisterClassExW, SetCursor, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow,
+    TranslateMessage, HTCLIENT, IDC_ARROW, IDC_CROSS, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW,
+    IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
+    SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE,
+    WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-overlay");
@@ -88,6 +96,13 @@ const ESC_HOTKEY_ID: i32 = 0x0E5C;
 const FOCUS_TIMER_ID: usize = 1;
 const FOCUS_RETRY_MS: u32 = 100;
 const MAX_FOCUS_RETRIES: u32 = 5;
+/// Bộ hẹn giờ nháy con trỏ của ô chữ.
+const CARET_TIMER_ID: usize = 2;
+/// Khung nét đứt quanh ô chữ: cách chữ, rộng tối thiểu khi ô rỗng, nét và khe (DIP).
+const TEXT_FRAME_PAD: i32 = 3;
+const TEXT_EMPTY_W: i32 = 40;
+const TEXT_DASH: i32 = 4;
+const TEXT_DASH_GAP: i32 = 3;
 
 // Màu lấy từ `darkshot_core::theme`; biểu tượng GDI+ dùng ARGB (0xFF + RGB).
 const ICON_ARGB: u32 = argb(OVERLAY_ICON);
@@ -274,12 +289,19 @@ fn key_held(vk: VIRTUAL_KEY) -> bool {
     unsafe { GetKeyState(i32::from(vk.0)) < 0 }
 }
 
+/// `WM_KEYDOWN` là lần lặp của phím đang giữ (bit 30 của `lParam`: phím đã xuống trước đó).
+fn key_repeat(lp: LPARAM) -> bool {
+    lp.0 & (1 << 30) != 0
+}
+
 /// Nét đang vẽ: công cụ, điểm đầu (tọa độ ảnh chụp) và hình hiện tại.
 #[derive(Clone, Debug, PartialEq)]
 struct Stroke {
     tool: Tool,
     start: Pt,
     shape: Shape,
+    /// Điểm chuột cuối (để nhấn hoặc nhả Shift cập nhật nét mà không cần di chuột).
+    cursor: Pt,
 }
 
 /// Bắt đầu nét tại `p` với độ dày theo `dpi` của màn hình chứa `p`; `None` với Chữ.
@@ -325,6 +347,7 @@ fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb) -> Option<Stroke> {
         tool,
         start: p,
         shape,
+        cursor: p,
     })
 }
 
@@ -365,6 +388,7 @@ fn union(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
 /// Nét tự do chỉ làm mới hộp bao đoạn mới (nới nửa độ dày, đầu vuông của bút dạ quang thì nhân
 /// căn 2, cộng 2 px khử răng cưa), không phụ thuộc độ dài nét.
 fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
+    s.cursor = p;
     let marker = s.tool == Tool::Marker;
     match &mut s.shape {
         Shape::Pen { points, width, .. } | Shape::Marker { points, width, .. } => {
@@ -412,6 +436,155 @@ fn end_stroke(s: Stroke) -> Option<Shape> {
             None
         }
         _ => Some(s.shape),
+    }
+}
+
+const NO_RECT: Rect = Rect {
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+};
+
+/// Ô chữ đang gõ cùng hình học đã đo (đo lại mỗi lần ô đổi, không đo khi vẽ hay khi nháy).
+struct TextBox {
+    edit: TextEdit,
+    /// Điểm bấm tạo ô (tọa độ ảnh chụp).
+    at: Point,
+    /// DPI của màn hình chứa `at`.
+    dpi: u32,
+    /// Con trỏ nháy (tọa độ ảnh chụp).
+    caret: Rect,
+    /// Khung nét đứt (tọa độ ảnh chụp).
+    frame: Rect,
+}
+
+impl TextBox {
+    fn new(at: Point, dpi: u32, color: Rgb) -> TextBox {
+        let origin = Pt {
+            x: at.x as f32,
+            y: at.y as f32,
+        };
+        let edit = TextEdit::new(origin, dip_to_px(TEXT_DIP, dpi), color);
+        let mut b = TextBox {
+            edit,
+            at,
+            dpi,
+            caret: NO_RECT,
+            frame: NO_RECT,
+        };
+        b.measure();
+        b
+    }
+
+    /// Đo lại con trỏ và khung. Khung gồm phần mực của chữ và con trỏ (phần mực không gồm khoảng
+    /// trắng cuối dòng), nới `TEXT_FRAME_PAD`; ô chỉ có khoảng trắng thì tính từ điểm đặt ô, cao
+    /// một dòng, rộng tối thiểu `TEXT_EMPTY_W` (không gọi `shape_bounds` cho ô rỗng).
+    fn measure(&mut self) {
+        self.caret = caret_rect(&self.edit);
+        let base = match self.edit.to_shape() {
+            Some(shape) => union(Some(shape_bounds(&shape)), Some(self.caret)),
+            None => union(
+                Some(Rect {
+                    x: self.at.x,
+                    y: self.at.y,
+                    w: scaled(TEXT_EMPTY_W, self.dpi),
+                    h: self.caret.h,
+                }),
+                Some(self.caret),
+            ),
+        }
+        .unwrap_or(self.caret);
+        self.frame = inflate(base, scaled(TEXT_FRAME_PAD, self.dpi));
+    }
+
+    /// Vùng màn hình ô chiếm (chữ, khung, con trỏ).
+    fn dirty(&self) -> Rect {
+        union(Some(inflate(self.frame, 1)), Some(self.caret)).unwrap_or(self.frame)
+    }
+}
+
+/// Bộ gõ đang có chuỗi soạn dở trên cửa sổ `hwnd`.
+fn ime_composing(hwnd: HWND) -> bool {
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ngay bằng ImmReleaseContext.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return false;
+        }
+        let n = ImmGetCompositionStringW(himc, GCS_COMPSTR, None, 0);
+        let _ = ImmReleaseContext(hwnd, himc);
+        n > 0
+    }
+}
+
+/// Kết thúc chuỗi soạn dở của bộ gõ trên `hwnd` khi ô chữ đóng. `keep`: trả chuỗi đang soạn để
+/// chèn thẳng vào ô cũ (hoàn tất); không thì bỏ. Chuỗi soạn luôn được xóa bằng `CPS_CANCEL`, nên bộ
+/// gõ không gửi thêm WM_CHAR sau đó (sẽ rơi vào ô mới hoặc mất). Đặt lại cửa sổ soạn về
+/// `CFS_DEFAULT` để khi không có ô chữ bộ gõ hành xử như trước.
+fn ime_end_composition(hwnd: HWND, keep: bool) -> Option<String> {
+    let form = COMPOSITIONFORM {
+        dwStyle: CFS_DEFAULT,
+        ..Default::default()
+    };
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ở cuối khối trên mọi đường đi; bộ đệm
+    // đọc chuỗi soạn đủ `bytes` byte theo kích thước bộ gõ vừa báo.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return None;
+        }
+        let bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, None, 0);
+        let mut pending = None;
+        if bytes > 0 {
+            if keep {
+                let mut buf = vec![0u16; (bytes as usize).div_ceil(2)];
+                let got = ImmGetCompositionStringW(
+                    himc,
+                    GCS_COMPSTR,
+                    Some(buf.as_mut_ptr() as *mut c_void),
+                    (buf.len() * 2) as u32,
+                );
+                if got > 0 {
+                    let n = (got as usize / 2).min(buf.len());
+                    pending = buf.get(..n).map(String::from_utf16_lossy);
+                }
+            }
+            let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        }
+        let _ = ImmSetCompositionWindow(himc, &form);
+        let _ = ImmReleaseContext(hwnd, himc);
+        pending.filter(|s| !s.is_empty())
+    }
+}
+
+/// Đặt cửa sổ soạn của bộ gõ tại `caret` (tọa độ client) với phông cỡ gần chữ đánh dấu.
+fn place_ime(hwnd: HWND, caret: Rect, size_px: f32) {
+    let form = COMPOSITIONFORM {
+        dwStyle: CFS_POINT,
+        ptCurrentPos: POINT {
+            x: caret.x,
+            y: caret.y,
+        },
+        ..Default::default()
+    };
+    let mut lf = LOGFONTW {
+        lfHeight: -(size_px.round() as i32).max(1),
+        lfWeight: FW_BOLD.0 as i32,
+        ..Default::default()
+    };
+    for (slot, u) in lf.lfFaceName.iter_mut().zip(wide("Segoe UI")) {
+        *slot = u;
+    }
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ngay; hai cấu trúc sống suốt lời gọi.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return;
+        }
+        let _ = ImmSetCompositionFontW(himc, &lf);
+        let _ = ImmSetCompositionWindow(himc, &form);
+        let _ = ImmReleaseContext(hwnd, himc);
     }
 }
 
@@ -552,6 +725,16 @@ struct State {
     tool: Option<Tool>,
     /// Các hình đã chốt (tọa độ ảnh chụp).
     marks: Annotations,
+    /// Hộp bao (tọa độ ảnh chụp) của từng hình trong `marks`, cùng thứ tự; tính lúc chốt.
+    mark_bounds: Vec<Rect>,
+    /// Ô chữ đang gõ.
+    text: Option<TextBox>,
+    /// Con trỏ nháy của ô chữ đang hiện.
+    caret_on: bool,
+    /// Nửa đầu của cặp UTF-16 (ký tự ngoài BMP) chờ nửa sau qua WM_CHAR.
+    high_surrogate: Option<u16>,
+    /// Phím tắt Esc toàn cục đang được lớp phủ đăng ký.
+    esc_registered: bool,
     /// Màu cho hình vẽ sau đó.
     color: Rgb,
     /// Nét đang kéo (chưa chốt vào `marks`).
@@ -945,6 +1128,10 @@ impl State {
         if self.dragging() {
             return self.drag_cursor;
         }
+        if self.palette {
+            // Bảng màu mở: cú bấm nào ngoài bảng cũng chỉ đóng bảng.
+            return IDC_ARROW;
+        }
         let on_bar = [self.toolbar(), self.side_bar(), self.palette_rect()]
             .iter()
             .flatten()
@@ -962,6 +1149,7 @@ impl State {
     }
 
     fn finish(&mut self, a: Action) {
+        self.close_text(true);
         if a == Action::Cancel {
             self.result = Some(None);
         } else if let Some(r) = self.sel.rect() {
@@ -970,18 +1158,239 @@ impl State {
                 rect: r,
                 shapes: std::mem::take(&mut self.marks).into_shapes(),
             }));
+            self.mark_bounds.clear();
         }
     }
 
     fn toggle_tool(&mut self, t: Tool) {
+        self.close_text(true);
         self.update_bars(|s| s.tool = if s.tool == Some(t) { None } else { Some(t) });
     }
 
+    /// Hoàn tác. Đang gõ: ô có chữ thì chỉ xóa ô đó; ô rỗng thì hủy ô rồi hoàn tác hình cuối.
     fn undo(&mut self) {
+        if let Some(b) = &self.text {
+            let had_text = !b.edit.text().is_empty();
+            self.close_text(false);
+            if had_text {
+                return;
+            }
+        }
         let mut removed = None;
-        self.update_bars(|s| removed = s.marks.undo());
-        if let Some(shape) = removed {
-            self.invalidate(&[shape_bounds(&shape)]);
+        self.update_bars(|s| removed = s.pop_mark());
+        if let Some(r) = removed {
+            self.invalidate(&[r]);
+        }
+    }
+
+    /// Chốt hình vào `marks`, lưu sẵn hộp bao để khi vẽ bỏ qua hình không giao vùng cần vẽ.
+    fn push_mark(&mut self, shape: Shape) {
+        self.mark_bounds.push(shape_bounds(&shape));
+        self.marks.push(shape);
+    }
+
+    /// Bỏ hình cuối; trả hộp bao của nó.
+    fn pop_mark(&mut self) -> Option<Rect> {
+        let shape = self.marks.undo()?;
+        Some(
+            self.mark_bounds
+                .pop()
+                .unwrap_or_else(|| shape_bounds(&shape)),
+        )
+    }
+
+    /// Đăng ký (`on`) hoặc gỡ phím tắt Esc toàn cục của lớp phủ. Gỡ khi ô chữ mở để Esc tới được
+    /// bộ gõ (hủy chuỗi soạn) và tới lớp phủ qua WM_KEYDOWN; đăng ký lại khi ô đóng.
+    fn set_esc_hotkey(&mut self, on: bool) {
+        if on == self.esc_registered {
+            return;
+        }
+        // SAFETY: phím tắt gắn với cửa sổ lớp phủ của luồng này; EscHotkey gỡ lần cuối khi đóng.
+        unsafe {
+            if on {
+                self.esc_registered = RegisterHotKey(
+                    Some(self.hwnd),
+                    ESC_HOTKEY_ID,
+                    MOD_NOREPEAT,
+                    u32::from(VK_ESCAPE.0),
+                )
+                .is_ok();
+            } else {
+                let _ = UnregisterHotKey(Some(self.hwnd), ESC_HOTKEY_ID);
+                self.esc_registered = false;
+            }
+        }
+    }
+
+    /// (Đặt lại) bộ hẹn giờ nháy con trỏ theo `GetCaretBlinkTime`; con trỏ hiện ngay.
+    /// Hệ thống tắt nháy (INFINITE hoặc 0) thì con trỏ đứng yên.
+    fn restart_blink(&mut self) {
+        self.caret_on = true;
+        // SAFETY: chỉ đọc cài đặt hệ thống và đặt bộ hẹn giờ của chính cửa sổ lớp phủ
+        // (mất theo cửa sổ; close_text hủy sớm hơn).
+        unsafe {
+            let ms = GetCaretBlinkTime();
+            if ms == 0 || ms == u32::MAX {
+                let _ = KillTimer(Some(self.hwnd), CARET_TIMER_ID);
+            } else {
+                SetTimer(Some(self.hwnd), CARET_TIMER_ID, ms, None);
+            }
+        }
+    }
+
+    /// Nhịp nháy: đảo con trỏ, chỉ làm mới ô con trỏ (không đo lại chữ).
+    fn blink(&mut self) {
+        let Some(caret) = self.text.as_ref().map(|b| b.caret) else {
+            return;
+        };
+        self.caret_on = !self.caret_on;
+        self.invalidate(&[caret]);
+    }
+
+    /// Mở ô chữ tại `p` (đã chốt ô cũ).
+    fn open_text(&mut self, p: Point) {
+        let b = TextBox::new(p, self.dpi_at(p), self.color);
+        self.invalidate(&[b.dirty()]);
+        place_ime(self.hwnd, b.caret, dip_to_px(TEXT_DIP, b.dpi));
+        self.text = Some(b);
+        self.high_surrogate = None;
+        self.set_esc_hotkey(false);
+        self.restart_blink();
+        // Nút Hoàn tác sáng lên khi có ô chữ.
+        let bars = self.bar_chrome();
+        self.invalidate(&bars);
+    }
+
+    /// Đóng ô chữ: `commit` thì chốt vào `marks` (bỏ nếu chỉ có khoảng trắng), không thì hủy.
+    fn close_text(&mut self, commit: bool) {
+        if self.text.is_none() {
+            return;
+        }
+        // Chuỗi bộ gõ đang soạn: chốt thì hoàn tất vào chính ô này, hủy thì bỏ.
+        let pending = ime_end_composition(self.hwnd, commit);
+        let Some(mut b) = self.text.take() else {
+            return;
+        };
+        self.invalidate(&[b.dirty()]);
+        if let Some(s) = pending {
+            b.edit.insert(&s);
+        }
+        self.high_surrogate = None;
+        // SAFETY: hủy bộ hẹn giờ nháy của chính cửa sổ lớp phủ.
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), CARET_TIMER_ID);
+        }
+        self.set_esc_hotkey(true);
+        if commit {
+            if let Some(shape) = b.edit.to_shape() {
+                self.push_mark(shape);
+                // Chữ hoàn tất từ bộ gõ có thể vượt khung cũ.
+                let added: Vec<Rect> = self.mark_bounds.last().copied().into_iter().collect();
+                self.invalidate(&added);
+            }
+        }
+        // Nút Hoàn tác có thể đổi trạng thái (mờ, sáng).
+        let bars = self.bar_chrome();
+        self.invalidate(&bars);
+    }
+
+    /// Sửa ô chữ đang gõ qua `f`, đo lại, làm mới vùng cũ và mới, dời cửa sổ soạn của bộ gõ.
+    fn edit_text(&mut self, f: impl FnOnce(&mut TextEdit)) {
+        let Some(b) = self.text.as_mut() else {
+            return;
+        };
+        let before = b.dirty();
+        f(&mut b.edit);
+        b.measure();
+        let (after, caret, size) = (b.dirty(), b.caret, dip_to_px(TEXT_DIP, b.dpi));
+        self.invalidate(&[before, after]);
+        place_ime(self.hwnd, caret, size);
+        self.restart_blink();
+    }
+
+    /// WM_CHAR khi đang gõ; `false` khi không có ô chữ (để xử lý mặc định).
+    fn on_char(&mut self, unit: u16) -> bool {
+        if self.text.is_none() {
+            return false;
+        }
+        if (0xD800..0xDC00).contains(&unit) {
+            self.high_surrogate = Some(unit);
+            return true;
+        }
+        let s = if (0xDC00..0xE000).contains(&unit) {
+            match self.high_surrogate.take() {
+                Some(h) => String::from_utf16_lossy(&[h, unit]),
+                None => return true,
+            }
+        } else {
+            self.high_surrogate = None;
+            match unit {
+                0x08 => {
+                    self.edit_text(|e| e.backspace());
+                    return true;
+                }
+                0x0D => "\n".to_string(),
+                // Ký tự điều khiển khác (Ctrl+V, Ctrl+Z, Tab, Ctrl+Enter...) không vào ô.
+                u if u < 0x20 || u == 0x7F => return true,
+                u => String::from_utf16_lossy(&[u]),
+            }
+        };
+        self.edit_text(|e| e.insert(&s));
+        true
+    }
+
+    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C.
+    fn text_key(&mut self, vk: u16) {
+        if key_held(VK_CONTROL) {
+            match vk {
+                0x5A => self.undo(),  // Z
+                0x56 => self.paste(), // V
+                0x44 => self.finish(Action::Upload),
+                0x53 => self.finish(Action::Save),
+                0x43 => self.finish(Action::Copy),
+                _ => {}
+            }
+            return;
+        }
+        let mv: fn(&mut TextEdit) = match VIRTUAL_KEY(vk) {
+            VK_DELETE => TextEdit::delete,
+            VK_LEFT => TextEdit::left,
+            VK_RIGHT => TextEdit::right,
+            VK_UP => TextEdit::up,
+            VK_DOWN => TextEdit::down,
+            VK_HOME => TextEdit::home,
+            VK_END => TextEdit::end,
+            _ => return,
+        };
+        self.edit_text(mv);
+    }
+
+    /// Ctrl+V: dán chữ thuần của clipboard vào ô chữ.
+    fn paste(&mut self) {
+        if self.text.is_none() {
+            return;
+        }
+        let Some(raw) = crate::clipboard::paste_text(self.hwnd) else {
+            return;
+        };
+        let clean = sanitize_paste(&raw);
+        if !clean.is_empty() {
+            self.edit_text(|e| e.insert(&clean));
+        }
+    }
+
+    /// Nhấn hoặc nhả Shift khi đang kéo Đường thẳng, Mũi tên, Hình chữ nhật: cập nhật nét ngay
+    /// theo điểm chuột cuối.
+    fn shift_changed(&mut self, shift: bool) {
+        let Some(st) = self.stroke.as_mut() else {
+            return;
+        };
+        if !matches!(st.tool, Tool::Line | Tool::Arrow | Tool::Rect) {
+            return;
+        }
+        let at = st.cursor;
+        if let Some(r) = extend_stroke(st, at, shift) {
+            self.invalidate(&[r]);
         }
     }
 
@@ -994,6 +1403,7 @@ impl State {
             s.color = c;
             s.palette = false;
         });
+        self.edit_text(|e| e.set_color(c));
     }
 
     fn activate(&mut self, item: SideItem) {
@@ -1004,24 +1414,27 @@ impl State {
         }
     }
 
-    /// Esc (phím hoặc phím tắt toàn cục): bảng màu đang mở thì chỉ đóng bảng, còn lại đóng lớp phủ.
+    /// Esc (phím hoặc phím tắt toàn cục): bảng màu đang mở thì chỉ đóng bảng; đang gõ thì hủy ô
+    /// chữ (trừ khi bộ gõ đang soạn: Esc thuộc về bộ gõ); còn lại đóng lớp phủ.
     fn escape(&mut self) {
         if self.palette {
             self.update_bars(|s| {
                 s.palette = false;
                 s.cell_pressed = None;
             });
+        } else if self.text.is_some() {
+            if !ime_composing(self.hwnd) {
+                self.close_text(false);
+            }
         } else {
             self.result = Some(None);
         }
     }
 
-    /// Bấm trong vùng chọn khi công cụ Chữ đang chọn.
-    ///
-    /// Task 37 cắm ô chữ ở đây: chốt ô đang gõ (nếu có), tạo `TextEdit` tại `p` với
-    /// `dip_to_px(TEXT_DIP, self.dpi_at(p))` và `self.color`. Tới lúc đó chưa làm gì.
+    /// Bấm trong vùng chọn khi công cụ Chữ đang chọn: chốt ô đang gõ (nếu có), mở ô mới tại `p`.
     fn text_press(&mut self, p: Point) -> Effects {
-        let _ = p;
+        self.close_text(true);
+        self.open_text(p);
         Effects::default()
     }
 
@@ -1032,7 +1445,7 @@ impl State {
         };
         let drawn = s.shape.bounds();
         match end_stroke(s) {
-            Some(shape) => self.update_bars(|st| st.marks.push(shape)),
+            Some(shape) => self.update_bars(|st| st.push_mark(shape)),
             None => self.invalidate(&drawn.into_iter().collect::<Vec<_>>()),
         }
     }
@@ -1050,6 +1463,12 @@ impl State {
     fn on_down(&mut self, p: Point) -> Effects {
         if self.dragging() {
             return Effects::default();
+        }
+        // Bấm ra chỗ khác thì chốt ô chữ; trên thanh dọc (Màu, Hoàn tác, công cụ tự chốt khi cần)
+        // và khi bảng màu mở (để đổi màu ô đang gõ) thì chưa.
+        let on_side = self.side_bar().is_some_and(|(r, _)| r.contains(p));
+        if self.text.is_some() && !self.palette && !on_side {
+            self.close_text(true);
         }
         if self.palette {
             if self.palette_rect().is_some_and(|(r, _)| r.contains(p)) {
@@ -1196,9 +1615,18 @@ impl State {
         Effects::default()
     }
 
-    fn on_key(&mut self, vk: u16) {
+    /// WM_KEYDOWN; `repeat`: lần lặp của phím đang giữ.
+    fn on_key(&mut self, vk: u16, repeat: bool) {
         if vk == VK_ESCAPE.0 {
             self.escape();
+            return;
+        }
+        if vk == VK_SHIFT.0 {
+            self.shift_changed(true);
+            return;
+        }
+        if self.text.is_some() {
+            self.text_key(vk);
             return;
         }
         if self.dragging() || self.sel.rect().is_none() {
@@ -1206,7 +1634,7 @@ impl State {
         }
         let ctrl = key_held(VK_CONTROL);
         if !ctrl {
-            if !key_held(VK_MENU) {
+            if !key_held(VK_MENU) && !repeat {
                 if let Some(t) = Tool::from_key(vk) {
                     self.toggle_tool(t);
                 }
@@ -1343,11 +1771,44 @@ impl State {
         }
         // Hình đánh dấu: sau ảnh sáng, trước khung và các thanh; cắt theo vùng chọn.
         if let (Some(clip), true) = (sel, self.gdiplus) {
-            if !self.marks.is_empty() {
-                draw_shapes(p.dc, self.marks.shapes(), p.ox, p.oy, clip);
+            // Chỉ vẽ các hình có hộp bao giao vùng cần vẽ; giữ thứ tự bằng cách vẽ từng dải liền.
+            let shapes = self.marks.shapes();
+            let visible = |i: usize| {
+                self.mark_bounds
+                    .get(i)
+                    .is_none_or(|r| intersect(*r, clip).is_some())
+            };
+            let mut i = 0;
+            while i < shapes.len() {
+                if !visible(i) {
+                    i += 1;
+                    continue;
+                }
+                let start = i;
+                while i < shapes.len() && visible(i) {
+                    i += 1;
+                }
+                if let Some(run) = shapes.get(start..i) {
+                    draw_shapes(p.dc, run, p.ox, p.oy, clip);
+                }
             }
             if let Some(s) = &self.stroke {
                 draw_shapes(p.dc, std::slice::from_ref(&s.shape), p.ox, p.oy, clip);
+            }
+            let typing = self
+                .text
+                .as_ref()
+                .filter(|b| intersect(b.frame, clip).is_some())
+                .and_then(|b| b.edit.to_shape());
+            if let Some(shape) = typing {
+                draw_shapes(p.dc, std::slice::from_ref(&shape), p.ox, p.oy, clip);
+            }
+        }
+        // Khung nét đứt và con trỏ của ô đang gõ: chỉ trên màn hình, không in ra ảnh.
+        if let Some(b) = &self.text {
+            p.dashed_frame(b.frame, b.dpi);
+            if self.caret_on {
+                p.fill(b.caret, ACCENT);
             }
         }
         let Some(r) = self.sel.rect() else { return };
@@ -1384,7 +1845,8 @@ impl State {
                 tool: self.tool,
                 hover: self.side_hover,
                 color: self.color,
-                can_undo: !self.marks.is_empty(),
+                // Đang gõ thì Hoàn tác xóa ô chữ (hoặc hủy ô rỗng rồi hoàn tác hình cuối).
+                can_undo: !self.marks.is_empty() || self.text.is_some(),
             };
             p.side_toolbar(side, dpi, &look, self.gdiplus);
         }
@@ -1501,6 +1963,48 @@ impl Painter {
             SelectObject(self.dc, old_pen);
             let _ = DeleteObject(pen.into());
             let _ = DeleteObject(outer.into());
+        }
+    }
+
+    /// Khung nét đứt mảnh `ACCENT` (1 px; nét `TEXT_DASH`, khe `TEXT_DASH_GAP` DIP), khe trong suốt.
+    /// Vẽ từng nét bằng ô tô màu để độ dài nét đúng pixel (bút kiểu GDI tính theo "style unit").
+    fn dashed_frame(&self, r: Rect, dpi: u32) {
+        let (dash, gap) = (scaled(TEXT_DASH, dpi), scaled(TEXT_DASH_GAP, dpi));
+        let mut segs = Vec::new();
+        let mut x = r.x;
+        while x < r.right() {
+            let w = dash.min(r.right() - x);
+            segs.push(Rect { x, y: r.y, w, h: 1 });
+            segs.push(Rect {
+                x,
+                y: r.bottom() - 1,
+                w,
+                h: 1,
+            });
+            x += dash + gap;
+        }
+        let mut y = r.y;
+        while y < r.bottom() {
+            let h = dash.min(r.bottom() - y);
+            segs.push(Rect { x: r.x, y, w: 1, h });
+            segs.push(Rect {
+                x: r.right() - 1,
+                y,
+                w: 1,
+                h,
+            });
+            y += dash + gap;
+        }
+        // SAFETY: chổi tạo và xóa trong khối, không được chọn vào DC.
+        unsafe {
+            let brush = CreateSolidBrush(cr(ACCENT));
+            if brush.is_invalid() {
+                return;
+            }
+            for seg in segs {
+                FillRect(self.dc, &self.rc(seg), brush);
+            }
+            let _ = DeleteObject(brush.into());
         }
     }
 
@@ -2010,7 +2514,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_KEYDOWN => {
-            with_state(|s| s.on_key(wp.0 as u16));
+            with_state(|s| s.on_key(wp.0 as u16, key_repeat(lp)));
+            LRESULT(0)
+        }
+        WM_KEYUP => {
+            if wp.0 == usize::from(VK_SHIFT.0) {
+                with_state(|s| s.shift_changed(false));
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_CHAR => {
+            if with_state(|s| s.on_char(wp.0 as u16)) == Some(true) {
+                return LRESULT(0);
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
+        WM_TIMER if wp.0 == CARET_TIMER_ID => {
+            with_state(|s| s.blink());
             LRESULT(0)
         }
         WM_ACTIVATE => {
@@ -2145,35 +2667,17 @@ fn take_focus(hwnd: HWND) -> bool {
 }
 
 /// Phím Esc toàn cục trong lúc lớp phủ mở, để không bao giờ kẹt khi chưa giành được
-/// tiêu điểm. Gỡ khi drop; đăng ký thất bại (phím đã bị chiếm) thì không làm gì.
-struct EscHotkey {
-    hwnd: HWND,
-    registered: bool,
-}
-
-impl EscHotkey {
-    fn register(hwnd: HWND) -> EscHotkey {
-        // SAFETY: phím tắt gắn với cửa sổ lớp phủ của luồng này; gỡ trong Drop.
-        let registered = unsafe {
-            RegisterHotKey(
-                Some(hwnd),
-                ESC_HOTKEY_ID,
-                MOD_NOREPEAT,
-                u32::from(VK_ESCAPE.0),
-            )
-        }
-        .is_ok();
-        EscHotkey { hwnd, registered }
-    }
-}
+/// tiêu điểm. `State::set_esc_hotkey` đăng ký (và gỡ tạm khi ô chữ mở); guard này gỡ khi
+/// `pick_region` kết thúc trên mọi đường đi, kể cả khi lớp phủ đóng giữa lúc đang gõ
+/// (gỡ một phím chưa đăng ký chỉ trả lỗi, bỏ qua).
+struct EscHotkey(HWND);
 
 impl Drop for EscHotkey {
     fn drop(&mut self) {
-        if self.registered {
-            // SAFETY: gỡ đúng phím đã đăng ký, khi cửa sổ còn sống (guard này thả trước WindowGuard).
-            unsafe {
-                let _ = UnregisterHotKey(Some(self.hwnd), ESC_HOTKEY_ID);
-            }
+        with_state(|s| s.esc_registered = false);
+        // SAFETY: phím tắt của cửa sổ lớp phủ, gỡ khi cửa sổ còn sống (guard này thả trước WindowGuard).
+        unsafe {
+            let _ = UnregisterHotKey(Some(self.0), ESC_HOTKEY_ID);
         }
     }
 }
@@ -2233,6 +2737,11 @@ pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Pi
         hover: None,
         tool: None,
         marks: Annotations::default(),
+        mark_bounds: Vec::new(),
+        text: None,
+        caret_on: false,
+        high_surrogate: None,
+        esc_registered: false,
         color: LAST_COLOR.with(|c| c.get()),
         stroke: None,
         side_hover: None,
@@ -2262,7 +2771,8 @@ pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Pi
     let _window = WindowGuard(hwnd);
     with_state(|s| s.hwnd = hwnd);
     // Thả trước _window: gỡ phím Esc khi cửa sổ còn sống.
-    let _esc = EscHotkey::register(hwnd);
+    let _esc = EscHotkey(hwnd);
+    with_state(|s| s.set_esc_hotkey(true));
 
     // SAFETY: hiện và vẽ ngay cửa sổ vừa tạo của luồng này.
     unsafe {
@@ -2474,6 +2984,18 @@ mod tests {
         let p = r.unwrap().unwrap();
         assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 1));
         assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        // Vòng có chữ: mở ô, gõ, bấm chỗ khác (chốt, mở ô mới), gõ, Ctrl+S.
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(inside(30, 40)));
+        steps.extend(live::chars("ab"));
+        steps.extend(live::click(inside(60, 120)));
+        steps.extend(live::chars("c"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 2);
+        assert!(p.shapes.iter().all(|s| matches!(s, Shape::Text { .. })));
         assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
@@ -2623,6 +3145,15 @@ mod tests {
             Up(Point),
             /// WM_KEYDOWN không phím bổ trợ.
             Key(u16),
+            /// WM_KEYDOWN lặp (phím đang giữ: bit 30 của lParam).
+            KeyRepeat(u16),
+            /// WM_CHAR với một đơn vị UTF-16.
+            Char(u16),
+            /// Gửi WM_CLOSE (đóng lớp phủ như khi hệ thống yêu cầu).
+            Close,
+            /// Phím Esc toàn cục đang trống (`true`: không ai giữ, kể cả lớp phủ) hay đang bị giữ.
+            /// Kiểm bằng `RegisterHotKey` ở luồng phụ, gỡ ngay nếu đăng ký được.
+            EscFree(bool),
             /// WM_KEYDOWN khi Ctrl đang giữ.
             Ctrl(u16),
             /// Phím tắt Esc toàn cục.
@@ -2754,6 +3285,13 @@ mod tests {
                         Step::Move(p) => post(WM_MOUSEMOVE, 1, lp(p)),
                         Step::Up(p) => post(WM_LBUTTONUP, 0, lp(p)),
                         Step::Key(vk) => post(WM_KEYDOWN, usize::from(vk), LPARAM(0)),
+                        Step::KeyRepeat(vk) => post(WM_KEYDOWN, usize::from(vk), LPARAM(1 << 30)),
+                        Step::Char(c) => post(WM_CHAR, usize::from(c), LPARAM(1)),
+                        Step::Close => post(WM_CLOSE, 0, LPARAM(0)),
+                        Step::EscFree(want) => {
+                            std::thread::sleep(Duration::from_millis(300));
+                            ok &= esc_free() == want;
+                        }
                         Step::Ctrl(vk) => {
                             TEST_MODS.store(1, Ordering::SeqCst);
                             post(WM_KEYDOWN, usize::from(vk), LPARAM(0));
@@ -2780,6 +3318,25 @@ mod tests {
             let r = pick_region(shot, initial);
             let ok = driver.join().unwrap();
             (r, ok)
+        }
+
+        /// Thử đăng ký Esc toàn cục ở luồng này; được thì gỡ ngay và trả `true`.
+        fn esc_free() -> bool {
+            const PROBE_ID: i32 = 0x0E5D;
+            // SAFETY: phím tắt gắn với luồng này (không cửa sổ); gỡ ngay khi đăng ký được.
+            unsafe {
+                let free =
+                    RegisterHotKey(None, PROBE_ID, MOD_NOREPEAT, u32::from(VK_ESCAPE.0)).is_ok();
+                if free {
+                    let _ = UnregisterHotKey(None, PROBE_ID);
+                }
+                free
+            }
+        }
+
+        /// Các bước gửi chuỗi `s` bằng WM_CHAR (mỗi đơn vị UTF-16 một bước).
+        pub fn chars(s: &str) -> Vec<Step> {
+            s.encode_utf16().map(Step::Char).collect()
         }
 
         pub fn pt(p: Point) -> Pt {
@@ -2948,6 +3505,294 @@ mod tests {
         steps.push(live::Step::Hotkey);
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok, "phím tắt Esc thứ nhất phải chỉ đóng bảng màu");
+        assert_eq!(r, Ok(None));
+    }
+
+    #[test]
+    fn key_repeat_bit_is_read() {
+        assert!(!key_repeat(LPARAM(0)));
+        assert!(!key_repeat(LPARAM(1)));
+        assert!(key_repeat(LPARAM(1 << 30)));
+        assert!(key_repeat(LPARAM((1 << 30) | 1)));
+    }
+
+    /// Chữ (origin, nội dung) của các hình Text trong `shapes`; hình khác làm kiểm thử thất bại.
+    fn texts(shapes: &[Shape]) -> Vec<(Pt, String)> {
+        shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Text { origin, text, .. } => (*origin, text.clone()),
+                other => panic!("không phải Text: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored held_tool_key_does_not_toggle --test-threads=1"]
+    fn held_tool_key_does_not_toggle() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        // Giữ P: một WM_KEYDOWN rồi các lần lặp; công cụ phải vẫn là Bút vẽ.
+        let mut steps = vec![
+            live::Step::Key(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+            live::Step::KeyRepeat(u16::from(b'P')),
+        ];
+        steps.extend(live::drag(at(30, 40), at(150, 90)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored wm_char_sequence_builds_text --test-threads=1"]
+    fn wm_char_sequence_builds_text() {
+        use darkshot_core::annotate::{dip_to_px, TEXT_DIP};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        const BS: u16 = 0x08;
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(at));
+        // Unikey: gõ "Viet" kiểu Telex, bộ gõ xóa rồi gửi lại ký tự dựng sẵn.
+        steps.extend(live::chars("Vie"));
+        steps.push(live::Step::Char(BS));
+        steps.extend(live::chars("\u{ea}t"));
+        steps.push(live::Step::Char(BS));
+        steps.push(live::Step::Char(BS));
+        steps.extend(live::chars("\u{1ec7}t"));
+        // Enter rồi "2".
+        steps.extend(live::chars("\r2"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        assert_eq!(
+            texts(&p.shapes),
+            vec![(live::pt(at), "Vi\u{1ec7}t\n2".to_string())]
+        );
+        let Shape::Text { size, .. } = &p.shapes[0] else {
+            unreachable!()
+        };
+        assert_eq!(*size, dip_to_px(TEXT_DIP, live::dpi_at(&shot, at)));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored esc_cancels_text_not_overlay --test-threads=1"]
+    fn esc_cancels_text_not_overlay() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        let typing = || {
+            let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+            steps.extend(live::click(at));
+            steps.extend(live::chars("abc"));
+            steps
+        };
+        // Esc bằng WM_KEYDOWN: lần đầu hủy ô, lần sau đóng lớp phủ.
+        let mut steps = typing();
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "Esc thứ nhất phải chỉ hủy ô chữ");
+        assert_eq!(r, Ok(None));
+        // Esc qua phím tắt toàn cục.
+        let mut steps = typing();
+        steps.push(live::Step::Hotkey);
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Hotkey);
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "phím tắt Esc thứ nhất phải chỉ hủy ô chữ");
+        assert_eq!(r, Ok(None));
+        // Ô bị hủy không được chốt.
+        let mut steps = typing();
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, Vec::new());
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_elsewhere_commits --test-threads=1"]
+    fn click_elsewhere_commits() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = (
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 120,
+                y: sel.y + 130,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(a));
+        steps.extend(live::chars("A"));
+        steps.extend(live::click(b));
+        steps.extend(live::chars("B"));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.action, Action::Save);
+        assert_eq!(
+            texts(&p.shapes),
+            vec![
+                (live::pt(a), "A".to_string()),
+                (live::pt(b), "B".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored empty_text_is_dropped --test-threads=1"]
+    fn empty_text_is_dropped() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(Point {
+            x: sel.x + 30,
+            y: sel.y + 40,
+        }));
+        // Đổi công cụ bằng nút Bút vẽ trên thanh dọc (phím P lúc này đi vào ô chữ).
+        steps.extend(live::click(l.item(0)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.shapes), (Action::Save, Vec::new()));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored ctrl_z_while_typing --test-threads=1"]
+    fn ctrl_z_while_typing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let setup = || {
+            let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'T')));
+            steps.extend(live::click(at(40, 140)));
+            steps.extend(live::chars("x"));
+            steps
+        };
+        // Ctrl+Z một lần: xóa ô đang gõ, nét Pen còn.
+        let mut steps = setup();
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        // Ctrl+Z lần nữa: hoàn tác nét Pen.
+        let mut steps = setup();
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, Vec::new());
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored tool_letters_go_into_text --test-threads=1"]
+    fn tool_letters_go_into_text() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let (a, b) = (
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 120,
+                y: sel.y + 130,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(a));
+        // Như bàn phím thật: chỉ WM_KEYDOWN 'P'; TranslateMessage của vòng lặp lớp phủ sinh
+        // WM_CHAR 'p'. Phím không đổi công cụ, ký tự vào ô. Cần Caps Lock tắt (bật thì ra "P").
+        steps.push(live::Step::Key(u16::from(b'P')));
+        // Công cụ vẫn là Chữ: bấm chỗ khác mở ô mới (không vẽ chấm Bút vẽ).
+        steps.extend(live::click(b));
+        steps.extend(live::chars("q"));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(
+            texts(&r.unwrap().unwrap().shapes),
+            vec![
+                (live::pt(a), "p".to_string()),
+                (live::pt(b), "q".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; cần Esc toàn cục không bị ứng dụng khác giữ; chạy tay: cargo test -p darkshot-windows -- --ignored escape_hotkey_restored --test-threads=1"]
+    fn escape_hotkey_restored() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = Point {
+            x: sel.x + 40,
+            y: sel.y + 50,
+        };
+        // Lớp phủ giữ Esc toàn cục; nhả khi ô chữ mở; giữ lại khi ô đóng.
+        let mut steps = vec![live::Step::EscFree(false), live::Step::Key(u16::from(b'T'))];
+        steps.extend(live::click(at));
+        steps.extend(live::chars("a"));
+        steps.push(live::Step::EscFree(true));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::EscFree(false));
+        // Mở ô lần nữa rồi đóng lớp phủ giữa lúc đang gõ.
+        steps.extend(live::click(at));
+        steps.extend(live::chars("b"));
+        steps.push(live::Step::EscFree(true));
+        steps.push(live::Step::Close);
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r, Ok(None));
+        // Lần mở sau: Esc toàn cục được giữ lại và đóng lớp phủ.
+        let steps = vec![live::Step::EscFree(false), live::Step::Hotkey];
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
         assert_eq!(r, Ok(None));
     }
 }

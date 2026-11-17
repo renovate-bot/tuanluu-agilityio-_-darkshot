@@ -589,9 +589,7 @@ fn advance_width(style: &TextStyle, s: &str, size: f32) -> Option<f32> {
     ok(st).then_some(bbox.Width)
 }
 
-/// Vị trí và chiều cao con trỏ nháy (tọa độ ảnh chụp) của ô chữ đang soạn (Task 37 dùng).
-// Task 37 (ô chữ) dùng; tới lúc đó chỉ kiểm thử gọi.
-#[allow(dead_code)]
+/// Vị trí và chiều cao con trỏ nháy (tọa độ ảnh chụp) của ô chữ đang soạn.
 pub fn caret_rect(edit: &TextEdit) -> Rect {
     // TextEdit không cho đọc gốc và cỡ chữ: lấy qua bản sao có thêm một ký tự (to_shape luôn Some).
     let mut probe = edit.clone();
