@@ -310,10 +310,24 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Làm mờ: dời và đổi cỡ vùng che; vùng che luôn kín (không lộ chữ bên dưới), màu lấy từ ảnh gốc; sau khi dời, phần ảnh gốc hiện ra trên màn hình và trong ảnh ra đúng như màn hình.
 - [ ] Khung chọn và tay nắm không có trong ảnh Lưu, Chép và Tải lên (cả PNG và JPEG) khi đang có hình được chọn.
 - [ ] Ảnh nhỏ, ảnh 4K, hai màn hình 4K, 100 hình, nét tự do dài: vẽ, kéo và hoàn tác không giật thấy rõ.
-- [ ] DPI 100%, 125%, 150% và 200%: thanh dọc, bảng Cỡ, số trong vòng và cỡ chữ đúng tỉ lệ; ở 1920×1080 với DPI 200% thanh chuyển sang hai cột và không tràn khỏi màn hình.
+- [ ] DPI 100%, 125%, 150% và 200%: thanh dọc, bảng Cỡ, số trong vòng và cỡ chữ đúng tỉ lệ; ở 1920×1080 với DPI 200% thanh chuyển sang hai cột và không tràn khỏi màn hình (từ Task 50 thanh 9 mục vẫn một cột ở đây; hai cột ở 1366×768 với DPI 250%).
 - [ ] Không chọn công cụ nào: PrintScreen, kéo vùng mới, Ctrl+D/S/C, Esc, "Giữ vị trí vùng" và hai phím toàn màn hình chạy như trước; kéo ngoài vùng khi chưa có công cụ và chưa có hình vẫn tạo vùng mới.
-- [ ] Esc lùi từng bước: bảng Cỡ hoặc bảng màu → ô chữ → hủy kéo hình → bỏ chọn hình → đóng lớp phủ.
-- [ ] Nút Hoàn tác và Làm lại trên thanh dọc làm đúng như Ctrl+Z và Ctrl+Y.
+- [ ] Esc lùi từng bước: bảng Cỡ, bảng Hình (từ Task 50) hoặc bảng màu → ô chữ → hủy kéo hình → bỏ chọn hình → đóng lớp phủ.
+- [ ] Nút Hoàn tác và Làm lại (từ Task 50 nằm trên thanh ngang) làm đúng như Ctrl+Z và Ctrl+Y.
+
+## Thanh gọn (Task 50)
+
+- [ ] Thanh dọc có 9 mục theo thứ tự Chọn | Bút vẽ, Hình, Bút dạ quang, Làm mờ, Chữ, Đánh số | Cỡ, Màu; vạch ngăn đúng chỗ; chú thích nút Hình là "Hình (L, A, R, E)" (English: "Shapes (L, A, R, E)").
+- [ ] Nút Hình hiện biểu tượng hình nhớ (lần mở đầu là Mũi tên) và tam giác nhỏ ở góc dưới phải; tam giác rõ ở DPI 100%, 150% và 200%.
+- [ ] Đang Bút vẽ hoặc chưa chọn công cụ, bấm nút Hình: bật ngay hình nhớ, không mở bảng; kéo vẽ được luôn.
+- [ ] Đang dùng một hình, bấm nút Hình: mở bảng Hình bốn ô (Đường thẳng, Mũi tên, Hình chữ nhật, Hình elip); ô đang dùng viền sáng; rê lên ô hiện tên và phím. Bấm ô: bật hình đó, đóng bảng, nút Hình đổi biểu tượng.
+- [ ] Bấm lại nút Hình, bấm ra ngoài bảng (cú bấm không vẽ, không dời vùng) hoặc Esc (lớp phủ vẫn mở) thì chỉ đóng bảng.
+- [ ] Bảng Hình, bảng Cỡ và bảng màu không mở cùng lúc.
+- [ ] Phím L, A, R, E chọn thẳng hình và đổi biểu tượng nút Hình; bấm lại phím của hình đang bật thì tắt như trước. Đóng rồi mở lại lớp phủ: nút Hình vẫn nhớ hình cũ.
+- [ ] Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Hủy. Hoàn tác và Làm lại mờ đúng lúc, làm đúng như Ctrl+Z và Ctrl+Y, không đóng lớp phủ; chú thích đúng.
+- [ ] Đang gõ chữ, bấm nút Hoàn tác trên thanh ngang: ô có chữ thì xóa ô, ô rỗng thì hủy ô rồi hoàn tác hình trước (như Ctrl+Z).
+- [ ] Thanh ngang rộng hơn không đè thanh dọc và không tràn màn hình khi vùng chọn sát các góc màn hình, ở DPI 100%, 150% và 200%.
+- [ ] Ảnh ra (Lưu, Chép, Tải lên) không đổi so với trước Task 50.
 
 ## Cập nhật (Task 43)
 
