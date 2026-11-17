@@ -21,6 +21,8 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
+**Task 42 (2026-11-17): công cụ Làm mờ (che thông tin nhạy cảm).** Thiết kế `docs/superpowers/specs/2026-11-17-redact-blur-design.md` đã duyệt (kính mờ giả: một màu trung bình); gói `docs/tasks/42-blur-redact.md`; nhánh `task/42-blur-redact`; trạng thái: đang làm. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề và báo sau; họ xem bản demo.
+
 **Đợt 5 (2026-11-17): công cụ đánh dấu trên ảnh chụp.** Thiết kế `docs/superpowers/specs/2026-11-17-annotate-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-17-annotate.md` (bảng phân bổ agent/model); gói task 34–38. Chủ dự án bảo chạy đến hết không hỏi lại, họ xem bản demo cuối. Đọc soát thiết kế (general-purpose) 68.315 token. Task 34–37 đã gộp (rà soát đều DUYỆT). Báo cáo cho Task 38:
 - Task 34: `arrow_min_head(width)` thêm ngoài kế hoạch; chuỗi Unikey trong gói gốc thiếu một Backspace (đã sửa ở gói 37). `bounds` của Rect/Marker nới nửa độ dày × √2 + 1.
 - Task 35: `gdiplus.rs` (`GdiPlus`, `Gp`), `annotate_draw.rs` (`draw_shapes`, `shape_bounds`, `caret_rect`, `burn`); bút dạ quang = `GdipWidenPath` + tô winding alpha 102; mỗi dòng chữ một `GdipAddPathString`; thân mũi tên lấn 1 px vào đầu.
