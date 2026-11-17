@@ -1,4 +1,5 @@
-//! Dịch vụ ghi lịch sử ảnh chụp: ánh xạ kết quả hành động thành mục lịch sử và ghi trên luồng nền.
+//! Dịch vụ ghi lịch sử ảnh chụp: ánh xạ kết quả hành động thành mục lịch sử và ghi tuần tự trên
+//! một luồng nền có hàng đợi; `flush` cho phép chờ hàng rỗng lúc thoát.
 //!
 //! Lịch sử không bao giờ làm hỏng hành động chụp: mọi lỗi và panic trên đường ghi bị nuốt và
 //! chỉ tăng bộ đếm trong bộ nhớ (không ghi nhật ký). Tắt thì không làm gì cả.
@@ -14,7 +15,8 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
@@ -136,37 +138,170 @@ enum ImgSrc<'a> {
     Shared(Arc<Image>),
 }
 
-/// Hàng đợi ghi lịch sử: một luồng `darkshot-history` sinh lười, ghi tuần tự theo thứ tự đẩy vào.
+impl ImgSrc<'_> {
+    fn into_arc(self) -> Arc<Image> {
+        match self {
+            ImgSrc::Borrowed(i) => Arc::new(i.clone()),
+            ImgSrc::Shared(a) => a,
+        }
+    }
+}
+
+/// Bộ đếm việc chưa xong: đẩy vào +1, ghi xong/lỗi/panic/bỏ −1; `flush` chờ nó về 0.
+#[derive(Default)]
+struct Pending {
+    n: Mutex<usize>,
+    cv: Condvar,
+}
+
+impl Pending {
+    fn lock(&self) -> MutexGuard<'_, usize> {
+        // Chỉ là một số đếm: poison không làm nó sai, dùng tiếp.
+        self.n.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn inc(&self) {
+        let mut g = self.lock();
+        *g = g.saturating_add(1);
+    }
+
+    fn dec(&self) {
+        let mut g = self.lock();
+        *g = g.saturating_sub(1);
+        if *g == 0 {
+            self.cv.notify_all();
+        }
+    }
+
+    fn wait_empty(&self, timeout: Duration) -> bool {
+        let g = self.lock();
+        match self.cv.wait_timeout_while(g, timeout, |n| *n > 0) {
+            Ok((g, _)) => *g == 0,
+            Err(e) => *e.into_inner().0 == 0,
+        }
+    }
+}
+
+/// Giảm bộ đếm khi rời phạm vi, kể cả khi việc ghi panic.
+struct DoneGuard<'a>(&'a Pending);
+
+impl Drop for DoneGuard<'_> {
+    fn drop(&mut self) {
+        self.0.dec();
+    }
+}
+
+/// Hàng đợi ghi lịch sử: một luồng `darkshot-history` sinh lười ở lần đẩy đầu tiên, sống tới khi
+/// `Writer` bị hủy (thể hiện toàn cục: suốt tiến trình), ghi tuần tự theo thứ tự đẩy vào.
 struct Writer {
     root: PathBuf,
+    tx: Mutex<Option<Sender<Job>>>,
+    pending: Arc<Pending>,
+    spawns: AtomicU32,
 }
 
 impl Writer {
     fn new(root: PathBuf) -> Writer {
-        Writer { root }
+        Writer {
+            root,
+            tx: Mutex::new(None),
+            pending: Arc::new(Pending::default()),
+            spawns: AtomicU32::new(0),
+        }
     }
 
-    fn push(&self, _job: Job) {}
-
-    fn flush(&self, _timeout: Duration) -> bool {
-        false
+    /// Sinh luồng ghi; `None` nếu hệ thống không cho tạo luồng.
+    fn spawn(&self) -> Option<Sender<Job>> {
+        let (tx, rx) = mpsc::channel::<Job>();
+        let root = self.root.clone();
+        let pending = self.pending.clone();
+        let r = std::thread::Builder::new()
+            .name("darkshot-history".into())
+            .spawn(move || {
+                for job in rx {
+                    let _done = DoneGuard(&pending);
+                    if catch_unwind(AssertUnwindSafe(|| job(&root))).is_err() {
+                        fail();
+                    }
+                }
+            });
+        match r {
+            Ok(_) => {
+                self.spawns.fetch_add(1, Ordering::SeqCst);
+                Some(tx)
+            }
+            Err(_) => None,
+        }
     }
 
+    /// Đẩy một việc vào hàng; không chặn. Không có luồng ghi thì `fail()` và bỏ việc (lần sau thử
+    /// sinh lại); không bao giờ ghi trên luồng gọi.
+    fn push(&self, job: Job) {
+        self.pending.inc();
+        let mut job = job;
+        {
+            let mut tx = self.tx.lock().unwrap_or_else(|e| e.into_inner());
+            // Lần thứ hai chỉ khi luồng ghi đã chết (đầu nhận bị hủy): sinh lại một lần.
+            for _ in 0..2 {
+                if tx.is_none() {
+                    *tx = self.spawn();
+                }
+                let Some(sender) = tx.as_ref() else {
+                    break;
+                };
+                match sender.send(job) {
+                    Ok(()) => return,
+                    Err(mpsc::SendError(back)) => {
+                        job = back;
+                        *tx = None;
+                    }
+                }
+            }
+        }
+        drop(job);
+        fail();
+        self.pending.dec();
+    }
+
+    /// Chờ hàng rỗng và việc đang ghi xong, tối đa `timeout`.
+    fn flush(&self, timeout: Duration) -> bool {
+        self.pending.wait_empty(timeout)
+    }
+
+    /// Số luồng ghi đã sinh (cho kiểm thử).
+    #[cfg(test)]
     fn spawn_count(&self) -> u32 {
-        0
+        self.spawns.load(Ordering::SeqCst)
     }
+}
+
+/// Hàng đợi của tiến trình, ghi vào `paths::history_dir()`; chỉ tạo khi lịch sử bật và có việc.
+static WRITER: OnceLock<Writer> = OnceLock::new();
+
+fn writer() -> &'static Writer {
+    WRITER.get_or_init(|| Writer::new(paths::history_dir()))
 }
 
 /// Như `record_outcome` nhưng với hàng đợi và cờ bật truyền vào; `true` nếu đã đẩy một việc.
 fn record_with(
-    _enabled: bool,
-    _w: &Writer,
-    _outcome: &Outcome,
-    _img: ImgSrc<'_>,
-    _expiry: Expiry,
-    _now: LocalTime,
+    enabled: bool,
+    w: &Writer,
+    outcome: &Outcome,
+    img: ImgSrc<'_>,
+    expiry: Expiry,
+    now: LocalTime,
 ) -> bool {
-    false
+    if !enabled {
+        return false;
+    }
+    let Some(new) = plan(outcome, expiry, &now, unix_millis_now()) else {
+        return false;
+    };
+    let img = img.into_arc();
+    w.push(Box::new(move |root: &Path| {
+        write_entry(root.to_path_buf(), new, &img)
+    }));
+    true
 }
 
 /// Như `record_outcome_blocking` nhưng với thư mục gốc và cờ bật truyền vào.
@@ -186,24 +321,27 @@ fn record_blocking_with(
     }
 }
 
-/// Ghi kết quả vào lịch sử trên luồng nền `darkshot-history`; không chặn, không panic.
+/// Ghi kết quả vào lịch sử: đẩy vào hàng của luồng nền `darkshot-history`; không chặn, không panic.
 /// Tắt thì không làm gì (không sao ảnh, không tạo thư mục, không tạo luồng).
 pub fn record_outcome(outcome: &Outcome, img: &Image, expiry: Expiry, now: LocalTime) {
     if !is_enabled() {
         return;
     }
-    let _ = (outcome, img, expiry, now);
+    record_with(true, writer(), outcome, ImgSrc::Borrowed(img), expiry, now);
 }
 
 /// Như `record_outcome` nhưng nhận ảnh đã chia sẻ (không sao chép lần hai).
 pub fn record_outcome_arc(outcome: &Outcome, img: Arc<Image>, expiry: Expiry, now: LocalTime) {
-    let _ = (outcome, img, expiry, now);
+    if !is_enabled() {
+        return;
+    }
+    record_with(true, writer(), outcome, ImgSrc::Shared(img), expiry, now);
 }
 
-/// Chờ mọi việc đã đẩy vào hàng ghi xong, tối đa `timeout`; `true` khi hàng rỗng.
+/// Chờ mọi việc đã đẩy vào hàng ghi xong, tối đa `timeout`; `true` khi hàng rỗng (kể cả khi chưa
+/// từng có hàng). Hết giờ thì trả `false`, không treo.
 pub fn flush(timeout: Duration) -> bool {
-    let _ = timeout;
-    false
+    WRITER.get().is_none_or(|w| w.flush(timeout))
 }
 
 /// Như `record_outcome` nhưng ghi xong mới trả về (dùng khi thoát: lưu dự phòng).
@@ -441,12 +579,17 @@ mod tests {
         assert!(w.flush(LONG));
         let l = Store::new(root).load();
         assert_eq!(l.entries.len(), 5);
-        let mut entries = l.entries.clone();
-        entries.sort_by_key(|e| e.unix);
-        let urls: Vec<_> = entries.iter().filter_map(|e| e.url.clone()).collect();
+        // Chỉ mục xếp mới nhất trước (`unix` tính bằng giây nên không dùng để xếp): đọc ngược lại
+        // phải đúng thứ tự đẩy vào.
+        let urls: Vec<_> = l
+            .entries
+            .iter()
+            .rev()
+            .filter_map(|e| e.url.clone())
+            .collect();
         let want: Vec<_> = (0..5).map(|i| format!("https://x/{i}.png")).collect();
         assert_eq!(urls, want);
-        let mut ids: Vec<_> = entries.iter().map(|e| e.id.clone()).collect();
+        let mut ids: Vec<_> = l.entries.iter().map(|e| e.id.clone()).collect();
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), 5);

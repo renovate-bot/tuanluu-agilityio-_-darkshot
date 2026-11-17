@@ -82,7 +82,13 @@ pub struct PendingUpload {
 
 /// Sổ các lượt tải lên đang chạy, để lưu ảnh vào máy nếu ứng dụng thoát giữa chừng.
 /// Dùng được từ nhiều luồng; `Mutex` bị poison vẫn dùng tiếp, không panic.
+///
+/// Hai khóa: `inner` giữ danh sách (giữ rất ngắn); `handoff` là khóa trao lượt, giữ suốt
+/// `finish` (kể cả khi chạy móc) và suốt `drain`, nên mỗi lượt được trao đúng một lần: hoặc cho
+/// luồng tải lên (`finish`), hoặc cho việc lưu lúc thoát (`drain`). Thứ tự khóa: `handoff` rồi
+/// `inner`. Móc trong `finish` vẫn gọi được `add`/`remove` (chỉ cần `inner`).
 pub struct PendingUploads {
+    handoff: Mutex<()>,
     inner: Mutex<PendingInner>,
 }
 
@@ -100,6 +106,7 @@ impl Default for PendingUploads {
 impl PendingUploads {
     pub const fn new() -> Self {
         PendingUploads {
+            handoff: Mutex::new(()),
             inner: Mutex::new(PendingInner {
                 next_id: 0,
                 items: Vec::new(),
@@ -133,14 +140,26 @@ impl PendingUploads {
         }
     }
 
-    /// Trao lượt `id` đúng một lần: nếu còn trong sổ thì rút ra và chạy `f`, trả `true`.
+    fn lock_handoff(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.handoff.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Trao lượt `id` đúng một lần: nếu còn trong sổ thì rút ra và chạy `f` trong khi vẫn giữ khóa
+    /// trao lượt, trả `true`; nếu đã bị `drain` (lúc thoát) thì không chạy `f`, trả `false`.
+    /// `drain` gọi trong lúc `f` chạy sẽ chờ `f` xong.
     pub fn finish(&self, id: u64, f: impl FnOnce()) -> bool {
-        let _ = (id, f);
-        false
+        let _turn = self.lock_handoff();
+        if !self.remove(id) {
+            return false;
+        }
+        f();
+        true
     }
 
     /// Lấy ra mọi lượt còn trong sổ (theo thứ tự thêm vào), sổ trở thành rỗng.
+    /// Chờ mọi `finish` đang chạy móc xong trước khi lấy.
     pub fn drain(&self) -> Vec<PendingUpload> {
+        let _turn = self.lock_handoff();
         std::mem::take(&mut self.lock().items)
             .into_iter()
             .map(|(_, p)| p)
@@ -224,7 +243,9 @@ pub struct UploadJob {
     pub lang: Lang,
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
-    /// Gọi đúng một lần với kết quả của lượt, sau khi lượt đã rút khỏi sổ (ghi lịch sử).
+    /// Gọi nhiều nhất một lần với kết quả của lượt, sau khi lượt đã rút khỏi sổ (ghi lịch sử).
+    /// Có sổ: chỉ gọi khi luồng này được trao lượt (`PendingUploads::finish`); nếu lúc thoát đã
+    /// lấy lượt (và ghi lưu dự phòng) thì không gọi, tránh hai mục cho một ảnh.
     pub on_outcome: Option<OutcomeHook>,
 }
 
@@ -245,12 +266,18 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
                 jpeg_quality: job.jpeg_quality,
             };
             let outcome = run_action(&ctx, Action::Upload, &job.image);
-            // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
-            if let Some((reg, id)) = &job.pending {
-                reg.remove(*id);
-            }
-            if let Some(hook) = &job.on_outcome {
-                hook(&outcome, &job.image);
+            // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ và ghi
+            // lịch sử, đúng một lần. Móc chạy khi vẫn giữ khóa trao lượt (móc chỉ đẩy việc vào hàng).
+            let record = || {
+                if let Some(hook) = &job.on_outcome {
+                    hook(&outcome, &job.image);
+                }
+            };
+            match &job.pending {
+                Some((reg, id)) => {
+                    reg.finish(*id, record);
+                }
+                None => record(),
             }
             if let Outcome::UploadFailedSaved {
                 needs_settings: true,
