@@ -171,3 +171,12 @@ Theo các chỗ Task 36–37 đã đụng:
 5. Kiểm: một kiểm thử ở core cho quy tắc riêng (ví dụ `too_short`), một kiểm thử vẽ ở `annotate_draw`, và kiểm thử chạy tay (`#[ignore]`) của lớp phủ nếu đụng tới vòng lặp chuột.
 
 Quy tắc chung: không viết đường vẽ thứ hai ngoài `draw_one`; hình lưu theo tọa độ ảnh chụp; mọi tài nguyên GDI+ và GDI giải phóng trên mọi đường đi.
+
+## Lịch sử ảnh chụp (đợt 7)
+
+- **Ghi lịch sử dựa trên `Outcome`, ở lớp Windows.** `history_service::record_outcome(&Outcome, &Image, Expiry, LocalTime)` được gọi sau `run_action` ở `main::run_on_image` (Lưu, Chép), ở móc `UploadJob.on_outcome` của `app::spawn_upload` (Tải lên) và ở `app::save_pending` (lưu dự phòng khi thoát, đồng bộ qua `record_outcome_blocking`). Không đổi `Ctx`/`run_action`. Hàm thuần `plan` ánh xạ `Outcome` thành `NewEntry`.
+- **Lõi không phụ thuộc OS:** `history` (kiểu `Entry`/`Kind`/`Filter`, chỉ mục JSON khoan dung, tìm/lọc bỏ dấu, định dạng ngày/dung lượng, hết hạn), `history_store` (`Store::{load, record, remove, clear, thumbnail}`), `thumb` (giải mã PNG có chặn bom giải mã, `downscale`).
+- **Đồng thời:** một `static Mutex` toàn tiến trình; mã hóa PNG và ảnh nhỏ làm TRƯỚC khi lấy khóa; dưới khóa luôn đọc chỉ mục mới nhất từ đĩa rồi ghi nguyên tử (`index.json.tmp` + `rename`). Ghi chạy trên luồng `darkshot-history`, mọi lỗi chỉ tăng bộ đếm. Xóa tệp chỉ qua `delete_owned`/`owned_file` (id hợp lệ 21 hex, nằm trong `images\` hoặc `thumbs\` của thư mục lịch sử); không bao giờ đụng `Entry::path` của người dùng hay R2.
+- **Cửa sổ Lịch sử** (`history_window`, `history_layout` thuần, `history_paint`): một cửa sổ tự vẽ GDI, danh sách là cửa sổ con có thanh cuộn thật (`DarkMode_Explorer`); nút, ô tìm, viên lọc là điều khiển thật; thẻ xác nhận xóa hết là cửa sổ con vẽ trong cửa sổ. Việc nặng (nạp chỉ mục, ảnh nhỏ, xem trước, sao chép ảnh, xóa) ở luồng nền, kết quả về bằng `WM_APP+7..10` kèm mã thế hệ để bỏ kết quả cũ; `Box` truyền qua `LPARAM` được thu hồi khi `PostMessage` lỗi hoặc cửa sổ hủy. Ảnh nhỏ giữ trong `ThumbCache` LRU tối đa 120 HBITMAP.
+- **Chế độ cách ly** (`DARKSHOT_PROFILE_DIR`, cờ `--history`): dùng để chạy demo và kiểm thử mà không đụng dữ liệu thật; không đặt biến thì hành vi không đổi.
+- **Thêm hành động hoặc loại mục mới:** sửa `history::Kind`, `history_layout::actions_for` (bảng hành động theo loại), `history_service::plan`, chuỗi `Msg::History*`; giữ quy tắc chỉ mở `https://` (`url_openable`) và tệp `.png` tuyệt đối (`user_png_openable`).

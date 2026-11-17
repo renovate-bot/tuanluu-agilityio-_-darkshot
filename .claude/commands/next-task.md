@@ -33,3 +33,5 @@ Task 34–38 (đợt 5) theo kế hoạch `docs/superpowers/plans/2026-11-17-ann
 Task 44–49 (đợt 6) theo kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md` và thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`; Task 45, 46, 47, 48 do `specialist` rà soát. Chạy đến hết không dừng (quyết định 75).
 
 Task 50 (thanh công cụ gọn, thêm sau đợt 6) theo thiết kế `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, `specialist` làm và rà soát. Task 51: cập nhật tài liệu cuối đợt 6. Đợt 6 đã xong và được chủ dự án duyệt; task mới cần thiết kế mới.
+
+Task 52–58 (đợt 7, Lịch sử ảnh chụp) theo kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md` và thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`; Task 53, 54, 55, 56, 57 do `specialist` làm và rà soát. Đợt 7 làm trên nhánh phát triển `feature/screenshot-history` (các nhánh task gộp vào đó) và chỉ gộp vào `main` sau khi chủ dự án duyệt demo (quyết định 86); đã duyệt và gộp 2026-11-18. Task mới sau đợt 7 cần thiết kế mới.

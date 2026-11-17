@@ -152,4 +152,4 @@ Task 43 (báo có bản mới, thiết kế `docs/superpowers/specs/2026-11-17-u
 
 Đợt 6 xong (2026-11-17), chủ dự án duyệt trên bản demo. Cộng Task 44–50: 2.321.154 (làm 1.345.538; rà soát 729.481; sửa 246.135); kể cả đọc soát thiết kế: 2.398.303. Task 48 tốn nhất (707.729) vì một lượt sửa lỗi tay nắm. Chưa thử tay.
 
-Đợt 7 (Lịch sử ảnh chụp, thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`): làm trên nhánh `feature/screenshot-history`, CHƯA gộp vào `main`, chưa đẩy. Cộng Task 52–57 và rà soát toàn đợt: 2.060.702 (số "sửa" của Task 53 và 57 là phần chênh do agent báo). Chưa thử tay.
+Đợt 7 (Lịch sử ảnh chụp, thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`): làm trên nhánh `feature/screenshot-history`, đã gộp vào `main` sau khi chủ dự án duyệt (quyết định 93). Cộng Task 52–57 và rà soát toàn đợt: 2.060.702 (số "sửa" của Task 53 và 57 là phần chênh do agent báo). Chưa thử tay.
