@@ -132,6 +132,17 @@ mod tests {
     }
 
     #[test]
+    fn danger_button_pairs_are_listed() {
+        for fill in [DANGER_BUTTON, DANGER_BUTTON_HOVER, DANGER_BUTTON_PRESSED] {
+            assert!(TEXT_PAIRS.contains(&(WHITE, fill)), "{fill:?}");
+            assert!(contrast_ratio(WHITE, fill) >= 4.5);
+        }
+        // Nút đỏ phải tách khỏi nền thẻ (`SURFACE`) và nền cửa sổ.
+        assert!(UI_PAIRS.contains(&(DANGER_BUTTON, SURFACE)));
+        assert!(UI_PAIRS.contains(&(DANGER_BUTTON, BG)));
+    }
+
+    #[test]
     fn ui_pairs_meet_non_text_contrast() {
         for (fg, bg) in UI_PAIRS {
             let r = contrast_ratio(*fg, *bg);

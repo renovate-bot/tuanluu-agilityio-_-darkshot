@@ -1475,7 +1475,7 @@ mod tests {
     fn every_drawn_text_pair_is_listed() {
         let listed = |fg: Rgb, bg: Rgb| TEXT_PAIRS.contains(&(fg, bg));
         for s in all_states().into_iter().filter(|s| s.enabled) {
-            for kind in [ButtonKind::Normal, ButtonKind::Primary] {
+            for kind in [ButtonKind::Normal, ButtonKind::Primary, ButtonKind::Danger] {
                 let c = button_colors(kind, s);
                 assert!(listed(c.text, c.fill), "{kind:?} {s:?}: {c:?}");
             }

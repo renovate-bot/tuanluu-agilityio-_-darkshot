@@ -2180,6 +2180,174 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    fn send(h: HWND, msg: u32, wp: usize, lp: isize) -> isize {
+        // SAFETY: thông điệp gửi đồng bộ tới cửa sổ của luồng kiểm thử này.
+        unsafe { SendMessageW(h, msg, Some(WPARAM(wp)), Some(LPARAM(lp))).0 }
+    }
+
+    fn open_store(parent: HWND, root: &std::path::Path, n: usize) {
+        show_with_root(parent, root.to_path_buf());
+        assert!(
+            pump_until(10_000, || loaded_count() == Some(n)),
+            "store did not load: {:?}",
+            loaded_count()
+        );
+    }
+
+    /// Gõ chữ vào ô tìm bằng `WM_CHAR` thu hẹp danh sách ngay (không cần Enter); xóa chữ thì đủ lại.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --test-threads=1 history_search_typing`.
+    #[test]
+    #[ignore]
+    fn history_search_typing_narrows_list() {
+        use windows::Win32::UI::WindowsAndMessaging::{WM_CHAR, WM_SETTEXT};
+        let dir = temp_dir("search");
+        let root = synthetic_store(&dir, 12);
+        let parent = test_parent(w!("darkshot-history-test-parent-3"));
+        open_store(parent, &root, 12);
+        assert_eq!(visible_count(), 12);
+        let search = HWND(search_hwnd() as *mut c_void);
+        assert!(!search.is_invalid());
+        for c in "_003".encode_utf16() {
+            send(search, WM_CHAR, c as usize, 1);
+        }
+        pump_until(200, || false);
+        assert_eq!(visible_count(), 1, "typing must filter immediately");
+        assert!(
+            selected_index() == Some(0),
+            "the only match must be selected"
+        );
+        let empty: [u16; 1] = [0];
+        send(search, WM_SETTEXT, 0, empty.as_ptr() as isize);
+        pump_until(200, || false);
+        assert_eq!(visible_count(), 12);
+        close_if_open();
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Bấm từng viên lọc: số mục hiển thị theo loại; bộ lọc đang chọn nằm trong vòng Tab.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --test-threads=1 history_filter_chips`.
+    #[test]
+    #[ignore]
+    fn history_filter_chips_switch_filters() {
+        use windows::Win32::UI::WindowsAndMessaging::BM_CLICK;
+        let dir = temp_dir("chips");
+        let root = synthetic_store(&dir, 12);
+        let parent = test_parent(w!("darkshot-history-test-parent-4"));
+        open_store(parent, &root, 12);
+        // Mỗi loại 3 mục; Đã lưu gồm cả Lưu dự phòng.
+        for (k, want) in [(1usize, 6usize), (2, 3), (3, 3), (0, 12), (2, 3), (0, 12)] {
+            let chip = HWND(chip_hwnd(k) as *mut c_void);
+            send(chip, BM_CLICK, 0, 0);
+            pump_until(100, || false);
+            assert_eq!(visible_count(), want, "chip {k}");
+            assert_eq!(current_chip(), k);
+        }
+        close_if_open();
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Mở/đóng thẻ xác nhận 50 lần (bằng nút Hủy và bằng Esc): không xóa gì, không rò GDI.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --test-threads=1 history_confirm_card`.
+    #[test]
+    #[ignore]
+    fn history_confirm_card_open_close_has_no_gdi_leak() {
+        use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, BM_CLICK};
+        let dir = temp_dir("confirm");
+        let root = synthetic_store(&dir, 6);
+        let parent = test_parent(w!("darkshot-history-test-parent-5"));
+        open_store(parent, &root, 6);
+        let clear = HWND(clear_hwnd() as *mut c_void);
+        let mut counts = Vec::new();
+        for i in 0..50 {
+            send(clear, BM_CLICK, 0, 0);
+            pump_until(50, || false);
+            assert!(confirm_open(), "round {i}: card must open");
+            if i % 2 == 0 {
+                let (cancel, _) = confirm_buttons();
+                send(HWND(cancel as *mut c_void), BM_CLICK, 0, 0);
+            } else {
+                // SAFETY: Esc đăng vào hàng đợi của luồng này, đi qua pre_translate như phím thật.
+                unsafe {
+                    let f = GetFocus();
+                    let _ =
+                        PostMessageW(Some(f), WM_KEYDOWN, WPARAM(VK_ESCAPE.0 as usize), LPARAM(0));
+                }
+            }
+            pump_until(50, || false);
+            assert!(!confirm_open(), "round {i}: card must close");
+            assert!(is_open(), "Esc on the card must not close the window");
+            counts.push(gdi_count());
+        }
+        assert_eq!(loaded_count(), Some(6), "cancel must not clear");
+        assert!(counts[49] <= counts[5] + 2, "GDI objects grew: {counts:?}");
+        close_if_open();
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Xóa một mục trên kho tạm: tệp `images/<id>.png` (bản sao của ứng dụng) biến mất, tệp `path` của
+    /// người dùng vẫn còn trên đĩa; mục kế được chọn.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --test-threads=1 history_remove_entry`.
+    #[test]
+    #[ignore]
+    fn history_remove_entry_deletes_only_owned_files() {
+        use darkshot_core::history::Kind;
+        let dir = temp_dir("remove");
+        let root = synthetic_store(&dir, 8);
+        let parent = test_parent(w!("darkshot-history-test-parent-6"));
+        open_store(parent, &root, 8);
+        let entries = Store::new(root.clone()).load().entries;
+        // Một mục Đã chép (có bản sao) và một mục Đã lưu (tệp của người dùng).
+        let copied = entries
+            .iter()
+            .find(|e| e.kind == Kind::Copied)
+            .unwrap()
+            .clone();
+        let saved = entries
+            .iter()
+            .find(|e| e.kind == Kind::Saved && e.path.as_ref().is_some_and(|p| p.exists()))
+            .unwrap()
+            .clone();
+        let managed = root.join("images").join(format!("{}.png", copied.id));
+        assert!(managed.exists());
+        let user = saved.path.clone().unwrap();
+        for (e, n) in [(&copied, 7), (&saved, 6)] {
+            assert!(select_id(&e.id), "entry must be visible");
+            let pos = selected_index();
+            on_action(ID_REMOVE);
+            assert!(
+                pump_until(5_000, || loaded_count() == Some(n)),
+                "remove did not reload: {:?}",
+                loaded_count()
+            );
+            // Chọn mục kế ở cùng vị trí (hoặc mục cuối).
+            assert_eq!(selected_index(), pos.map(|p| p.min(n - 1)));
+        }
+        assert!(!managed.exists(), "managed copy must be deleted");
+        assert!(user.exists(), "user file must stay");
+        assert!(!root
+            .join("thumbs")
+            .join(format!("{}.png", saved.id))
+            .exists());
+        close_if_open();
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Dựng kho demo tổng hợp trong `%DARKSHOT_DEMO_DIR%\Local\darkshot\history` (bố cục của
     /// `DARKSHOT_PROFILE_DIR`). Không đặt biến thì bỏ qua.
     /// Chạy tay: `set DARKSHOT_DEMO_DIR=...` rồi `cargo test -p darkshot-windows -- --ignored make_demo_store`.
