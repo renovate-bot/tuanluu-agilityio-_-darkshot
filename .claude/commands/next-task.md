@@ -27,3 +27,5 @@ Task 24–26 (đợt 3) theo kế hoạch `docs/superpowers/plans/2026-11-16-upl
 Task 20–23 (đợt 2) theo kế hoạch `docs/superpowers/plans/2026-11-16-capture-batch2.md` và thiết kế `docs/superpowers/specs/2026-11-16-capture-batch2-design.md`. Rà soát các task này đối chiếu thêm mục "Review Focus" của kế hoạch đó.
 
 Task 27–31 (đợt 4) theo kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md` và thiết kế `docs/superpowers/specs/2026-11-16-darkshot-dark-theme-design.md`; rà soát đối chiếu thêm mục "Review Focus" của kế hoạch đó. Task 28 và 30 do `specialist` rà soát. Không dừng sau Task 30 (quyết định 48).
+
+Task 34–38 (đợt 5) theo kế hoạch `docs/superpowers/plans/2026-11-17-annotate.md` và thiết kế `docs/superpowers/specs/2026-11-17-annotate-design.md`; Task 35, 36, 37 do `specialist` rà soát. Chạy đến hết không dừng (quyết định 58).
