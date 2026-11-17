@@ -1,6 +1,6 @@
 //! Cấu hình ứng dụng và lưu trữ.
 
-use crate::color::CustomColors;
+use crate::color::{parse_hex, to_hex, CustomColors, CUSTOM_SLOTS};
 use crate::i18n::{t, Lang, Msg};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
@@ -400,6 +400,28 @@ impl Default for FileConfig {
     }
 }
 
+fn custom_from_json(v: &serde_json::Value) -> CustomColors {
+    let mut slots = [None; CUSTOM_SLOTS];
+    if let Some(arr) = v.as_array() {
+        for (slot, item) in slots.iter_mut().zip(arr) {
+            *slot = item.as_str().and_then(parse_hex);
+        }
+    }
+    CustomColors::from_slots(slots)
+}
+
+fn custom_to_json(c: &CustomColors) -> serde_json::Value {
+    serde_json::Value::Array(
+        c.slots
+            .iter()
+            .map(|s| match s {
+                Some(rgb) => serde_json::Value::String(to_hex(*rgb)),
+                None => serde_json::Value::Null,
+            })
+            .collect(),
+    )
+}
+
 pub fn load(
     path: &Path,
     store: &dyn SecretStore,
@@ -475,7 +497,7 @@ pub fn load(
         include_cursor: f.include_cursor,
         upload_format: UploadFormat::from_code(&f.upload_format).unwrap_or_default(),
         jpeg_quality: clamp_jpeg_quality(f.jpeg_quality),
-        custom_colors: CustomColors::default(),
+        custom_colors: custom_from_json(&f.custom_colors),
     };
     Ok(Loaded {
         config,
@@ -516,7 +538,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         include_cursor: cfg.include_cursor,
         upload_format: cfg.upload_format.code().to_string(),
         jpeg_quality: i64::from(clamp_jpeg_quality(i64::from(cfg.jpeg_quality))),
-        custom_colors: serde_json::Value::Null,
+        custom_colors: custom_to_json(&cfg.custom_colors),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),

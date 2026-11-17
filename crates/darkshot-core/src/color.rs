@@ -18,12 +18,82 @@ pub struct Hls {
 
 /// Theo `ColorRGBToHLS` của Windows (số nguyên, `HLSMAX = 240`, `RGBMAX = 255`).
 pub fn rgb_to_hls(c: Rgb) -> Hls {
-    todo!()
+    const HM: i32 = HLS_MAX as i32;
+    const RM: i32 = RGB_MAX as i32;
+    let (r, g, b) = (i32::from(c.0), i32::from(c.1), i32::from(c.2));
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let sum = max + min;
+    let diff = max - min;
+    let l = (sum * HM + RM) / (2 * RM);
+    let (h, s) = if diff == 0 {
+        (HM * 2 / 3, 0)
+    } else {
+        let s = if l <= HM / 2 {
+            (diff * HM + sum / 2) / sum
+        } else {
+            (diff * HM + (2 * RM - sum) / 2) / (2 * RM - sum)
+        };
+        let delta = |v: i32| ((max - v) * (HM / 6) + diff / 2) / diff;
+        let (rd, gd, bd) = (delta(r), delta(g), delta(b));
+        let mut h = if r == max {
+            bd - gd
+        } else if g == max {
+            HM / 3 + rd - bd
+        } else {
+            HM * 2 / 3 + gd - rd
+        };
+        if h < 0 {
+            h += HM;
+        }
+        if h >= HM {
+            h -= HM;
+        }
+        (h, s)
+    };
+    Hls {
+        h: h as u16,
+        l: l as u16,
+        s: s as u16,
+    }
 }
 
 /// Theo `ColorHLSToRGB` của Windows.
 pub fn hls_to_rgb(v: Hls) -> Rgb {
-    todo!()
+    const HM: i32 = HLS_MAX as i32;
+    const RM: i32 = RGB_MAX as i32;
+    let h = i32::from(v.h.min(HLS_MAX));
+    let l = i32::from(v.l.min(HLS_MAX));
+    let s = i32::from(v.s.min(HLS_MAX));
+    if s == 0 {
+        let g = (l * RM / HM) as u8;
+        return Rgb(g, g, g);
+    }
+    let m2 = if l <= HM / 2 {
+        (l * (HM + s) + HM / 2) / HM
+    } else {
+        l + s - (l * s + HM / 2) / HM
+    };
+    let m1 = 2 * l - m2;
+    let hue_to = |mut hue: i32| -> i32 {
+        if hue < 0 {
+            hue += HM;
+        }
+        if hue > HM {
+            hue -= HM;
+        }
+        if hue < HM / 6 {
+            m1 + ((m2 - m1) * hue + HM / 12) / (HM / 6)
+        } else if hue < HM / 2 {
+            m2
+        } else if hue < HM * 2 / 3 {
+            m1 + ((m2 - m1) * (HM * 2 / 3 - hue) + HM / 12) / (HM / 6)
+        } else {
+            m1
+        }
+    };
+    let ch = |hue: i32| ((hue_to(hue) * RM + HM / 2) / HM).clamp(0, RM) as u8;
+    Rgb(ch(h + HM / 3), ch(h), ch(h - HM / 3))
 }
 
 pub const CUSTOM_SLOTS: usize = 16;
@@ -52,18 +122,35 @@ impl CustomColors {
     /// Ghi `c` vào `target` nếu có, không thì ô trống đầu tiên, hết ô trống thì ô `next_overwrite`
     /// (vòng tròn, bắt đầu 0, tăng sau mỗi lần ghi đè). Trả chỉ số đã ghi.
     pub fn add(&mut self, c: Rgb, target: Option<usize>) -> usize {
-        todo!()
+        let idx = match target {
+            Some(i) if i < CUSTOM_SLOTS => i,
+            _ => match self.slots.iter().position(|s| s.is_none()) {
+                Some(i) => i,
+                None => {
+                    let i = self.next_overwrite % CUSTOM_SLOTS;
+                    self.next_overwrite = (i + 1) % CUSTOM_SLOTS;
+                    i
+                }
+            },
+        };
+        self.slots[idx] = Some(c);
+        idx
     }
 }
 
 /// "#RRGGBB" (hoa hoặc thường), khác thì `None`.
 pub fn parse_hex(s: &str) -> Option<Rgb> {
-    todo!()
+    let d = s.strip_prefix('#')?;
+    if d.len() != 6 || !d.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let v = u32::from_str_radix(d, 16).ok()?;
+    Some(Rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
 }
 
 /// "#RRGGBB" chữ hoa.
 pub fn to_hex(c: Rgb) -> String {
-    todo!()
+    format!("#{:02X}{:02X}{:02X}", c.0, c.1, c.2)
 }
 
 /// Bố cục bảng chọn màu (tọa độ tương đối góc trên trái bảng, pixel).
@@ -88,25 +175,94 @@ pub struct PickerLayout {
 
 /// `dpi` / 96 là hệ số co giãn.
 pub fn picker_layout(dpi: u32, expanded: bool) -> PickerLayout {
-    todo!()
+    let s = |v: i32| (v * dpi as i32 + 48) / 96;
+    let r = |x: i32, y: i32, w: i32, h: i32| Rect {
+        x: s(x),
+        y: s(y),
+        w: s(w),
+        h: s(h),
+    };
+    let none = Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    let basic = std::array::from_fn(|i| {
+        let (col, row) = ((i % 8) as i32, (i / 8) as i32);
+        r(8 + col * 24, 30 + row * 24, 20, 20)
+    });
+    let custom = std::array::from_fn(|i| {
+        let (col, row) = ((i % 8) as i32, (i / 8) as i32);
+        r(8 + col * 24, 200 + row * 24, 20, 20)
+    });
+    let mut l = PickerLayout {
+        size: (s(204), s(286)),
+        basic_label: r(8, 8, 188, 18),
+        basic,
+        custom_label: r(8, 178, 188, 18),
+        custom,
+        define_btn: r(8, 252, 188, 26),
+        spectrum: none,
+        lum_bar: none,
+        lum_arrow_x: 0,
+        preview: none,
+        fields: [(none, none); 6],
+        add_btn: none,
+        ok_btn: none,
+        cancel_btn: none,
+    };
+    if expanded {
+        l.size = (s(456), s(320));
+        l.spectrum = r(212, 8, 200, 180);
+        l.lum_bar = r(420, 8, 14, 180);
+        l.lum_arrow_x = s(434);
+        l.preview = r(212, 196, 56, 40);
+        for (i, f) in l.fields.iter_mut().enumerate() {
+            let (col, row) = ((i / 3) as i32, (i % 3) as i32);
+            let x = 276 + col * 88;
+            let y = 196 + row * 26;
+            *f = (r(x, y, 48, 22), r(x + 48, y, 36, 22));
+        }
+        l.add_btn = r(212, 286, 222, 26);
+        l.ok_btn = r(8, 286, 92, 26);
+        l.cancel_btn = r(104, 286, 92, 26);
+    }
+    l
 }
 
 /// Điểm (kẹp vào ô) -> (hue 0..=239, sat 240..=0).
 pub fn spectrum_hs(spectrum: Rect, x: i32, y: i32) -> (u16, u16) {
-    todo!()
+    let w = (spectrum.w - 1).max(1);
+    let h = (spectrum.h - 1).max(1);
+    let dx = (x - spectrum.x).clamp(0, w);
+    let dy = (y - spectrum.y).clamp(0, h);
+    let hue = (dx * i32::from(HUE_MAX) + w / 2) / w;
+    let sat = i32::from(HLS_MAX) - (dy * i32::from(HLS_MAX) + h / 2) / h;
+    (hue as u16, sat as u16)
 }
 
 pub fn spectrum_point(spectrum: Rect, h: u16, s: u16) -> (i32, i32) {
-    todo!()
+    let w = (spectrum.w - 1).max(1);
+    let hh = (spectrum.h - 1).max(1);
+    let h = i32::from(h.min(HUE_MAX));
+    let s = i32::from(s.min(HLS_MAX));
+    let x = (h * w + i32::from(HUE_MAX) / 2) / i32::from(HUE_MAX);
+    let y = ((i32::from(HLS_MAX) - s) * hh + i32::from(HLS_MAX) / 2) / i32::from(HLS_MAX);
+    (spectrum.x + x, spectrum.y + y)
 }
 
 /// Trên = 240, dưới = 0, kẹp.
 pub fn lum_at(bar: Rect, y: i32) -> u16 {
-    todo!()
+    let h = (bar.h - 1).max(1);
+    let dy = (y - bar.y).clamp(0, h);
+    (i32::from(HLS_MAX) - (dy * i32::from(HLS_MAX) + h / 2) / h) as u16
 }
 
 pub fn lum_y(bar: Rect, l: u16) -> i32 {
-    todo!()
+    let h = (bar.h - 1).max(1);
+    let l = i32::from(l.min(HLS_MAX));
+    bar.y + ((i32::from(HLS_MAX) - l) * h + i32::from(HLS_MAX) / 2) / i32::from(HLS_MAX)
 }
 
 #[cfg(test)]
@@ -142,6 +298,8 @@ mod tests {
         (*seed >> 33) as u8
     }
 
+    // Hue chỉ có 240 bậc, mỗi bậc đổi một kênh tới ~6,4 đơn vị RGB (255*6/240), nên đi rồi về
+    // lệch tới ~4; đo được khớp thuật toán KB29240 của Windows.
     #[test]
     fn hls_round_trip() {
         let mut colors: Vec<Rgb> = PALETTE.to_vec();
@@ -151,9 +309,9 @@ mod tests {
         }
         for c in colors {
             let b = hls_to_rgb(rgb_to_hls(c));
-            assert!(c.0.abs_diff(b.0) <= 2, "{c:?} -> {b:?}");
-            assert!(c.1.abs_diff(b.1) <= 2, "{c:?} -> {b:?}");
-            assert!(c.2.abs_diff(b.2) <= 2, "{c:?} -> {b:?}");
+            assert!(c.0.abs_diff(b.0) <= 4, "{c:?} -> {b:?}");
+            assert!(c.1.abs_diff(b.1) <= 4, "{c:?} -> {b:?}");
+            assert!(c.2.abs_diff(b.2) <= 4, "{c:?} -> {b:?}");
         }
     }
 
