@@ -5,7 +5,7 @@ Cập nhật: 2026-11-18
 ## Đang ở đâu
 
 - **Đợt 8 (gia cố Lịch sử, gợi ý cửa sổ khi chọn vùng): XONG theo mã, ĐANG CHỜ chủ dự án duyệt demo.** Nhánh `feature/window-snap` (từ `origin/main` `2797bb9`), Task 59–63, 63b, 63c đã gộp vào đó; rà soát toàn đợt (`specialist`, model fable) DUYỆT, các điểm nên sửa đã làm ở 63b. `scripts/check.ps1`: ALL CHECKS PASSED. KHÔNG gộp `main`, không tag, không phát hành cho tới khi chủ dự án duyệt.
-- Bản demo: `target/demo8/release/darkshot.exe` (2.016.256 byte). Chạy cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\demo8elease\darkshot.exe` (`-Lang en`, `-Snap off`); phím chụp vùng của demo Ctrl+Alt+Shift+F9. Ảnh QA: `target/demo8/screens/` (chỉ cắt vùng dữ liệu tổng hợp).
+- Bản demo: `target/demo8/release/darkshot.exe` (2.016.256 byte). Chạy cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\demo8\release\darkshot.exe` (`-Lang en`, `-Snap off`); phím chụp vùng của demo Ctrl+Alt+Shift+F9. Ảnh QA: `target/demo8/screens/` (chỉ cắt vùng dữ liệu tổng hợp).
 - Thiết kế `docs/superpowers/specs/2026-11-18-window-snap-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`, quyết định 95–100. Mục "Đợt 8" của checklist: [x] là phiên điều phối đã thấy trên demo, [ ] còn chờ thử tay.
 - Còn mở: viên nhắc còn đọng sau khi BẤM chọn tới lần di chuột kế (chưa tái hiện ở tầng trạng thái, quyết định 100); thử Lưu/Chép/Tải lên sau khi chọn cửa sổ bằng chuột thật; DPI 100/150%, màn hình tọa độ âm, Windows 10.
 - Quy trình từ đợt 8: model chọn theo từng task (CLAUDE.md "Agent và model", quyết định 95).
