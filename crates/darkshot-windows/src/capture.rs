@@ -70,10 +70,10 @@ fn last_error() -> Error {
 
 /// Đặt luồng sang PerMonitorV2 trong lúc chụp (tiến trình đã khai báo qua manifest;
 /// với bản kiểm thử không có manifest thì nhờ đó vẫn lấy pixel vật lý). Trả lại khi drop.
-struct DpiScope(DPI_AWARENESS_CONTEXT);
+pub(crate) struct DpiScope(DPI_AWARENESS_CONTEXT);
 
 impl DpiScope {
-    fn per_monitor_v2() -> DpiScope {
+    pub(crate) fn per_monitor_v2() -> DpiScope {
         // SAFETY: chỉ đổi ngữ cảnh DPI của luồng hiện tại; giá trị cũ được trả lại trong Drop.
         DpiScope(unsafe {
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)

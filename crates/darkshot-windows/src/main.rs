@@ -19,6 +19,7 @@ mod overlay;
 mod paths;
 mod secret;
 mod settings;
+mod snap;
 mod theme;
 mod tray;
 mod wer;
