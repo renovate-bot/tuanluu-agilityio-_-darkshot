@@ -3,7 +3,7 @@
 use crate::gdiplus::{GdiPlus, Gp};
 use darkshot_core::annotate::{
     arrow_geometry, arrow_min_head, blur_pixel_rect, outline_color, Pt, Shape, TextEdit,
-    MARKER_ALPHA, TEXT_DIP, TEXT_OUTLINE_DIP,
+    MARKER_ALPHA, STEP_RING, TEXT_DIP, TEXT_OUTLINE_DIP,
 };
 use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
@@ -19,12 +19,12 @@ use windows::Win32::Graphics::GdiPlus::{
     GdipAddPathLine2, GdipAddPathString, GdipCloneStringFormat, GdipCreateFont,
     GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
     GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
-    GdipDeleteStringFormat, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipDrawRectangle,
-    GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle, GdipFillRectangleI,
-    GdipGetEmHeight, GdipGetLineSpacing, GdipGetPathWorldBounds, GdipGetPixelOffsetMode,
-    GdipGetSmoothingMode, GdipMeasureString, GdipSetClipRectI, GdipSetPathFillMode,
-    GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin, GdipSetPenStartCap,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipSetStringFormatFlags,
+    GdipDeleteStringFormat, GdipDrawEllipse, GdipDrawLine, GdipDrawLines, GdipDrawPath,
+    GdipDrawRectangle, GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle,
+    GdipFillRectangleI, GdipGetEmHeight, GdipGetLineSpacing, GdipGetPathWorldBounds,
+    GdipGetPixelOffsetMode, GdipGetSmoothingMode, GdipMeasureString, GdipSetClipRectI,
+    GdipSetPathFillMode, GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin,
+    GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipSetStringFormatFlags,
     GdipSetTextRenderingHint, GdipStringFormatGetGenericTypographic, GdipTranslateWorldTransform,
     GdipWidenPath, GpBrush, GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpSolidFill,
     GpStringFormat, LineCap, LineCapFlat, LineCapRound, LineCapSquare, LineJoin, LineJoinMiter,
@@ -354,9 +354,113 @@ fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool
             };
             draw_text(g, style, *origin, t, *size, *color)
         }
-        // Task 46: vẽ elip và vòng số.
-        Shape::Ellipse { .. } | Shape::Step { .. } => true,
+        Shape::Ellipse { a, b, width, color } => {
+            let Some(pen) = Pen::new(argb(*color, 255), *width, LineCapRound, LineJoinRound) else {
+                return false;
+            };
+            let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+            let (w, h) = ((b.x - a.x).abs(), (b.y - a.y).abs());
+            // SAFETY: g và bút hợp lệ.
+            ok(unsafe { GdipDrawEllipse(g, pen.0, x, y, w, h) })
+        }
+        Shape::Step {
+            center,
+            radius,
+            n,
+            color,
+        } => {
+            if *n != 0 && text.is_none() {
+                *text = TextStyle::new();
+            }
+            draw_step(g, text.as_ref(), *center, *radius, *n, *color)
+        }
     }
+}
+
+/// Vòng đánh số: lòng màu `color`, viền và số màu `outline_color(color)`. Viền dày
+/// `radius * STEP_RING` nằm trong hình tròn bán kính `radius` (mép ngoài của viền là mép vòng).
+/// `n == 0`: không vẽ số. `style` chỉ cần khi có số.
+fn draw_step(
+    g: *mut GpGraphics,
+    style: Option<&TextStyle>,
+    center: Pt,
+    radius: f32,
+    n: u32,
+    color: Rgb,
+) -> bool {
+    let ring = radius * STEP_RING;
+    let mid = radius - ring / 2.0;
+    let ink = argb(outline_color(color), 255);
+    let (Some(fill), Some(pen)) = (
+        Brush::new(argb(color, 255)),
+        Pen::new(ink, ring, LineCapFlat, LineJoinRound),
+    ) else {
+        return false;
+    };
+    let (x, y, d) = (center.x - mid, center.y - mid, 2.0 * mid);
+    // SAFETY: g, chổi và bút hợp lệ.
+    let disc = unsafe {
+        ok(GdipFillEllipse(g, fill.raw(), x, y, d, d)) && ok(GdipDrawEllipse(g, pen.0, x, y, d, d))
+    };
+    if !disc {
+        return false;
+    }
+    drop(fill);
+    drop(pen);
+    if n == 0 {
+        return true;
+    }
+    let Some(style) = style else {
+        return false;
+    };
+    draw_step_number(g, style, center, radius, n, ink)
+}
+
+/// Hộp (không viền) của đường chữ `s` cỡ `size` đặt ở gốc (0, 0).
+fn path_box(style: &TextStyle, s: &str, size: f32) -> Option<RectF> {
+    let path = style.path(Pt { x: 0.0, y: 0.0 }, s, size)?;
+    let mut b = RectF::default();
+    // SAFETY: đường hợp lệ; b là biến cục bộ; không ma trận, không bút.
+    let st = unsafe { GdipGetPathWorldBounds(path.0, &mut b, std::ptr::null(), std::ptr::null()) };
+    (ok(st) && b.Width > 0.0 && b.Height > 0.0).then_some(b)
+}
+
+/// Số `n` giữa vòng: cỡ em `radius * 1.1`, thu theo tỉ lệ nếu rộng quá `1.5 * radius`;
+/// tâm hộp đường đo được trùng `center`.
+fn draw_step_number(
+    g: *mut GpGraphics,
+    style: &TextStyle,
+    center: Pt,
+    radius: f32,
+    n: u32,
+    ink: u32,
+) -> bool {
+    let s = n.to_string();
+    let mut size = radius * 1.1;
+    let Some(mut b) = path_box(style, &s, size) else {
+        return false;
+    };
+    let max_w = 1.5 * radius;
+    if b.Width > max_w {
+        let k = max_w / b.Width;
+        size *= k;
+        // Đường chữ đặt ở gốc (0, 0) co giãn tuyến tính theo cỡ em.
+        b = RectF {
+            X: b.X * k,
+            Y: b.Y * k,
+            Width: b.Width * k,
+            Height: b.Height * k,
+        };
+    }
+    let origin = Pt {
+        x: center.x - (b.X + b.Width / 2.0),
+        y: center.y - (b.Y + b.Height / 2.0),
+    };
+    let (Some(path), Some(brush)) = (style.path(origin, &s, size), Brush::new(ink)) else {
+        return false;
+    };
+    // SAFETY: g, đường và chổi hợp lệ.
+    ok(unsafe { GdipFillPath(g, brush.raw(), path.0) })
 }
 
 fn draw_arrow(g: *mut GpGraphics, a: Pt, b: Pt, width: f32, color: Rgb) -> bool {
@@ -781,7 +885,7 @@ fn with_dib(img: &mut Image, paint: impl FnOnce(HDC) -> bool) -> Result<(), Stri
 mod tests {
     use super::*;
     use crate::gdiplus::GdiPlus;
-    use darkshot_core::annotate::{arrow_min_head, Pt, PALETTE};
+    use darkshot_core::annotate::{arrow_min_head, Pt, PALETTE, STEP_RING};
     use darkshot_core::theme::Rgb;
 
     const RED: Rgb = Rgb(255, 0, 0);
@@ -1106,6 +1210,18 @@ mod tests {
                 size: 18.0,
                 color: PALETTE[6],
             },
+            Shape::Ellipse {
+                a: pt(30.0, 20.0),
+                b: pt(110.0, 80.0),
+                width: 3.0,
+                color: PALETTE[0],
+            },
+            Shape::Step {
+                center: pt(95.0, 45.0),
+                radius: 14.0,
+                n: 3,
+                color: PALETTE[4],
+            },
         ]
     }
 
@@ -1288,6 +1404,213 @@ mod tests {
                 assert_eq!(shape_bounds(&s), b);
             }
         }
+    }
+
+    /// Mọi điểm ảnh khác `base` nằm trong `b`.
+    fn changed_within(img: &Image, base: &Image, b: Rect) {
+        for y in 0..img.height {
+            for x in 0..img.width {
+                if px(img, x, y) != px(base, x, y) {
+                    let (xi, yi) = (x as i32, y as i32);
+                    assert!(
+                        xi >= b.x && yi >= b.y && xi < b.right() && yi < b.bottom(),
+                        "({x},{y}) ngoài {b:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn rgb_px(c: Rgb) -> [u8; 4] {
+        [c.2, c.1, c.0, 255]
+    }
+
+    #[test]
+    fn ellipse_drawn_inside_bounds() {
+        let base = solid(80, 60, 255);
+        let mut img = base.clone();
+        let e = Shape::Ellipse {
+            a: pt(10.0, 10.0),
+            b: pt(70.0, 50.0),
+            width: 3.0,
+            color: RED,
+        };
+        assert_eq!(
+            burn(&mut img, std::slice::from_ref(&e), full(&base)),
+            Ok(())
+        );
+        assert_ne!(px(&img, 10, 30), [255, 255, 255, 255], "mép trái");
+        assert_eq!(px(&img, 40, 30), [255, 255, 255, 255], "tâm");
+        changed_within(&img, &base, shape_bounds(&e));
+        assert!(all_opaque(&img));
+    }
+
+    #[test]
+    fn ellipse_circle_symmetric() {
+        let base = solid(160, 160, 255);
+        let mut img = base.clone();
+        let e = Shape::Ellipse {
+            a: pt(20.0, 20.0),
+            b: pt(140.0, 140.0),
+            width: 3.0,
+            color: RED,
+        };
+        assert_eq!(burn(&mut img, &[e], full(&base)), Ok(()));
+        // Đếm theo bốn góc phần tư quanh tâm (80, 80), bỏ hai trục.
+        let mut q = [0u32; 4];
+        for y in 0..img.height {
+            for x in 0..img.width {
+                if x == 80 || y == 80 || px(&img, x, y) == px(&base, x, y) {
+                    continue;
+                }
+                q[usize::from(x > 80) + 2 * usize::from(y > 80)] += 1;
+            }
+        }
+        let (lo, hi) = (*q.iter().min().unwrap(), *q.iter().max().unwrap());
+        assert!(lo > 0, "{q:?}");
+        assert!(
+            f64::from(hi - lo) <= 0.02 * f64::from(hi),
+            "lệch quá 2%: {q:?}"
+        );
+    }
+
+    #[test]
+    fn step_fill_ring_and_number() {
+        let base = solid(80, 80, 128);
+        let mut img = base.clone();
+        let (cx, cy, r) = (40.0f32, 40.0f32, 20.0f32);
+        let s = Shape::Step {
+            center: pt(cx, cy),
+            radius: r,
+            n: 1,
+            color: RED,
+        };
+        assert_eq!(
+            burn(&mut img, std::slice::from_ref(&s), full(&base)),
+            Ok(())
+        );
+        let fill = px(&img, (cx + 0.6 * r) as u32, cy as u32);
+        assert!(near(fill, [0, 0, 255, 255], 2), "lòng {fill:?}");
+        let ink = rgb_px(outline_color(RED));
+        let edge_x = (cx + r - r * STEP_RING / 2.0).round() as u32;
+        let ring = px(&img, edge_x, cy as u32);
+        assert!(near(ring, ink, 40), "viền ({edge_x}) {ring:?}");
+        // Số: ít nhất một điểm màu chữ trong hình vuông cạnh r quanh tâm.
+        let half = (r / 2.0) as u32;
+        let mut digit = false;
+        for y in cy as u32 - half..cy as u32 + half {
+            for x in cx as u32 - half..cx as u32 + half {
+                digit |= near(px(&img, x, y), ink, 2);
+            }
+        }
+        assert!(digit, "không thấy số");
+        changed_within(&img, &base, shape_bounds(&s));
+        assert!(all_opaque(&img));
+    }
+
+    #[test]
+    fn step_number_fits() {
+        let base = solid(60, 60, 128);
+        let mut img = base.clone();
+        let (cx, cy, r) = (30.0f32, 30.0f32, 12.0f32);
+        let s = Shape::Step {
+            center: pt(cx, cy),
+            radius: r,
+            n: 888,
+            color: RED,
+        };
+        assert_eq!(burn(&mut img, &[s], full(&base)), Ok(()));
+        let ink = rgb_px(outline_color(RED));
+        let mut seen = 0;
+        for y in 0..img.height {
+            for x in 0..img.width {
+                if near(px(&img, x, y), ink, 10) {
+                    seen += 1;
+                    let d = (x as f32 - cx).hypot(y as f32 - cy);
+                    assert!(d <= r + 0.5, "({x},{y}) cách tâm {d} > {r}");
+                }
+            }
+        }
+        assert!(seen > 0);
+    }
+
+    /// Có điểm ảnh gần `want` trong hình vuông cạnh r quanh tâm.
+    fn number_has(img: &Image, c: (u32, u32), r: u32, want: [u8; 4]) -> bool {
+        let half = r / 2;
+        (c.1 - half..c.1 + half)
+            .any(|y| (c.0 - half..c.0 + half).any(|x| near(px(img, x, y), want, 10)))
+    }
+
+    #[test]
+    fn step_readable_on_light_and_dark() {
+        for (color, want) in [
+            (Rgb::hex(0xFFFF00), [0, 0, 0, 255]),
+            (Rgb::hex(0x000080), [255, 255, 255, 255]),
+        ] {
+            assert_eq!(rgb_px(outline_color(color)), want);
+            let base = solid(80, 80, 128);
+            let mut img = base.clone();
+            let s = Shape::Step {
+                center: pt(40.0, 40.0),
+                radius: 20.0,
+                n: 7,
+                color,
+            };
+            assert_eq!(burn(&mut img, &[s], full(&base)), Ok(()));
+            assert!(
+                number_has(&img, (40, 40), 20, want),
+                "{color:?}: không thấy số màu {want:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn step_zero_has_no_number() {
+        let base = solid(80, 80, 128);
+        let mut img = base.clone();
+        let s = Shape::Step {
+            center: pt(40.0, 40.0),
+            radius: 20.0,
+            n: 0,
+            color: RED,
+        };
+        assert_eq!(burn(&mut img, &[s], full(&base)), Ok(()));
+        assert!(!number_has(&img, (40, 40), 20, rgb_px(outline_color(RED))));
+        assert!(near(px(&img, 40, 40), [0, 0, 255, 255], 2));
+    }
+
+    #[test]
+    fn screen_matches_burn_for_new_shapes() {
+        let shapes = vec![
+            Shape::Ellipse {
+                a: pt(15.5, 12.25),
+                b: pt(90.0, 70.0),
+                width: 4.5,
+                color: PALETTE[1],
+            },
+            Shape::Step {
+                center: pt(60.0, 45.0),
+                radius: 18.0,
+                n: 12,
+                color: PALETTE[3],
+            },
+        ];
+        let base = noise(120, 90, 11);
+        let mut burned = base.clone();
+        assert_eq!(burn(&mut burned, &shapes, full(&base)), Ok(()));
+        let _gp = GdiPlus::start();
+        let mut screen = base.clone();
+        let mut ok = false;
+        assert_eq!(
+            with_dib(&mut screen, |dc| {
+                ok = draw_shapes(dc, &shapes, 0, 0, full(&base));
+                ok
+            }),
+            Ok(())
+        );
+        assert!(ok);
+        assert!(screen == burned, "draw_shapes khác burn");
+        assert!(screen != base, "không vẽ gì");
     }
 
     /// `burn` nhiều lần đủ loại hình: số đối tượng GDI của tiến trình không tăng.
