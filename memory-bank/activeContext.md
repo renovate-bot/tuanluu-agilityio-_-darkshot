@@ -31,6 +31,7 @@ Task 38 đã gộp (rà soát DUYỆT). **Đợt 5 đã xong theo mã (2026-11-1
 
 ### Vấn đề chờ chủ dự án xem (đợt 5)
 
+- Task 39 (2026-11-17, chủ dự án chọn "48 màu"): bảng màu 6×8 theo hộp chọn màu Windows, mặc định `#FF0000`, quyết định 69. `#400040` có hai ô nên chọn màu đó thì hai ô cùng có viền. Vùng chọn hẹp sát mép phải với thanh dọc ở bên trái thì bảng màu có thể đè lên thanh dọc (có từ trước, bảng rộng hơn nên dễ gặp hơn). Chưa ai nhìn bảng màu thật.
 - Các lựa chọn "(điều phối viên chọn)" trong thiết kế đợt 5 (vị trí thanh dọc, độ dày 3/16 DIP, chữ 18 DIP, bảng 8 màu, Esc, kéo ngoài vùng) chưa được chủ dự án xem tận mắt.
 - Hiệu năng: mỗi lần vẽ lại, lớp phủ vẽ lại mọi hình giao vùng cần vẽ (đã bỏ qua hình ngoài vùng), chưa có lớp đệm cho hình đã chốt; bút dạ quang rất dài có thể chậm trên 4K. Cần đo trên máy thật.
 - Chuỗi bộ gõ Windows đang soạn khi chốt ô được chèn trực tiếp rồi hủy soạn; chưa thử với bộ gõ thật (tiếng Việt, CJK).
