@@ -256,3 +256,4 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Trình tường thuật (Narrator) đọc đúng tên và trạng thái ô tích, nút chọn, nút bấm và thanh trượt.
 - [ ] Mở đóng Tùy chọn 20 lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored options_no_gdi_leak` qua).
 - [ ] Thông tin và Trợ giúp có nút Đóng xanh, chữ trắng đậm; Enter và Esc vẫn đóng.
+- [ ] Ô tích, nút chọn và núm thanh trượt mịn, không răng cưa, vòng không có điểm lồi, ở DPI 100% và 150%.
