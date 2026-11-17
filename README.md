@@ -33,7 +33,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel.
-6. Chỉnh vùng chọn nếu cần: kéo 8 tay nắm ở góc và cạnh để đổi kích thước, kéo bên trong để di chuyển, kéo ở ngoài khung để chọn lại từ đầu.
+6. Chỉnh vùng chọn nếu cần: kéo 8 tay nắm ở góc và cạnh để đổi kích thước, kéo bên trong để di chuyển (khi không chọn công cụ đánh dấu), kéo ở ngoài khung để chọn lại từ đầu (khi chưa có nét vẽ).
 7. Chọn hành động bằng nút trên thanh công cụ hoặc phím tắt.
 
 ### Thanh công cụ
@@ -48,7 +48,54 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
 - `Ctrl+D`, `Ctrl+S`, `Ctrl+C` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
-- `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo chuột.
+- `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo chuột. Riêng lúc đang gõ chữ hoặc bảng màu đang mở, `Esc` chỉ hủy ô chữ hoặc đóng bảng màu (xem "Đánh dấu ảnh").
+
+### Đánh dấu ảnh
+
+Khi đã có vùng chọn và không đang kéo, một thanh công cụ dọc hiện cạnh vùng. Thanh nằm bên phải vùng, mép dưới thẳng mép dưới vùng. Không đủ chỗ bên phải thì sang bên trái; không đủ cả hai thì nằm trong vùng, sát mép phải. Thanh không chồng lên thanh bốn nút.
+
+Tám nút từ trên xuống. Chú thích hiện khi rê chuột vào nút.
+
+| Nút | Phím | Việc làm |
+|---|---|---|
+| Bút vẽ | `P` | Kéo để vẽ nét tự do, nét 3 DIP. Bấm một cái tạo một chấm. |
+| Đường thẳng | `L` | Kéo từ điểm đầu tới điểm cuối, nét 3 DIP. |
+| Mũi tên | `A` | Như đường thẳng, có đầu mũi tên ở điểm cuối. |
+| Hình chữ nhật | `R` | Kéo theo đường chéo, chỉ vẽ viền. |
+| Bút dạ quang | `H` | Nét 16 DIP, trong mờ. Chỗ nét tự chồng lên nhau không đậm thêm. |
+| Chữ | `T` | Bấm để đặt ô chữ rồi gõ. |
+| Màu | | Mở bảng màu. |
+| Hoàn tác | `Ctrl+Z` | Bỏ hình vẽ cuối cùng. Mờ khi chưa có gì để bỏ. |
+
+DIP là đơn vị theo tỉ lệ hiển thị của Windows, nên nét trên màn hình có DPI cao vẫn cùng tỉ lệ với màn hình.
+
+- Bấm một nút để chọn công cụ; bấm lại nút đang chọn để bỏ chọn. Phím tắt chỉ có tác dụng khi không đang gõ chữ. Mặc định không chọn công cụ nào: lớp phủ chạy như trước.
+- Khi đã chọn công cụ vẽ: kéo bên trong vùng chọn là vẽ. Tay nắm ở viền và góc vẫn đổi cỡ vùng; kéo giữa vùng không di chuyển vùng. Con trỏ là chữ thập, và chữ I khi chọn Chữ.
+- Giữ Shift khi kéo: Đường thẳng và Mũi tên khóa theo bước 45°; Hình chữ nhật thành hình vuông.
+- Kéo ngắn hơn 2 px với Đường thẳng, Mũi tên hoặc Hình chữ nhật thì không tạo hình.
+- Khi đã có ít nhất một nét hoặc đang chọn công cụ, kéo ở ngoài vùng chọn không tạo vùng mới, để không mất nét đã vẽ. Muốn chọn lại từ đầu: hoàn tác hết rồi bỏ chọn công cụ, hoặc bấm Esc.
+- Nét kéo ra ngoài vùng vẫn được ghi nhưng chỉ hiện và in phần nằm trong vùng. Đổi cỡ hoặc di chuyển vùng (khi không có công cụ nào đang chọn) thì nét giữ nguyên vị trí trên màn hình: phần nằm ngoài vùng bị ẩn và không in; kéo vùng về thì nét hiện lại.
+- Hoàn tác chỉ bỏ hình cuối cùng, một bước. Không có làm lại.
+
+**Màu:** bấm nút Màu để mở bảng tám màu cạnh nút: đỏ (mặc định), cam, vàng, xanh lá, xanh lam, tím, trắng, đen. Bấm một ô để chọn màu và đóng bảng. Bấm ra ngoài bảng hoặc bấm Esc thì chỉ đóng bảng, lớp phủ còn. Hình đã vẽ không đổi màu. Màu được nhớ trong lúc darkshot chạy; thoát rồi mở lại thì về đỏ.
+
+**Chữ:**
+
+- Khi đang chọn Chữ, bấm trong vùng để đặt ô chữ tại đó. Ô đang gõ có khung nét đứt xanh và con trỏ nháy; khung và con trỏ không in ra ảnh.
+- Enter xuống dòng. Chốt ô bằng cách bấm chỗ khác trong vùng, đổi công cụ, bấm nút hành động hoặc bấm Ctrl+D, Ctrl+S, Ctrl+C. Ô rỗng khi chốt thì bỏ.
+- Gõ được Backspace, Delete, mũi tên bốn hướng, Home và End. Ctrl+V dán chữ thuần: xuống dòng giữ nguyên, Tab thành khoảng trắng. Không chọn chữ bằng chuột hay Shift.
+- Gõ được tiếng Việt bằng Unikey, EVKey hoặc bộ gõ tiếng Việt của Windows. Khi đang gõ, các phím P, L, A, R, H, T đi vào ô chữ, không đổi công cụ.
+- Chữ có viền đen hoặc trắng (theo màu chữ) để đọc được trên mọi nền.
+- Ctrl+Z khi ô chữ còn nội dung (kể cả chỉ có khoảng trắng) thì xóa ô đó trước; ô rỗng thì hoàn tác hình trước đó.
+- Esc khi đang gõ hủy ô chữ, không chốt. Khi bộ gõ đang soạn dở một chữ, Esc thuộc về bộ gõ.
+
+**Esc:** ngoài lúc đang gõ chữ và lúc bảng màu mở, Esc đóng lớp phủ và bỏ mọi nét, như trước.
+
+**In vào ảnh:** ảnh tải lên, ảnh lưu vào máy và ảnh chép đều có các nét đã vẽ, ở đúng chỗ và đúng màu như trên màn hình. Ảnh không có nét thì giữ như trước. Nếu không in được nét, darkshot báo "Không xử lý được ảnh" và dừng việc lưu, chép hoặc tải lên, để không có ảnh thiếu nét. Trong trường hợp đó hãy chụp lại.
+
+Hai phím toàn màn hình (Lưu ảnh và Tải lên nhanh, mục "Phím tắt chụp") không mở lớp phủ nên không có thanh này. Nét vẽ không được nhớ sang lần chụp sau.
+
+Chưa có trong bản này: chọn, sửa hay xóa từng hình (chỉ có hoàn tác hình cuối), làm lại, chọn màu tự do, chọn độ dày hay cỡ chữ, hình tròn, làm mờ, đánh số.
 
 ### Lưu vào máy
 
@@ -272,7 +319,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 
 ## Phạm vi
 
-Ứng dụng làm một việc: chụp vùng màn hình, lưu hoặc tải lên và chép link. Không có chức năng vẽ lên ảnh, lịch sử ảnh, hay xóa ảnh từ ứng dụng.
+Ứng dụng làm việc chính: chụp vùng màn hình, đánh dấu nhanh bằng vài công cụ vẽ và chữ, lưu hoặc tải lên và chép link. Không có lịch sử ảnh, và không xóa ảnh từ ứng dụng. Phần đánh dấu chỉ gồm các công cụ ở mục "Đánh dấu ảnh": không có hình tròn, làm mờ, đánh số hay chỉnh sửa từng hình.
 
 ## Thư viện bên thứ ba
 

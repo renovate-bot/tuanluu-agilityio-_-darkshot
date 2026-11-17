@@ -130,3 +130,26 @@ Mọi trait có ràng buộc `Send + Sync`.
 - **Lọc thông báo:** chỗ duy nhất là nhánh `WM_NOTICE` trong `wndproc` (`main.rs`), gọi `actions::notice_visible(kind, show_success_notices)`. Mọi thông báo của `TrayNotifier` đi qua `WM_NOTICE`, và hàng đợi `pending` chỉ nhận thông báo đã qua bước lọc. Thông báo `Success` bị ẩn theo ô tích; lỗi và thông tin luôn hiện.
 - **Con trỏ:** `capture::capture_virtual_screen(include_cursor)` vẽ con trỏ bằng `draw_cursor` (`DrawIconEx`) vào DIB khi DIB còn được chọn trong DC bộ nhớ, rồi `GdiFlush`. `Screenshot.cursor` giữ vị trí con trỏ theo tọa độ màn hình, dùng cho "toàn màn hình" (`full_screen_rect`). Lớp phủ hiển thị chính ảnh này nên con trỏ đứng yên như lúc chụp.
 - **Khung nhớ:** `LAST_SELECTION` (thread-local, `Cell<Option<Rect>>`) lưu khung theo tọa độ màn hình, chỉ trong bộ nhớ. `remember_after` nhớ khung khi Lưu, Chép, Tải lên và giữ khung cũ khi Hủy. Khi ghi, `capture::to_screen_coords` đổi khung ảnh sang tọa độ màn hình trước khi nhớ. `geometry::restore_selection` nhận khung tọa độ màn hình và tự trừ `origin`, nên danh sách màn hình truyền vào cũng phải là tọa độ màn hình. `shot.monitors` ở tọa độ ảnh, phải đổi bằng `to_screen_coords` trước (đã làm trong `capture_flow`). Truyền thẳng là lệch khi gốc âm.
+
+## Đánh dấu ảnh (đợt 5)
+
+Nguồn đầy đủ: thiết kế `docs/superpowers/specs/2026-11-17-annotate-design.md`, kế hoạch mục "Interfaces chung" và các báo cáo Task 34–37 (`memory-bank/activeContext.md`).
+
+### Ba chỗ
+
+- **Mô hình ở `darkshot_core::annotate`** (không phụ thuộc crate `windows`): `Tool` (sáu công cụ vẽ, thứ tự trên thanh trong `Tool::ALL`, `from_key` cho P, L, A, R, H, T), `PALETTE` (tám màu, `DEFAULT_COLOR` là phần tử đầu), hằng kích thước (`STROKE_DIP`, `MARKER_DIP`, `MARKER_ALPHA`, `TEXT_DIP`, `ARROW_*`, `MIN_DRAG_PX`), `Shape` (hình lưu theo tọa độ ảnh chụp, `f32`), `Annotations` (hoàn tác hình cuối), `TextEdit` (soạn chữ theo ký tự Unicode, `to_shape` trả `None` khi chỉ có khoảng trắng), `press_mode` (quyết định khi bấm chuột, bảng sáu tổ hợp), hình học (`add_point`, `constrain_45`, `constrain_square`, `too_short`, `arrow_min_head`, `arrow_geometry`, `outline_color`), `sanitize_paste`. Vị trí thanh dọc là `geometry::place_side_toolbar`.
+- **Vẽ ở `crates/darkshot-windows/src/annotate_draw.rs`**: `draw_shapes(dc, shapes, ox, oy, clip)` là hàm vẽ duy nhất, dùng cho cả lớp phủ (vẽ lên bộ đệm sau) và cho ảnh ra. `burn(img, shapes, crop)` in hình vào ảnh đã cắt (dịch theo góc `crop`, alpha giữ 255). `shape_bounds` đo hộp bao (chữ đo bằng GDI+ cùng phông lúc vẽ); `caret_rect` cho con trỏ nháy của ô chữ. Kiểm thử `burn_offsets_by_crop_origin` là kiểm thử chống lệch vị trí.
+- **GDI+ ở `crates/darkshot-windows/src/gdiplus.rs`**: `GdiPlus` (khởi động và tắt, `Drop` gọi Shutdown) và `Gp` (đồ họa trên một DC, bật khử răng cưa và `PixelOffsetHalf`). Chuyển từ `overlay.rs` sang, giữ hành vi.
+- **Lớp phủ ở `overlay.rs`**: `SideItem` và `SIDE_ITEMS` (thanh dọc, vạch ngăn, `COLOR_INDEX`), `begin_stroke`/`extend_stroke`/`end_stroke` (một nét; `extend_stroke` chỉ làm mới hộp của đoạn mới), `TextBox` (ô chữ đang gõ), các hàm IME (`ime_composing`, `ime_end_composition`, `place_ime`). `pick_region` trả `Picked { action, rect, shapes }`; `main::picked_image` in hình, và nếu in lỗi thì báo `AnnotateFailed*` và không chạy hành động.
+
+### Thêm một công cụ vẽ mới
+
+Theo các chỗ Task 36–37 đã đụng:
+
+1. `annotate.rs`: thêm biến thể vào `Tool`, sửa `Tool::ALL` và độ dài của nó, thêm mã phím vào `from_key`; nếu kéo thì `too_short` cho công cụ đó.
+2. `i18n.rs`: thêm `Msg` tên và phím tắt cho chú thích (đủ hai ngôn ngữ, ví dụ `ToolPen` "Bút vẽ (P)" / "Pen (P)").
+3. `overlay.rs`: thêm biến thể vào `SideItem` và nhánh trong `SideItem::tip`; thêm vào `SIDE_ITEMS` (đổi độ dài `[SideItem; 8]`, cập nhật `COLOR_INDEX` và các kiểm thử vị trí nút); vẽ biểu tượng trong nhánh `Painter` (biểu tượng tự vẽ bằng GDI+, không chép biểu tượng ứng dụng khác); nếu công cụ có phím thì thêm vào bắt phím (chỉ khi không đang gõ chữ).
+4. Hình mới: nếu cần kiểu hình mới thì thêm biến thể vào `Shape` và `Shape::bounds`; `annotate_draw::draw_one` phải có nhánh vẽ (match đủ, trình biên dịch báo thiếu); bổ sung vào `sample_shapes` và `non_text_bounds_match_core` để kiểm thử cùng đường vẽ.
+5. Kiểm: một kiểm thử ở core cho quy tắc riêng (ví dụ `too_short`), một kiểm thử vẽ ở `annotate_draw`, và kiểm thử chạy tay (`#[ignore]`) của lớp phủ nếu đụng tới vòng lặp chuột.
+
+Quy tắc chung: không viết đường vẽ thứ hai ngoài `draw_one`; hình lưu theo tọa độ ảnh chụp; mọi tài nguyên GDI+ và GDI giải phóng trên mọi đường đi.
