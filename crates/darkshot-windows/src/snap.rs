@@ -1,26 +1,142 @@
 //! Liệt kê khung các cửa sổ cấp cao để gợi ý khi chọn vùng (chỉ đọc khung, không đọc tiêu đề).
 
+use crate::capture::DpiScope;
 use darkshot_core::geometry::{Point, Rect};
+use darkshot_core::snap::MAX_WINDOWS;
+use std::ffi::c_void;
+use windows::core::BOOL;
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+use windows::Win32::Graphics::Dwm::{
+    DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetClassNameW, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindowVisible,
+    GWL_EXSTYLE, WS_EX_TRANSPARENT,
+};
 
 /// Khung các cửa sổ cấp cao hiện được, thứ tự Z từ trên xuống, tọa độ MÀN HÌNH, pixel vật lý.
 /// Tối đa darkshot_core::snap::MAX_WINDOWS. Lỗi liệt kê → danh sách (có thể rỗng) đã có tới lúc lỗi.
 pub fn enumerate_windows() -> Vec<Rect> {
-    unimplemented!()
+    // Khung DWM và GetWindowRect trả pixel vật lý khi luồng ở PerMonitorV2.
+    let _dpi = DpiScope::per_monitor_v2();
+    let mut out: Vec<Rect> = Vec::new();
+    // SAFETY: EnumWindows đồng bộ; callback chỉ ghi vào `out`, sống đến hết lời gọi này.
+    // Lỗi (hoặc callback dừng sớm) bị bỏ qua: giữ những gì đã có.
+    unsafe {
+        let _ = EnumWindows(
+            Some(collect_window),
+            LPARAM(&mut out as *mut Vec<Rect> as isize),
+        );
+    }
+    out
+}
+
+/// Callback của EnumWindows: thêm khung nếu cửa sổ là ứng viên; trả FALSE khi đã đủ.
+unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    // SAFETY: lparam trỏ tới `Vec<Rect>` cục bộ của `enumerate_windows`, còn sống trong lời gọi đồng bộ.
+    let out = unsafe { &mut *(lparam.0 as *mut Vec<Rect>) };
+    if out.len() >= MAX_WINDOWS {
+        return BOOL(0);
+    }
+    if is_candidate(hwnd) {
+        if let Some(r) = frame_of(hwnd) {
+            out.push(r);
+        }
+    }
+    BOOL::from(out.len() < MAX_WINDOWS)
+}
+
+/// Đọc các thuộc tính (không đọc tiêu đề) rồi giao cho `accept`.
+fn is_candidate(hwnd: HWND) -> bool {
+    // SAFETY: các hàm chỉ đọc thuộc tính của hwnd hệ thống vừa đưa; hwnd đã hủy thì trả FALSE/0.
+    let visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+    if !visible {
+        // Đa số cửa sổ cấp cao đều ẩn: bỏ sớm, kết quả giống `accept(false, ..)`.
+        return false;
+    }
+    // SAFETY: như trên.
+    let iconic = unsafe { IsIconic(hwnd) }.as_bool();
+    let mut cloaked: u32 = 0;
+    // SAFETY: bộ đệm DWORD đúng cỡ cho DWMWA_CLOAKED; lỗi thì coi là không cloaked.
+    let cloaked = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut c_void,
+            std::mem::size_of::<u32>() as u32,
+        )
+    }
+    .is_ok()
+        && cloaked != 0;
+    // SAFETY: chỉ đọc kiểu mở rộng của hwnd.
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    let mut buf = [0u16; 256];
+    // SAFETY: bộ đệm cục bộ; hàm ghi tối đa buf.len() ký tự kể cả số 0 cuối.
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+    let len = usize::try_from(n).unwrap_or(0).min(buf.len());
+    let class = String::from_utf16_lossy(&buf[..len]);
+    accept(visible, iconic, cloaked, ex_style, &class)
+}
+
+/// Khung cửa sổ: ưu tiên khung DWM (không gồm bóng), lỗi thì GetWindowRect. Rỗng/âm → None.
+fn frame_of(hwnd: HWND) -> Option<Rect> {
+    let mut rc = RECT::default();
+    // SAFETY: bộ đệm RECT đúng cỡ cho DWMWA_EXTENDED_FRAME_BOUNDS.
+    let dwm = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut rc as *mut RECT as *mut c_void,
+            std::mem::size_of::<RECT>() as u32,
+        )
+    };
+    if dwm.is_err() {
+        rc = RECT::default();
+        // SAFETY: rc là RECT cục bộ.
+        unsafe { GetWindowRect(hwnd, &mut rc) }.ok()?;
+    }
+    rect_from(rc)
+}
+
+/// RECT (trái, trên, phải, dưới) → Rect; None khi rỗng, âm hoặc tràn.
+fn rect_from(rc: RECT) -> Option<Rect> {
+    let w = i64::from(rc.right) - i64::from(rc.left);
+    let h = i64::from(rc.bottom) - i64::from(rc.top);
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    Some(Rect {
+        x: rc.left,
+        y: rc.top,
+        w: i32::try_from(w).ok()?,
+        h: i32::try_from(h).ok()?,
+    })
 }
 
 /// Thuần: lớp cửa sổ là nền màn hình (bỏ qua). So khớp không phân biệt hoa thường: "Progman", "WorkerW".
-pub fn is_shell_background(_class: &str) -> bool {
-    unimplemented!()
+pub fn is_shell_background(class: &str) -> bool {
+    class.eq_ignore_ascii_case("Progman") || class.eq_ignore_ascii_case("WorkerW")
 }
 
 /// Thuần: quyết định một cửa sổ có là ứng viên không từ các thuộc tính đã đọc.
-pub fn accept(_visible: bool, _iconic: bool, _cloaked: bool, _ex_style: u32, _class: &str) -> bool {
-    unimplemented!()
+pub fn accept(visible: bool, iconic: bool, cloaked: bool, ex_style: u32, class: &str) -> bool {
+    visible
+        && !iconic
+        && !cloaked
+        && ex_style & WS_EX_TRANSPARENT.0 == 0
+        && !is_shell_background(class)
 }
 
 /// Đổi khung từ tọa độ màn hình sang tọa độ ảnh của màn hình ảo có gốc `origin` (trừ bão hòa).
-pub fn windows_to_image(_windows: &[Rect], _origin: Point) -> Vec<Rect> {
-    unimplemented!()
+pub fn windows_to_image(windows: &[Rect], origin: Point) -> Vec<Rect> {
+    windows
+        .iter()
+        .map(|r| Rect {
+            x: r.x.saturating_sub(origin.x),
+            y: r.y.saturating_sub(origin.y),
+            ..*r
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -28,6 +28,8 @@ pub struct Screenshot {
     pub monitors: Vec<Rect>,
     /// Vị trí con trỏ chuột lúc chụp, tọa độ màn hình; không lấy được thì tâm màn hình ảo.
     pub cursor: Point,
+    /// Khung cửa sổ ở TỌA ĐỘ ẢNH (đã trừ origin); None = tắt gợi ý cửa sổ.
+    pub windows: Option<Vec<Rect>>,
 }
 
 /// Đổi một hình chữ nhật từ tọa độ màn hình sang tọa độ ảnh của màn hình ảo.
@@ -362,6 +364,7 @@ pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Scr
         origin,
         monitors,
         cursor,
+        windows: None,
     })
 }
 

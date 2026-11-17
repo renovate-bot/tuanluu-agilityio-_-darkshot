@@ -601,9 +601,17 @@ fn capture_flow(hwnd: HWND) {
             n.notify(kind, title, body);
         }
     };
-    let (include_cursor, keep_selection) =
-        with_app(|a| (a.config.include_cursor, a.config.keep_selection)).unwrap_or((false, false));
-    let shot = match capture::capture_virtual_screen(include_cursor) {
+    let (include_cursor, keep_selection, snap_windows) = with_app(|a| {
+        (
+            a.config.include_cursor,
+            a.config.keep_selection,
+            a.config.snap_windows,
+        )
+    })
+    .unwrap_or((false, false, false));
+    // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi chọn vùng và ô gợi ý đang bật.
+    let frames = (kind == CaptureKind::Region && snap_windows).then(snap::enumerate_windows);
+    let mut shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
             notify(
@@ -614,6 +622,7 @@ fn capture_flow(hwnd: HWND) {
             return;
         }
     };
+    shot.windows = frames.map(|w| snap::windows_to_image(&w, shot.origin));
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
     let (action, rect, shapes) = match kind {
