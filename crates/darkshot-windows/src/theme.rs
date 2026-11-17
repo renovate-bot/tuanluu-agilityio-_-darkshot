@@ -12,12 +12,13 @@ use windows::core::{w, PCSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, CreateSolidBrush, DeleteDC,
-    DeleteObject, DrawTextW, Ellipse, FillRect, FrameRect, IntersectClipRect, Polyline, RestoreDC,
-    RoundRect, SaveDC, SelectObject, SetBkColor, SetBkMode, SetTextColor, SetWindowOrgEx,
-    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_HIDEPREFIX, DT_LEFT,
-    DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC, HFONT, HGDIOBJ, OPAQUE, PS_INSIDEFRAME, PS_SOLID,
-    SRCCOPY, TRANSPARENT,
+    AlphaBlend, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDIBSection, CreatePen,
+    CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, Ellipse, FillRect, FrameRect,
+    IntersectClipRect, Polyline, RestoreDC, RoundRect, SaveDC, SelectObject, SetBkColor, SetBkMode,
+    SetTextColor, SetWindowOrgEx, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+    BLENDFUNCTION, DIB_RGB_COLORS, DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
+    DT_HIDEPREFIX, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HBRUSH, HDC, HFONT, HGDIOBJ, OPAQUE,
+    PS_INSIDEFRAME, PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::Controls::{
@@ -264,9 +265,13 @@ pub const RADIUS: i32 = 4;
 /// Cạnh hộp ô tích và vòng nút chọn (DIP).
 const BOX: i32 = 18;
 /// Khoảng từ hộp tới chữ (DIP). Hộp + khoảng = 24 DIP, đúng phần `HK_BOX` mà bố cục Tùy chọn dành sẵn.
+/// Hình mẫu dùng 10, nhưng 10 làm cắt nhãn dài nhất của tab Phím tắt ("Tải lên nhanh (toàn màn hình)").
 const BOX_GAP: i32 = 6;
 /// Đường kính chấm của nút chọn bật (DIP).
 const DOT: i32 = 8;
+/// Viền hộp ô tích và vòng nút chọn; bề dày nét dấu tích (DIP).
+const BORDER_DIP: f32 = 1.5;
+const TICK_DIP: f32 = 2.0;
 /// Núm thanh trượt, độ dày viền núm và độ cao rãnh (DIP).
 const KNOB: i32 = 18;
 const KNOB_BORDER: i32 = 4;
@@ -562,8 +567,236 @@ pub fn draw_button(
     }
 }
 
-/// Vẽ ô tích (`radio == false`) hoặc nút chọn vào `rc`: hộp 18 DIP bên trái, chữ bên phải, khung tiêu
-/// điểm quanh chữ. `bg` là nền dưới hộp và chữ.
+// ---------------------------------------------------------------------------
+// Hình mịn: độ phủ của pixel tính từ khoảng cách có dấu tới cạnh hình, trộn lên DC bằng `AlphaBlend`
+// ---------------------------------------------------------------------------
+
+/// Khoảng cách có dấu (âm là bên trong) từ (`x`, `y`) tới đường tròn tâm (`cx`, `cy`) bán kính `r`.
+fn sd_circle(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> f32 {
+    (x - cx).hypot(y - cy) - r
+}
+
+/// Khoảng cách có dấu tới hình vuông tâm (`cx`, `cy`), nửa cạnh `half`, bo góc `r`.
+fn sd_round_rect(x: f32, y: f32, cx: f32, cy: f32, half: f32, r: f32) -> f32 {
+    let r = r.clamp(0.0, half.max(0.0));
+    let qx = (x - cx).abs() - half + r;
+    let qy = (y - cy).abs() - half + r;
+    qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
+}
+
+/// Khoảng cách có dấu tới nét thẳng đầu bằng từ `a` tới `b`, nửa bề dày `h`.
+fn sd_bar(x: f32, y: f32, a: (f32, f32), b: (f32, f32), h: f32) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len = dx.hypot(dy);
+    let (px, py) = (x - (a.0 + b.0) / 2.0, y - (a.1 + b.1) / 2.0);
+    if len <= f32::EPSILON {
+        return px.hypot(py) - h;
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    let u = (px * ux + py * uy).abs() - len / 2.0;
+    let v = (py * ux - px * uy).abs() - h;
+    u.max(0.0).hypot(v.max(0.0)) + u.max(v).min(0.0)
+}
+
+/// Hai nét của dấu tích (nét ngắn bên trái, nét dài bên phải; mỗi nét từ đầu tự do tới mép ngoài của
+/// góc) trong hộp cạnh `s` px. Theo CSS của hình mẫu ở hộp 18: chữ L 5×9 có viền phải và dưới 2 px,
+/// xoay 45° sau khi dời (-1, -1), đặt giữa hộp.
+fn tick_arms(s: f32) -> [((f32, f32), (f32, f32)); 2] {
+    let k = s / 18.0;
+    let c = s / 2.0;
+    let f = std::f32::consts::FRAC_1_SQRT_2;
+    // (x, y) là tọa độ trên đường giữa của viền, gốc ở tâm chữ L chưa xoay.
+    let p = |x: f32, y: f32| {
+        let (x, y) = (x - 1.0, y - 1.0);
+        (c + (x - y) * f * k, c + (x + y) * f * k)
+    };
+    [(p(-3.5, 4.5), p(3.5, 4.5)), (p(2.5, -5.5), p(2.5, 5.5))]
+}
+
+/// Lớp vẽ vuông cạnh `n` px, mỗi pixel là (r, g, b, a) nhân trước alpha trong [0, 1].
+struct Layer {
+    n: usize,
+    px: Vec<[f32; 4]>,
+}
+
+impl Layer {
+    fn new(n: usize) -> Layer {
+        Layer {
+            n,
+            px: vec![[0.0; 4]; n * n],
+        }
+    }
+
+    /// Phủ màu `c` lên phần có `sdf < 0`; pixel ở cạnh phủ theo khoảng cách từ tâm pixel tới cạnh.
+    fn paint(&mut self, c: Rgb, sdf: impl Fn(f32, f32) -> f32) {
+        let col = [c.0, c.1, c.2].map(|v| v as f32 / 255.0);
+        for y in 0..self.n {
+            for x in 0..self.n {
+                let cov = (0.5 - sdf(x as f32 + 0.5, y as f32 + 0.5)).clamp(0.0, 1.0);
+                if cov <= 0.0 {
+                    continue;
+                }
+                let p = &mut self.px[y * self.n + x];
+                let keep = 1.0 - cov;
+                for i in 0..3 {
+                    p[i] = col[i] * cov + p[i] * keep;
+                }
+                p[3] = cov + p[3] * keep;
+            }
+        }
+    }
+
+    /// Pixel `0xAARRGGBB` (BGRA trong bộ nhớ) nhân trước alpha, đúng định dạng `AlphaBlend` cần.
+    fn into_bgra(self) -> Vec<u32> {
+        let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+        self.px
+            .into_iter()
+            .map(|[r, g, b, a]| {
+                let a = q(a);
+                (a << 24) | (q(r).min(a) << 16) | (q(g).min(a) << 8) | q(b).min(a)
+            })
+            .collect()
+    }
+}
+
+/// Ô tích cạnh `n` px ở tỉ lệ `k` px/DIP: hộp bo `RADIUS`, viền 1,5 DIP màu `c.border`, lòng `c.fill`;
+/// bật thì thêm dấu tích trắng nét 2 DIP.
+fn check_mark(n: usize, k: f32, c: Colors, checked: bool) -> Vec<u32> {
+    let mut l = Layer::new(n);
+    let (m, half) = (n as f32 / 2.0, n as f32 / 2.0);
+    let (r, bw) = (RADIUS as f32 * k, BORDER_DIP * k);
+    l.paint(c.border, |x, y| sd_round_rect(x, y, m, m, half, r));
+    if c.fill != c.border {
+        l.paint(c.fill, |x, y| sd_round_rect(x, y, m, m, half - bw, r - bw));
+    }
+    if checked {
+        let [a, b] = tick_arms(n as f32);
+        let h = TICK_DIP * k / 2.0;
+        l.paint(WHITE, |x, y| {
+            sd_bar(x, y, a.0, a.1, h).min(sd_bar(x, y, b.0, b.1, h))
+        });
+    }
+    l.into_bgra()
+}
+
+/// Nút chọn cạnh `n` px ở tỉ lệ `k`: vòng viền 1,5 DIP màu `c.border`, lòng trong suốt; bật thì thêm chấm
+/// `DOT` DIP màu `c.fill` ở giữa.
+fn radio_mark(n: usize, k: f32, c: Colors, checked: bool) -> Vec<u32> {
+    let mut l = Layer::new(n);
+    let (m, r) = (n as f32 / 2.0, n as f32 / 2.0);
+    let bw = BORDER_DIP * k;
+    l.paint(c.border, |x, y| {
+        sd_circle(x, y, m, m, r).max(-sd_circle(x, y, m, m, r - bw))
+    });
+    if checked {
+        let d = DOT as f32 * k / 2.0;
+        l.paint(c.fill, |x, y| sd_circle(x, y, m, m, d));
+    }
+    l.into_bgra()
+}
+
+/// Núm tròn cạnh `n` px: viền `bw_dip` DIP màu `border`, lòng `fill`.
+fn knob_mark(n: usize, k: f32, fill: Rgb, border: Rgb, bw_dip: f32) -> Vec<u32> {
+    let mut l = Layer::new(n);
+    let m = n as f32 / 2.0;
+    l.paint(border, |x, y| sd_circle(x, y, m, m, m));
+    l.paint(fill, |x, y| sd_circle(x, y, m, m, m - bw_dip * k));
+    l.into_bgra()
+}
+
+/// Trộn bộ đệm `px` (cạnh `n`, BGRA nhân trước alpha) lên `hdc` tại (`x`, `y`) bằng `AlphaBlend`.
+/// Trả `false` khi không làm được (bên gọi vẽ lại bằng GDI thường); mọi đối tượng tạm đều được xóa.
+fn blend(hdc: HDC, x: i32, y: i32, n: usize, px: &[u32]) -> bool {
+    let Ok(side) = i32::try_from(n) else {
+        return false;
+    };
+    if n == 0 || px.len() != n * n {
+        return false;
+    }
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: side,
+            biHeight: -side, // âm: từ trên xuống
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: DC và DIB tạm tạo ở đây được bỏ chọn và xóa trên mọi đường đi; chép đúng n*n pixel vào
+    // vùng nhớ n*n*4 byte của DIB vừa tạo.
+    unsafe {
+        let mem = CreateCompatibleDC(Some(hdc));
+        if mem.is_invalid() {
+            return false;
+        }
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let bmp = match CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+            Ok(b) => b,
+            Err(_) => {
+                let _ = DeleteDC(mem);
+                return false;
+            }
+        };
+        if bits.is_null() {
+            let _ = DeleteObject(HGDIOBJ(bmp.0));
+            let _ = DeleteDC(mem);
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(px.as_ptr(), bits as *mut u32, n * n);
+        let old = SelectObject(mem, HGDIOBJ(bmp.0));
+        let bf = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: 255,
+            AlphaFormat: AC_SRC_ALPHA as u8,
+        };
+        let ok = AlphaBlend(hdc, x, y, side, side, mem, 0, 0, side, side, bf).as_bool();
+        SelectObject(mem, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        let _ = DeleteDC(mem);
+        ok
+    }
+}
+
+/// Cách vẽ GDI thường (răng cưa), chỉ dùng khi `blend` không làm được.
+fn draw_check_gdi(hdc: HDC, bx: &RECT, radio: bool, c: Colors, checked: bool, dpi: u32) {
+    let s = bx.right - bx.left;
+    let bw = (scale(3, dpi) / 2).max(1);
+    if radio {
+        ellipse(hdc, bx, SURFACE, c.border, bw);
+        if checked {
+            let d = scale(DOT, dpi);
+            let off = (s - d) / 2;
+            let dot = RECT {
+                left: bx.left + off,
+                top: bx.top + off,
+                right: bx.left + off + d,
+                bottom: bx.top + off + d,
+            };
+            ellipse(hdc, &dot, c.fill, c.fill, 0);
+        }
+    } else {
+        round_rect(hdc, bx, scale(RADIUS, dpi), c.fill, c.border, bw);
+        if checked {
+            let p = |fx: i32, fy: i32| POINT {
+                x: bx.left + s * fx / 100,
+                y: bx.top + s * fy / 100,
+            };
+            polyline(
+                hdc,
+                &[p(27, 50), p(43, 66), p(73, 35)],
+                WHITE,
+                scale(2, dpi),
+            );
+        }
+    }
+}
+
+/// Vẽ ô tích (`radio == false`) hoặc nút chọn vào `rc`: hộp 18 DIP bên trái (khử răng cưa), chữ bên
+/// phải, khung tiêu điểm quanh chữ.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_check(
     hdc: HDC,
@@ -588,34 +821,15 @@ pub fn draw_check(
         right: rc.left + s,
         bottom: top + s,
     };
-    let bw = (scale(3, dpi) / 2).max(1);
-    if radio {
-        ellipse(hdc, &bx, SURFACE, c.border, bw);
-        if state.checked {
-            let d = scale(DOT, dpi);
-            let off = (s - d) / 2;
-            let dot = RECT {
-                left: bx.left + off,
-                top: bx.top + off,
-                right: bx.left + off + d,
-                bottom: bx.top + off + d,
-            };
-            ellipse(hdc, &dot, c.fill, c.fill, 0);
-        }
+    let n = s.max(0) as usize;
+    let k = dpi as f32 / 96.0;
+    let px = if radio {
+        radio_mark(n, k, c, state.checked)
     } else {
-        round_rect(hdc, &bx, scale(RADIUS, dpi), c.fill, c.border, bw);
-        if state.checked {
-            let p = |fx: i32, fy: i32| POINT {
-                x: bx.left + s * fx / 100,
-                y: bx.top + s * fy / 100,
-            };
-            polyline(
-                hdc,
-                &[p(27, 50), p(43, 66), p(73, 35)],
-                WHITE,
-                scale(2, dpi),
-            );
-        }
+        check_mark(n, k, c, state.checked)
+    };
+    if !blend(hdc, bx.left, bx.top, n, &px) {
+        draw_check_gdi(hdc, &bx, radio, c, state.checked, dpi);
     }
     let tr = RECT {
         left: bx.right + scale(BOX_GAP, dpi),
@@ -737,7 +951,16 @@ pub fn custom_draw_trackbar(nmcd: &NMCUSTOMDRAW, bg: Rgb, dpi: u32) -> LRESULT {
             right: knob_x + r,
             bottom: cy + r,
         };
-        ellipse(dc, &knob, knob_fill, knob_border, scale(KNOB_BORDER, dpi));
+        let px = knob_mark(
+            (2 * r).max(0) as usize,
+            dpi as f32 / 96.0,
+            knob_fill,
+            knob_border,
+            KNOB_BORDER as f32,
+        );
+        if !blend(dc, knob.left, knob.top, (2 * r).max(0) as usize, &px) {
+            ellipse(dc, &knob, knob_fill, knob_border, scale(KNOB_BORDER, dpi));
+        }
         if focused && show_focus {
             focus_frame(dc, &client, dpi);
         }
@@ -1122,6 +1345,50 @@ mod tests {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+        }
+    }
+
+    /// Vẽ ô tích, nút chọn (mọi trạng thái) và thanh trượt lên DC bộ nhớ 200 lần: số đối tượng GDI sau
+    /// cùng bằng lúc đầu (DC và DIB tạm của `blend` được xóa). Bỏ qua khi chạy chung vì đếm theo tiến
+    /// trình, kiểm thử khác chạy song song làm lệch số đếm.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored smooth_marks_no_gdi_leak`.
+    #[test]
+    #[ignore]
+    fn smooth_marks_no_gdi_leak() {
+        use windows::Win32::Graphics::Gdi::{GetDC, ReleaseDC};
+        // SAFETY: DC màn hình, DC bộ nhớ và bitmap tạo ở đây được trả và xóa ở cuối.
+        unsafe {
+            let screen = GetDC(None);
+            let mem = CreateCompatibleDC(Some(screen));
+            let bmp = CreateCompatibleBitmap(screen, 200, 60);
+            let old = SelectObject(mem, HGDIOBJ(bmp.0));
+            let rc = RECT {
+                left: 0,
+                top: 0,
+                right: 200,
+                bottom: 60,
+            };
+            let text: Vec<u16> = "Ab".encode_utf16().collect();
+            let draw_all = || {
+                for s in all_states() {
+                    for radio in [false, true] {
+                        for dpi in [96, 144, 192] {
+                            draw_check(mem, &rc, &text, radio, s, dpi, None, (true, true));
+                        }
+                    }
+                }
+            };
+            draw_all();
+            let before = gdi_count();
+            for _ in 0..200 {
+                draw_all();
+            }
+            let after = gdi_count();
+            SelectObject(mem, old);
+            let _ = DeleteObject(HGDIOBJ(bmp.0));
+            let _ = DeleteDC(mem);
+            ReleaseDC(None, screen);
+            assert_eq!(after, before);
         }
     }
 
