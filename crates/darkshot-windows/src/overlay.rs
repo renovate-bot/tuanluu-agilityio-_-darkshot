@@ -5604,6 +5604,8 @@ mod tests {
             if i % 4 < 2 {
                 steps.extend(live::click(at));
             } else {
+                // Con trỏ thật đứng tại `at`: chuột thật không đổi ứng viên đang xem trước.
+                steps.push(live::Step::Cursor(at));
                 steps.push(live::Step::Move(at));
                 steps.push(live::Step::Key(VK_RETURN.0));
             }
@@ -6660,6 +6662,8 @@ mod tests {
             Captured(bool),
             /// Giữ (`true`) hoặc nhả Shift giả cho các bước sau (`key_held(VK_SHIFT)`).
             Shift(bool),
+            /// Đặt con trỏ thật tại điểm (tọa độ ảnh chụp, cộng `origin` của ảnh) bằng `SetCursorPos`.
+            Cursor(Point),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -6818,6 +6822,7 @@ mod tests {
             custom: &mut CustomColors,
             steps: Vec<Step>,
         ) -> (Result<Option<Picked>, String>, bool) {
+            let origin = shot.origin;
             let driver = std::thread::spawn(move || {
                 let lp =
                     |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
@@ -6875,6 +6880,22 @@ mod tests {
                         }
                         Step::Shift(on) => {
                             TEST_MODS.store(if on { 2 } else { 0 }, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Step::Cursor(p) => {
+                            use windows::Win32::UI::HiDpi::{
+                                SetThreadDpiAwarenessContext,
+                                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                            };
+                            use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
+                            // SAFETY: tọa độ pixel vật lý như lớp phủ (PerMonitorV2 cho luồng
+                            // này); chỉ dời con trỏ chuột.
+                            unsafe {
+                                SetThreadDpiAwarenessContext(
+                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                                );
+                                let _ = SetCursorPos(origin.x + p.x, origin.y + p.y);
+                            }
                             std::thread::sleep(Duration::from_millis(100));
                         }
                     }
@@ -8642,6 +8663,51 @@ mod tests {
         }
 
         #[test]
+        fn jitter_selects_candidate_at_press_point() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            // Bấm trong WIN sát mép phải, nhả ngoài WIN 2 px: ứng viên lấy tại điểm bấm.
+            s.on_move(p(399, 150));
+            s.on_down(p(399, 150));
+            s.on_move(p(401, 151));
+            s.on_up(p(401, 151));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn flat_drag_selects_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            // Kéo 200 px ngang, lệch dọc 2 px: vùng dẹt bị bỏ như đợt 7, không chọn ứng viên.
+            let (a, b) = (p(150, 150), p(350, 152));
+            s.on_move(a);
+            s.on_down(a);
+            s.on_move(p(250, 151));
+            assert_eq!(s.snap_hover, None);
+            s.on_move(b);
+            s.on_up(b);
+            assert_eq!(s.sel.rect(), None);
+        }
+
+        #[test]
+        fn press_keeps_preview_without_zero_frame() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            s.on_down(p(200, 150));
+            // Trong lúc chưa rời điểm bấm: hiện khung xem trước, không hiện khung/nhãn 0 × 0.
+            assert_eq!(s.shown_rect(), Some(WIN));
+            let (_, text, _) = s.label().unwrap();
+            assert_eq!(text, wide("300 \u{d7} 200"));
+            assert!(s.toolbar().is_none());
+            s.on_up(p(200, 150));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
         fn drag_50px_selects_region_not_candidate() {
             let _gdi = GDI_TEST_LOCK.lock();
             let sh = shot(Some(vec![WIN]));
@@ -8650,8 +8716,10 @@ mod tests {
             s.on_move(a);
             assert_eq!(s.snap_hover, Some(WIN));
             s.on_down(a);
-            // Gợi ý biến mất ngay khi bắt đầu kéo.
-            assert_eq!(s.snap_hover, None);
+            // Vừa bấm: xem trước còn (không chớp tối); chuột rời điểm bấm >= MIN_SIZE mới thành kéo.
+            assert_eq!(s.snap_hover, Some(WIN));
+            s.on_move(p(152, 151));
+            assert_eq!(s.snap_hover, Some(WIN));
             s.on_move(p(175, 175));
             assert_eq!(s.snap_hover, None);
             s.on_move(b);

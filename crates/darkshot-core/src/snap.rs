@@ -68,6 +68,13 @@ pub fn dip(v: i32, dpi: u32) -> i32 {
     ((i64::from(v) * dpi + 48) / 96).clamp(1, i64::from(i32::MAX)) as i32
 }
 
+/// Bấm rồi nhả (`down` → `up`) là một cú bấm, không phải kéo: dịch dưới `geometry::MIN_SIZE`
+/// theo cả hai trục.
+pub fn is_click(down: Point, up: Point) -> bool {
+    let _ = (down, up);
+    false
+}
+
 /// Gợi ý cửa sổ chạy khi có ứng viên, chưa có vùng chọn, không đang kéo, không bảng nổi nào mở.
 pub fn snap_active(has_cands: bool, has_selection: bool, dragging: bool, panel_open: bool) -> bool {
     has_cands && !has_selection && !dragging && !panel_open
@@ -301,5 +308,17 @@ mod tests {
         // có vùng chọn, đang kéo
         assert!(!hint_visible(h, p(100, 500), 96, true, false));
         assert!(!hint_visible(h, p(100, 500), 96, false, true));
+    }
+    #[test]
+    fn is_click_both_axes_below_min_size() {
+        assert!(is_click(p(10, 10), p(10, 10)));
+        assert!(is_click(p(10, 10), p(12, 8)));
+        assert!(is_click(p(10, 10), p(8, 12)));
+        // một trục đủ MIN_SIZE là kéo (kể cả kéo dẹt)
+        assert!(!is_click(p(10, 10), p(13, 10)));
+        assert!(!is_click(p(10, 10), p(10, 7)));
+        assert!(!is_click(p(0, 0), p(200, 2)));
+        // không tràn số
+        assert!(!is_click(p(i32::MIN, 0), p(i32::MAX, 0)));
     }
 }
