@@ -25,7 +25,7 @@
 
 ## Files
 
-- Sửa: `crates/darkshot-windows/src/overlay.rs`.
+- Sửa: `crates/darkshot-windows/src/overlay.rs`; `crates/darkshot-core/src/edit.rs` chỉ cho sửa `tri_contains`.
 
 ## Quyết định cho task này
 
@@ -39,6 +39,7 @@
 - **Bỏ chọn khi**: đổi/bỏ công cụ, hoàn tác, làm lại, vùng chọn bắt đầu kéo khung mới, lớp phủ đóng.
 - **Vẽ**: sau các hình và trước khung vùng chọn/thanh: `frame` (nếu có) viền 1 px `ACCENT`, tay nắm từ `handles` bằng `Painter::handle` cỡ `scaled(HANDLE_SIZE)`. Hình chọn có thể nằm ngoài phần đang vẽ: chỉ vẽ phần giao `area`. Khung/tay nắm chỉ trên màn hình.
 - **Con trỏ** khi Chọn bật: trên tay nắm hình chọn → con trỏ đổi cỡ theo hướng (`End` dùng `IDC_SIZEALL`); trên hình (trúng) → `IDC_SIZEALL`; còn lại → mũi tên; tay nắm vùng như hôm nay.
+- **Sửa nhỏ từ rà soát Task 45:** `edit.rs` `tri_contains` (trúng đầu mũi tên) trả `false` khi diện tích tam giác bằng 0 hoặc `p` không hữu hạn; thêm kiểm thử `arrow_degenerate_head_no_hit` trong `edit.rs` (được phép sửa file này cho riêng việc này).
 - **Làm mới**: khi chọn/bỏ chọn làm mới `frame` nới bằng nửa cỡ tay nắm + 1; khi kéo làm mới hợp hộp cũ và mới (nới như trên).
 
 ## Các bước
