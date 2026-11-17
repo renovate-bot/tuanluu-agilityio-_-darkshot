@@ -35,6 +35,12 @@ Gói task tự chứa. Thuộc kế hoạch `docs/superpowers/plans/2026-11-17-a
 - Hoàn tác: nút Undo, Ctrl+Z; làm mới hộp bao hình bị bỏ.
 - Kết quả (mục 5.6): `finish` trả `Picked { action, rect, shapes }`. `main.rs`: sau `crop`, nếu `shapes` không rỗng thì `annotate_draw::burn(&mut image, &shapes, rect)`; lỗi thì thông báo Error `AnnotateFailedTitle`/`AnnotateFailedBody` và dừng (không lưu, chép, tải ảnh thiếu nét). "Giữ vị trí vùng" dùng `rect` như cũ.
 
+## Ghi chú từ rà soát Task 35
+
+- Bỏ `#![allow(dead_code)]` ở đầu `annotate_draw.rs` khi đã nối vào lớp phủ (chỉ giữ `allow` cụ thể cho hàm Task 37 mới dùng, ví dụ `caret_rect`).
+- Sửa trong `annotate_draw.rs`: Marker hoặc Pen có mọi điểm trùng nhau (hai điểm trở lên) phải vẽ như nét một điểm (Marker: ô vuông cạnh `width`; Pen: chấm tròn), không để `GdipWidenPath` lỗi làm `burn` trả `Err`. Thêm kiểm thử `coincident_points_draw_a_dot` cho cả hai.
+- `shape_bounds`/`caret_rect` khởi động GDI+ và tạo phông mỗi lần gọi: không gọi chúng trong `WM_MOUSEMOVE`.
+
 ## Các bước
 
 - [ ] **1. Kiểm thử trước.** Commit `test: annotate overlay`. Ưu tiên hàm thuần tách ra từ `overlay.rs`; phần cần cửa sổ dùng mẫu kiểm thử có sẵn (gửi `WM_LBUTTONDOWN/MOVE/UP` giả như kiểm thử Esc và nút Lưu hiện có), `#[ignore]` nếu cần màn hình thật, kèm lệnh chạy.

@@ -29,6 +29,12 @@ Gói task tự chứa. Thuộc kế hoạch `docs/superpowers/plans/2026-11-17-a
 - Bộ gõ Windows: khi ô chữ mở, đặt cửa sổ soạn tại con trỏ (`ImmSetCompositionWindow` với `CFS_POINT`, `ImmSetCompositionFont` cỡ gần đúng); kết quả nhận qua `WM_CHAR` (mặc định `DefWindowProc` của `WM_IME_CHAR`). Khi không có ô chữ, giữ hành vi IME như hiện nay.
 - Đổi màu khi đang gõ: `set_color` cho ô đang gõ và làm màu hiện tại.
 
+## Ghi chú từ rà soát Task 35
+
+- `shape_bounds` của chữ rỗng hoặc toàn khoảng trắng trả hộp ở gốc ảnh chụp, không ở `origin`: không gọi nó cho ô rỗng; khung ô rỗng tính từ `caret_rect`.
+- Hộp của `shape_bounds` đo theo phần mực, không gồm khoảng trắng cuối dòng: vùng làm mới và khung ô chữ phải gộp thêm `caret_rect`.
+- `shape_bounds`/`caret_rect` tốn công (khởi động GDI+, tạo phông): gọi mỗi lần gõ phím được, không gọi khi di chuột hay mỗi nhịp nháy con trỏ (lưu lại kết quả).
+
 ## Các bước
 
 - [ ] **1. Kiểm thử trước.** Commit `test: annotate text tool`.
