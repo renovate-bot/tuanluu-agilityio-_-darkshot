@@ -44,10 +44,10 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    InitCommonControlsEx, SetScrollInfo, ICC_BAR_CLASSES, INITCOMMONCONTROLSEX, NMHDR,
-    NM_CUSTOMDRAW, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_NEWTOOLRECTW,
-    TTM_SETMAXTIPWIDTH, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
-    WM_MOUSELEAVE,
+    EnableScrollBar, InitCommonControlsEx, SetScrollInfo, ESB_DISABLE_BOTH, ESB_ENABLE_BOTH,
+    ICC_BAR_CLASSES, INITCOMMONCONTROLSEX, NMHDR, NM_CUSTOMDRAW, TOOLTIPS_CLASSW, TTF_IDISHWND,
+    TTF_SUBCLASS, TTM_ADDTOOLW, TTM_NEWTOOLRECTW, TTM_SETMAXTIPWIDTH, TTM_UPDATETIPTEXTW,
+    TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW, WM_MOUSELEAVE,
 };
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI,
@@ -1501,12 +1501,35 @@ fn fix_focus(hwnd: HWND, c: &Controls, focus_options: bool) {
     }
 }
 
+/// Trạng thái mũi tên của thanh cuộn danh sách sau `SetScrollInfo`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScrollArrows {
+    /// Thẻ xác nhận mở: thanh cuộn mờ, không bấm được.
+    Disabled,
+    /// Nội dung dài hơn khung nhìn: bật lại (có thể đã bị vô hiệu khi thẻ mở).
+    Enabled,
+    /// Không cần cuộn: để `SIF_DISABLENOSCROLL` quyết định.
+    Auto,
+}
+
+/// Quyết định thuần cho thanh cuộn danh sách.
+fn scrollbar_arrows(card_open: bool, content: i32, view: i32) -> ScrollArrows {
+    if card_open {
+        ScrollArrows::Disabled
+    } else if content > view {
+        ScrollArrows::Enabled
+    } else {
+        ScrollArrows::Auto
+    }
+}
+
 fn update_scrollbar(list: HWND) {
-    let Some((content, view, pos)) = with_state(|s| {
+    let Some((content, view, pos, card_open)) = with_state(|s| {
         (
             s.layout.content_h(s.visible.len()),
             s.layout.list.bottom - s.layout.list.top,
             s.scroll,
+            s.confirm.is_open(),
         )
     }) else {
         return;
@@ -1523,6 +1546,17 @@ fn update_scrollbar(list: HWND) {
     // SAFETY: si là biến cục bộ đủ cbSize; list là cửa sổ con của luồng này.
     unsafe {
         SetScrollInfo(list, SB_VERT, &si, true);
+    }
+    // Sau `SetScrollInfo` (vì `SIF_DISABLENOSCROLL` có thể bật lại thanh cuộn). Thanh cuộn là vùng
+    // ngoài client: `EnableWindow(false)` của danh sách không làm nó mờ khi thẻ xác nhận mở.
+    let arrows = match scrollbar_arrows(card_open, content, view) {
+        ScrollArrows::Disabled => ESB_DISABLE_BOTH,
+        ScrollArrows::Enabled => ESB_ENABLE_BOTH,
+        ScrollArrows::Auto => return,
+    };
+    // SAFETY: list là cửa sổ con của luồng này; lỗi (đã đúng trạng thái) bỏ qua.
+    unsafe {
+        let _ = EnableScrollBar(list, SB_VERT.0 as u32, arrows);
     }
 }
 
@@ -3281,6 +3315,18 @@ mod tests {
             right: r,
             bottom: b,
         }
+    }
+
+    #[test]
+    fn scrollbar_arrows_follow_card_and_content() {
+        // Thẻ mở: luôn vô hiệu, dù nội dung dài hay ngắn.
+        assert_eq!(scrollbar_arrows(true, 2000, 500), ScrollArrows::Disabled);
+        assert_eq!(scrollbar_arrows(true, 100, 500), ScrollArrows::Disabled);
+        // Thẻ đóng, nội dung dài hơn khung nhìn: bật lại.
+        assert_eq!(scrollbar_arrows(false, 2000, 500), ScrollArrows::Enabled);
+        // Thẻ đóng, vừa khung hoặc ngắn hơn: để hệ thống tự làm mờ.
+        assert_eq!(scrollbar_arrows(false, 500, 500), ScrollArrows::Auto);
+        assert_eq!(scrollbar_arrows(false, 0, 500), ScrollArrows::Auto);
     }
 
     #[test]

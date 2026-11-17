@@ -44,6 +44,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tray::{MenuCommand, Notice, Tray, WM_NOTICE, WM_TRAY};
 use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{
@@ -457,16 +458,24 @@ fn side_effects_allowed() -> bool {
     SIDE_EFFECTS_ALLOWED.load(Ordering::SeqCst)
 }
 
-/// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
+/// Giới hạn chờ hàng ghi lịch sử lúc thoát; Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
+const HISTORY_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Lưu vào máy ảnh của mọi lượt tải lên chưa xong, rồi chờ hàng ghi lịch sử. Chạy trên luồng
+/// chính, chỉ ghi file, không mạng. Thứ tự: `drain` (giành mọi lượt còn dở; lượt nào đã được trao
+/// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → ghi dự phòng đồng bộ → `flush`.
+/// Gọi lại lần hai thì vô hại: sổ rỗng, hàng rỗng.
 fn save_pending_uploads() {
     let items = PENDING.with(|p| p.drain());
     if !items.is_empty() {
         let now = paths::local_now();
-        // Tiến trình sắp thoát: ghi lịch sử đồng bộ (luồng nền có thể bị cắt ngang).
+        // Tiến trình sắp thoát: ghi lịch sử đồng bộ.
         app::save_pending(items, now, &|o, img| {
             history_service::record_outcome_blocking(o, img, Expiry::Keep, now)
         });
     }
+    // Hết giờ thì bỏ: không treo khi thoát.
+    let _ = history_service::flush(HISTORY_FLUSH_TIMEOUT);
 }
 
 /// Luồng nền (hoặc lúc khởi động) nhờ luồng chính mở Cài đặt.
@@ -783,9 +792,15 @@ fn run_on_image(
                 lang: lang::current(),
                 upload_format: config.upload_format,
                 jpeg_quality: config.jpeg_quality,
-                on_outcome: Some(Box::new(move |o, img| {
-                    history_service::record_outcome(o, img, expiry, paths::local_now())
-                })),
+                on_outcome: Some({
+                    // Cùng ảnh của lượt (`Arc`): hàng ghi giữ nó, không sao chép lần hai.
+                    let shared = image.clone();
+                    Box::new(move |o, _img| {
+                        // Hạn tính từ lúc tải xong: R2 đếm vòng đời từ lúc đối tượng được tạo (PUT xong).
+                        let now = paths::local_now();
+                        history_service::record_outcome_arc(o, shared.clone(), expiry, now)
+                    })
+                }),
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.
