@@ -38,10 +38,12 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem tên và phím tắt.
+Thanh có sáu nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi bốn nút hành động. Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
+| Hoàn tác | `Ctrl+Z` | Bỏ thay đổi đánh dấu gần nhất (xem "Đánh dấu ảnh"). Mờ khi không có gì để bỏ. Lớp phủ vẫn mở. |
+| Làm lại | `Ctrl+Y` hoặc `Ctrl+Shift+Z` | Làm lại thay đổi vừa hoàn tác. Mờ khi không có gì để làm lại. Lớp phủ vẫn mở. |
 | Tải lên và chép link | `Ctrl+D` | Tải ảnh lên kho R2, chép link vào clipboard, hiện thông báo "Đã chép link". |
 | Lưu vào máy | `Ctrl+S` | Lưu PNG vào thư mục lưu, không hỏi lại. |
 | Chép ảnh | `Ctrl+C` | Chép ảnh vào clipboard. |
@@ -52,28 +54,35 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 ### Đánh dấu ảnh
 
-Khi đã có vùng chọn và không đang kéo, một thanh công cụ dọc hiện cạnh vùng. Thanh nằm bên phải vùng, mép dưới thẳng mép dưới vùng. Không đủ chỗ bên phải thì sang bên trái; không đủ cả hai thì nằm trong vùng, sát mép phải. Thanh không chồng lên thanh bốn nút: nếu đẩy lên trên thanh bốn nút vẫn chồng thì thanh sang chỗ trống gần vùng nhất (dưới, phải hoặc trái thanh bốn nút, hoặc bên trái vùng).
+Khi đã có vùng chọn và không đang kéo, một thanh công cụ dọc hiện cạnh vùng. Thanh nằm bên phải vùng, mép dưới thẳng mép dưới vùng. Không đủ chỗ bên phải thì sang bên trái; không đủ cả hai thì nằm trong vùng, sát mép phải. Thanh không chồng lên thanh công cụ ngang: nếu đẩy lên trên thanh ngang vẫn chồng thì thanh sang chỗ trống gần vùng nhất (dưới, phải hoặc trái thanh ngang, hoặc bên trái vùng).
 
-Thanh có 14 mục, từ trên xuống: Chọn | Bút vẽ, Đường thẳng, Mũi tên, Hình chữ nhật, Hình elip, Bút dạ quang, Làm mờ, Chữ, Đánh số | Cỡ, Màu | Hoàn tác, Làm lại. Vạch ngăn giữa các nhóm. Chú thích hiện khi rê chuột vào nút.
+Thanh có 9 mục, từ trên xuống: Chọn | Bút vẽ, Hình, Bút dạ quang, Làm mờ, Chữ, Đánh số | Cỡ, Màu. Vạch ngăn giữa các nhóm. Chú thích hiện khi rê chuột vào nút. Hoàn tác và Làm lại nằm ở đầu thanh công cụ ngang.
 
-Nếu thanh một cột cao hơn màn hình (trừ lề trên và dưới) thì thanh xếp thành hai cột: hết cột trái thì sang cột phải. Ví dụ màn hình 1920×1080 ở DPI 200% cần hai cột.
+**Nút Hình** gom Đường thẳng, Mũi tên, Hình chữ nhật và Hình elip. Nút hiện biểu tượng của hình dùng gần nhất (mặc định Mũi tên), kèm một tam giác nhỏ ở góc dưới phải.
+
+- Đang dùng công cụ khác (hoặc chưa chọn công cụ): bấm nút Hình là bật ngay hình dùng gần nhất, không mở bảng.
+- Đang dùng một hình: bấm nút Hình mở bảng Hình (bốn ô, ô của hình đang dùng có viền sáng; rê chuột vào ô để xem tên và phím). Bấm một ô để bật hình đó và đóng bảng. Bấm lại nút Hình, bấm ra ngoài bảng hoặc bấm Esc thì chỉ đóng bảng.
+- Phím `L`, `A`, `R`, `E` vẫn chọn thẳng từng hình và cũng đổi hình nhớ của nút. Hình nhớ được giữ trong lúc darkshot chạy (như màu và mức cỡ).
+- Bảng Hình, bảng Cỡ và bảng màu không bao giờ mở cùng lúc.
+
+Nếu thanh một cột cao hơn màn hình (trừ lề trên và dưới) thì thanh xếp thành hai cột: hết cột trái thì sang cột phải. Một cột cao 342 DIP, nên màn hình 1920×1080 ở DPI 200% vẫn đủ một cột; màn hình 1366×768 ở DPI 250% cần hai cột.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
 | Chọn | `V` | Chọn, di chuyển, đổi cỡ, xóa và đổi màu hay cỡ của từng hình đã vẽ. Xem "Sửa hình đã vẽ". |
 | Bút vẽ | `P` | Kéo để vẽ nét tự do, nét 3 DIP. Bấm một cái tạo một chấm. |
-| Đường thẳng | `L` | Kéo từ điểm đầu tới điểm cuối, nét 3 DIP. |
-| Mũi tên | `A` | Như đường thẳng, có đầu mũi tên ở điểm cuối. |
-| Hình chữ nhật | `R` | Kéo theo đường chéo, chỉ vẽ viền. |
-| Hình elip | `E` | Kéo theo hộp như Hình chữ nhật, chỉ vẽ viền. Giữ Shift: hình tròn. |
+| Hình: Đường thẳng | `L` | Kéo từ điểm đầu tới điểm cuối, nét 3 DIP. |
+| Hình: Mũi tên | `A` | Như đường thẳng, có đầu mũi tên ở điểm cuối. |
+| Hình: Hình chữ nhật | `R` | Kéo theo đường chéo, chỉ vẽ viền. |
+| Hình: Hình elip | `E` | Kéo theo hộp như Hình chữ nhật, chỉ vẽ viền. Giữ Shift: hình tròn. |
 | Bút dạ quang | `H` | Nét 16 DIP, trong mờ. Chỗ nét tự chồng lên nhau không đậm thêm. |
 | Làm mờ | `B` | Tô kín vùng kéo bằng một màu trung bình của ảnh; không khôi phục được chữ bên dưới. |
 | Chữ | `T` | Bấm để đặt ô chữ rồi gõ. |
 | Đánh số | `N` | Bấm trong vùng chọn để đặt một vòng tròn có số tại điểm bấm. Số tự đánh lại 1, 2, 3… theo thứ tự vẽ. |
 | Cỡ | `[` `]` | Mở bảng Cỡ (bốn mức). `[` giảm một mức, `]` tăng một mức. |
 | Màu | | Mở bảng màu. |
-| Hoàn tác | `Ctrl+Z` | Bỏ thay đổi gần nhất: thêm, xóa, di chuyển, đổi cỡ, đổi màu, đổi mức cỡ. Mờ khi không có gì để bỏ. |
-| Làm lại | `Ctrl+Y` hoặc `Ctrl+Shift+Z` | Làm lại thay đổi vừa hoàn tác. Mờ khi không có gì để làm lại. |
+| Hoàn tác (thanh ngang) | `Ctrl+Z` | Bỏ thay đổi gần nhất: thêm, xóa, di chuyển, đổi cỡ, đổi màu, đổi mức cỡ. Mờ khi không có gì để bỏ. |
+| Làm lại (thanh ngang) | `Ctrl+Y` hoặc `Ctrl+Shift+Z` | Làm lại thay đổi vừa hoàn tác. Mờ khi không có gì để làm lại. |
 
 DIP là đơn vị theo tỉ lệ hiển thị của Windows, nên nét trên màn hình có DPI cao vẫn cùng tỉ lệ với màn hình.
 
@@ -121,7 +130,7 @@ Tự chọn màu: bảng mở ở dạng gọn ("Màu cơ bản", 16 ô "Màu t�
 - Bấm chỗ khác (trong hoặc ngoài vùng chọn, không phải tay nắm) thì bỏ chọn hình; không tạo vùng chọn mới.
 - Hoàn tác và làm lại áp cho mọi thao tác này. Sau hoàn tác hoặc làm lại, hình không còn được chọn.
 
-**Esc** lùi từng bước theo thứ tự: đóng bảng Cỡ hoặc bảng màu đang mở; đang gõ chữ thì hủy ô chữ (khi bộ gõ đang soạn dở một chữ, Esc thuộc về bộ gõ); đang kéo một hình thì hủy lần kéo, hình về như cũ, không ghi gì; đang chọn một hình thì bỏ chọn; còn lại thì đóng lớp phủ và bỏ mọi nét, như trước.
+**Esc** lùi từng bước theo thứ tự: đóng bảng Cỡ, bảng Hình hoặc bảng màu đang mở; đang gõ chữ thì hủy ô chữ (khi bộ gõ đang soạn dở một chữ, Esc thuộc về bộ gõ); đang kéo một hình thì hủy lần kéo, hình về như cũ, không ghi gì; đang chọn một hình thì bỏ chọn; còn lại thì đóng lớp phủ và bỏ mọi nét, như trước.
 
 **In vào ảnh:** ảnh tải lên, ảnh lưu vào máy và ảnh chép đều có các nét đã vẽ, ở đúng chỗ và đúng màu như trên màn hình. Ảnh không có nét thì giữ như trước. Khung chọn, tay nắm và khung ô chữ không bao giờ có trong ảnh. Nếu không in được nét, darkshot báo "Không xử lý được ảnh" và dừng việc lưu, chép hoặc tải lên, để không có ảnh thiếu nét. Trong trường hợp đó hãy chụp lại.
 
