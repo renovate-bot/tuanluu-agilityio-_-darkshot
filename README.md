@@ -77,7 +77,7 @@ DIP là đơn vị theo tỉ lệ hiển thị của Windows, nên nét trên m�
 - Nét kéo ra ngoài vùng vẫn được ghi nhưng chỉ hiện và in phần nằm trong vùng. Đổi cỡ hoặc di chuyển vùng (khi không có công cụ nào đang chọn) thì nét giữ nguyên vị trí trên màn hình: phần nằm ngoài vùng bị ẩn và không in; kéo vùng về thì nét hiện lại.
 - Hoàn tác chỉ bỏ hình cuối cùng, một bước. Không có làm lại.
 
-**Màu:** bấm nút Màu để mở bảng tám màu cạnh nút: đỏ (mặc định), cam, vàng, xanh lá, xanh lam, tím, trắng, đen. Bấm một ô để chọn màu và đóng bảng. Bấm ra ngoài bảng hoặc bấm Esc thì chỉ đóng bảng, lớp phủ còn. Hình đã vẽ không đổi màu. Màu được nhớ trong lúc darkshot chạy; thoát rồi mở lại thì về đỏ.
+**Màu:** bấm nút Màu để mở bảng 48 màu cạnh nút (6 hàng × 8 cột như hộp chọn màu của Windows; mặc định đỏ `#FF0000`). Bấm một ô để chọn màu và đóng bảng. Bấm ra ngoài bảng hoặc bấm Esc thì chỉ đóng bảng, lớp phủ còn. Hình đã vẽ không đổi màu. Màu được nhớ trong lúc darkshot chạy; thoát rồi mở lại thì về đỏ.
 
 **Chữ:**
 

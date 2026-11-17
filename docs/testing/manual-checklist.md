@@ -285,3 +285,4 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Chữ: khung nét đứt xanh và con trỏ nháy chỉ có trên màn hình, không có trong ảnh lưu, chép hay tải lên; chữ trong ảnh đúng vị trí, cỡ, màu như trên màn hình.
 - [ ] Chữ ở DPI 100% và 150% (cả hai màn hình khác DPI): cỡ chữ, khung, con trỏ đúng tỉ lệ; ảnh ra khớp màn hình.
 - [ ] Đang gõ, chuyển cửa sổ (Alt+Tab) hoặc đóng lớp phủ: lần chụp sau phím Esc vẫn đóng lớp phủ, Esc trong ứng dụng khác không bị nuốt sau khi lớp phủ đóng.
+- [ ] Bảng 48 màu nằm trọn trong màn hình ở DPI 100% và 150%, ô tối (đen, `#000040`) vẫn thấy rõ, chọn được từng ô.

@@ -12,7 +12,7 @@ use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
     add_point, constrain_45, constrain_square, dip_to_px, press_mode, sanitize_paste, too_short,
     Annotations, PressMode, Pt, Shape, TextEdit, Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE,
-    STROKE_DIP, TEXT_DIP,
+    PALETTE_COLS, STROKE_DIP, TEXT_DIP,
 };
 use darkshot_core::geometry::{
     monitor_containing, place_side_toolbar, place_toolbar, Handle, Hit, Point, Rect, Selection,
@@ -85,7 +85,9 @@ const ICON: i32 = 20;
 /// Ô vạch ngăn của thanh dọc (vạch 1 px ở giữa, phần còn lại là lề).
 const SIDE_SEP: i32 = 9;
 /// Ô màu của bảng màu.
-const CELL: i32 = 24;
+const CELL: i32 = 20;
+/// Khe và lề của bảng màu.
+const PAL_GAP: i32 = 4;
 /// Ô vuông màu hiện tại trên nút Màu.
 const SWATCH: i32 = 16;
 /// Vạch đánh dấu công cụ đang chọn ở mép trái nút, và viền ô màu đang chọn.
@@ -204,14 +206,18 @@ fn side_item_at(bar: Rect, sep: i32, p: Point) -> Option<SideItem> {
         .map(|(_, item)| *item)
 }
 
-/// Cỡ bảng màu 2×4 ô cạnh `cell`, khe và lề `gap`.
+/// Cỡ bảng màu 8 cột × 6 hàng ô cạnh `cell`, khe và lề `gap`.
 fn palette_size(cell: i32, gap: i32) -> (i32, i32) {
-    (4 * cell + 5 * gap, 2 * cell + 3 * gap)
+    let (cols, rows) = (PALETTE_COLS as i32, (PALETTE.len() / PALETTE_COLS) as i32);
+    (
+        cols * cell + (cols + 1) * gap,
+        rows * cell + (rows + 1) * gap,
+    )
 }
 
-/// Ô màu thứ `i` (hàng trên 0..4, hàng dưới 4..8) của bảng `pal`.
+/// Ô màu thứ `i` (theo hàng, 8 ô mỗi hàng) của bảng `pal`.
 fn palette_cell_rect(pal: Rect, cell: i32, gap: i32, i: usize) -> Rect {
-    let (col, row) = ((i % 4) as i32, (i / 4) as i32);
+    let (col, row) = ((i % PALETTE_COLS) as i32, (i / PALETTE_COLS) as i32);
     Rect {
         x: pal.x + gap + col * (cell + gap),
         y: pal.y + gap + row * (cell + gap),
@@ -254,7 +260,7 @@ fn clamp_into(mut r: Rect, m: Rect) -> Rect {
 /// ngược lại bên phải; giữa theo chiều dọc nút Màu; kẹp vào màn hình `mon`.
 fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32) -> Rect {
     let gap = scaled(GAP, dpi);
-    let (w, h) = palette_size(scaled(CELL, dpi), gap);
+    let (w, h) = palette_size(scaled(CELL, dpi), scaled(PAL_GAP, dpi));
     let btn = side_item_rect(side, scaled(SIDE_SEP, dpi), COLOR_INDEX);
     let x = if side_on_right(side, sel) {
         side.x - gap - w
@@ -911,7 +917,7 @@ impl State {
 
     fn palette_cell_at(&self, p: Point) -> Option<usize> {
         let (pal, dpi) = self.palette_rect()?;
-        palette_cell_at(pal, scaled(CELL, dpi), scaled(GAP, dpi), p)
+        palette_cell_at(pal, scaled(CELL, dpi), scaled(PAL_GAP, dpi), p)
     }
 
     /// Đang kéo (vùng chọn hoặc nét vẽ).
@@ -2167,10 +2173,10 @@ impl Painter {
         }
     }
 
-    /// Bảng màu 2×4: nền SURFACE, viền OVERLAY_BORDER; ô đang chọn có viền TEXT.
+    /// Bảng màu 8 × 6: nền SURFACE, viền OVERLAY_BORDER; ô đang chọn có viền TEXT.
     fn palette(&self, pal: Rect, dpi: u32, current: Rgb) {
         self.round_rect(pal, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
-        let (cell, gap) = (scaled(CELL, dpi), scaled(GAP, dpi));
+        let (cell, gap) = (scaled(CELL, dpi), scaled(PAL_GAP, dpi));
         let ring = scaled(MARK, dpi);
         for (i, c) in PALETTE.iter().enumerate() {
             let r = palette_cell_rect(pal, cell, gap, i);
@@ -3052,40 +3058,44 @@ mod tests {
 
     #[test]
     fn palette_hit_testing() {
-        let (cell, gap) = (24, 6);
+        let (cell, gap) = (20, 4);
         let (w, h) = palette_size(cell, gap);
-        assert_eq!((w, h), (4 * 24 + 5 * 6, 2 * 24 + 3 * 6));
+        assert_eq!((w, h), (196, 148));
         let pal = Rect {
             x: 200,
             y: 300,
             w,
             h,
         };
-        for i in 0..8usize {
-            let (col, row) = ((i % 4) as i32, (i / 4) as i32);
+        for i in 0..48usize {
+            let (col, row) = ((i % 8) as i32, (i / 8) as i32);
             let c = Point {
-                x: 200 + 6 + col * 30 + 12,
-                y: 300 + 6 + row * 30 + 12,
+                x: 200 + 4 + col * 24 + 10,
+                y: 300 + 4 + row * 24 + 10,
             };
             assert_eq!(palette_cell_at(pal, cell, gap, c), Some(i), "ô {i}");
             let r = palette_cell_rect(pal, cell, gap, i);
             assert_eq!(
                 r,
                 Rect {
-                    x: c.x - 12,
-                    y: c.y - 12,
-                    w: 24,
-                    h: 24
+                    x: c.x - 10,
+                    y: c.y - 10,
+                    w: 20,
+                    h: 20
                 }
             );
         }
         let at = |x, y| palette_cell_at(pal, cell, gap, Point { x, y });
+        // Ô 7 góc trên phải, ô 40 góc dưới trái, ô 47 góc dưới phải.
+        assert_eq!(at(200 + w - 4 - 10, 300 + 14), Some(7));
+        assert_eq!(at(200 + 14, 300 + h - 4 - 10), Some(40));
+        assert_eq!(at(200 + w - 14, 300 + h - 14), Some(47));
         // Khe ngang, khe dọc, lề, ngoài bảng.
-        assert_eq!(at(200 + 6 + 24 + 3, 300 + 18), None);
-        assert_eq!(at(200 + 18, 300 + 6 + 24 + 3), None);
-        assert_eq!(at(202, 302), None);
-        assert_eq!(at(200 + w - 2, 300 + 18), None);
-        assert_eq!(at(199, 318), None);
+        assert_eq!(at(200 + 4 + 20 + 2, 300 + 14), None);
+        assert_eq!(at(200 + 14, 300 + 4 + 20 + 2), None);
+        assert_eq!(at(201, 301), None);
+        assert_eq!(at(200 + w - 2, 300 + 14), None);
+        assert_eq!(at(199, 314), None);
     }
 
     #[test]
@@ -3196,7 +3206,7 @@ mod tests {
 
             /// Giữa ô màu thứ `i`.
             pub fn cell(&self, i: usize) -> Point {
-                let (cell, gap) = (scaled(CELL, self.dpi), scaled(GAP, self.dpi));
+                let (cell, gap) = (scaled(CELL, self.dpi), scaled(PAL_GAP, self.dpi));
                 Self::center(palette_cell_rect(self.palette, cell, gap, i))
             }
 
@@ -3409,9 +3419,9 @@ mod tests {
             width,
             color,
         };
-        // Chọn màu xanh lam qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
+        // Chọn màu xanh lam (ô 5, #0080FF) qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
         let mut steps = live::click(l.item(6));
-        steps.extend(live::click(l.cell(4)));
+        steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Key(u16::from(b'L')));
         steps.extend(live::drag(a, b));
         steps.push(live::Step::Ctrl(u16::from(b'S')));
@@ -3419,14 +3429,14 @@ mod tests {
         assert!(ok);
         let p = r.unwrap().unwrap();
         assert_eq!((p.action, p.rect), (Action::Save, sel));
-        assert_eq!(p.shapes, vec![line(PALETTE[4])]);
+        assert_eq!(p.shapes, vec![line(PALETTE[5])]);
         // Lần mở sau nhớ màu; công cụ thì không (L chọn lại).
         let mut steps = vec![live::Step::Key(u16::from(b'L'))];
         steps.extend(live::drag(a, b));
         steps.push(live::Step::Ctrl(u16::from(b'S')));
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
-        assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[4])]);
+        assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[5])]);
     }
 
     #[test]
