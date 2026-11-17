@@ -361,6 +361,12 @@ messages! {
     HistoryToday => ("Hôm nay", "Today"),
     HistoryYesterday => ("Hôm qua", "Yesterday"),
     ChkHistory => ("Bật lịch sử ảnh chụp", "Enable Screenshot History"),
+    ChkSnapWindows => ("Gợi ý cửa sổ khi chọn vùng", "Suggest windows while selecting"),
+    OverlayHintSnap => (
+        "Bấm: chọn cửa sổ · Kéo: chọn vùng · Esc: thoát",
+        "Click: window · Drag: region · Esc: cancel"
+    ),
+    OverlayHintDrag => ("Kéo để chọn vùng · Esc để thoát", "Drag to select · Esc to cancel"),
     NoteHistory => (
         "Lưu lịch sử ảnh chụp trên thiết bị này. Ảnh không được gửi đến máy chủ bổ sung.",
         "Keep a local history of screenshots on this device. Images are never sent to an additional server."
@@ -578,7 +584,7 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
     match lang {
         Lang::Vi => format!(
             "1. Chụp màn hình\n\
-{region} Màn hình đứng yên và tối đi. Kéo chuột để chọn vùng; kéo các tay nắm để đổi cỡ, kéo bên trong khung để di chuyển.\n\
+{region} Màn hình đứng yên và tối đi. Kéo chuột để chọn vùng; kéo các tay nắm để đổi cỡ, kéo bên trong khung để di chuyển. Chưa có vùng chọn thì rê chuột lên một cửa sổ hoặc màn hình rồi bấm (hoặc Enter) để chọn đúng khung đó.\n\
 Chụp cả màn hình bằng phím tắt:\n\
 {save_full}\n\
 {upload_full}\n\
@@ -588,7 +594,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 - Ctrl+D: tải ảnh lên kho R2 và chép link.\n\
 - Ctrl+S: lưu ảnh vào thư mục lưu.\n\
 - Ctrl+C: chép ảnh vào clipboard.\n\
-- Esc: hủy và đóng lớp phủ.\n\
+- Esc lùi một bước (đóng bảng, hủy chữ, bỏ chọn) rồi đóng lớp phủ.\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
@@ -617,7 +623,7 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
-{region} The screen dims and freezes. Drag to select a region; drag the handles to resize it, or drag inside the frame to move it.\n\
+{region} The screen dims and freezes. Drag to select a region; drag the handles to resize it, or drag inside the frame to move it. Before you select, hover a window or screen and click (or press Enter) to select exactly that frame.\n\
 Full-screen captures with a hotkey:\n\
 {save_full}\n\
 {upload_full}\n\
@@ -627,7 +633,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 - Ctrl+D: upload the image to your R2 bucket and copy the link.\n\
 - Ctrl+S: save the image to the save folder.\n\
 - Ctrl+C: copy the image to the clipboard.\n\
-- Esc: cancel and close the overlay.\n\
+- Esc steps back (closes a panel, cancels text, deselects), then closes the overlay.\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
@@ -1051,6 +1057,24 @@ mod tests {
                 s
             );
         }
+    }
+
+    #[test]
+    fn snap_strings_and_help() {
+        for m in [
+            Msg::ChkSnapWindows,
+            Msg::OverlayHintSnap,
+            Msg::OverlayHintDrag,
+        ] {
+            assert!(!t(Lang::Vi, m).is_empty() && !t(Lang::En, m).is_empty());
+            assert_ne!(t(Lang::Vi, m), t(Lang::En, m));
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("Enter") && vi.contains("rê chuột lên một cửa sổ"));
+        assert!(en.contains("Enter") && en.contains("hover a window"));
+        assert!(vi.contains("Esc lùi một bước"));
+        assert!(en.contains("Esc steps back"));
     }
 
     #[test]

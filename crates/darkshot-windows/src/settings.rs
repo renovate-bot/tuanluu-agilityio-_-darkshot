@@ -294,6 +294,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         check_updates: form.check_updates,
         update_notified: current.update_notified,
         history_enabled: form.history_enabled,
+        snap_windows: current.snap_windows,
     })
 }
 
