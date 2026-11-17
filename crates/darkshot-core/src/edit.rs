@@ -1,7 +1,11 @@
 //! Chỉnh sửa hình đã vẽ: trúng hình, tay nắm, biến đổi, đổi kiểu.
 //! Thuần logic, không phụ thuộc hệ điều hành.
 
-use crate::annotate::{Pt, Shape, SizeLevel};
+use crate::annotate::{
+    arrow_geometry, arrow_min_head, blur_pixel_rect, constrain_45, dip_to_px, redact_color, Pt,
+    Shape, SizeLevel, MIN_DRAG_PX, STEP_RADIUS_MAX_PX, STEP_RADIUS_MIN_PX, TEXT_SIZE_MAX_PX,
+    TEXT_SIZE_MIN_PX,
+};
 use crate::geometry::{Handle, Rect};
 use crate::image::Image;
 use crate::theme::Rgb;
@@ -22,33 +26,652 @@ pub struct Gesture {
     pub original_bounds: Rect,
 }
 
+fn dist(a: Pt, b: Pt) -> f32 {
+    (a.x - b.x).hypot(a.y - b.y)
+}
+
+/// Khoảng cách từ `p` tới đoạn a–b.
+fn seg_dist(p: Pt, a: Pt, b: Pt) -> f32 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let len2 = dx * dx + dy * dy;
+    if len2 <= 0.0 {
+        return dist(p, a);
+    }
+    let t = (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0);
+    dist(
+        p,
+        Pt {
+            x: a.x + t * dx,
+            y: a.y + t * dy,
+        },
+    )
+}
+
+fn polyline_dist(points: &[Pt], p: Pt) -> Option<f32> {
+    let first = points.first()?;
+    if points.len() == 1 {
+        return Some(dist(p, *first));
+    }
+    points
+        .windows(2)
+        .map(|w| seg_dist(p, w[0], w[1]))
+        .fold(None, |m: Option<f32>, d| Some(m.map_or(d, |m| m.min(d))))
+}
+
+fn rect_f(r: Rect) -> (f32, f32, f32, f32) {
+    (
+        r.x as f32,
+        r.y as f32,
+        r.x as f32 + r.w as f32,
+        r.y as f32 + r.h as f32,
+    )
+}
+
+fn in_rect(r: Rect, p: Pt, pad: f32) -> bool {
+    let (x0, y0, x1, y1) = rect_f(r);
+    p.x >= x0 - pad && p.x <= x1 + pad && p.y >= y0 - pad && p.y <= y1 + pad
+}
+
+/// Hộp chuẩn hóa (x0, y0, x1, y1) của a–b.
+fn norm_box(a: Pt, b: Pt) -> (f32, f32, f32, f32) {
+    (a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y))
+}
+
+fn points_box(points: &[Pt]) -> Option<(f32, f32, f32, f32)> {
+    let f = points.first()?;
+    Some(
+        points
+            .iter()
+            .fold((f.x, f.y, f.x, f.y), |(x0, y0, x1, y1), q| {
+                (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y))
+            }),
+    )
+}
+
+fn same_sign_or(v: f32, fallback: f32) -> f32 {
+    if v < 0.0 {
+        -1.0
+    } else if v > 0.0 {
+        1.0
+    } else {
+        fallback
+    }
+}
+
+fn tri_contains(p: Pt, t: [Pt; 3]) -> bool {
+    let s = |a: Pt, b: Pt| (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
+    let (d1, d2, d3) = (s(t[0], t[1]), s(t[1], t[2]), s(t[2], t[0]));
+    let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+    let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+    !(neg && pos)
+}
+
 /// `p` trúng hình. `bounds`: hộp bao đo của hình (dùng cho Text). `tol` px.
 pub fn hit_shape(shape: &Shape, bounds: Rect, p: Pt, tol: f32) -> bool {
-    todo!()
+    match shape {
+        Shape::Pen { points, width, .. } | Shape::Marker { points, width, .. } => {
+            polyline_dist(points, p).is_some_and(|d| d <= width / 2.0 + tol)
+        }
+        Shape::Line { a, b, width, .. } => seg_dist(p, *a, *b) <= width / 2.0 + tol,
+        Shape::Arrow { a, b, width, .. } => {
+            if seg_dist(p, *a, *b) <= width / 2.0 + tol {
+                return true;
+            }
+            let g = arrow_geometry(*a, *b, *width, arrow_min_head(*width));
+            tri_contains(p, g.head)
+        }
+        Shape::Rect { a, b, width, .. } => {
+            let (x0, y0, x1, y1) = norm_box(*a, *b);
+            let d = if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 {
+                (p.x - x0).min(x1 - p.x).min(p.y - y0).min(y1 - p.y)
+            } else {
+                let dx = (x0 - p.x).max(0.0).max(p.x - x1);
+                let dy = (y0 - p.y).max(0.0).max(p.y - y1);
+                dx.hypot(dy)
+            };
+            d <= width / 2.0 + tol
+        }
+        Shape::Ellipse { a, b, width, .. } => {
+            let (x0, y0, x1, y1) = norm_box(*a, *b);
+            let (rx, ry) = ((x1 - x0) / 2.0, (y1 - y0) / 2.0);
+            let lim = width / 2.0 + tol;
+            if rx < 1.0 || ry < 1.0 {
+                return seg_dist(p, *a, *b) <= lim;
+            }
+            let (cx, cy) = (x0 + rx, y0 + ry);
+            let k = (((p.x - cx) / rx).powi(2) + ((p.y - cy) / ry).powi(2)).sqrt();
+            (k - 1.0).abs() * rx.min(ry) <= lim
+        }
+        Shape::Blur { a, b, .. } => in_rect(blur_pixel_rect(*a, *b), p, tol),
+        Shape::Step { center, radius, .. } => dist(p, *center) <= radius + tol,
+        Shape::Text { .. } => in_rect(bounds, p, tol),
+    }
 }
 
+/// Vị trí hình trên cùng trúng `p` (duyệt từ cuối).
 pub fn topmost_hit(shapes: &[Shape], bounds: &[Rect], p: Pt, tol: f32) -> Option<usize> {
-    todo!()
+    (0..shapes.len()).rev().find(|&i| {
+        let (Some(s), Some(b)) = (shapes.get(i), bounds.get(i)) else {
+            return false;
+        };
+        in_rect(*b, p, tol) && hit_shape(s, *b, p, tol)
+    })
 }
 
+fn box_handles(x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(Grip, Pt)> {
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    let pt = |x, y| Pt { x, y };
+    vec![
+        (Grip::Box(Handle::NW), pt(x0, y0)),
+        (Grip::Box(Handle::N), pt(cx, y0)),
+        (Grip::Box(Handle::NE), pt(x1, y0)),
+        (Grip::Box(Handle::E), pt(x1, cy)),
+        (Grip::Box(Handle::SE), pt(x1, y1)),
+        (Grip::Box(Handle::S), pt(cx, y1)),
+        (Grip::Box(Handle::SW), pt(x0, y1)),
+        (Grip::Box(Handle::W), pt(x0, cy)),
+    ]
+}
+
+fn corner_handles(x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(Grip, Pt)> {
+    let pt = |x, y| Pt { x, y };
+    vec![
+        (Grip::Box(Handle::NW), pt(x0, y0)),
+        (Grip::Box(Handle::NE), pt(x1, y0)),
+        (Grip::Box(Handle::SE), pt(x1, y1)),
+        (Grip::Box(Handle::SW), pt(x0, y1)),
+    ]
+}
+
+/// Tay nắm và vị trí tâm của chúng.
 pub fn handles(shape: &Shape, bounds: Rect) -> Vec<(Grip, Pt)> {
-    todo!()
+    match shape {
+        Shape::Line { a, b, .. } | Shape::Arrow { a, b, .. } => {
+            vec![(Grip::End(0), *a), (Grip::End(1), *b)]
+        }
+        Shape::Rect { a, b, .. } | Shape::Ellipse { a, b, .. } | Shape::Blur { a, b, .. } => {
+            let (x0, y0, x1, y1) = norm_box(*a, *b);
+            box_handles(x0, y0, x1, y1)
+        }
+        Shape::Pen { points, .. } | Shape::Marker { points, .. } => match points_box(points) {
+            Some((x0, y0, x1, y1)) => corner_handles(x0, y0, x1, y1),
+            None => Vec::new(),
+        },
+        Shape::Text { .. } => {
+            let (x0, y0, x1, y1) = rect_f(bounds);
+            corner_handles(x0, y0, x1, y1)
+        }
+        Shape::Step { center, radius, .. } => corner_handles(
+            center.x - radius,
+            center.y - radius,
+            center.x + radius,
+            center.y + radius,
+        ),
+    }
 }
 
+/// Tay nắm có tâm cách p (theo max |dx|, |dy|) ≤ radius; nhiều cái thì cái gần nhất.
 pub fn grip_at(shape: &Shape, bounds: Rect, p: Pt, radius: f32) -> Option<Grip> {
-    todo!()
+    handles(shape, bounds)
+        .into_iter()
+        .map(|(g, c)| (g, (c.x - p.x).abs().max((c.y - p.y).abs())))
+        .filter(|(_, d)| *d <= radius)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(g, _)| g)
 }
 
+/// Khung chọn (bounds nới 2 px); None với Line và Arrow.
 pub fn frame(shape: &Shape, bounds: Rect) -> Option<Rect> {
-    todo!()
+    match shape {
+        Shape::Line { .. } | Shape::Arrow { .. } => None,
+        _ => Some(Rect {
+            x: bounds.x.saturating_sub(2),
+            y: bounds.y.saturating_sub(2),
+            w: bounds.w.saturating_add(4),
+            h: bounds.h.saturating_add(4),
+        }),
+    }
 }
 
+fn shift_pt(p: Pt, dx: f32, dy: f32) -> Pt {
+    Pt {
+        x: p.x + dx,
+        y: p.y + dy,
+    }
+}
+
+fn recolor(img: &Image, a: Pt, b: Pt, old: Rgb) -> Rgb {
+    redact_color(img, blur_pixel_rect(a, b)).unwrap_or(old)
+}
+
+/// Một chiều của hộp: cạnh đứng yên `fixed`, cạnh động theo `to`; `moves_low` khi cạnh động là cạnh nhỏ.
+fn edge(fixed: f32, to: f32, moves_low: bool, min_extent: f32) -> f32 {
+    let d = to - fixed;
+    if !d.is_finite() {
+        return fixed + if moves_low { -min_extent } else { min_extent };
+    }
+    if d.abs() < min_extent {
+        fixed + same_sign_or(d, if moves_low { -1.0 } else { 1.0 }) * min_extent
+    } else {
+        to
+    }
+}
+
+fn transform_box(
+    g: &Gesture,
+    h: Handle,
+    to: Pt,
+    shift: bool,
+    min_extent: f32,
+    img: &Image,
+) -> Shape {
+    let (a, b) = match &g.original {
+        Shape::Rect { a, b, .. } | Shape::Ellipse { a, b, .. } | Shape::Blur { a, b, .. } => {
+            (*a, *b)
+        }
+        _ => return g.original.clone(),
+    };
+    let (x0, y0, x1, y1) = norm_box(a, b);
+    let left = matches!(h, Handle::W | Handle::NW | Handle::SW);
+    let right = matches!(h, Handle::E | Handle::NE | Handle::SE);
+    let top = matches!(h, Handle::N | Handle::NW | Handle::NE);
+    let bottom = matches!(h, Handle::S | Handle::SW | Handle::SE);
+    let (mut tx, mut ty) = (to.x, to.y);
+    if shift && (left || right) && (top || bottom) {
+        let fx = if left { x1 } else { x0 };
+        let fy = if top { y1 } else { y0 };
+        let (w0, h0) = (x1 - x0, y1 - y0);
+        let (dx, dy) = (tx - fx, ty - fy);
+        let rx = if w0 > 0.0 { dx.abs() / w0 } else { 0.0 };
+        let ry = if h0 > 0.0 { dy.abs() / h0 } else { 0.0 };
+        let s = rx.max(ry);
+        if s.is_finite() {
+            tx = fx + same_sign_or(dx, if left { -1.0 } else { 1.0 }) * s * w0;
+            ty = fy + same_sign_or(dy, if top { -1.0 } else { 1.0 }) * s * h0;
+        }
+    }
+    let (nx0, nx1) = if left {
+        (edge(x1, tx, true, min_extent), x1)
+    } else if right {
+        (x0, edge(x0, tx, false, min_extent))
+    } else {
+        (x0, x1)
+    };
+    let (ny0, ny1) = if top {
+        (edge(y1, ty, true, min_extent), y1)
+    } else if bottom {
+        (y0, edge(y0, ty, false, min_extent))
+    } else {
+        (y0, y1)
+    };
+    let na = Pt {
+        x: nx0.min(nx1),
+        y: ny0.min(ny1),
+    };
+    let nb = Pt {
+        x: nx0.max(nx1),
+        y: ny0.max(ny1),
+    };
+    match &g.original {
+        Shape::Rect { width, color, .. } => Shape::Rect {
+            a: na,
+            b: nb,
+            width: *width,
+            color: *color,
+        },
+        Shape::Ellipse { width, color, .. } => Shape::Ellipse {
+            a: na,
+            b: nb,
+            width: *width,
+            color: *color,
+        },
+        Shape::Blur { color, .. } => Shape::Blur {
+            a: na,
+            b: nb,
+            color: recolor(img, na, nb, *color),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Neo (góc đối) và góc nắm của một tay nắm góc trên hộp (x0, y0, x1, y1).
+fn corner_pair(h: Handle, bx: (f32, f32, f32, f32)) -> Option<(Pt, Pt)> {
+    let (x0, y0, x1, y1) = bx;
+    let pt = |x, y| Pt { x, y };
+    match h {
+        Handle::NW => Some((pt(x1, y1), pt(x0, y0))),
+        Handle::NE => Some((pt(x0, y1), pt(x1, y0))),
+        Handle::SE => Some((pt(x0, y0), pt(x1, y1))),
+        Handle::SW => Some((pt(x1, y0), pt(x0, y1))),
+        _ => None,
+    }
+}
+
+fn transform_points(g: &Gesture, h: Handle, to: Pt, shift: bool, min_extent: f32) -> Shape {
+    let (points, width, color, is_pen) = match &g.original {
+        Shape::Pen {
+            points,
+            width,
+            color,
+        } => (points, *width, *color, true),
+        Shape::Marker {
+            points,
+            width,
+            color,
+        } => (points, *width, *color, false),
+        _ => return g.original.clone(),
+    };
+    let Some(bx) = points_box(points) else {
+        return g.original.clone();
+    };
+    let Some((anchor, c)) = corner_pair(h, bx) else {
+        return g.original.clone();
+    };
+    let factor = |to_v: f32, a: f32, c: f32| {
+        let den = c - a;
+        if den == 0.0 {
+            return 1.0;
+        }
+        let s = (to_v - a) / den;
+        if !s.is_finite() {
+            return 1.0;
+        }
+        let w = den.abs();
+        if (s * w).abs() < min_extent {
+            same_sign_or(s, 1.0) * min_extent / w
+        } else {
+            s
+        }
+    };
+    let (mut sx, mut sy) = (factor(to.x, anchor.x, c.x), factor(to.y, anchor.y, c.y));
+    if shift {
+        let s = sx.abs().max(sy.abs());
+        sx = same_sign_or(sx, 1.0) * s;
+        sy = same_sign_or(sy, 1.0) * s;
+    }
+    let pts: Vec<Pt> = points
+        .iter()
+        .map(|q| Pt {
+            x: anchor.x + (q.x - anchor.x) * sx,
+            y: anchor.y + (q.y - anchor.y) * sy,
+        })
+        .collect();
+    if is_pen {
+        Shape::Pen {
+            points: pts,
+            width,
+            color,
+        }
+    } else {
+        Shape::Marker {
+            points: pts,
+            width,
+            color,
+        }
+    }
+}
+
+fn transform_scaled(g: &Gesture, h: Handle, to: Pt) -> Shape {
+    let (bx, lo, hi) = match &g.original {
+        Shape::Text { size, .. } => {
+            let (x0, y0, x1, y1) = rect_f(g.original_bounds);
+            (
+                (x0, y0, x1, y1),
+                TEXT_SIZE_MIN_PX,
+                (TEXT_SIZE_MAX_PX, *size),
+            )
+        }
+        Shape::Step { center, radius, .. } => (
+            (
+                center.x - radius,
+                center.y - radius,
+                center.x + radius,
+                center.y + radius,
+            ),
+            STEP_RADIUS_MIN_PX,
+            (STEP_RADIUS_MAX_PX, *radius),
+        ),
+        _ => return g.original.clone(),
+    };
+    let (max, cur) = hi;
+    if cur <= 0.0 || !cur.is_finite() {
+        return g.original.clone();
+    }
+    let Some((neo, c)) = corner_pair(h, bx) else {
+        return g.original.clone();
+    };
+    let (vx, vy) = (c.x - neo.x, c.y - neo.y);
+    let den = vx * vx + vy * vy;
+    let mut k = if den > 0.0 {
+        ((to.x - neo.x) * vx + (to.y - neo.y) * vy) / den
+    } else {
+        1.0
+    };
+    if !k.is_finite() {
+        k = 1.0;
+    }
+    k = k.clamp(lo / cur, max / cur);
+    let scale = |p: Pt| Pt {
+        x: neo.x + (p.x - neo.x) * k,
+        y: neo.y + (p.y - neo.y) * k,
+    };
+    match &g.original {
+        Shape::Text {
+            origin,
+            text,
+            size,
+            color,
+        } => Shape::Text {
+            origin: scale(*origin),
+            text: text.clone(),
+            size: size * k,
+            color: *color,
+        },
+        Shape::Step {
+            center,
+            radius,
+            n,
+            color,
+        } => Shape::Step {
+            center: scale(*center),
+            radius: radius * k,
+            n: *n,
+            color: *color,
+        },
+        other => other.clone(),
+    }
+}
+
+fn transform_end(g: &Gesture, i: usize, to: Pt, shift: bool) -> Shape {
+    let (a, b) = match &g.original {
+        Shape::Line { a, b, .. } | Shape::Arrow { a, b, .. } => (*a, *b),
+        _ => return g.original.clone(),
+    };
+    let (moved, other) = match i {
+        0 => (a, b),
+        1 => (b, a),
+        _ => return g.original.clone(),
+    };
+    let new = if shift { constrain_45(other, to) } else { to };
+    let d = dist(new, other);
+    let new = if d.is_finite() && d >= MIN_DRAG_PX {
+        new
+    } else {
+        moved
+    };
+    let (na, nb) = if i == 0 { (new, b) } else { (a, new) };
+    match &g.original {
+        Shape::Line { width, color, .. } => Shape::Line {
+            a: na,
+            b: nb,
+            width: *width,
+            color: *color,
+        },
+        Shape::Arrow { width, color, .. } => Shape::Arrow {
+            a: na,
+            b: nb,
+            width: *width,
+            color: *color,
+        },
+        other => other.clone(),
+    }
+}
+
+fn transform_move(g: &Gesture, to: Pt, img: &Image) -> Shape {
+    let (dx, dy) = (to.x - g.start.x, to.y - g.start.y);
+    let mv = |p: &Pt| shift_pt(*p, dx, dy);
+    match &g.original {
+        Shape::Pen {
+            points,
+            width,
+            color,
+        } => Shape::Pen {
+            points: points.iter().map(mv).collect(),
+            width: *width,
+            color: *color,
+        },
+        Shape::Marker {
+            points,
+            width,
+            color,
+        } => Shape::Marker {
+            points: points.iter().map(mv).collect(),
+            width: *width,
+            color: *color,
+        },
+        Shape::Line { a, b, width, color } => Shape::Line {
+            a: mv(a),
+            b: mv(b),
+            width: *width,
+            color: *color,
+        },
+        Shape::Arrow { a, b, width, color } => Shape::Arrow {
+            a: mv(a),
+            b: mv(b),
+            width: *width,
+            color: *color,
+        },
+        Shape::Rect { a, b, width, color } => Shape::Rect {
+            a: mv(a),
+            b: mv(b),
+            width: *width,
+            color: *color,
+        },
+        Shape::Ellipse { a, b, width, color } => Shape::Ellipse {
+            a: mv(a),
+            b: mv(b),
+            width: *width,
+            color: *color,
+        },
+        Shape::Blur { a, b, color } => {
+            let (na, nb) = (mv(a), mv(b));
+            Shape::Blur {
+                a: na,
+                b: nb,
+                color: recolor(img, na, nb, *color),
+            }
+        }
+        Shape::Text {
+            origin,
+            text,
+            size,
+            color,
+        } => Shape::Text {
+            origin: mv(origin),
+            text: text.clone(),
+            size: *size,
+            color: *color,
+        },
+        Shape::Step {
+            center,
+            radius,
+            n,
+            color,
+        } => Shape::Step {
+            center: mv(center),
+            radius: *radius,
+            n: *n,
+            color: *color,
+        },
+    }
+}
+
+/// Hình xem trước / chốt của cử chỉ `g` khi chuột ở `to`.
 pub fn transform(g: &Gesture, to: Pt, shift: bool, min_extent: f32, img: &Image) -> Shape {
-    todo!()
+    match g.grip {
+        Grip::Move => transform_move(g, to, img),
+        Grip::End(i) => transform_end(g, i, to, shift),
+        Grip::Box(h) => match &g.original {
+            Shape::Rect { .. } | Shape::Ellipse { .. } | Shape::Blur { .. } => {
+                transform_box(g, h, to, shift, min_extent, img)
+            }
+            Shape::Pen { .. } | Shape::Marker { .. } => {
+                transform_points(g, h, to, shift, min_extent)
+            }
+            Shape::Text { .. } | Shape::Step { .. } => transform_scaled(g, h, to),
+            _ => g.original.clone(),
+        },
+    }
 }
 
+/// Đổi kiểu: `color` (Blur bỏ qua), `level` đổi px theo `dpi`; Blur bỏ qua cả hai.
 pub fn restyle(shape: &Shape, level: Option<SizeLevel>, color: Option<Rgb>, dpi: u32) -> Shape {
-    todo!()
+    let mut s = shape.clone();
+    let stroke = level.map(|l| dip_to_px(l.stroke_dip(), dpi));
+    match &mut s {
+        Shape::Pen {
+            width, color: c, ..
+        }
+        | Shape::Line {
+            width, color: c, ..
+        }
+        | Shape::Arrow {
+            width, color: c, ..
+        }
+        | Shape::Rect {
+            width, color: c, ..
+        }
+        | Shape::Ellipse {
+            width, color: c, ..
+        } => {
+            if let Some(w) = stroke {
+                *width = w;
+            }
+            if let Some(n) = color {
+                *c = n;
+            }
+        }
+        Shape::Marker {
+            width, color: c, ..
+        } => {
+            if let Some(l) = level {
+                *width = dip_to_px(l.marker_dip(), dpi);
+            }
+            if let Some(n) = color {
+                *c = n;
+            }
+        }
+        Shape::Text { size, color: c, .. } => {
+            if let Some(l) = level {
+                *size = dip_to_px(l.text_dip(), dpi);
+            }
+            if let Some(n) = color {
+                *c = n;
+            }
+        }
+        Shape::Step {
+            radius, color: c, ..
+        } => {
+            if let Some(l) = level {
+                *radius = dip_to_px(l.step_dip(), dpi);
+            }
+            if let Some(n) = color {
+                *c = n;
+            }
+        }
+        Shape::Blur { .. } => {}
+    }
+    s
 }
 
 #[cfg(test)]
@@ -148,7 +771,7 @@ mod tests {
             color: RED,
         };
         assert!(hit_shape(&arrow, Z, p(30.0, 2.0), 4.0));
-        assert!(hit_shape(&arrow, Z, p(52.0, 5.0), 0.0));
+        assert!(hit_shape(&arrow, Z, p(52.0, 3.0), 0.0));
         assert!(!hit_shape(&arrow, Z, p(30.0, 20.0), 4.0));
         let r = rect(p(10.0, 10.0), p(50.0, 50.0));
         assert!(hit_shape(&r, Z, p(30.0, 10.0), 4.0));
