@@ -7404,4 +7404,72 @@ mod tests {
         assert!(ok);
         assert!(r.unwrap().unwrap().shapes.is_empty());
     }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored off_center_grip_click_records_nothing --test-threads=1"]
+    fn off_center_grip_click_records_nothing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(65, 40)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        // Bấm-thả lệch tâm tay nắm SE (+6,+6): hình không đổi, không ghi sổ.
+        assert_eq!(rect_ab(&run(live::click(at(146, 116)))), old);
+        let mut tail = live::click(at(146, 116));
+        tail.push(live::Step::Ctrl(u16::from(b'Z')));
+        let none = run(tail);
+        assert!(none.is_empty(), "Ctrl+Z phải bỏ chính hình: {none:?}");
+        // Kéo từ điểm lệch tâm: góc dời đúng bằng quãng chuột đi, không giật theo điểm bấm.
+        assert_eq!(
+            rect_ab(&run(drag_n(at(146, 116), at(166, 136), 4))),
+            (live::pt(at(40, 40)), live::pt(at(160, 130)))
+        );
+        // Đường thẳng: bấm-thả cách đầu mút 6 px theo trục, đầu mút không nhảy.
+        let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+        steps.extend(live::drag(at(40, 60), at(200, 60)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(120, 60)));
+        steps.extend(live::click(at(206, 60)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let shapes = r.unwrap().unwrap().shapes;
+        assert!(shapes.is_empty(), "{shapes:?}");
+        // Vòng số nhỏ: bấm-thả đúng tâm (gần tay nắm góc) là di chuyển, bán kính giữ nguyên.
+        let mut steps = live::click(live::layout(&shot, sel).item(SideItem::Size));
+        steps.extend(live::click(
+            live::layout(&shot, sel).size_cell(SizeLevel::Small),
+        ));
+        steps.push(live::Step::Key(u16::from(b'N')));
+        steps.extend(live::click(at(100, 100)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(100, 100)));
+        steps.extend(live::click(at(100, 100)));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        LAST_SIZE.with(|s| s.set(SizeLevel::Medium));
+        assert!(ok);
+        match r.unwrap().unwrap().shapes.as_slice() {
+            [Shape::Step { center, radius, .. }] => {
+                assert_eq!(*center, live::pt(at(100, 100)));
+                assert_eq!(*radius, dip_to_px(10.0, live::dpi_at(&shot, at(100, 100))));
+            }
+            other => panic!("không phải một Step: {other:?}"),
+        }
+    }
 }
