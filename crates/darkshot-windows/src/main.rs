@@ -343,7 +343,7 @@ fn capture_flow(hwnd: HWND) {
     };
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
-    let (action, rect) = match kind {
+    let (action, rect, shapes) = match kind {
         CaptureKind::Region => {
             let prev = LAST_SELECTION.with(|s| s.get());
             let initial = if keep_selection {
@@ -366,7 +366,7 @@ fn capture_flow(hwnd: HWND) {
                     // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
                     let screen = capture::to_screen_coords(p.rect, shot.origin);
                     LAST_SELECTION.with(|s| s.set(remember_after(prev, p.action, screen)));
-                    (p.action, p.rect)
+                    (p.action, p.rect, p.shapes)
                 }
                 Ok(None) => return,
                 Err(e) => {
@@ -386,10 +386,21 @@ fn capture_flow(hwnd: HWND) {
             } else {
                 Action::Upload
             };
-            (action, rect)
+            (action, rect, Vec::new())
         }
     };
-    let image = shot.image.crop(rect);
+    let image = match picked_image(&shot.image, rect, &shapes) {
+        Ok(image) => image,
+        Err(_) => {
+            // Không gửi đi ảnh thiếu nét đã thấy trên màn hình.
+            notify(
+                NoticeKind::Error,
+                lang::tr(Msg::AnnotateFailedTitle),
+                lang::tr(Msg::AnnotateFailedBody),
+            );
+            return;
+        }
+    };
     // Giải phóng ảnh chụp ngay khi đã cắt xong.
     drop(shot);
     let Some(notifier) = notifier else {
@@ -404,8 +415,18 @@ pub fn picked_image(
     rect: Rect,
     shapes: &[darkshot_core::annotate::Shape],
 ) -> Result<darkshot_core::image::Image, String> {
-    let _ = (image, rect, shapes);
-    todo!()
+    let mut out = image.crop(rect);
+    if !shapes.is_empty() {
+        // `crop` kẹp vùng vào ảnh: gốc của ảnh cắt là góc trên trái sau khi kẹp.
+        let origin = Rect {
+            x: rect.x.max(0),
+            y: rect.y.max(0),
+            w: i32::try_from(out.width).unwrap_or(i32::MAX),
+            h: i32::try_from(out.height).unwrap_or(i32::MAX),
+        };
+        annotate_draw::burn(&mut out, shapes, origin)?;
+    }
+    Ok(out)
 }
 
 /// Thực hiện `action` trên ảnh đã cắt; chung cho cả ba loại chụp. Tải lên dùng sổ `PENDING`,

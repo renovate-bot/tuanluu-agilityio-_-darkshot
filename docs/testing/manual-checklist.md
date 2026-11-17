@@ -259,3 +259,18 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Ô tích, nút chọn và núm thanh trượt mịn, không răng cưa, vòng không có điểm lồi, ở DPI 100% và 150%.
 - [ ] Ô nhập (thường, Secret Access Key, ô phím) và hộp chọn chỉ có một viền bo mịn, không khung vuông bên trong, khi bật, khi vô hiệu, khi có tiêu điểm và khi đang bắt phím; gạch dưới xanh nằm trong góc bo; chữ trong ô không xê dịch so với trước; ở DPI 100%, 150% và 200%.
 - [ ] Biểu tượng tối (nền than chì, viền xám, khung xanh) rõ ở khay, thanh tác vụ, Alt+Tab, file exe trong Explorer, cửa sổ Thông tin và thanh tiêu đề Tùy chọn; rõ trên thanh tác vụ sáng và tối, DPI 100% và 150% (có thể phải khởi động lại Explorer vì bộ đệm biểu tượng).
+
+## Đợt 5: công cụ đánh dấu
+
+- [ ] Thanh dọc hiện đúng chỗ: bên phải vùng chọn (mép dưới thẳng mép dưới vùng), sang trái khi sát mép phải màn hình, vào trong vùng khi vùng kín màn hình; không chồng thanh bốn nút; đúng trên hai màn hình (cả màn hình bên trái có tọa độ âm); ở DPI 100% và 150%.
+- [ ] Thanh dọc ẩn khi kéo khung mới, hiện lại khi thả; chú thích khi trỏ đúng tên và phím tắt (Tiếng Việt và English); nút đang chọn có nền sáng, biểu tượng xanh và vạch xanh mép trái; Hoàn tác mờ khi chưa có hình.
+- [ ] Năm công cụ vẽ đúng hình: Bút vẽ (nét tròn mịn), Đường thẳng, Mũi tên (đầu đặc, không lộ đầu tròn của thân), Hình chữ nhật (chỉ viền), Bút dạ quang (trong mờ, chỗ tự chồng không đậm thêm); bấm một cái với Bút vẽ hoặc Bút dạ quang tạo một chấm; kéo dưới 2 px với Đường thẳng, Mũi tên, Hình chữ nhật không tạo hình.
+- [ ] Giữ Shift: Đường thẳng và Mũi tên khóa theo bước 45°, Hình chữ nhật thành hình vuông.
+- [ ] Phím P/L/A/R/H/T chọn công cụ, bấm lại bỏ chọn; con trỏ chữ thập khi vẽ trong vùng, chữ I với Chữ, con trỏ đổi cỡ ở tay nắm (kéo tay nắm vẫn đổi cỡ vùng khi có công cụ).
+- [ ] Bảng màu mở cạnh nút Màu (bên trái thanh khi thanh ở bên phải vùng, ngược lại bên phải), ô đang chọn có viền sáng; bấm ô đổi màu và đóng bảng; bấm ngoài hoặc Esc chỉ đóng bảng, lớp phủ còn; màu nhớ sang lần chụp sau (đến khi thoát ứng dụng).
+- [ ] Hoàn tác bằng nút và Ctrl+Z bỏ đúng hình cuối, phần màn hình dưới hình được vẽ lại sạch.
+- [ ] Có nét vẽ, kéo ở ngoài vùng chọn (có hoặc không có công cụ) không tạo vùng mới, không mất nét; di chuyển hoặc đổi cỡ vùng sau khi vẽ: nét giữ chỗ trên màn hình, phần ngoài vùng bị ẩn và hiện lại khi kéo vùng về.
+- [ ] Ảnh tải lên, ảnh lưu và ảnh chép có đúng các nét như trên màn hình (mở file so: vị trí, màu, độ dày, độ mịn), cả khi vùng chọn ở màn hình bên trái hoặc màn hình khác DPI; nét ra ngoài vùng bị cắt.
+- [ ] Không chọn công cụ, không vẽ: chọn vùng, kéo khung mới, di chuyển, tay nắm, thanh bốn nút, Ctrl+D/S/C, Esc, "Giữ vị trí vùng" và hai phím tắt toàn màn hình chạy như cũ.
+- [ ] Vẽ nét dài (Bút vẽ và Bút dạ quang) trên màn hình lớn (4K, hai màn hình) không giật thấy rõ.
+- [ ] Mở lớp phủ, vẽ, hoàn tác, mở bảng màu, đóng nhiều lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored overlay_round_trip_without_gdi_leaks --test-threads=1` qua).
