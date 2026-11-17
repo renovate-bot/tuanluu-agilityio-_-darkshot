@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod annotate;
 pub mod config;
 pub mod geometry;
 pub mod i18n;
