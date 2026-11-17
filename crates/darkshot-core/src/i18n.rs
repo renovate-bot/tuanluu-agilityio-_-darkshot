@@ -713,6 +713,7 @@ mod tests {
             (Msg::ToolStep, "Đánh số (N)", "Numbered steps (N)"),
             (Msg::ToolSize, "Cỡ ([ ])", "Size ([ ])"),
             (Msg::ToolRedo, "Làm lại (Ctrl+Y)", "Redo (Ctrl+Y)"),
+            (Msg::ToolShapes, "Hình (L, A, R, E)", "Shapes (L, A, R, E)"),
             (Msg::SizeSmall, "Nhỏ", "Small"),
             (Msg::SizeMedium, "Vừa", "Medium"),
             (Msg::SizeLarge, "Lớn", "Large"),
