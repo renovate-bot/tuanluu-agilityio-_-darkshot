@@ -374,7 +374,11 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
     };
     match e.kind {
         Kind::Saved | Kind::UploadFallback => ActionSet {
-            open: file,
+            open: if e.path.as_deref().is_some_and(user_png_openable) {
+                file
+            } else {
+                Avail::Disabled
+            },
             open_is_link: false,
             copy_image: file,
             copy_link: Avail::Hidden,
@@ -792,6 +796,15 @@ pub fn select_after_remove(old: &[&str], removed: &str, new: &[&str]) -> Option<
 // ---------------------------------------------------------------------------
 // Hành động (thiết kế mục 3.6)
 // ---------------------------------------------------------------------------
+
+/// Tệp của người dùng mà nút Mở được phép chạy: đường dẫn tuyệt đối đuôi `.png` (ảnh Lưu và Lưu dự
+/// phòng luôn là PNG). Chỉ mục bị sửa tay trỏ tới `.exe`, `.lnk`... thì không mở.
+pub fn user_png_openable(p: &Path) -> bool {
+    p.is_absolute()
+        && p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+}
 
 /// Liên kết mở được trên trình duyệt: đúng tiền tố `https://` (chữ thường), có máy chủ, không có ký
 /// tự điều khiển hay khoảng trắng.
@@ -2167,5 +2180,22 @@ mod tests {
         assert_eq!(m[0].label, Msg::HistoryOpenLink);
         assert_eq!(m[2].label, Msg::HistoryCopyLink);
         assert_eq!(m[2].shortcut, Some("Ctrl+Shift+C"));
+    }
+}
+
+#[cfg(test)]
+mod open_guard_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn only_absolute_png_files_open() {
+        assert!(user_png_openable(Path::new(r"C:\pics\a.png")));
+        assert!(user_png_openable(Path::new(r"C:\pics\A.PNG")));
+        assert!(!user_png_openable(Path::new(r"C:\pics\a.exe")));
+        assert!(!user_png_openable(Path::new(r"C:\pics\a.lnk")));
+        assert!(!user_png_openable(Path::new(r"C:\pics\a")));
+        assert!(!user_png_openable(Path::new("a.png")));
+        assert!(!user_png_openable(Path::new(r"\a.png")));
     }
 }
