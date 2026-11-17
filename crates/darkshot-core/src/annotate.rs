@@ -1357,7 +1357,8 @@ mod tests {
             ]
         );
         assert_eq!(Tool::from_key(0x56), Some(Tool::Select));
-        assert_eq!(Tool::from_key(0x46), Some(Tool::Ellipse));
+        assert_eq!(Tool::from_key(0x45), Some(Tool::Ellipse));
+        assert_eq!(Tool::from_key(0x46), None);
         assert_eq!(Tool::from_key(0x4E), Some(Tool::Step));
         assert_eq!(Tool::from_key(0x50), Some(Tool::Pen));
         assert_eq!(Tool::from_key(0x4C), Some(Tool::Line));
