@@ -363,6 +363,84 @@ fn clear_of(
         .min_by_key(|r| rect_gap2(*r, sel))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SideLayout {
+    pub size: (i32, i32),
+    /// Ô của từng mục, tương đối góc trên trái thanh.
+    pub items: Vec<Rect>,
+    /// Ô vạch ngăn (cao `sep`, rộng `b`), tương đối góc trên trái thanh.
+    pub seps: Vec<Rect>,
+}
+
+/// Bố cục thanh dọc.
+pub fn side_layout(n: usize, seps: &[usize], b: i32, sep: i32, max_h: i32) -> SideLayout {
+    let b = b.max(0);
+    let sep = sep.max(0);
+    let n_i = i32::try_from(n).unwrap_or(i32::MAX);
+    let total = n_i.saturating_mul(b).saturating_add(
+        i32::try_from(seps.len())
+            .unwrap_or(i32::MAX)
+            .saturating_mul(sep),
+    );
+    let mut items = Vec::with_capacity(n);
+    let mut sep_rects = Vec::new();
+    // Xếp một cột các mục [from, to) tại x; `skip_first_sep` bỏ vạch ở đầu cột. Trả chiều cao cột.
+    let mut column = |from: usize, to: usize, x: i32, skip_first_sep: bool| -> i32 {
+        let mut y = 0i32;
+        for i in from..to {
+            if seps.contains(&i) && !(skip_first_sep && i == from) {
+                sep_rects.push(Rect { x, y, w: b, h: sep });
+                y = y.saturating_add(sep);
+            }
+            items.push(Rect { x, y, w: b, h: b });
+            y = y.saturating_add(b);
+        }
+        y
+    };
+    if total <= max_h {
+        let h = column(0, n, 0, false);
+        return SideLayout {
+            size: (b, h),
+            items,
+            seps: sep_rects,
+        };
+    }
+    let k = n.div_ceil(2);
+    let left = column(0, k, 0, true);
+    let right = column(k, n, b, true);
+    SideLayout {
+        size: (b.saturating_mul(2), left.max(right)),
+        items,
+        seps: sep_rects,
+    }
+}
+
+#[cfg(test)]
+mod side_layout_tests {
+    use super::*;
+
+    #[test]
+    fn side_layout_single_column() {
+        let l = side_layout(14, &[1, 10, 12], 36, 9, 1000);
+        assert_eq!(l.size, (36, 531));
+        assert_eq!(l.items.len(), 14);
+        assert_eq!(l.items[1].y, 36 + 9);
+        assert_eq!(l.seps.len(), 3);
+    }
+
+    #[test]
+    fn side_layout_wraps_when_short() {
+        let l = side_layout(14, &[1, 10, 12], 36, 9, 500);
+        assert_eq!(l.size, (72, 270));
+        assert_eq!(l.items[7].x, 36);
+        assert_eq!(l.items[7].y, 0);
+        assert!(l.seps.iter().all(|s| s.y >= 0));
+        for r in l.items.iter().chain(l.seps.iter()) {
+            assert!(r.x >= 0 && r.y >= 0 && r.right() <= 72 && r.bottom() <= 270);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

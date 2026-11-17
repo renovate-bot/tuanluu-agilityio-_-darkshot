@@ -2,6 +2,7 @@ pub mod actions;
 pub mod annotate;
 pub mod color;
 pub mod config;
+pub mod edit;
 pub mod geometry;
 pub mod i18n;
 pub mod image;

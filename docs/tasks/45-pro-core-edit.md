@@ -14,7 +14,7 @@
 
 ## Cần đọc
 
-- `crates/darkshot-core/src/annotate.rs`: `Shape`, `Shape::bounds`, `blur_pixel_rect`, `redact_color`, `constrain_46`, `constrain_square`, `arrow_geometry`, `arrow_min_head`, `dip_to_px`, `SizeLevel`, các hằng mới của Task 44.
+- `crates/darkshot-core/src/annotate.rs`: `Shape`, `Shape::bounds`, `blur_pixel_rect`, `redact_color`, `constrain_45`, `constrain_square`, `arrow_geometry`, `arrow_min_head`, `dip_to_px`, `SizeLevel`, các hằng mới của Task 44.
 - `crates/darkshot-core/src/geometry.rs`: `Rect`, `Handle`, `place_side_toolbar`.
 - `crates/darkshot-core/src/image.rs`: `Image` (dựng ảnh thử).
 - `crates/darkshot-core/src/lib.rs` (khai báo module).
@@ -85,7 +85,7 @@ pub fn side_layout(n: usize, seps: &[usize], b: i32, sep: i32, max_h: i32) -> Si
 ### Quy tắc biến đổi (thiết kế 5.5)
 
 - `Grip::Move`: dời mọi điểm của hình bởi `to − start` (Text: origin; Step: center; Blur: a, b rồi tính lại màu).
-- `Grip::End(i)` (Line/Arrow): đặt đầu i = `to` (Shift: `constrain_46(đầu kia, to)`); nếu dài < `MIN_DRAG_PX` thì giữ đầu i cũ.
+- `Grip::End(i)` (Line/Arrow): đặt đầu i = `to` (Shift: `constrain_45(đầu kia, to)`); nếu dài < `MIN_DRAG_PX` thì giữ đầu i cũ.
 - `Grip::Box(h)` với Rect/Ellipse/Blur: hộp chuẩn hóa x0<x1, y0<y1 của bản gốc; cạnh do h nắm đi theo `to`, cạnh đối đứng yên; kéo qua cạnh đối thì lật; mỗi chiều có |cạnh| ≥ `min_extent` (thiếu thì đặt cạnh động = cạnh đứng yên ± min_extent theo phía của `to`, bằng nhau thì phía cũ). Góc + Shift: hệ số s = max(|dx|/w0, |dy|/h0), áp cùng s cho hai chiều (giữ dấu từng chiều). Kết quả a = (min), b = (max). Blur: màu = `redact_color(img, blur_pixel_rect(a, b))`, `None` thì giữ màu gốc.
 - `Grip::Box(góc)` với Pen/Marker: neo = góc đối của hộp các điểm; sx = (to.x − neo.x)/(góc.x − neo.x), chiều có mẫu 0 thì hệ số 1; |sx·w| < min_extent thì sx = dấu·min_extent/w; Shift: s = max(|sx|,|sy|) giữ dấu. Điểm' = neo + (điểm − neo)·(sx, sy). Độ dày giữ nguyên.
 - `Grip::Box(góc)` với Text/Step: neo = góc đối (của `original_bounds` với Text, của hộp vòng với Step); c = góc nắm; k = ((to − neo)·(c − neo)) / |c − neo|², mẫu 0 thì k = 1; kẹp k để size trong [TEXT_SIZE_MIN_PX, TEXT_SIZE_MAX_PX] (Step: radius trong [STEP_RADIUS_MIN_PX, STEP_RADIUS_MAX_PX]). Text: origin' = neo + (origin − neo)·k, size' = size·k. Step: center' = neo + (center − neo)·k, radius' = radius·k.

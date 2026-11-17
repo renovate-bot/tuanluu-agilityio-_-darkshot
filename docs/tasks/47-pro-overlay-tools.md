@@ -26,7 +26,7 @@
 
 ## Files
 
-- Sửa: `crates/darkshot-windows/src/overlay.rs`.
+- Sửa: `crates/darkshot-windows/src/overlay.rs`; `crates/darkshot-core/src/annotate.rs` chỉ cho sửa phím E.
 
 ## Quyết định cho task này
 
@@ -38,6 +38,7 @@
 - **Đánh số**: `on_down` trong vùng (`PressMode::Draw`) tạo ngay `Shape::Step { center: p, radius: dip_to_px(level.step_dip(), dpi), n: 0, color }` qua `marks.add` (không bắt chuột, không kéo); con trỏ chữ thập.
 - **Sổ thay đổi**: một hàm áp `Applied` duy nhất cập nhật `mark_bounds` theo `Change` (Inserted: chèn `shape_bounds` tại index; Removed: bỏ tại index; Replaced: tính lại tại index), làm mới hộp cũ và mới, làm mới hộp các vị trí `renumbered`, làm mới thanh dọc (trạng thái nút). Mọi chỗ thêm hình (nét, chữ, vòng số) đi qua `marks.add` + hàm áp này.
 - **Hoàn tác/Làm lại**: Ctrl+Z giữ quy tắc ô chữ hôm nay; Ctrl+Y và Ctrl+Shift+Z làm lại (ô chữ mở: không làm gì); đang kéo: không làm gì. Nút Làm lại trên thanh dọc mờ khi `!can_redo()`. Nút Hoàn tác mờ khi `!can_undo()` và không có ô chữ.
+- **Sửa lỗi Task 44 (lỗi gõ trong gói do phiên điều phối):** `Tool::from_key` đang map `0x46` ('F') sang Ellipse; đúng là `0x45` ('E'). Sửa `annotate.rs` (được phép sửa file này cho riêng việc này) và khẳng định trong `tool_keys_and_order` (`from_key(0x45)==Some(Ellipse)`, `from_key(0x46)==None`).
 - `PressMode::Pick` (công cụ Chọn): chưa làm gì (`Effects::default()`); Task 48 thay.
 
 ## Các bước
@@ -55,4 +56,4 @@
 - [ ] **2. Mã** theo quyết định trên.
 - [ ] **3.** `cargo fmt --all`; check → `ALL CHECKS PASSED`; chạy từng kiểm thử `#[ignore]` mới và kiểm thử chống rò với `--test-threads=1`. Commit `feat: overlay ellipse, steps, size and redo`.
 
-**Xong khi:** check qua và các kiểm thử chạy tay mới qua. Báo cáo: commit, dòng cuối check, kết quả từng kiểm thử chạy tay; ảnh chụp lớp phủ (thanh 14 mục, bảng Cỡ mở, elip, ba vòng số) theo cách của Task 41/42 (thêm tạm `Step::Snap`, ghi PNG vào `C:/Users/Client/AppData/Local/Temp/claude/9bda5e44761d6d15/b97deff2-6606-45cc-bdfe-d1822c907752/scratchpad/t47_*.png`, không commit phần tạm); những gì chưa nhìn bằng mắt; chỗ khác gói.
+**Xong khi:** check qua và các kiểm thử chạy tay mới qua. Báo cáo: commit, dòng cuối check, kết quả từng kiểm thử chạy tay; ảnh chụp lớp phủ (thanh 14 mục, bảng Cỡ mở, elip, ba vòng số) theo cách của Task 41/42 (thêm tạm `Step::Snap`, ghi PNG vào `C:/Users/Client/AppData/Local/Temp/claude/9bda5e44761d6d15/b97deff2-6606-44cc-bdfe-d1822c907752/scratchpad/t47_*.png`, không commit phần tạm); những gì chưa nhìn bằng mắt; chỗ khác gói.
