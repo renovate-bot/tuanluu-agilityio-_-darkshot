@@ -272,9 +272,11 @@ pub fn paste_text(owner: HWND) -> Option<String> {
             std::thread::sleep(OPEN_RETRY_DELAY);
         }
         // SAFETY: owner là cửa sổ của luồng này; mở thành công thì OpenGuard đóng khi drop.
-        unsafe { OpenClipboard(Some(owner)) }
-            .is_ok()
-            .then_some(OpenGuard)
+        if unsafe { OpenClipboard(Some(owner)) }.is_ok() {
+            Some(OpenGuard)
+        } else {
+            None
+        }
     })?;
     // SAFETY: clipboard đang mở; handle thuộc hệ thống, chỉ khóa để đọc trong giới hạn GlobalSize
     // rồi mở khóa trước khi clipboard được đóng (`_open` thả sau khối này).

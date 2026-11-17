@@ -45,8 +45,9 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, SystemParametersInfoForDpi, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::Ime::{
-    ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext, ImmSetCompositionFontW,
-    ImmSetCompositionWindow, CFS_POINT, COMPOSITIONFORM, GCS_COMPSTR,
+    ImmGetCompositionStringW, ImmGetContext, ImmNotifyIME, ImmReleaseContext,
+    ImmSetCompositionFontW, ImmSetCompositionWindow, CFS_DEFAULT, CFS_POINT, COMPOSITIONFORM,
+    CPS_CANCEL, GCS_COMPSTR, NI_COMPOSITIONSTR,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus, UnregisterHotKey,
@@ -514,6 +515,46 @@ fn ime_composing(hwnd: HWND) -> bool {
         let n = ImmGetCompositionStringW(himc, GCS_COMPSTR, None, 0);
         let _ = ImmReleaseContext(hwnd, himc);
         n > 0
+    }
+}
+
+/// Kết thúc chuỗi soạn dở của bộ gõ trên `hwnd` khi ô chữ đóng. `keep`: trả chuỗi đang soạn để
+/// chèn thẳng vào ô cũ (hoàn tất); không thì bỏ. Chuỗi soạn luôn được xóa bằng `CPS_CANCEL`, nên bộ
+/// gõ không gửi thêm WM_CHAR sau đó (sẽ rơi vào ô mới hoặc mất). Đặt lại cửa sổ soạn về
+/// `CFS_DEFAULT` để khi không có ô chữ bộ gõ hành xử như trước.
+fn ime_end_composition(hwnd: HWND, keep: bool) -> Option<String> {
+    let form = COMPOSITIONFORM {
+        dwStyle: CFS_DEFAULT,
+        ..Default::default()
+    };
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ở cuối khối trên mọi đường đi; bộ đệm
+    // đọc chuỗi soạn đủ `bytes` byte theo kích thước bộ gõ vừa báo.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return None;
+        }
+        let bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, None, 0);
+        let mut pending = None;
+        if bytes > 0 {
+            if keep {
+                let mut buf = vec![0u16; (bytes as usize).div_ceil(2)];
+                let got = ImmGetCompositionStringW(
+                    himc,
+                    GCS_COMPSTR,
+                    Some(buf.as_mut_ptr() as *mut c_void),
+                    (buf.len() * 2) as u32,
+                );
+                if got > 0 {
+                    let n = (got as usize / 2).min(buf.len());
+                    pending = buf.get(..n).map(String::from_utf16_lossy);
+                }
+            }
+            let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        }
+        let _ = ImmSetCompositionWindow(himc, &form);
+        let _ = ImmReleaseContext(hwnd, himc);
+        pending.filter(|s| !s.is_empty())
     }
 }
 
@@ -1222,10 +1263,18 @@ impl State {
 
     /// Đóng ô chữ: `commit` thì chốt vào `marks` (bỏ nếu chỉ có khoảng trắng), không thì hủy.
     fn close_text(&mut self, commit: bool) {
-        let Some(b) = self.text.take() else {
+        if self.text.is_none() {
+            return;
+        }
+        // Chuỗi bộ gõ đang soạn: chốt thì hoàn tất vào chính ô này, hủy thì bỏ.
+        let pending = ime_end_composition(self.hwnd, commit);
+        let Some(mut b) = self.text.take() else {
             return;
         };
         self.invalidate(&[b.dirty()]);
+        if let Some(s) = pending {
+            b.edit.insert(&s);
+        }
         self.high_surrogate = None;
         // SAFETY: hủy bộ hẹn giờ nháy của chính cửa sổ lớp phủ.
         unsafe {
@@ -1235,6 +1284,9 @@ impl State {
         if commit {
             if let Some(shape) = b.edit.to_shape() {
                 self.push_mark(shape);
+                // Chữ hoàn tất từ bộ gõ có thể vượt khung cũ.
+                let added: Vec<Rect> = self.mark_bounds.last().copied().into_iter().collect();
+                self.invalidate(&added);
             }
         }
         // Nút Hoàn tác có thể đổi trạng thái (mờ, sáng).
@@ -3694,10 +3746,9 @@ mod tests {
         );
         let mut steps = vec![live::Step::Key(u16::from(b'T'))];
         steps.extend(live::click(a));
-        // WM_KEYDOWN 'P' không đổi công cụ; TranslateMessage của vòng lặp lớp phủ dịch nó thành
-        // một WM_CHAR 'p' (như bàn phím thật). Thêm một WM_CHAR 'p' gửi thẳng: ô có "pp".
+        // Như bàn phím thật: chỉ WM_KEYDOWN 'P'; TranslateMessage của vòng lặp lớp phủ sinh
+        // WM_CHAR 'p'. Phím không đổi công cụ, ký tự vào ô. Cần Caps Lock tắt (bật thì ra "P").
         steps.push(live::Step::Key(u16::from(b'P')));
-        steps.extend(live::chars("p"));
         // Công cụ vẫn là Chữ: bấm chỗ khác mở ô mới (không vẽ chấm Bút vẽ).
         steps.extend(live::click(b));
         steps.extend(live::chars("q"));
@@ -3707,7 +3758,7 @@ mod tests {
         assert_eq!(
             texts(&r.unwrap().unwrap().shapes),
             vec![
-                (live::pt(a), "pp".to_string()),
+                (live::pt(a), "p".to_string()),
                 (live::pt(b), "q".to_string())
             ]
         );
