@@ -55,6 +55,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 40 Mô hình màu tự chọn | task/40-color-model | builder | sonnet | xong | 94.106 | 39.331 | 2.672 (ngưỡng kiểm thử) | 136.109 |
 | 41 Bảng chọn màu tự do | task/41-color-picker | specialist | opus | xong | 261.538 | 118.709 | 21.208 | 401.455 |
 | 42 Công cụ Làm mờ | task/42-blur-redact | specialist | opus | xong | 185.859 | 117.015 | 16.865 | 319.739 |
+| 43 Báo có bản mới | task/43-update-check | builder | sonnet | đang làm | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
