@@ -112,7 +112,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 
 ## Đợt 1: cửa sổ Tùy chọn
 
-- [ ] Bốn tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; ba ô tích đợt 2; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (ba dòng, mỗi dòng có ô tích, ô chỉ đọc và Đổi…), Định dạng (xem "Đợt 3: định dạng"), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
+- [ ] Bốn tab đúng nội dung và không có ô thừa: Thông thường (Khởi động cùng Windows; ba ô tích đợt 2 và ô "Tự kiểm tra bản mới"; Thư mục lưu + Chọn…; Ngôn ngữ), Phím tắt (ba dòng, mỗi dòng có ô tích, ô chỉ đọc và Đổi…), Định dạng (xem "Đợt 3: định dạng"), Lưu trữ R2 (Account ID, Access Key ID, Secret Access Key + dòng gợi ý, Tên kho, Địa chỉ công khai, Hạn của link, Kiểm tra kết nối + dòng kết quả). Nền khung và nhãn trùng nền dải tab, không có ô xám trên nền trắng.
 - [ ] Cửa sổ không đổi cỡ khi chuyển tab.
 - [ ] Giá trị gõ ở một tab còn nguyên sau khi sang tab khác và quay lại.
 - [ ] Tab/Shift+Tab đi vòng: dải tab → các ô của tab đang hiện → OK → Hủy → dải tab; không bao giờ vào ô của tab đang ẩn. Mũi tên trái/phải đổi tab khi dải tab giữ tiêu điểm. Ctrl+Tab và Ctrl+Shift+Tab đổi tab (vòng tròn) từ bất cứ ô nào, kể cả khi hộp chọn đang thả.
@@ -294,3 +294,13 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Làm mờ: nét vẽ sau nằm trên vùng che; vùng che tạo sau phủ lên nét vẽ trước.
 - [ ] Làm mờ: Ctrl+Z gỡ vùng che, ảnh gốc hiện lại trên màn hình; ảnh ra không còn vùng che đó.
 - [ ] Thanh dọc 9 nút (thêm Làm mờ giữa Bút dạ quang và Chữ) nằm trọn trong màn hình ở DPI 100% và 150%, kể cả màn hình 1366×768; không chồng thanh bốn nút.
+
+## Cập nhật (Task 43)
+
+- [ ] Chạy bản có phiên bản cũ hơn release mới nhất: sau khoảng 1 phút có thông báo "Có bản darkshot mới"; bấm vào thông báo thì mở đúng trang release.
+- [ ] Menu khay có mục "Có bản mới X.Y.Z" ở trên cùng, kèm vạch ngăn bên dưới; bấm mục thì mở đúng trang release.
+- [ ] Mở lại ứng dụng thì không còn thông báo (đã báo phiên bản đó) nhưng menu vẫn có mục "Có bản mới".
+- [ ] Tắt ô "Tự kiểm tra bản mới" trong Tùy chọn (OK): mục menu biến mất và không còn yêu cầu mạng nào; bật lại thì kiểm tra sau khoảng 1 phút.
+- [ ] Rút mạng (hoặc chặn `api.github.com`): không có lỗi hay thông báo nào hiện ra, ứng dụng vẫn chụp và mở Tùy chọn bình thường.
+- [ ] Bấm vào một thông báo khác (ví dụ "Đã lưu ảnh") không mở trình duyệt.
+- [ ] Tab Thông thường của Tùy chọn: ô "Tự kiểm tra bản mới" nằm ngay dưới ô thông báo lưu và sao chép, màu tối đúng như các ô tích khác; Tab đi qua ô theo thứ tự.

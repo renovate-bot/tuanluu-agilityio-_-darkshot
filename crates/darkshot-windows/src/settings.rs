@@ -90,6 +90,7 @@ pub struct Form {
     pub autostart: bool,
     pub language: Lang,
     pub show_success_notices: bool,
+    pub check_updates: bool,
     pub keep_selection: bool,
     pub include_cursor: bool,
     pub upload_format: UploadFormat,
@@ -111,6 +112,7 @@ impl std::fmt::Debug for Form {
             .field("autostart", &self.autostart)
             .field("language", &self.language)
             .field("show_success_notices", &self.show_success_notices)
+            .field("check_updates", &self.check_updates)
             .field("keep_selection", &self.keep_selection)
             .field("include_cursor", &self.include_cursor)
             .field("upload_format", &self.upload_format)
@@ -286,7 +288,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         upload_format: form.upload_format,
         jpeg_quality: clamp_jpeg_quality(i64::from(form.jpeg_quality)),
         custom_colors: current.custom_colors,
-        check_updates: current.check_updates,
+        check_updates: form.check_updates,
         update_notified: current.update_notified,
     })
 }
@@ -466,6 +468,7 @@ const ID_QUALITY_VALUE: i32 = 141;
 /// Ghi chú chữ phụ: dòng "đã lưu khóa" dưới ô Secret và dòng "ảnh lưu vào máy luôn là PNG".
 const ID_SECRET_NOTE: i32 = 150;
 const ID_PNG_NOTE: i32 = 151;
+const ID_CHECK_UPDATES: i32 = 152;
 /// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
@@ -511,6 +514,7 @@ struct Ctl {
     hk_btn: [HWND; 3],
     autostart: HWND,
     notices: HWND,
+    check_updates: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     err: HWND,
@@ -641,6 +645,7 @@ fn read_form() -> Option<Form> {
         autostart: is_checked(c.autostart),
         language,
         show_success_notices: is_checked(c.notices),
+        check_updates: is_checked(c.check_updates),
         keep_selection: is_checked(c.keep_selection),
         include_cursor: is_checked(c.include_cursor),
         upload_format,
@@ -2170,6 +2175,7 @@ fn combo(b: &mut Builder, y: i32, id: i32) -> HWND {
 struct GeneralCtl {
     autostart: HWND,
     notices: HWND,
+    check_updates: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     dir: HWND,
@@ -2193,6 +2199,7 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), (LX, y, w, 22), id)
     };
     let notices = check(b, Msg::ChkShowSuccessNotices, ID_NOTICES);
+    let check_updates = check(b, Msg::ChkCheckUpdates, ID_CHECK_UPDATES);
     let keep_selection = check(b, Msg::ChkKeepSelection, ID_KEEP_SELECTION);
     let include_cursor = check(b, Msg::ChkIncludeCursor, ID_INCLUDE_CURSOR);
     y += 32;
@@ -2217,6 +2224,7 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
     GeneralCtl {
         autostart,
         notices,
+        check_updates,
         keep_selection,
         include_cursor,
         dir,
@@ -2647,6 +2655,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         g.dir,
         g.autostart,
         g.notices,
+        g.check_updates,
         g.keep_selection,
         g.include_cursor,
         err,
@@ -2683,6 +2692,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         hk_btn: hk.btn,
         autostart: g.autostart,
         notices: g.notices,
+        check_updates: g.check_updates,
         keep_selection: g.keep_selection,
         include_cursor: g.include_cursor,
         err,
@@ -2848,6 +2858,7 @@ pub fn show(
     }
     set_checked(c.autostart, current.autostart);
     set_checked(c.notices, current.show_success_notices);
+    set_checked(c.check_updates, current.check_updates);
     set_checked(c.keep_selection, current.keep_selection);
     set_checked(c.include_cursor, current.include_cursor);
     set_checked(c.fmt_png, current.upload_format == UploadFormat::Png);
@@ -3090,11 +3101,27 @@ mod tests {
             autostart: c.autostart,
             language: c.language,
             show_success_notices: c.show_success_notices,
+            check_updates: c.check_updates,
             keep_selection: c.keep_selection,
             include_cursor: c.include_cursor,
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
         }
+    }
+
+    #[test]
+    fn check_updates_follows_form_and_notified_is_kept() {
+        let mut c = base();
+        c.update_notified = Some(darkshot_core::update::Version {
+            major: 0,
+            minor: 3,
+            patch: 0,
+        });
+        let mut f = form_of(&c);
+        f.check_updates = false;
+        let n = apply_form(&c, &f, Lang::Vi).unwrap();
+        assert!(!n.check_updates);
+        assert_eq!(n.update_notified, c.update_notified);
     }
 
     #[test]
@@ -3836,7 +3863,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..11 {
+            for _ in 0..12 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -3844,6 +3871,7 @@ mod tests {
             let want = vec![
                 ID_AUTOSTART,
                 ID_NOTICES,
+                ID_CHECK_UPDATES,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
                 ID_DIR,

@@ -21,13 +21,30 @@ pub struct Version {
 impl Version {
     /// "1.2.3" hoặc "v1.2.3" (đúng ba số, không thừa ký tự); khác thì None.
     pub fn parse(s: &str) -> Option<Version> {
-        todo!()
+        let s = s.strip_prefix('v').unwrap_or(s);
+        let mut parts = s.split('.');
+        let mut num = || {
+            let p = parts.next()?;
+            if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            p.parse::<u32>().ok()
+        };
+        let (major, minor, patch) = (num()?, num()?, num()?);
+        if parts.next().is_some() {
+            return None;
+        }
+        Some(Version {
+            major,
+            minor,
+            patch,
+        })
     }
 }
 
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
@@ -40,25 +57,72 @@ pub struct Release {
 /// Đọc JSON của /releases/latest. None khi: JSON lỗi, thiếu tag_name hoặc html_url,
 /// draft hoặc prerelease là true, tag không đọc được, html_url không bắt đầu bằng RELEASE_URL_PREFIX.
 pub fn parse_latest(json: &str) -> Option<Release> {
-    todo!()
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    let obj = v.as_object()?;
+    for flag in ["draft", "prerelease"] {
+        match obj.get(flag) {
+            None | Some(serde_json::Value::Bool(false)) => {}
+            _ => return None,
+        }
+    }
+    let version = Version::parse(obj.get("tag_name")?.as_str()?)?;
+    let url = obj.get("html_url")?.as_str()?;
+    let safe = url.starts_with(RELEASE_URL_PREFIX)
+        && !url.contains("..")
+        && url.bytes().all(|b| b.is_ascii_graphic());
+    if !safe {
+        return None;
+    }
+    Some(Release {
+        version,
+        url: url.to_string(),
+    })
 }
 
 /// Release mới hơn `current`, hoặc None.
 pub fn newer_than(current: Version, latest: Option<Release>) -> Option<Release> {
-    todo!()
+    latest.filter(|r| r.version > current)
 }
 
 /// GET `url` với User-Agent "darkshot/<current>" và Accept "application/vnd.github+json";
 /// chờ kết nối 10 s, tổng 20 s. Mã 200 thì trả parse_latest(body); mọi lỗi khác trả None.
 /// Đọc thân tối đa 256 KiB.
 pub fn fetch_latest(url: &str, current: Version) -> Option<Release> {
-    todo!()
+    // Roots: webpki-roots (TlsConfig mặc định). Không proxy môi trường, không theo chuyển hướng.
+    let config = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
+        .proxy(None)
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_global(Some(GLOBAL_TIMEOUT))
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
+    let mut resp = agent
+        .get(url)
+        .header("User-Agent", format!("darkshot/{current}"))
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .ok()?;
+    if resp.status().as_u16() != 200 {
+        return None;
+    }
+    let mut buf = Vec::new();
+    resp.body_mut()
+        .as_reader()
+        .take(BODY_LIMIT + 1)
+        .read_to_end(&mut buf)
+        .ok()?;
+    if buf.len() as u64 > BODY_LIMIT {
+        return None;
+    }
+    parse_latest(std::str::from_utf8(&buf).ok()?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::upload::tests::PORT_LOCK;
+    use crate::upload::PORT_LOCK;
     use std::io::Write;
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};

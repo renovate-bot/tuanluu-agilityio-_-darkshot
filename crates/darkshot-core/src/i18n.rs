@@ -610,12 +610,18 @@ pub fn about_version(lang: Lang, version: &str) -> String {
 
 /// "Có bản mới 0.3.0" | "New version 0.3.0 available" (mục menu khay).
 pub fn update_menu(lang: Lang, v: &str) -> String {
-    todo!()
+    match lang {
+        Lang::Vi => format!("Có bản mới {v}"),
+        Lang::En => format!("New version {v} available"),
+    }
 }
 
 /// Nội dung thông báo có bản mới.
 pub fn update_notice_body(lang: Lang, v: &str) -> String {
-    todo!()
+    match lang {
+        Lang::Vi => format!("Bản {v} đã có. Bấm để mở trang tải về."),
+        Lang::En => format!("Version {v} is available. Click to open the download page."),
+    }
 }
 
 #[cfg(test)]
