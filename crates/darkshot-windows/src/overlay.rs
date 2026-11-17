@@ -10,9 +10,9 @@ use crate::gdiplus::{GdiPlus, Gp};
 use crate::lang;
 use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
-    add_point, constrain_45, constrain_square, dip_to_px, press_mode, sanitize_paste, too_short,
-    Annotations, PressMode, Pt, Shape, TextEdit, Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE,
-    STROKE_DIP, TEXT_DIP,
+    add_point, blur_pixel_rect, constrain_45, constrain_square, dip_to_px, press_mode,
+    redact_color, sanitize_paste, too_short, Annotations, PressMode, Pt, Shape, TextEdit, Tool,
+    DEFAULT_COLOR, MARKER_DIP, PALETTE, STROKE_DIP, TEXT_DIP,
 };
 use darkshot_core::color::{
     hls_to_rgb, lum_at, lum_y, picker_layout, rgb_to_hls, spectrum_hs, spectrum_point,
@@ -22,6 +22,7 @@ use darkshot_core::geometry::{
     monitor_containing, place_side_toolbar, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
 use darkshot_core::i18n::{self, Msg};
+use darkshot_core::image::Image;
 use darkshot_core::theme::{
     Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_PRESSED, BUTTON as BUTTON_FILL, BUTTON_BORDER,
     BUTTON_PRESSED, INPUT, INPUT_BORDER, OVERLAY_BORDER, OVERLAY_HOVER, OVERLAY_ICON,
@@ -156,6 +157,7 @@ impl SideItem {
             SideItem::Tool(Tool::Arrow) => Msg::ToolArrow,
             SideItem::Tool(Tool::Rect) => Msg::ToolRect,
             SideItem::Tool(Tool::Marker) => Msg::ToolMarker,
+            SideItem::Tool(Tool::Blur) => Msg::ToolBlur,
             SideItem::Tool(Tool::Text) => Msg::ToolText,
             SideItem::Color => Msg::ToolColor,
             SideItem::Undo => Msg::ToolUndo,
@@ -533,8 +535,24 @@ struct Stroke {
     cursor: Pt,
 }
 
+/// Màu che ban đầu khi không lấy được điểm ảnh dưới chuột.
+const BLUR_FALLBACK: Rgb = Rgb(128, 128, 128);
+
+/// Màu của điểm ảnh chứa `p` trong ảnh `img`; `None` khi ngoài ảnh.
+fn pixel_color(img: &Image, p: Pt) -> Option<Rgb> {
+    let _ = (img, p);
+    todo!()
+}
+
+/// Màu che cho vùng `a`–`b` tính trên ảnh chụp gốc `img`; `old` khi vùng nằm ngoài ảnh.
+fn blur_color(img: &Image, a: Pt, b: Pt, old: Rgb) -> Rgb {
+    let _ = (img, a, b, old);
+    todo!()
+}
+
 /// Bắt đầu nét tại `p` với độ dày theo `dpi` của màn hình chứa `p`; `None` với Chữ.
-fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb) -> Option<Stroke> {
+/// `img`: ảnh chụp gốc (màu che của Làm mờ; màu `color` của bảng màu không dùng cho nó).
+fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb, img: &Image) -> Option<Stroke> {
     let dip = if tool == Tool::Marker {
         MARKER_DIP
     } else {
@@ -569,6 +587,11 @@ fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb) -> Option<Stroke> {
             b: p,
             width,
             color,
+        },
+        Tool::Blur => Shape::Blur {
+            a: p,
+            b: p,
+            color: pixel_color(img, p).unwrap_or(BLUR_FALLBACK),
         },
         Tool::Text => return None,
     };
@@ -616,7 +639,8 @@ fn union(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
 /// Kéo nét tới `p` (`shift`: khóa góc 45° hoặc hình vuông). Trả vùng cần vẽ lại, `None` khi không đổi.
 /// Nét tự do chỉ làm mới hộp bao đoạn mới (nới nửa độ dày, đầu vuông của bút dạ quang thì nhân
 /// căn 2, cộng 2 px khử răng cưa), không phụ thuộc độ dài nét.
-fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
+/// Làm mờ: tính lại màu che trên ảnh gốc `img` mỗi khi `b` đổi.
+fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool, img: &Image) -> Option<Rect> {
     s.cursor = p;
     let marker = s.tool == Tool::Marker;
     match &mut s.shape {
@@ -638,7 +662,7 @@ fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
         _ => {
             let end = match (s.tool, shift) {
                 (Tool::Line | Tool::Arrow, true) => constrain_45(s.start, p),
-                (Tool::Rect, true) => constrain_square(s.start, p),
+                (Tool::Rect | Tool::Blur, true) => constrain_square(s.start, p),
                 _ => p,
             };
             let before = s.shape.bounds();
@@ -649,6 +673,13 @@ fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
                     }
                     *b = end;
                 }
+                Shape::Blur { a, b, color } => {
+                    if *b == end {
+                        return None;
+                    }
+                    *b = end;
+                    *color = blur_color(img, *a, end, *color);
+                }
                 _ => return None,
             }
             union(before, s.shape.bounds())
@@ -656,15 +687,24 @@ fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
     }
 }
 
-/// Hình chốt từ nét vừa vẽ; `None` khi Đường thẳng, Mũi tên, Hình chữ nhật quá ngắn.
-fn end_stroke(s: Stroke) -> Option<Shape> {
-    match &s.shape {
-        Shape::Line { a, b, .. } | Shape::Arrow { a, b, .. } | Shape::Rect { a, b, .. }
-            if too_short(s.tool, *a, *b) =>
+/// Hình chốt từ nét vừa vẽ; `None` khi Đường thẳng, Mũi tên, Hình chữ nhật, Làm mờ quá ngắn.
+/// Làm mờ: màu che tính lại lần cuối trên ảnh gốc `img`.
+fn end_stroke(s: Stroke, img: &Image) -> Option<Shape> {
+    match s.shape {
+        Shape::Line { a, b, .. }
+        | Shape::Arrow { a, b, .. }
+        | Shape::Rect { a, b, .. }
+        | Shape::Blur { a, b, .. }
+            if too_short(s.tool, a, b) =>
         {
             None
         }
-        _ => Some(s.shape),
+        Shape::Blur { a, b, color } => Some(Shape::Blur {
+            a,
+            b,
+            color: blur_color(img, a, b, color),
+        }),
+        shape => Some(shape),
     }
 }
 
@@ -943,6 +983,8 @@ struct State {
     /// Ảnh gốc (`Screenshot::image.bgra`), sống suốt `pick_region`; chỉ đọc.
     bright: *const u8,
     bright_len: usize,
+    /// Ảnh chụp gốc (`Screenshot::image`), sống suốt `pick_region`; chỉ đọc (màu che của Làm mờ).
+    image: *const Image,
     dark: Vec<u8>,
     /// Bộ đệm vẽ cố định cỡ màn hình ảo; `None` thì mỗi lần vẽ tạo bitmap tạm.
     back: Option<BackBuffer>,
@@ -1104,6 +1146,13 @@ impl State {
             .position(|x| *x == m)
             .and_then(|i| self.dpis.get(i).copied())
             .unwrap_or(96)
+    }
+
+    /// Ảnh chụp gốc của lớp phủ.
+    fn shot_image(&self) -> &Image {
+        // SAFETY: `image` trỏ tới `Screenshot::image`, sống suốt pick_region (State bị hủy trước
+        // khi pick_region trả về) và không bị ai ghi trong lúc này.
+        unsafe { &*self.image }
     }
 
     fn dpi_at(&self, p: Point) -> u32 {
@@ -1673,11 +1722,13 @@ impl State {
         let Some(st) = self.stroke.as_mut() else {
             return;
         };
-        if !matches!(st.tool, Tool::Line | Tool::Arrow | Tool::Rect) {
+        if !matches!(st.tool, Tool::Line | Tool::Arrow | Tool::Rect | Tool::Blur) {
             return;
         }
         let at = st.cursor;
-        if let Some(r) = extend_stroke(st, at, shift) {
+        // SAFETY: ảnh gốc sống suốt pick_region (xem `State::image`).
+        let img = unsafe { &*self.image };
+        if let Some(r) = extend_stroke(st, at, shift, img) {
             self.invalidate(&[r]);
         }
     }
@@ -1906,7 +1957,7 @@ impl State {
             return;
         };
         let drawn = s.shape.bounds();
-        match end_stroke(s) {
+        match end_stroke(s, self.shot_image()) {
             Some(shape) => self.update_bars(|st| st.push_mark(shape)),
             None => self.invalidate(&drawn.into_iter().collect::<Vec<_>>()),
         }
@@ -1968,7 +2019,9 @@ impl State {
                     x: p.x as f32,
                     y: p.y as f32,
                 };
-                let Some(stroke) = begin_stroke(tool, at, self.dpi_at(p), self.color) else {
+                let dpi = self.dpi_at(p);
+                let Some(stroke) = begin_stroke(tool, at, dpi, self.color, self.shot_image())
+                else {
                     return Effects::default();
                 };
                 let dirty = stroke.shape.bounds();
@@ -2007,12 +2060,18 @@ impl State {
     fn on_move(&mut self, p: Point) {
         if let Some(kind) = self.picker_drag {
             self.drag_picker(kind, p);
-        } else if let Some(stroke) = self.stroke.as_mut() {
+        } else if self.stroke.is_some() {
             let at = Pt {
                 x: p.x as f32,
                 y: p.y as f32,
             };
-            if let Some(r) = extend_stroke(stroke, at, key_held(VK_SHIFT)) {
+            // SAFETY: ảnh gốc sống suốt pick_region (xem `State::image`).
+            let img = unsafe { &*self.image };
+            let r = self
+                .stroke
+                .as_mut()
+                .and_then(|st| extend_stroke(st, at, key_held(VK_SHIFT), img));
+            if let Some(r) = r {
                 self.invalidate(&[r]);
             }
         } else if self.sel.is_dragging() {
@@ -2040,12 +2099,18 @@ impl State {
                 ..Default::default()
             };
         }
-        if let Some(stroke) = self.stroke.as_mut() {
+        if self.stroke.is_some() {
             let at = Pt {
                 x: p.x as f32,
                 y: p.y as f32,
             };
-            if let Some(r) = extend_stroke(stroke, at, key_held(VK_SHIFT)) {
+            // SAFETY: ảnh gốc sống suốt pick_region (xem `State::image`).
+            let img = unsafe { &*self.image };
+            let r = self
+                .stroke
+                .as_mut()
+                .and_then(|st| extend_stroke(st, at, key_held(VK_SHIFT), img));
+            if let Some(r) = r {
                 self.invalidate(&[r]);
             }
             self.commit_stroke();
@@ -3179,6 +3244,14 @@ impl Gp {
                 p.poly(&[(9.0, 13.0), (6.0, 18.0), (8.0, 20.0), (13.0, 17.0)]);
                 p.poly(&[(12.0, 21.0), (20.0, 21.0)]);
             }
+            SideItem::Tool(Tool::Blur) => {
+                // Khung như Hình chữ nhật, ba vạch chéo song song cắt trong khung.
+                p.poly(&[(4.0, 6.0), (20.0, 6.0), (20.0, 18.0), (4.0, 18.0)]);
+                p.close();
+                p.poly(&[(4.0, 14.0), (12.0, 6.0)]);
+                p.poly(&[(8.0, 18.0), (20.0, 6.0)]);
+                p.poly(&[(16.0, 18.0), (20.0, 14.0)]);
+            }
             SideItem::Tool(Tool::Text) => {
                 p.poly(&[(5.0, 7.0), (5.0, 5.0), (19.0, 5.0), (19.0, 7.0)]);
                 p.poly(&[(12.0, 5.0), (12.0, 19.0)]);
@@ -3524,6 +3597,7 @@ pub fn pick_region(
         h,
         bright: img.bgra.as_ptr(),
         bright_len: img.bgra.len(),
+        image: img,
         dark,
         back: BackBuffer::new(w, h),
         focus_retries: 0,
@@ -3783,17 +3857,20 @@ mod tests {
         };
         let mut steps = vec![live::Step::Key(u16::from(b'P'))];
         steps.extend(live::drag(inside(20, 20), inside(120, 80)));
+        steps.push(live::Step::Key(u16::from(b'B')));
+        steps.extend(live::drag(inside(40, 60), inside(200, 150)));
         steps.push(live::Step::Key(u16::from(b'R')));
         steps.extend(live::drag(inside(30, 30), inside(150, 120)));
         steps.push(live::Step::Ctrl(u16::from(b'Z')));
-        steps.extend(live::click(l.item(6)));
+        steps.extend(live::click(l.item(COLOR_INDEX)));
         steps.push(live::Step::Key(VK_ESCAPE.0));
         steps.extend(live::click(l.save()));
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
         let p = r.unwrap().unwrap();
-        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 1));
+        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 2));
         assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        assert!(matches!(p.shapes[1], Shape::Blur { .. }));
         // Vòng có chữ: mở ô, gõ, bấm chỗ khác (chốt, mở ô mới), gõ, Ctrl+S.
         let mut steps = vec![live::Step::Key(u16::from(b'T'))];
         steps.extend(live::click(inside(30, 40)));
@@ -3807,7 +3884,7 @@ mod tests {
         assert_eq!(p.shapes.len(), 2);
         assert!(p.shapes.iter().all(|s| matches!(s, Shape::Text { .. })));
         // Vòng bảng chọn màu: mở dạng đủ, kéo ô sắc độ và thanh độ sáng, thêm màu, đóng bằng Esc.
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.extend(live::click(l.define()));
         steps.extend(live::drag(
             l.full_center(|p| p.spectrum),
@@ -3842,7 +3919,15 @@ mod tests {
     fn side_bar_button_hit_testing() {
         let (b, sep) = (36, 9);
         let (w, h) = side_bar_size(b, sep);
-        assert_eq!((w, h), (36, 8 * 36 + 2 * 9));
+        assert_eq!((w, h), (36, 9 * 36 + 2 * 9));
+        assert_eq!(SIDE_ITEMS.len(), 9);
+        assert_eq!(COLOR_INDEX, 7);
+        assert_eq!(SIDE_ITEMS[COLOR_INDEX], SideItem::Color);
+        assert_eq!(SIDE_ITEMS[5].tip(), Msg::ToolBlur);
+        assert_eq!(
+            (0..9).map(seps_before).collect::<Vec<_>>(),
+            vec![0, 0, 0, 0, 0, 0, 0, 1, 2]
+        );
         let bar = Rect {
             x: 500,
             y: 100,
@@ -3864,24 +3949,83 @@ mod tests {
         assert_eq!(at(100 + 2 * 36 + 18), Some(SideItem::Tool(Tool::Arrow)));
         assert_eq!(at(100 + 3 * 36 + 18), Some(SideItem::Tool(Tool::Rect)));
         assert_eq!(at(100 + 4 * 36 + 18), Some(SideItem::Tool(Tool::Marker)));
-        assert_eq!(at(100 + 5 * 36 + 18), Some(SideItem::Tool(Tool::Text)));
+        assert_eq!(at(100 + 5 * 36 + 18), Some(SideItem::Tool(Tool::Blur)));
+        assert_eq!(at(100 + 6 * 36 + 18), Some(SideItem::Tool(Tool::Text)));
         // Vạch ngăn thứ nhất cùng lề của nó.
-        for y in 100 + 6 * 36..100 + 6 * 36 + 9 {
+        for y in 100 + 7 * 36..100 + 7 * 36 + 9 {
             assert_eq!(at(y), None, "y = {y}");
         }
-        assert_eq!(at(100 + 6 * 36 + 9), Some(SideItem::Color));
-        assert_eq!(at(100 + 6 * 36 + 9 + 18), Some(SideItem::Color));
+        assert_eq!(at(100 + 7 * 36 + 9), Some(SideItem::Color));
+        assert_eq!(at(100 + 7 * 36 + 9 + 18), Some(SideItem::Color));
         // Vạch ngăn thứ hai.
-        for y in 100 + 7 * 36 + 9..100 + 7 * 36 + 18 {
+        for y in 100 + 8 * 36 + 9..100 + 8 * 36 + 18 {
             assert_eq!(at(y), None, "y = {y}");
         }
-        assert_eq!(at(100 + 7 * 36 + 18 + 18), Some(SideItem::Undo));
+        assert_eq!(at(100 + 8 * 36 + 18 + 18), Some(SideItem::Undo));
         assert_eq!(at(100 + h - 1), Some(SideItem::Undo));
         // Ngoài thanh.
         assert_eq!(at(99), None);
         assert_eq!(at(100 + h), None);
         assert_eq!(side_item_at(bar, sep, Point { x: 499, y: 118 }), None);
         assert_eq!(side_item_at(bar, sep, Point { x: 536, y: 118 }), None);
+    }
+
+    /// Thanh dọc 9 nút trên màn hình thấp 1366×768 ở 100% và 150%: nằm trọn trong màn hình,
+    /// không chồng thanh bốn nút.
+    #[test]
+    fn side_bar_fits_low_screen() {
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            w: 1366,
+            h: 768,
+        };
+        let inside = |r: Rect| {
+            r.x >= mon.x && r.y >= mon.y && r.right() <= mon.right() && r.bottom() <= mon.bottom()
+        };
+        let overlap = |a: Rect, b: Rect| {
+            a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+        };
+        for dpi in [96, 144] {
+            let (_, h) = side_bar_size(scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
+            assert!(h <= mon.h, "dpi {dpi}: thanh cao {h}");
+            for sel in [
+                mon,
+                Rect {
+                    x: 100,
+                    y: 100,
+                    w: 300,
+                    h: 200,
+                },
+                Rect {
+                    x: 1000,
+                    y: 500,
+                    w: 366,
+                    h: 268,
+                },
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 400,
+                    h: 120,
+                },
+                Rect {
+                    x: 500,
+                    y: 600,
+                    w: 400,
+                    h: 168,
+                },
+            ] {
+                let (bar, side) = bars_for(sel, mon, dpi);
+                assert_eq!(side.h, h);
+                assert!(inside(side), "dpi {dpi} sel {sel:?}: {side:?}");
+                assert!(inside(bar), "dpi {dpi} sel {sel:?}: {bar:?}");
+                assert!(
+                    !overlap(bar, side),
+                    "dpi {dpi} sel {sel:?}: {bar:?} {side:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -4120,14 +4264,26 @@ mod tests {
         use darkshot_core::annotate::{dip_to_px, DEFAULT_COLOR, STROKE_DIP};
         let dpi = 144;
         let width = dip_to_px(STROKE_DIP, dpi);
-        let mut s = begin_stroke(Tool::Pen, Pt { x: 100.0, y: 100.0 }, dpi, DEFAULT_COLOR).unwrap();
+        let img = Image {
+            width: 1,
+            height: 1,
+            bgra: vec![0, 0, 0, 255],
+        };
+        let mut s = begin_stroke(
+            Tool::Pen,
+            Pt { x: 100.0, y: 100.0 },
+            dpi,
+            DEFAULT_COLOR,
+            &img,
+        )
+        .unwrap();
         // Nét dài trước đó: hộp làm mới không phụ thuộc độ dài nét.
         for i in 1..=2000 {
             let p = Pt {
                 x: 100.0 + i as f32 * 1.5,
                 y: 100.0 + (i % 7) as f32,
             };
-            assert!(extend_stroke(&mut s, p, false).is_some());
+            assert!(extend_stroke(&mut s, p, false, &img).is_some());
         }
         let Shape::Pen { points, .. } = &s.shape else {
             panic!("không phải Pen");
@@ -4137,7 +4293,7 @@ mod tests {
             x: p.x + 5.0,
             y: p.y - 3.0,
         };
-        let r = extend_stroke(&mut s, q, false).unwrap();
+        let r = extend_stroke(&mut s, q, false, &img).unwrap();
         let pad = width / 2.0 + 2.0;
         let (x0, x1) = (p.x.min(q.x) - pad, p.x.max(q.x) + pad);
         let (y0, y1) = (p.y.min(q.y) - pad, p.y.max(q.y) + pad);
@@ -4155,7 +4311,84 @@ mod tests {
             x: q.x + 0.4,
             y: q.y,
         };
-        assert_eq!(extend_stroke(&mut s, tiny, false), None);
+        assert_eq!(extend_stroke(&mut s, tiny, false, &img), None);
+    }
+
+    /// Nét Làm mờ: màu ban đầu là điểm ảnh dưới chuột, mỗi lần kéo tính lại bằng `redact_color`,
+    /// Shift thành hình vuông, màu bảng màu không dùng, quá ngắn thì bỏ.
+    #[test]
+    fn blur_stroke_tracks_redact_color() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color, DEFAULT_COLOR};
+        let (w, h) = (40u32, 30u32);
+        let mut bgra = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                bgra.extend_from_slice(&[(x * 6) as u8, (y * 8) as u8, ((x + y) * 3) as u8, 255]);
+            }
+        }
+        let img = Image {
+            width: w,
+            height: h,
+            bgra,
+        };
+        let color_of = |s: &Stroke| match s.shape {
+            Shape::Blur { color, .. } => color,
+            _ => panic!("không phải Blur"),
+        };
+        let a = Pt { x: 5.0, y: 4.0 };
+        let mut s = begin_stroke(Tool::Blur, a, 144, DEFAULT_COLOR, &img).unwrap();
+        // Điểm ảnh (5, 4): B = 30, G = 32, R = 27.
+        assert_eq!(color_of(&s), Rgb(27, 32, 30));
+        let b = Pt { x: 20.5, y: 12.2 };
+        let r = extend_stroke(&mut s, b, false, &img).unwrap();
+        let want = redact_color(&img, blur_pixel_rect(a, b));
+        assert_eq!(Some(color_of(&s)), want);
+        // Vùng làm mới chứa cả vùng che mới.
+        let bb = s.shape.bounds().unwrap();
+        assert!(r.x <= bb.x && r.y <= bb.y && r.right() >= bb.right() && r.bottom() >= bb.bottom());
+        // Shift: hình vuông.
+        extend_stroke(&mut s, b, true, &img).unwrap();
+        let Shape::Blur { b: sq, .. } = s.shape else {
+            panic!()
+        };
+        assert_eq!(sq, constrain_square(a, b));
+        assert_eq!(
+            Some(color_of(&s)),
+            redact_color(&img, blur_pixel_rect(a, sq))
+        );
+        // Kéo ra ngoài ảnh: màu tính trên phần trong ảnh, không panic.
+        let far = Pt {
+            x: 500.0,
+            y: -300.0,
+        };
+        extend_stroke(&mut s, far, false, &img);
+        assert_eq!(
+            Some(color_of(&s)),
+            redact_color(&img, blur_pixel_rect(a, far))
+        );
+        // Chốt: màu tính lại trên hình chữ nhật cuối.
+        let fin = Pt { x: 30.0, y: 25.0 };
+        extend_stroke(&mut s, fin, false, &img);
+        let mut done = s.clone();
+        if let Shape::Blur { color, .. } = &mut done.shape {
+            *color = Rgb(1, 2, 3);
+        }
+        assert_eq!(
+            end_stroke(done, &img),
+            Some(Shape::Blur {
+                a,
+                b: fin,
+                color: redact_color(&img, blur_pixel_rect(a, fin)).unwrap(),
+            })
+        );
+        // Quá ngắn: bỏ.
+        let mut t = begin_stroke(Tool::Blur, a, 96, DEFAULT_COLOR, &img).unwrap();
+        extend_stroke(&mut t, Pt { x: 30.0, y: 5.0 }, false, &img);
+        assert_eq!(end_stroke(t, &img), None);
+        // Điểm đầu ngoài ảnh: xám.
+        let out =
+            begin_stroke(Tool::Blur, Pt { x: -9.0, y: 3.0 }, 96, DEFAULT_COLOR, &img).unwrap();
+        assert_eq!(color_of(&out), Rgb(128, 128, 128));
     }
 
     /// Lớp phủ thật được điều khiển bằng thông điệp giả từ một luồng phụ.
@@ -4493,7 +4726,7 @@ mod tests {
             color,
         };
         // Chọn màu xanh lam (ô 5, #0080FF) qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Key(u16::from(b'L')));
         steps.extend(live::drag(a, b));
@@ -4510,6 +4743,54 @@ mod tests {
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
         assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[5])]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored blur_save_redacts --test-threads=1"]
+    fn blur_save_redacts() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = (
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 220,
+                y: sel.y + 120,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+        steps.extend(live::drag(a, b));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        let rect = blur_pixel_rect(live::pt(a), live::pt(b));
+        let want = redact_color(&shot.image, rect).unwrap();
+        assert_eq!(
+            p.shapes,
+            vec![Shape::Blur {
+                a: live::pt(a),
+                b: live::pt(b),
+                color: want,
+            }]
+        );
+        let out = crate::picked_image(&shot.image, p.rect, &p.shapes).unwrap();
+        for y in rect.y..rect.bottom() {
+            for x in rect.x..rect.right() {
+                let i = (((y - sel.y) as u32 * out.width + (x - sel.x) as u32) * 4) as usize;
+                assert_eq!(
+                    &out.bgra[i..i + 4],
+                    &[want.2, want.1, want.0, 255],
+                    "({x},{y})"
+                );
+            }
+        }
     }
 
     #[test]
@@ -4571,7 +4852,7 @@ mod tests {
         let sel = live::test_sel(&shot);
         let l = live::layout(&shot, sel);
         // Esc bằng WM_KEYDOWN.
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.push(live::Step::Key(VK_ESCAPE.0));
         steps.push(live::Step::Alive);
         steps.push(live::Step::Key(VK_ESCAPE.0));
@@ -4582,7 +4863,7 @@ mod tests {
         );
         assert_eq!(r, Ok(None));
         // Esc qua phím tắt toàn cục.
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.push(live::Step::Hotkey);
         steps.push(live::Step::Alive);
         steps.push(live::Step::Hotkey);
@@ -4913,7 +5194,7 @@ mod tests {
         let sel = live::test_sel(&shot);
         let l = live::layout(&shot, sel);
         let (a, b) = line_points(sel);
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Alive);
         // Bảng đã đóng: phím L chọn công cụ, kéo vẽ được (bảng mở thì cú bấm chỉ đóng bảng).
@@ -4955,7 +5236,7 @@ mod tests {
             l: lum_at(bar, lum_to.y),
             s,
         });
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(click_sp));
         steps.extend(live::drag(lum_from, lum_to));
@@ -4996,7 +5277,7 @@ mod tests {
             l: rgb_to_hls(before).l,
             s,
         });
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(click_sp));
         steps.extend(live::click(l.full_center(|p| p.add_btn)));
@@ -5023,7 +5304,7 @@ mod tests {
         let before = LAST_COLOR.with(|c| c.get());
         let red = l.full_center(|p| p.fields[3].1);
         // Bảng mở, chưa sửa ô số: phím chữ không chọn công cụ.
-        let mut steps = live::click(l.item(6));
+        let mut steps = live::click(l.item(COLOR_INDEX));
         steps.push(live::Step::Key(u16::from(b'H')));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(red));
@@ -5074,7 +5355,7 @@ mod tests {
         let from = l.full_center(|p| p.spectrum);
         let to = l.full_center(|p| p.lum_bar);
         for close in [VK_ESCAPE.0, VK_RETURN.0] {
-            let mut steps = live::click(l.item(6));
+            let mut steps = live::click(l.item(COLOR_INDEX));
             steps.extend(live::click(l.define()));
             // Kéo trong ô sắc độ, đóng bảng giữa chừng, rồi nhả.
             steps.push(live::Step::Down(from));

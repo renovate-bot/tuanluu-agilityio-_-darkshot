@@ -337,6 +337,7 @@ fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool
             width,
             color,
         } => draw_marker(g, points, *width, *color),
+        Shape::Blur { a, b, color } => draw_blur(g, *a, *b, *color),
         Shape::Text {
             origin,
             text: t,
@@ -426,6 +427,12 @@ fn draw_marker(g: *mut GpGraphics, points: &[Pt], width: f32, color: Rgb) -> boo
             && ok(GdipSetPathFillMode(path.0, FillModeWinding))
             && ok(GdipFillPath(g, brush.raw(), path.0))
     }
+}
+
+/// Vùng che: tô đặc `blur_pixel_rect(a, b)` bằng `color`, alpha 255, không khử răng cưa.
+fn draw_blur(g: *mut GpGraphics, a: Pt, b: Pt, color: Rgb) -> bool {
+    let _ = (g, a, b, color);
+    todo!()
 }
 
 fn draw_text(
@@ -1055,6 +1062,11 @@ mod tests {
                 width: 16.0,
                 color: PALETTE[2],
             },
+            Shape::Blur {
+                a: pt(85.3, 32.6),
+                b: pt(115.8, 55.1),
+                color: Rgb::hex(0x5A6B7C),
+            },
             Shape::Text {
                 origin: pt(70.0, 40.0),
                 text: "Ab\nc".into(),
@@ -1120,6 +1132,96 @@ mod tests {
             }
         }
         assert!(changed_inside);
+    }
+
+    /// Ảnh caro đen trắng 1 px (giả chữ), alpha 255.
+    fn checker(w: u32, h: u32) -> Image {
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let v = if (x + y) % 2 == 0 { 0 } else { 255 };
+                bgra.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    #[test]
+    fn burn_blur_covers_every_pixel() {
+        use darkshot_core::annotate::blur_pixel_rect;
+        let base = checker(64, 48);
+        let mut img = base.clone();
+        let (a, b) = (pt(8.4, 6.6), pt(40.2, 30.9));
+        let color = Rgb::hex(0x5A6B7C);
+        let r = blur_pixel_rect(a, b);
+        assert_eq!(
+            r,
+            Rect {
+                x: 8,
+                y: 6,
+                w: 33,
+                h: 25
+            }
+        );
+        assert_eq!(
+            burn(&mut img, &[Shape::Blur { a, b, color }], full(&base)),
+            Ok(())
+        );
+        for y in 0..img.height {
+            for x in 0..img.width {
+                let inside = r.contains(darkshot_core::geometry::Point {
+                    x: x as i32,
+                    y: y as i32,
+                });
+                if inside {
+                    assert_eq!(px(&img, x, y), [0x7C, 0x6B, 0x5A, 255], "({x},{y})");
+                } else {
+                    assert_eq!(px(&img, x, y), px(&base, x, y), "({x},{y}) ngoài vùng che");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn burn_blur_then_pen_order() {
+        let base = solid(60, 40, 0);
+        let color = Rgb::hex(0x5A6B7C);
+        let blur = Shape::Blur {
+            a: pt(10.0, 10.0),
+            b: pt(50.0, 30.0),
+            color,
+        };
+        let pen = Shape::Pen {
+            points: vec![pt(5.0, 20.0), pt(55.0, 20.0)],
+            width: 3.0,
+            color: RED,
+        };
+        let cover = [0x7C, 0x6B, 0x5A, 255];
+        // Pen trước rồi Blur: điểm của Pen trong vùng che bị phủ.
+        let mut img = base.clone();
+        assert_eq!(
+            burn(&mut img, &[pen.clone(), blur.clone()], full(&base)),
+            Ok(())
+        );
+        assert_eq!(px(&img, 30, 20), cover);
+        assert_eq!(px(&img, 6, 20)[2], 255, "nét ngoài vùng che vẫn còn");
+        // Blur trước rồi Pen: nét Pen nằm trên.
+        let mut img = base.clone();
+        assert_eq!(burn(&mut img, &[blur, pen], full(&base)), Ok(()));
+        assert_eq!(px(&img, 30, 20), [0, 0, 255, 255]);
+        assert_eq!(px(&img, 30, 12), cover);
+    }
+
+    #[test]
+    fn burn_no_shapes_unchanged() {
+        let mut img = checker(33, 17);
+        let before = img.clone();
+        assert_eq!(burn(&mut img, &[], full(&before)), Ok(()));
+        assert_eq!(img, before);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! Thuần logic, không phụ thuộc hệ điều hành; lớp Windows vẽ và nối chuột/bàn phím.
 
 use crate::geometry::{Hit, Rect};
+use crate::image::Image;
 use crate::theme::{contrast_ratio, Rgb};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11,21 +12,23 @@ pub enum Tool {
     Arrow,
     Rect,
     Marker,
+    Blur,
     Text,
 }
 
 impl Tool {
     /// Thứ tự trên thanh công cụ.
-    pub const ALL: [Tool; 6] = [
+    pub const ALL: [Tool; 7] = [
         Tool::Pen,
         Tool::Line,
         Tool::Arrow,
         Tool::Rect,
         Tool::Marker,
+        Tool::Blur,
         Tool::Text,
     ];
 
-    /// Mã phím ảo chữ hoa: P, L, A, R, H, T.
+    /// Mã phím ảo chữ hoa: P, L, A, R, H, B, T.
     pub fn from_key(vk: u16) -> Option<Tool> {
         match vk {
             0x50 => Some(Tool::Pen),
@@ -33,6 +36,7 @@ impl Tool {
             0x41 => Some(Tool::Arrow),
             0x52 => Some(Tool::Rect),
             0x48 => Some(Tool::Marker),
+            0x42 => Some(Tool::Blur),
             0x54 => Some(Tool::Text),
             _ => None,
         }
@@ -138,6 +142,8 @@ pub enum Shape {
         width: f32,
         color: Rgb,
     },
+    /// Vùng che: tô kín `blur_pixel_rect(a, b)` bằng `color` (màu trung bình của ảnh chụp gốc).
+    Blur { a: Pt, b: Pt, color: Rgb },
     /// `origin`: góc trên trái dòng đầu; '\n' xuống dòng.
     Text {
         origin: Pt,
@@ -194,9 +200,41 @@ impl Shape {
                     width / 2.0 + 1.0,
                 )
             }
+            Shape::Blur { a, b, .. } => {
+                let r = blur_pixel_rect(*a, *b);
+                Some(Rect {
+                    x: r.x.saturating_sub(1),
+                    y: r.y.saturating_sub(1),
+                    w: r.w.saturating_add(2),
+                    h: r.h.saturating_add(2),
+                })
+            }
             Shape::Text { .. } => None,
         }
     }
+}
+
+/// Hình chữ nhật điểm ảnh của vùng che: min làm tròn xuống (floor), max làm tròn lên (ceil).
+pub fn blur_pixel_rect(a: Pt, b: Pt) -> Rect {
+    let _ = (a, b);
+    todo!()
+}
+
+/// Số mẫu tối đa khi tính màu che.
+pub const REDACT_MAX_SAMPLES: u64 = 65_536;
+
+/// Bước lưới mẫu cho vùng w×h: số nguyên nhỏ nhất s ≥ 1 sao cho ceil(w/s)·ceil(h/s) ≤ REDACT_MAX_SAMPLES.
+pub fn redact_step(w: i32, h: i32) -> i32 {
+    let _ = (w, h);
+    todo!()
+}
+
+/// Trung bình cộng B, G, R (làm tròn gần nhất) của các điểm ảnh (x, y) với
+/// x = r'.x + i·s, y = r'.y + j·s nằm trong r', trong đó r' = r ∩ ảnh và s = redact_step(r'.w, r'.h).
+/// None khi r' rỗng hoặc ảnh không hợp lệ.
+pub fn redact_color(img: &Image, r: Rect) -> Option<Rgb> {
+    let _ = (img, r);
+    todo!()
 }
 
 /// `dip * dpi / 96`.
@@ -250,12 +288,12 @@ pub fn constrain_square(a: Pt, b: Pt) -> Pt {
     }
 }
 
-/// Line/Arrow: |ab| < MIN_DRAG_PX; Rect: |dx| hoặc |dy| < MIN_DRAG_PX; công cụ khác: false.
+/// Line/Arrow: |ab| < MIN_DRAG_PX; Rect, Blur: |dx| hoặc |dy| < MIN_DRAG_PX; công cụ khác: false.
 pub fn too_short(tool: Tool, a: Pt, b: Pt) -> bool {
     let (dx, dy) = ((b.x - a.x).abs(), (b.y - a.y).abs());
     match tool {
         Tool::Line | Tool::Arrow => dx.hypot(dy) < MIN_DRAG_PX,
-        Tool::Rect => dx < MIN_DRAG_PX || dy < MIN_DRAG_PX,
+        Tool::Rect | Tool::Blur => dx < MIN_DRAG_PX || dy < MIN_DRAG_PX,
         _ => false,
     }
 }
@@ -579,6 +617,7 @@ mod tests {
                 Tool::Arrow,
                 Tool::Rect,
                 Tool::Marker,
+                Tool::Blur,
                 Tool::Text
             ]
         );
@@ -866,5 +905,130 @@ mod tests {
     fn sanitize_paste_normalizes_newlines() {
         assert_eq!(sanitize_paste("a\r\nb\rc\td\u{0007}"), "a\nb\nc d");
         assert_eq!(sanitize_paste(""), "");
+    }
+
+    #[test]
+    fn blur_pixel_rect_rounds_outward() {
+        let want = Rect {
+            x: 1,
+            y: 2,
+            w: 5,
+            h: 1,
+        };
+        assert_eq!(blur_pixel_rect(p(1.2, 2.7), p(5.1, 3.0)), want);
+        assert_eq!(blur_pixel_rect(p(5.1, 3.0), p(1.2, 2.7)), want);
+    }
+
+    #[test]
+    fn redact_step_caps_samples() {
+        assert_eq!(redact_step(256, 256), 1);
+        assert_eq!(redact_step(257, 256), 2);
+        let n = |w: i32, h: i32, s: i32| {
+            let c = |v: i32| (i64::from(v) + i64::from(s) - 1) / i64::from(s);
+            (c(w) * c(h)) as u64
+        };
+        for (w, h) in [(7680, 2160), (1, 10_000_000), (3840, 2160)] {
+            let s = redact_step(w, h);
+            assert!(s >= 1);
+            assert!(n(w, h, s) <= REDACT_MAX_SAMPLES, "{w}x{h} s={s}");
+            if s > 1 {
+                assert!(n(w, h, s - 1) > REDACT_MAX_SAMPLES, "{w}x{h} s={s}");
+            }
+        }
+    }
+
+    fn img_from(w: u32, h: u32, f: impl Fn(u32, u32) -> Rgb) -> Image {
+        let mut bgra = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let c = f(x, y);
+                bgra.extend_from_slice(&[c.2, c.1, c.0, 255]);
+            }
+        }
+        Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    #[test]
+    fn redact_color_average() {
+        let rc = |x, y, w, h| Rect { x, y, w, h };
+        let black = Rgb(0, 0, 0);
+        let white = Rgb(255, 255, 255);
+        // 4×2, nửa trái đen, nửa phải trắng: 127,5 làm tròn lên.
+        let half = img_from(4, 2, |x, _| if x < 2 { black } else { white });
+        assert_eq!(
+            redact_color(&half, rc(0, 0, 4, 2)),
+            Some(Rgb(128, 128, 128))
+        );
+        assert_eq!(redact_color(&half, rc(0, 0, 2, 2)), Some(black));
+        let flat = img_from(5, 3, |_, _| Rgb::hex(0x336699));
+        assert_eq!(
+            redact_color(&flat, rc(0, 0, 5, 3)),
+            Some(Rgb::hex(0x336699))
+        );
+        let grad = img_from(6, 5, |x, y| {
+            Rgb((x * 40) as u8, (y * 50) as u8, (x * y) as u8)
+        });
+        // Tràn ra ngoài ảnh: bằng vùng đã cắt.
+        assert!(redact_color(&grad, rc(0, 2, 4, 3)).is_some());
+        assert_eq!(
+            redact_color(&grad, rc(-3, 2, 7, 10)),
+            redact_color(&grad, rc(0, 2, 4, 3))
+        );
+        assert_eq!(
+            redact_color(&half, rc(-10, -10, 100, 100)),
+            Some(Rgb(128, 128, 128))
+        );
+        // Hoàn toàn ngoài ảnh, hoặc rỗng.
+        assert_eq!(redact_color(&grad, rc(6, 0, 3, 3)), None);
+        assert_eq!(redact_color(&grad, rc(-5, -5, 5, 5)), None);
+        assert_eq!(redact_color(&grad, rc(0, 0, 0, 3)), None);
+        // 1×1: đúng điểm ảnh đó.
+        assert_eq!(redact_color(&grad, rc(3, 4, 1, 1)), Some(Rgb(120, 200, 12)));
+        let bad = Image {
+            width: 2,
+            height: 2,
+            bgra: vec![0; 3],
+        };
+        assert_eq!(redact_color(&bad, rc(0, 0, 2, 2)), None);
+    }
+
+    #[test]
+    fn tool_blur_key_order() {
+        assert_eq!(Tool::from_key(0x42), Some(Tool::Blur));
+        assert_eq!(Tool::ALL[5], Tool::Blur);
+        assert_eq!(Tool::ALL[6], Tool::Text);
+        for (a, b) in [
+            (p(0.0, 0.0), p(10.0, 1.0)),
+            (p(0.0, 0.0), p(10.0, 5.0)),
+            (p(0.0, 0.0), p(1.0, 10.0)),
+            (p(3.0, 3.0), p(3.0, 3.0)),
+            (p(0.0, 0.0), p(-2.0, -2.0)),
+        ] {
+            assert_eq!(too_short(Tool::Blur, a, b), too_short(Tool::Rect, a, b));
+        }
+        assert!(too_short(Tool::Blur, p(0.0, 0.0), p(10.0, 1.0)));
+        assert!(!too_short(Tool::Blur, p(0.0, 0.0), p(10.0, 5.0)));
+    }
+
+    #[test]
+    fn blur_bounds() {
+        let s = Shape::Blur {
+            a: p(10.5, 10.5),
+            b: p(20.2, 30.0),
+            color: DEFAULT_COLOR,
+        };
+        assert_eq!(
+            s.bounds(),
+            Some(Rect {
+                x: 9,
+                y: 9,
+                w: 13,
+                h: 22
+            })
+        );
     }
 }
