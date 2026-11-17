@@ -31,6 +31,7 @@ Task 38 đã gộp (rà soát DUYỆT). **Đợt 5 đã xong theo mã (2026-11-1
 
 ### Vấn đề chờ chủ dự án xem (đợt 5)
 
+- Chủ dự án báo "duyệt. Merge vào main" (2026-11-17) sau khi xem bản demo `target/demo5c/release/darkshot.exe` (đợt 5 cùng Task 39–41). Mọi nhánh 34–41 đã ở `main`. Các mục thử tay trong checklist vẫn chưa đánh dấu.
 - Task 40–41 (2026-11-17, chủ dự án chọn "Tự vẽ, giao diện tối"): bảng màu có dạng gọn (48 màu cơ bản, 16 ô tự chọn, nút "Định nghĩa màu tự chọn >>") và dạng đủ (ô sắc độ, thanh độ sáng, sáu ô số HSL thang 240 như Windows và RGB, Thêm vào màu tự chọn, OK/Hủy); màu tự chọn lưu trong cấu hình (`custom_colors`), chỉ ghi khi file cấu hình có sẵn và đọc tốt lúc khởi động hoặc sau khi Tùy chọn lưu thành công (quyết định 70–72). Ngưỡng kiểm thử vòng HLS là 4 (Hue 240 bậc). Chưa thử: DPI 100%, hai màn hình, kéo chuột thật, màu còn sau khi mở lại rồi Kiểm tra kết nối R2.
 - Task 39 (2026-11-17, chủ dự án chọn "48 màu"): bảng màu 6×8 theo hộp chọn màu Windows, mặc định `#FF0000`, quyết định 69. `#400040` có hai ô nên chọn màu đó thì hai ô cùng có viền. Vùng chọn hẹp sát mép phải với thanh dọc ở bên trái thì bảng màu có thể đè lên thanh dọc (có từ trước, bảng rộng hơn nên dễ gặp hơn). Chưa ai nhìn bảng màu thật.
 - Các lựa chọn "(điều phối viên chọn)" trong thiết kế đợt 5 (vị trí thanh dọc, độ dày 3/16 DIP, chữ 18 DIP, bảng 8 màu, Esc, kéo ngoài vùng) chưa được chủ dự án xem tận mắt.
