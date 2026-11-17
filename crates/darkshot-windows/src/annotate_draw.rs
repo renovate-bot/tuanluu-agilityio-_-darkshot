@@ -3,40 +3,731 @@
 // Lớp phủ (Task 36, 37) nối các hàm này vào; tới lúc đó chỉ kiểm thử dùng.
 #![allow(dead_code)]
 
-use darkshot_core::annotate::{Shape, TextEdit};
+use crate::gdiplus::{GdiPlus, Gp};
+use darkshot_core::annotate::{
+    arrow_geometry, arrow_min_head, outline_color, Pt, Shape, TextEdit, MARKER_ALPHA, TEXT_DIP,
+    TEXT_OUTLINE_DIP,
+};
 use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
-use windows::Win32::Graphics::Gdi::HDC;
+use darkshot_core::theme::Rgb;
+use std::ffi::c_void;
+use windows::core::{w, PCWSTR};
+use windows::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, SelectObject,
+    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
+};
+use windows::Win32::Graphics::GdiPlus::{
+    CombineModeReplace, DashCapFlat, FillMode, FillModeAlternate, FillModeWinding, FontStyleBold,
+    GdipAddPathLine2, GdipAddPathString, GdipCloneStringFormat, GdipCreateFont,
+    GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
+    GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
+    GdipDeleteStringFormat, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipDrawRectangle,
+    GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle, GdipGetEmHeight,
+    GdipGetLineSpacing, GdipGetPathWorldBounds, GdipMeasureString, GdipSetClipRectI,
+    GdipSetPathFillMode, GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin,
+    GdipSetPenStartCap, GdipSetStringFormatFlags, GdipSetTextRenderingHint,
+    GdipStringFormatGetGenericTypographic, GdipTranslateWorldTransform, GdipWidenPath, GpBrush,
+    GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpSolidFill, GpStringFormat, LineCap,
+    LineCapFlat, LineCapRound, LineCapSquare, LineJoin, LineJoinMiter, LineJoinRound,
+    MatrixOrderPrepend, PointF, RectF, Status, StringFormatFlagsLineLimit,
+    StringFormatFlagsMeasureTrailingSpaces, StringFormatFlagsNoClip,
+    StringFormatFlagsNoFitBlackBox, StringFormatFlagsNoWrap, TextRenderingHintAntiAlias, UnitPixel,
+};
+
+/// Độ phẳng khi đổi đường cong thành đoạn thẳng cho `GdipWidenPath` (mặc định của GDI+).
+const FLATNESS: f32 = 0.25;
+
+fn ok(st: Status) -> bool {
+    st.0 == 0
+}
+
+fn argb(c: Rgb, a: u8) -> u32 {
+    (u32::from(a) << 24) | (u32::from(c.0) << 16) | (u32::from(c.1) << 8) | u32::from(c.2)
+}
+
+fn pf(p: Pt) -> PointF {
+    PointF { X: p.x, Y: p.y }
+}
+
+/// Bút GDI+; xóa khi drop.
+struct Pen(*mut GpPen);
+
+impl Pen {
+    fn new(color: u32, width: f32, cap: LineCap, join: LineJoin) -> Option<Pen> {
+        let mut p: *mut GpPen = std::ptr::null_mut();
+        // SAFETY: con trỏ ra hợp lệ; kết quả kiểm null trước khi dùng.
+        if !ok(unsafe { GdipCreatePen1(color, width, UnitPixel, &mut p) }) || p.is_null() {
+            return None;
+        }
+        let pen = Pen(p);
+        // SAFETY: bút hợp lệ vừa tạo.
+        unsafe {
+            GdipSetPenLineCap197819(pen.0, cap, cap, DashCapFlat);
+            GdipSetPenLineJoin(pen.0, join);
+        }
+        Some(pen)
+    }
+}
+
+impl Drop for Pen {
+    fn drop(&mut self) {
+        // SAFETY: bút do GdipCreatePen1 tạo, xóa đúng một lần.
+        unsafe { GdipDeletePen(self.0) };
+    }
+}
+
+/// Chổi tô đặc GDI+; xóa khi drop.
+struct Brush(*mut GpSolidFill);
+
+impl Brush {
+    fn new(color: u32) -> Option<Brush> {
+        let mut b: *mut GpSolidFill = std::ptr::null_mut();
+        // SAFETY: con trỏ ra hợp lệ; kết quả kiểm null trước khi dùng.
+        if !ok(unsafe { GdipCreateSolidFill(color, &mut b) }) || b.is_null() {
+            return None;
+        }
+        Some(Brush(b))
+    }
+
+    fn raw(&self) -> *mut GpBrush {
+        self.0.cast()
+    }
+}
+
+impl Drop for Brush {
+    fn drop(&mut self) {
+        // SAFETY: chổi do GdipCreateSolidFill tạo, xóa đúng một lần.
+        unsafe { GdipDeleteBrush(self.raw()) };
+    }
+}
+
+/// Đường GDI+; xóa khi drop.
+struct Path(*mut GpPath);
+
+impl Path {
+    fn new(mode: FillMode) -> Option<Path> {
+        let mut p: *mut GpPath = std::ptr::null_mut();
+        // SAFETY: con trỏ ra hợp lệ; kết quả kiểm null trước khi dùng.
+        if !ok(unsafe { GdipCreatePath(mode, &mut p) }) || p.is_null() {
+            return None;
+        }
+        Some(Path(p))
+    }
+}
+
+impl Drop for Path {
+    fn drop(&mut self) {
+        // SAFETY: đường do GdipCreatePath tạo, xóa đúng một lần.
+        unsafe { GdipDeletePath(self.0) };
+    }
+}
+
+/// Phông, định dạng và khoảng cách dòng của chữ đánh dấu (Segoe UI đậm).
+struct TextStyle {
+    family: *mut GpFontFamily,
+    format: *mut GpStringFormat,
+    /// Chiều cao dòng chia cho em.
+    line_ratio: f32,
+}
+
+impl TextStyle {
+    fn new() -> Option<TextStyle> {
+        let mut family: *mut GpFontFamily = std::ptr::null_mut();
+        // SAFETY: tên phông là chuỗi hằng kết thúc bằng 0; con trỏ ra hợp lệ.
+        let st = unsafe {
+            GdipCreateFontFamilyFromName(w!("Segoe UI"), std::ptr::null_mut(), &mut family)
+        };
+        if !ok(st) || family.is_null() {
+            return None;
+        }
+        let mut style = TextStyle {
+            family,
+            format: std::ptr::null_mut(),
+            line_ratio: 0.0,
+        };
+        let mut generic: *mut GpStringFormat = std::ptr::null_mut();
+        // SAFETY: định dạng chung của GDI+ không được xóa; chỉ bản sao thuộc về TextStyle.
+        unsafe {
+            if !ok(GdipStringFormatGetGenericTypographic(&mut generic)) || generic.is_null() {
+                return None;
+            }
+            if !ok(GdipCloneStringFormat(generic, &mut style.format)) || style.format.is_null() {
+                style.format = std::ptr::null_mut();
+                return None;
+            }
+            GdipSetStringFormatFlags(
+                style.format,
+                StringFormatFlagsLineLimit.0
+                    | StringFormatFlagsNoClip.0
+                    | StringFormatFlagsNoFitBlackBox.0
+                    | StringFormatFlagsNoWrap.0
+                    | StringFormatFlagsMeasureTrailingSpaces.0,
+            );
+        }
+        let (mut spacing, mut em) = (0u16, 0u16);
+        // SAFETY: họ phông hợp lệ; con trỏ ra là biến cục bộ.
+        unsafe {
+            GdipGetLineSpacing(style.family, FontStyleBold.0, &mut spacing);
+            GdipGetEmHeight(style.family, FontStyleBold.0, &mut em);
+        }
+        if spacing == 0 || em == 0 {
+            return None;
+        }
+        style.line_ratio = f32::from(spacing) / f32::from(em);
+        Some(style)
+    }
+
+    fn line_height(&self, size: f32) -> f32 {
+        size * self.line_ratio
+    }
+
+    /// Đường chữ (mỗi dòng một lần `GdipAddPathString`, cách nhau chiều cao dòng của họ phông).
+    fn path(&self, origin: Pt, text: &str, size: f32) -> Option<Path> {
+        let path = Path::new(FillModeWinding)?;
+        let lh = self.line_height(size);
+        for (i, line) in text.split('\n').enumerate() {
+            let wide: Vec<u16> = line.encode_utf16().collect();
+            if wide.is_empty() {
+                continue;
+            }
+            let len = i32::try_from(wide.len()).ok()?;
+            let layout = RectF {
+                X: origin.x,
+                Y: origin.y + i as f32 * lh,
+                Width: 0.0,
+                Height: 0.0,
+            };
+            // SAFETY: wide sống tới hết lời gọi và có đúng `len` phần tử; phông, định dạng hợp lệ.
+            let st = unsafe {
+                GdipAddPathString(
+                    path.0,
+                    PCWSTR(wide.as_ptr()),
+                    len,
+                    self.family,
+                    FontStyleBold.0,
+                    size,
+                    &layout,
+                    self.format,
+                )
+            };
+            if !ok(st) {
+                return None;
+            }
+        }
+        Some(path)
+    }
+}
+
+impl Drop for TextStyle {
+    fn drop(&mut self) {
+        // SAFETY: họ phông và bản sao định dạng do TextStyle tạo, xóa đúng một lần.
+        unsafe {
+            if !self.format.is_null() {
+                GdipDeleteStringFormat(self.format);
+            }
+            GdipDeleteFontFamily(self.family);
+        }
+    }
+}
+
+/// Bút viền chữ: dày 2 × TEXT_OUTLINE_DIP đổi ra px theo tỉ lệ `size / TEXT_DIP`, nối tròn.
+fn text_outline_pen(size: f32, color: Rgb) -> Option<Pen> {
+    let width = 2.0 * TEXT_OUTLINE_DIP * size / TEXT_DIP;
+    Pen::new(
+        argb(outline_color(color), 255),
+        width,
+        LineCapRound,
+        LineJoinRound,
+    )
+}
 
 /// Vẽ `shapes` lên `dc`: điểm ảnh (x, y) của ảnh chụp nằm ở (x - ox, y - oy) của dc; chỉ vẽ trong `clip`
 /// (tọa độ ảnh chụp). GDI+ phải đang chạy. false khi không tạo được đối tượng GDI+ (đã vẽ được gì thì thôi).
 pub fn draw_shapes(dc: HDC, shapes: &[Shape], ox: i32, oy: i32, clip: Rect) -> bool {
-    let _ = (dc, shapes, ox, oy, clip);
-    todo!()
+    if shapes.is_empty() {
+        return true;
+    }
+    let Some(gp) = Gp::new(dc) else {
+        return false;
+    };
+    let g = gp.raw();
+    // SAFETY: g hợp lệ trong suốt đời của gp. Vùng cắt tính theo tọa độ thế giới (ảnh chụp).
+    let setup = unsafe {
+        ok(GdipTranslateWorldTransform(
+            g,
+            -(ox as f32),
+            -(oy as f32),
+            MatrixOrderPrepend,
+        )) && ok(GdipSetClipRectI(
+            g,
+            clip.x,
+            clip.y,
+            clip.w,
+            clip.h,
+            CombineModeReplace,
+        ))
+    };
+    if !setup {
+        return false;
+    }
+    let mut text: Option<TextStyle> = None;
+    let mut all = true;
+    for s in shapes {
+        all &= draw_one(g, s, &mut text);
+    }
+    all
+}
+
+/// Vẽ một hình; false khi không tạo được đối tượng GDI+ hoặc GDI+ báo lỗi.
+fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool {
+    match s {
+        Shape::Pen {
+            points,
+            width,
+            color,
+        } => {
+            let c = argb(*color, 255);
+            match points.as_slice() {
+                [] => true,
+                [p] => {
+                    let Some(b) = Brush::new(c) else { return false };
+                    let r = width / 2.0;
+                    // SAFETY: g và chổi hợp lệ.
+                    ok(unsafe { GdipFillEllipse(g, b.raw(), p.x - r, p.y - r, *width, *width) })
+                }
+                pts => {
+                    let Some(pen) = Pen::new(c, *width, LineCapRound, LineJoinRound) else {
+                        return false;
+                    };
+                    let v: Vec<PointF> = pts.iter().map(|p| pf(*p)).collect();
+                    let Ok(n) = i32::try_from(v.len()) else {
+                        return false;
+                    };
+                    // SAFETY: v có đúng n điểm và sống tới hết lời gọi.
+                    ok(unsafe { GdipDrawLines(g, pen.0, v.as_ptr(), n) })
+                }
+            }
+        }
+        Shape::Line { a, b, width, color } => {
+            let Some(pen) = Pen::new(argb(*color, 255), *width, LineCapRound, LineJoinRound) else {
+                return false;
+            };
+            // SAFETY: g và bút hợp lệ.
+            ok(unsafe { GdipDrawLine(g, pen.0, a.x, a.y, b.x, b.y) })
+        }
+        Shape::Arrow { a, b, width, color } => draw_arrow(g, *a, *b, *width, *color),
+        Shape::Rect { a, b, width, color } => {
+            let Some(pen) = Pen::new(argb(*color, 255), *width, LineCapFlat, LineJoinMiter) else {
+                return false;
+            };
+            let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+            let (w, h) = ((b.x - a.x).abs(), (b.y - a.y).abs());
+            // SAFETY: g và bút hợp lệ.
+            ok(unsafe { GdipDrawRectangle(g, pen.0, x, y, w, h) })
+        }
+        Shape::Marker {
+            points,
+            width,
+            color,
+        } => draw_marker(g, points, *width, *color),
+        Shape::Text {
+            origin,
+            text: t,
+            size,
+            color,
+        } => {
+            if text.is_none() {
+                *text = TextStyle::new();
+            }
+            let Some(style) = text.as_ref() else {
+                return false;
+            };
+            draw_text(g, style, *origin, t, *size, *color)
+        }
+    }
+}
+
+fn draw_arrow(g: *mut GpGraphics, a: Pt, b: Pt, width: f32, color: Rgb) -> bool {
+    let c = argb(color, 255);
+    let geo = arrow_geometry(a, b, width, arrow_min_head(width));
+    if geo.shaft_end != a {
+        let Some(pen) = Pen::new(c, width, LineCapFlat, LineJoinRound) else {
+            return false;
+        };
+        // Đầu tròn ở `a`, đầu phẳng ở phía mũi; thân lấn 1 px vào đầu mũi tên để không lộ đường nối
+        // khử răng cưa giữa thân và tam giác.
+        let (dx, dy) = (b.x - geo.shaft_end.x, b.y - geo.shaft_end.y);
+        let depth = dx.hypot(dy);
+        let k = if depth > 0.0 {
+            (1.0f32).min(depth / 2.0) / depth
+        } else {
+            0.0
+        };
+        let end = Pt {
+            x: geo.shaft_end.x + dx * k,
+            y: geo.shaft_end.y + dy * k,
+        };
+        // SAFETY: g và bút hợp lệ.
+        let drawn = unsafe {
+            GdipSetPenStartCap(pen.0, LineCapRound);
+            GdipSetPenEndCap(pen.0, LineCapFlat);
+            GdipDrawLine(g, pen.0, a.x, a.y, end.x, end.y)
+        };
+        if !ok(drawn) {
+            return false;
+        }
+    }
+    let Some(brush) = Brush::new(c) else {
+        return false;
+    };
+    let head = geo.head.map(pf);
+    // SAFETY: head có đúng 3 điểm; g và chổi hợp lệ.
+    ok(unsafe { GdipFillPolygon(g, brush.raw(), head.as_ptr(), 3, FillModeAlternate) })
+}
+
+/// Bút dạ quang: nới đường thành viền (`GdipWidenPath`) rồi tô một lần với `FillModeWinding`,
+/// nên chỗ nét tự cắt chỉ được phủ một lần (không đậm hơn).
+fn draw_marker(g: *mut GpGraphics, points: &[Pt], width: f32, color: Rgb) -> bool {
+    let Some(first) = points.first() else {
+        return true;
+    };
+    let Some(brush) = Brush::new(argb(color, MARKER_ALPHA)) else {
+        return false;
+    };
+    if points.len() == 1 {
+        let r = width / 2.0;
+        // SAFETY: g và chổi hợp lệ.
+        return ok(unsafe {
+            GdipFillRectangle(g, brush.raw(), first.x - r, first.y - r, width, width)
+        });
+    }
+    let (Some(path), Some(pen)) = (
+        Path::new(FillModeWinding),
+        Pen::new(argb(color, 255), width, LineCapSquare, LineJoinRound),
+    ) else {
+        return false;
+    };
+    let v: Vec<PointF> = points.iter().map(|p| pf(*p)).collect();
+    let Ok(n) = i32::try_from(v.len()) else {
+        return false;
+    };
+    // SAFETY: v có đúng n điểm và sống tới hết lời gọi; đường, bút, chổi, g hợp lệ.
+    unsafe {
+        ok(GdipAddPathLine2(path.0, v.as_ptr(), n))
+            && ok(GdipWidenPath(path.0, pen.0, std::ptr::null_mut(), FLATNESS))
+            && ok(GdipSetPathFillMode(path.0, FillModeWinding))
+            && ok(GdipFillPath(g, brush.raw(), path.0))
+    }
+}
+
+fn draw_text(
+    g: *mut GpGraphics,
+    style: &TextStyle,
+    origin: Pt,
+    text: &str,
+    size: f32,
+    color: Rgb,
+) -> bool {
+    let (Some(path), Some(pen), Some(brush)) = (
+        style.path(origin, text, size),
+        text_outline_pen(size, color),
+        Brush::new(argb(color, 255)),
+    ) else {
+        return false;
+    };
+    // SAFETY: đường, bút, chổi, g hợp lệ.
+    unsafe { ok(GdipDrawPath(g, pen.0, path.0)) && ok(GdipFillPath(g, brush.raw(), path.0)) }
+}
+
+/// Làm tròn ra ngoài, nới 1 px khử răng cưa.
+fn round_out(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
+    let (fx, fy) = ((x0 - 1.0).floor() as i32, (y0 - 1.0).floor() as i32);
+    let (cx, cy) = ((x1 + 1.0).ceil() as i32, (y1 + 1.0).ceil() as i32);
+    Rect {
+        x: fx,
+        y: fy,
+        w: cx.saturating_sub(fx),
+        h: cy.saturating_sub(fy),
+    }
 }
 
 /// Hộp bao (tọa độ ảnh chụp) của một hình Text, đo bằng GDI+ cùng phông với lúc vẽ; cũng dùng cho mọi hình khác (gọi Shape::bounds).
 pub fn shape_bounds(s: &Shape) -> Rect {
-    let _ = s;
-    todo!()
+    if let Some(r) = s.bounds() {
+        return r;
+    }
+    let empty = Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    let Shape::Text {
+        origin,
+        text,
+        size,
+        color,
+    } = s
+    else {
+        // Pen/Marker không có điểm: không vẽ gì.
+        return empty;
+    };
+    text_bounds(*origin, text, *size, *color).unwrap_or_else(|| {
+        // Không đo được: ước lượng rộng tay (mỗi ký tự một em, dòng 1,5 em, cộng viền).
+        let lines = text.split('\n').count().max(1) as f32;
+        let cols = text
+            .split('\n')
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let pad = 2.0 * TEXT_OUTLINE_DIP * size / TEXT_DIP;
+        round_out(
+            origin.x - pad,
+            origin.y - pad,
+            origin.x + cols * size + pad,
+            origin.y + lines * size * 1.5 + pad,
+        )
+    })
+}
+
+fn text_bounds(origin: Pt, text: &str, size: f32, color: Rgb) -> Option<Rect> {
+    let gdiplus = GdiPlus::start();
+    if !gdiplus.ok() {
+        return None;
+    }
+    let r = {
+        let style = TextStyle::new()?;
+        let path = style.path(origin, text, size)?;
+        let pen = text_outline_pen(size, color)?;
+        let mut b = RectF::default();
+        // SAFETY: đường và bút hợp lệ; b là biến cục bộ.
+        if !ok(unsafe { GdipGetPathWorldBounds(path.0, &mut b, std::ptr::null(), pen.0) }) {
+            return None;
+        }
+        // Gồm cả góc đầu dòng đầu để hộp luôn chứa vị trí đặt chữ.
+        let (x0, y0) = (b.X.min(origin.x), b.Y.min(origin.y));
+        round_out(x0, y0, b.X + b.Width, b.Y + b.Height)
+    };
+    drop(gdiplus);
+    Some(r)
+}
+
+/// DC bộ nhớ (để đo chữ); xóa khi drop.
+struct MemDc(HDC);
+
+impl MemDc {
+    fn new() -> Option<MemDc> {
+        // SAFETY: tạo DC bộ nhớ tương thích màn hình; kiểm hợp lệ trước khi dùng.
+        let dc = unsafe { CreateCompatibleDC(None) };
+        (!dc.is_invalid()).then_some(MemDc(dc))
+    }
+}
+
+impl Drop for MemDc {
+    fn drop(&mut self) {
+        // SAFETY: DC do CreateCompatibleDC tạo, xóa đúng một lần.
+        let _ = unsafe { DeleteDC(self.0) };
+    }
+}
+
+/// Phông GDI+; xóa khi drop.
+struct Font(*mut GpFont);
+
+impl Drop for Font {
+    fn drop(&mut self) {
+        // SAFETY: phông do GdipCreateFont tạo, xóa đúng một lần.
+        unsafe { GdipDeleteFont(self.0) };
+    }
+}
+
+/// Bề rộng tiến (advance) của `s` theo phông chữ đánh dấu cỡ `size`, đo không bám lưới pixel
+/// để khớp với chữ vẽ bằng đường.
+fn advance_width(style: &TextStyle, s: &str, size: f32) -> Option<f32> {
+    let wide: Vec<u16> = s.encode_utf16().collect();
+    if wide.is_empty() {
+        return Some(0.0);
+    }
+    let len = i32::try_from(wide.len()).ok()?;
+    let dc = MemDc::new()?;
+    let gp = Gp::new(dc.0)?;
+    let mut f: *mut GpFont = std::ptr::null_mut();
+    // SAFETY: họ phông hợp lệ; con trỏ ra là biến cục bộ.
+    if !ok(unsafe { GdipCreateFont(style.family, size, FontStyleBold.0, UnitPixel, &mut f) })
+        || f.is_null()
+    {
+        return None;
+    }
+    let font = Font(f);
+    let layout = RectF::default();
+    let mut bbox = RectF::default();
+    // SAFETY: wide có đúng `len` phần tử; g, phông, định dạng hợp lệ; con trỏ ra cục bộ.
+    let st = unsafe {
+        GdipSetTextRenderingHint(gp.raw(), TextRenderingHintAntiAlias);
+        GdipMeasureString(
+            gp.raw(),
+            PCWSTR(wide.as_ptr()),
+            len,
+            font.0,
+            &layout,
+            style.format,
+            &mut bbox,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    drop(font);
+    drop(gp);
+    drop(dc);
+    ok(st).then_some(bbox.Width)
 }
 
 /// Vị trí và chiều cao con trỏ nháy (tọa độ ảnh chụp) của ô chữ đang soạn (Task 37 dùng).
 pub fn caret_rect(edit: &TextEdit) -> Rect {
-    let _ = edit;
-    todo!()
+    // TextEdit không cho đọc gốc và cỡ chữ: lấy qua bản sao có thêm một ký tự (to_shape luôn Some).
+    let mut probe = edit.clone();
+    probe.insert("x");
+    let Some(Shape::Text { origin, size, .. }) = probe.to_shape() else {
+        return Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        };
+    };
+    let (line, col) = edit.line_col();
+    let text = edit.text();
+    let prefix: String = text
+        .split('\n')
+        .nth(line)
+        .unwrap_or("")
+        .chars()
+        .take(col)
+        .collect();
+    let gdiplus = GdiPlus::start();
+    let measured = if gdiplus.ok() {
+        TextStyle::new().and_then(|style| {
+            let w = advance_width(&style, &prefix, size)?;
+            Some((w, style.line_height(size)))
+        })
+    } else {
+        None
+    };
+    drop(gdiplus);
+    // Không đo được: ước lượng nửa em mỗi ký tự, dòng 1,33 em (gần Segoe UI).
+    let (dx, lh) = measured.unwrap_or((prefix.chars().count() as f32 * size * 0.5, size * 1.33));
+    Rect {
+        x: (origin.x + dx).floor() as i32,
+        y: (origin.y + line as f32 * lh).floor() as i32,
+        w: ((size / TEXT_DIP).round() as i32).max(1),
+        h: (lh.ceil() as i32).max(1),
+    }
 }
 
 /// In `shapes` vào ảnh đã cắt từ vùng `crop` (tọa độ ảnh chụp). Tự khởi động GDI+. Ảnh giữ alpha 255.
 pub fn burn(img: &mut Image, shapes: &[Shape], crop: Rect) -> Result<(), String> {
-    let _ = (img, shapes, crop);
-    todo!()
+    if shapes.is_empty() {
+        return Ok(());
+    }
+    let gdiplus = GdiPlus::start();
+    if !gdiplus.ok() {
+        return Err("GDI+ could not start".into());
+    }
+    let r = with_dib(img, |dc| draw_shapes(dc, shapes, crop.x, crop.y, crop));
+    drop(gdiplus);
+    r
 }
 
-/// Chép `img` vào một DIB 32 bit, gọi `paint` với DC của nó, chép kết quả về `img`.
+/// DC bộ nhớ có DIB 32 bit được chọn sẵn; giải phóng khi drop.
+struct Dib {
+    dc: HDC,
+    bmp: HBITMAP,
+    old: HGDIOBJ,
+    bits: *mut u8,
+}
+
+impl Dib {
+    fn new(w: i32, h: i32) -> Option<Dib> {
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        // SAFETY: DC và DIB vừa tạo; mọi đường lỗi giải phóng phần đã tạo.
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            if dc.is_invalid() {
+                return None;
+            }
+            let bmp = match CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+                Ok(b) if !bits.is_null() => b,
+                Ok(b) => {
+                    let _ = DeleteObject(b.into());
+                    let _ = DeleteDC(dc);
+                    return None;
+                }
+                Err(_) => {
+                    let _ = DeleteDC(dc);
+                    return None;
+                }
+            };
+            let old = SelectObject(dc, bmp.into());
+            Some(Dib {
+                dc,
+                bmp,
+                old,
+                bits: bits.cast(),
+            })
+        }
+    }
+}
+
+impl Drop for Dib {
+    fn drop(&mut self) {
+        // SAFETY: bỏ chọn rồi xóa bitmap và DC do Dib tạo, mỗi thứ đúng một lần.
+        unsafe {
+            SelectObject(self.dc, self.old);
+            let _ = DeleteObject(self.bmp.into());
+            let _ = DeleteDC(self.dc);
+        }
+    }
+}
+
+/// Chép `img` vào một DIB 32 bit, gọi `paint` với DC của nó, chép kết quả về `img` (alpha 255).
+/// `img` không đổi khi lỗi.
 fn with_dib(img: &mut Image, paint: impl FnOnce(HDC) -> bool) -> Result<(), String> {
-    let _ = (img, paint);
-    todo!()
+    if !img.is_valid() {
+        return Err("invalid image".into());
+    }
+    let (Ok(w), Ok(h)) = (i32::try_from(img.width), i32::try_from(img.height)) else {
+        return Err("image too large".into());
+    };
+    let Some(dib) = Dib::new(w, h) else {
+        return Err("could not create a bitmap".into());
+    };
+    let len = img.bgra.len();
+    // SAFETY: DIB 32 bit từ trên xuống cỡ w×h có đúng w*h*4 = len byte (is_valid), hàng không đệm.
+    unsafe { std::ptr::copy_nonoverlapping(img.bgra.as_ptr(), dib.bits, len) };
+    if !paint(dib.dc) {
+        return Err("could not draw the markings".into());
+    }
+    // SAFETY: đẩy hết lệnh GDI đang chờ trước khi đọc bộ nhớ của DIB.
+    let _ = unsafe { GdiFlush() };
+    // SAFETY: như trên; dib còn sống, hai vùng nhớ không chồng nhau.
+    unsafe { std::ptr::copy_nonoverlapping(dib.bits, img.bgra.as_mut_ptr(), len) };
+    drop(dib);
+    for p in img.bgra.as_chunks_mut::<4>().0 {
+        p[3] = 255;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -107,7 +798,7 @@ mod tests {
     }
 
     fn all_opaque(img: &Image) -> bool {
-        img.bgra.chunks_exact(4).all(|p| p[3] == 255)
+        img.bgra.as_chunks::<4>().0.iter().all(|p| p[3] == 255)
     }
 
     #[test]
