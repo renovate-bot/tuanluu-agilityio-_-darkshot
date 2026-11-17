@@ -3292,7 +3292,28 @@ mod tests {
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
             history_enabled: c.history_enabled,
+            snap_windows: c.snap_windows,
         }
+    }
+
+    #[test]
+    fn snap_windows_round_trips_and_others_unchanged() {
+        for on in [false, true] {
+            let mut c = base();
+            c.snap_windows = on;
+            let n = apply_form(&c, &form_of(&c), Lang::Vi).unwrap();
+            assert_eq!(n.snap_windows, on);
+            assert_eq!(n, c);
+            let mut f = form_of(&c);
+            f.snap_windows = !on;
+            let n = apply_form(&c, &f, Lang::Vi).unwrap();
+            assert_eq!(n.snap_windows, !on);
+            let mut want = c.clone();
+            want.snap_windows = !on;
+            assert_eq!(n, want);
+            assert!(general_checks(&c).contains(&(ID_SNAP_WINDOWS, on)));
+        }
+        assert_eq!(ID_SNAP_WINDOWS, 155);
     }
 
     #[test]
@@ -3327,7 +3348,8 @@ mod tests {
                     ID_CHECK_UPDATES,
                     ID_HISTORY,
                     ID_KEEP_SELECTION,
-                    ID_INCLUDE_CURSOR
+                    ID_INCLUDE_CURSOR,
+                    ID_SNAP_WINDOWS
                 ]
             );
             assert!(checks.contains(&(ID_HISTORY, on)));
@@ -3368,6 +3390,9 @@ mod tests {
                 assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
                 assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
                 assert!(g.history_note.1 < g.keep_selection.1, "dpi {dpi}");
+                assert!(g.include_cursor.1 < g.snap_windows.1, "dpi {dpi}");
+                assert!(g.snap_windows.1 < g.dir_label.1, "dpi {dpi}");
+                assert_eq!(g.snap_windows.1 - g.include_cursor.1, CHECK_STEP);
                 assert_eq!(g.history_note.3, note_h);
                 let rects = g.rects();
                 let px = |r: (i32, i32, i32, i32)| {
@@ -4143,7 +4168,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..13 {
+            for _ in 0..14 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -4155,6 +4180,7 @@ mod tests {
                 ID_HISTORY,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
+                ID_SNAP_WINDOWS,
                 ID_DIR,
                 ID_BROWSE,
                 ID_LANGUAGE,
