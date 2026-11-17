@@ -806,6 +806,151 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    fn write_aged(p: &Path, age_secs: u64) {
+        std::fs::write(p, b"x").unwrap();
+        if age_secs > 0 {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(p)
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(age_secs))
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn clear_spares_fresh_unindexed_files() {
+        let root = temp_root();
+        let s = Store::new(root.clone());
+        let im = img(4, 4, 16);
+        let e = s.record(copied(1), &im).unwrap();
+        // Tệp của một `record` đang chờ khóa: mới tinh, chưa có trong chỉ mục.
+        let fresh = "0000000000003cccccccc";
+        let old = "0000000000004dddddddd";
+        for sub in ["images", "thumbs"] {
+            write_aged(&root.join(sub).join(format!("{fresh}.png")), 0);
+            write_aged(&root.join(sub).join(format!("{old}.png")), 120);
+        }
+        assert_eq!(s.clear(), Ok(1));
+        assert!(!e.image_path(&root).unwrap().exists());
+        assert!(!e.thumb_path(&root).exists());
+        for sub in ["images", "thumbs"] {
+            assert!(root.join(sub).join(format!("{fresh}.png")).is_file());
+            assert!(!root.join(sub).join(format!("{old}.png")).exists());
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn timestamped_corrupt(root: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .map(|d| d.path())
+            .filter(|p| {
+                let n = p.file_name().unwrap().to_string_lossy().into_owned();
+                p.is_file()
+                    && n.strip_prefix("index.corrupt.")
+                        .and_then(|r| r.strip_suffix(".json"))
+                        .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .collect()
+    }
+
+    /// Chặn `index.corrupt.json` bằng một thư mục không rỗng để `rename` thất bại.
+    fn block_corrupt_name(root: &Path) {
+        let d = root.join(INDEX_CORRUPT);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("x"), b"x").unwrap();
+    }
+
+    #[test]
+    fn corrupt_index_copied_when_rename_fails() {
+        let root = temp_root();
+        let s = Store::new(root.clone());
+        block_corrupt_name(&root);
+        std::fs::write(root.join(INDEX), b"junk!").unwrap();
+        let l = s.load();
+        assert!(l.recovered && l.entries.is_empty());
+        let kept = timestamped_corrupt(&root);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(std::fs::read(&kept[0]).unwrap(), b"junk!");
+        let e = s.record(copied(1), &img(2, 2, 1)).unwrap();
+        assert_eq!(s.load().entries, vec![e]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn corrupt_index_never_overwritten_when_unpreservable() {
+        let root = temp_root();
+        let s = Store::new(root.clone());
+        block_corrupt_name(&root);
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for n in now.saturating_sub(5)..now + 120 {
+            std::fs::create_dir(root.join(format!("index.corrupt.{n}.json"))).unwrap();
+        }
+        std::fs::write(root.join(INDEX), b"junk!").unwrap();
+        let l = s.load();
+        assert!(l.recovered && l.entries.is_empty());
+        let im = img(2, 2, 2);
+        assert!(matches!(s.record(copied(1), &im), Err(StoreError::Io(_))));
+        assert!(matches!(
+            s.remove("0000000000001aaaaaaaa"),
+            Err(StoreError::Io(_))
+        ));
+        assert!(matches!(s.clear(), Err(StoreError::Io(_))));
+        assert_eq!(std::fs::read(root.join(INDEX)).unwrap(), b"junk!");
+        assert_eq!(count_png(&root.join("images")), 0);
+        assert_eq!(count_png(&root.join("thumbs")), 0);
+        // Gỡ vật chặn: bản hỏng được giữ, ghi chạy lại bình thường.
+        std::fs::remove_dir_all(root.join(INDEX_CORRUPT)).unwrap();
+        let e = s.record(copied(2), &im).unwrap();
+        assert_eq!(std::fs::read(root.join(INDEX_CORRUPT)).unwrap(), b"junk!");
+        assert_eq!(s.load().entries, vec![e]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn old_temp_files_are_swept_strictly() {
+        let root = temp_root();
+        let s = Store::new(root.clone());
+        let im = img(4, 4, 17);
+        s.record(copied(1), &im).unwrap();
+        let id = "0000000000001aaaaaaaa";
+        let mut keep = Vec::new();
+        let mut gone = Vec::new();
+        for sub in ["images", "thumbs"] {
+            let d = root.join(sub);
+            let p = d.join(format!("{id}.png.0123abcd.tmp"));
+            write_aged(&p, 120);
+            gone.push(p);
+            for (name, age) in [
+                (format!("{id}.png.89abcdef.tmp"), 0),
+                (format!("{id}.png.0123ABCD.tmp"), 120),
+                (format!("{id}.png.0123abc.tmp"), 120),
+                (format!("{id}.png.tmp"), 120),
+                (format!("{id}.png.0123abcd.tmp.bak"), 120),
+                ("x.png.0123abcd.tmp".to_string(), 120),
+                (format!("{}.png.0123abcd.tmp", "A".repeat(21)), 120),
+            ] {
+                let p = d.join(name);
+                write_aged(&p, age);
+                keep.push(p);
+            }
+        }
+        s.record(copied(2), &im).unwrap();
+        for p in &gone {
+            assert!(!p.exists(), "{}", p.display());
+        }
+        for p in &keep {
+            assert!(p.is_file(), "{}", p.display());
+        }
+        assert_eq!(s.load().entries.len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     fn assert_index_valid(root: &Path) -> Vec<Entry> {
         let text = std::fs::read_to_string(root.join(INDEX)).unwrap();
         let (v, skipped) = parse_index(&text).unwrap();
