@@ -280,6 +280,19 @@ pub fn place_toolbar(sel: Rect, size: (i32, i32), gap: i32, monitor: Rect) -> Re
     Rect { x, y, w, h }
 }
 
+/// Thanh dọc cạnh vùng chọn: phải (cách gap, mép dưới thẳng sel.bottom()), không đủ thì trái,
+/// không đủ cả hai thì trong vùng sát mép phải; kẹp vào monitor; nếu giao `avoid` thì đặt mép
+/// dưới cách avoid.y một gap (kẹp lại vào monitor).
+pub fn place_side_toolbar(
+    sel: Rect,
+    size: (i32, i32),
+    gap: i32,
+    monitor: Rect,
+    avoid: Option<Rect>,
+) -> Rect {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,5 +692,64 @@ mod tests {
         };
         let o3 = p(i32::MIN, i32::MAX);
         assert_eq!(restore_selection(huge, o3, 1920, 1080, &mons[..1]), None);
+    }
+
+    const MON: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 1000,
+        h: 800,
+    };
+    fn rc(x: i32, y: i32, w: i32, h: i32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    #[test]
+    fn side_toolbar_placement() {
+        let place = place_side_toolbar;
+        let size = (40, 200);
+        // bên phải
+        let sel = rc(100, 100, 300, 200);
+        assert_eq!(place(sel, size, 6, MON, None), rc(406, 100, 40, 200));
+        // sát mép phải màn hình: bên trái
+        assert_eq!(
+            place(rc(100, 100, 880, 200), size, 6, MON, None),
+            rc(54, 100, 40, 200)
+        );
+        // kín màn hình: bên trong, sát mép phải
+        assert_eq!(place(MON, size, 6, MON, None), rc(954, 600, 40, 200));
+        // kẹp dọc
+        assert_eq!(
+            place(rc(100, 0, 300, 150), size, 6, MON, None),
+            rc(406, 0, 40, 200)
+        );
+        // tránh avoid
+        let avoid = rc(400, 350, 100, 40);
+        assert_eq!(
+            place(rc(100, 100, 300, 300), size, 6, MON, Some(avoid)),
+            rc(406, 144, 40, 200)
+        );
+        // không giao thì giữ nguyên
+        let far = rc(0, 700, 50, 40);
+        assert_eq!(
+            place(rc(100, 100, 300, 300), size, 6, MON, Some(far)),
+            rc(406, 200, 40, 200)
+        );
+        // màn hình thứ hai
+        let m2 = rc(1000, 200, 800, 600);
+        assert_eq!(
+            place(rc(1100, 300, 300, 300), size, 6, m2, None),
+            rc(1406, 400, 40, 200)
+        );
+        assert_eq!(
+            place(rc(1500, 300, 290, 300), size, 6, m2, None),
+            rc(1454, 400, 40, 200)
+        );
+        // gốc âm
+        let m3 = rc(-1000, 0, 1000, 800);
+        assert_eq!(
+            place(rc(-500, 100, 300, 300), size, 6, m3, None),
+            rc(-194, 200, 40, 200)
+        );
     }
 }

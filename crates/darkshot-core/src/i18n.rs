@@ -258,6 +258,19 @@ messages! {
         "The image is too large for JPEG (each side at most 65,535 pixels)"
     ),
     AutostartKeyFailed => ("Không mở được khóa khởi động trong registry", "Could not open the startup key in the registry"),
+    ToolPen => ("Bút vẽ (P)", "Pen (P)"),
+    ToolLine => ("Đường thẳng (L)", "Line (L)"),
+    ToolArrow => ("Mũi tên (A)", "Arrow (A)"),
+    ToolRect => ("Hình chữ nhật (R)", "Rectangle (R)"),
+    ToolMarker => ("Bút dạ quang (H)", "Highlighter (H)"),
+    ToolText => ("Chữ (T)", "Text (T)"),
+    ToolColor => ("Màu", "Color"),
+    ToolUndo => ("Hoàn tác (Ctrl+Z)", "Undo (Ctrl+Z)"),
+    AnnotateFailedTitle => ("Không xử lý được ảnh", "Could not process the image"),
+    AnnotateFailedBody => (
+        "Không vẽ được các nét đánh dấu lên ảnh nên ảnh chưa được lưu, chép hay tải lên. Hãy chụp lại.",
+        "Could not draw the markings onto the image, so it was not saved, copied or uploaded. Please capture again."
+    ),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -276,6 +289,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::AutostartFailedTitle,
     Msg::OptionsSaveFailedTitle,
     Msg::HotkeysNotWorkingTitle,
+    Msg::AnnotateFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -614,6 +628,35 @@ mod tests {
             for l in Lang::ALL {
                 assert!(t(l, m).contains(OK_LABEL), "{m:?} {l:?}");
             }
+        }
+    }
+
+    #[test]
+    fn annotate_strings_match_plan() {
+        let want = [
+            (Msg::ToolPen, "Bút vẽ (P)", "Pen (P)"),
+            (Msg::ToolLine, "Đường thẳng (L)", "Line (L)"),
+            (Msg::ToolArrow, "Mũi tên (A)", "Arrow (A)"),
+            (Msg::ToolRect, "Hình chữ nhật (R)", "Rectangle (R)"),
+            (Msg::ToolMarker, "Bút dạ quang (H)", "Highlighter (H)"),
+            (Msg::ToolText, "Chữ (T)", "Text (T)"),
+            (Msg::ToolColor, "Màu", "Color"),
+            (Msg::ToolUndo, "Hoàn tác (Ctrl+Z)", "Undo (Ctrl+Z)"),
+            (
+                Msg::AnnotateFailedTitle,
+                "Không xử lý được ảnh",
+                "Could not process the image",
+            ),
+            (
+                Msg::AnnotateFailedBody,
+                "Không vẽ được các nét đánh dấu lên ảnh nên ảnh chưa được lưu, chép hay tải lên. Hãy chụp lại.",
+                "Could not draw the markings onto the image, so it was not saved, copied or uploaded. Please capture again.",
+            ),
+        ];
+        for (m, vi, en) in want {
+            assert_eq!(t(Lang::Vi, m), vi);
+            assert_eq!(t(Lang::En, m), en);
+            assert_ne!(vi, en);
         }
     }
 
