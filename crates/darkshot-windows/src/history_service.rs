@@ -34,9 +34,7 @@ pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::SeqCst)
 }
 
-/// HWND của cửa sổ Lịch sử đang mở (0 khi không có); cửa sổ tự đặt và tự xóa.
-/// Cửa sổ thật có từ Task 55/56; tới lúc đó chưa ai gọi hàm này.
-#[allow(dead_code)]
+/// HWND của cửa sổ Lịch sử đang mở (0 khi không có); cửa sổ tự đặt lúc mở và tự xóa ở `WM_NCDESTROY`.
 pub fn set_window(hwnd: isize) {
     WINDOW.store(hwnd, Ordering::SeqCst);
 }

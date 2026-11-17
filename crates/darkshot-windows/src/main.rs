@@ -8,6 +8,8 @@ mod capture;
 mod clipboard;
 mod gdiplus;
 mod help;
+mod history_layout;
+mod history_paint;
 mod history_service;
 mod history_window;
 mod hotkey;
@@ -528,6 +530,25 @@ fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
     APP.with(|a| a.borrow_mut().as_mut().map(f))
 }
 
+/// Lịch sử đang bật theo cấu hình hiện hành (`Config.history_enabled`). Cấu hình đang bận hoặc chưa
+/// nạp thì theo cờ của dịch vụ ghi lịch sử (luôn khớp cấu hình).
+pub fn history_enabled_now() -> bool {
+    APP.with(|a| {
+        a.try_borrow()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| s.config.history_enabled))
+    })
+    .unwrap_or_else(history_service::is_enabled)
+}
+
+/// Cửa sổ Lịch sử nhờ mở Tùy chọn như mục menu khay (`wParam` = 1: người dùng tự mở).
+pub fn post_open_options(owner: HWND) {
+    // SAFETY: PostMessageW tới cửa sổ chính của luồng này; lỗi thì bỏ qua.
+    unsafe {
+        let _ = PostMessageW(Some(owner), WM_OPEN_SETTINGS, WPARAM(1), LPARAM(0));
+    }
+}
+
 /// Đăng ký các dòng đang bật của `keys` (dòng tắt không bao giờ được đăng ký); dòng nào không đăng
 /// ký được thì báo **một** thông báo lỗi liệt kê mọi tổ hợp bị chiếm.
 fn register_hotkeys_or_notify(hwnd: HWND, keys: &Hotkeys, notifier: &dyn Notifier) {
@@ -853,6 +874,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
             }
             let check_after = new.check_updates;
             with_app(|a| a.config = new);
+            // Lịch sử vừa bật/tắt: cửa sổ đang mở vẽ lại dải thông báo.
+            history_window::refresh_enabled();
             if check_after && !config.check_updates {
                 start_update_timer(hwnd);
             } else if !check_after && config.check_updates {
@@ -1059,7 +1082,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_OPEN_SETTINGS => {
             // Ứng dụng tự mở (khởi động thiếu cấu hình, tải lên báo thiếu cấu hình): mở ở tab R2.
-            note_open_reason(OpenReason::NeedsR2);
+            // wParam 1: người dùng bấm "Mở Tùy chọn" trong cửa sổ Lịch sử, như mục menu khay.
+            note_open_reason(if wp.0 == 1 {
+                OpenReason::User
+            } else {
+                OpenReason::NeedsR2
+            });
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi mở Cài đặt sau khi menu thoát, không mở lồng.
                 // SAFETY: đóng menu đang hiện của luồng này.
