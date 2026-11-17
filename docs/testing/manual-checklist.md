@@ -290,3 +290,7 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Chữ ở DPI 100% và 150% (cả hai màn hình khác DPI): cỡ chữ, khung, con trỏ đúng tỉ lệ; ảnh ra khớp màn hình.
 - [ ] Đang gõ, chuyển cửa sổ (Alt+Tab) hoặc đóng lớp phủ: lần chụp sau phím Esc vẫn đóng lớp phủ, Esc trong ứng dụng khác không bị nuốt sau khi lớp phủ đóng.
 - [ ] Bảng 48 màu nằm trọn trong màn hình ở DPI 100% và 150%, ô tối (đen, `#000040`) vẫn thấy rõ, chọn được từng ô.
+- [ ] Làm mờ (B): che một dòng mật khẩu hoặc email, rồi Lưu, Chép, Tải lên (PNG và JPEG): vùng che là một màu phẳng, không đọc được gì.
+- [ ] Làm mờ: nét vẽ sau nằm trên vùng che; vùng che tạo sau phủ lên nét vẽ trước.
+- [ ] Làm mờ: Ctrl+Z gỡ vùng che, ảnh gốc hiện lại trên màn hình; ảnh ra không còn vùng che đó.
+- [ ] Thanh dọc 9 nút (thêm Làm mờ giữa Bút dạ quang và Chữ) nằm trọn trong màn hình ở DPI 100% và 150%, kể cả màn hình 1366×768; không chồng thanh bốn nút.

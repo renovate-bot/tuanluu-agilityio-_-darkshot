@@ -282,7 +282,7 @@ pub fn place_toolbar(sel: Rect, size: (i32, i32), gap: i32, monitor: Rect) -> Re
 
 /// Thanh dọc cạnh vùng chọn: phải (cách gap, mép dưới thẳng sel.bottom()), không đủ thì trái,
 /// không đủ cả hai thì trong vùng sát mép phải; kẹp vào monitor; nếu giao `avoid` thì đặt mép
-/// dưới cách avoid.y một gap (kẹp lại vào monitor).
+/// dưới cách avoid.y một gap (kẹp lại vào monitor); vẫn giao thì theo `clear_of`.
 pub fn place_side_toolbar(
     sel: Rect,
     size: (i32, i32),
@@ -308,9 +308,59 @@ pub fn place_side_toolbar(
         let overlaps = x < a.right() && a.x < x + w && y < a.bottom() && a.y < y + h;
         if overlaps {
             y = clamp_y(a.y - gap - h);
+            let pushed = Rect { x, y, w, h };
+            if intersects(pushed, a) {
+                return clear_of(sel, (w, h), gap, monitor, a, x, clamp_y(sel.bottom() - h))
+                    .unwrap_or(pushed);
+            }
         }
     }
     Rect { x, y, w, h }
+}
+
+fn intersects(a: Rect, b: Rect) -> bool {
+    a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+}
+
+/// Bình phương khoảng cách giữa hai hình chữ nhật (0 khi chạm hoặc giao).
+fn rect_gap2(a: Rect, b: Rect) -> i64 {
+    let dx = i64::from((a.x - b.right()).max(b.x - a.right()).max(0));
+    let dy = i64::from((a.y - b.bottom()).max(b.y - a.bottom()).max(0));
+    dx * dx + dy * dy
+}
+
+/// Chỗ cho thanh dọc khi đẩy lên trên `avoid` vẫn giao: trong các ứng viên nằm trọn trong
+/// `monitor` và không giao `avoid`, chọn cái gần `sel` nhất (bằng nhau thì theo thứ tự): dưới
+/// `avoid` (giữ `x`), bên phải `avoid`, bên trái `avoid`, bên trái `sel` (ba cái sau giữ `y`).
+/// Mọi ứng viên cách `avoid` một `gap`. `None` khi không ứng viên nào hợp lệ.
+fn clear_of(
+    sel: Rect,
+    size: (i32, i32),
+    gap: i32,
+    monitor: Rect,
+    avoid: Rect,
+    x: i32,
+    y: i32,
+) -> Option<Rect> {
+    let (w, h) = size;
+    let a = avoid;
+    let candidates = [
+        (x, a.bottom().saturating_add(gap)),
+        (a.right().saturating_add(gap), y),
+        (a.x.saturating_sub(gap).saturating_sub(w), y),
+        (sel.x.saturating_sub(gap).saturating_sub(w), y),
+    ];
+    candidates
+        .into_iter()
+        .map(|(x, y)| Rect { x, y, w, h })
+        .filter(|r| {
+            r.x >= monitor.x
+                && r.y >= monitor.y
+                && r.right() <= monitor.right()
+                && r.bottom() <= monitor.bottom()
+                && !intersects(*r, a)
+        })
+        .min_by_key(|r| rect_gap2(*r, sel))
 }
 
 #[cfg(test)]
@@ -770,6 +820,36 @@ mod tests {
         assert_eq!(
             place(rc(-500, 100, 300, 300), size, 6, m3, None),
             rc(-194, 200, 40, 200)
+        );
+    }
+
+    /// Đẩy lên trên thanh bốn nút vẫn giao (vùng chọn sát mép trên, hẹp hơn thanh bốn nút):
+    /// đặt ở chỗ không giao, trọn trong màn hình, gần vùng chọn nhất.
+    #[test]
+    fn side_toolbar_leaves_avoid_when_push_up_fails() {
+        let place = place_side_toolbar;
+        let disjoint = |a: Rect, b: Rect| {
+            a.right() <= b.x || b.right() <= a.x || a.bottom() <= b.y || b.bottom() <= a.y
+        };
+        // Dưới thanh bốn nút còn chỗ và gần vùng hơn: xuống dưới thanh.
+        let sel = rc(0, 0, 50, 300);
+        let bar = place_toolbar(sel, (160, 40), 6, MON);
+        assert_eq!(bar, rc(0, 306, 160, 40));
+        let side = place(sel, (40, 400), 6, MON, Some(bar));
+        assert_eq!(side, rc(56, 352, 40, 400));
+        assert!(disjoint(side, bar));
+        // Dưới không đủ chỗ: sang phải mép phải thanh bốn nút, cách gap.
+        let sel = rc(0, 0, 50, 380);
+        let bar = place_toolbar(sel, (160, 40), 6, MON);
+        assert_eq!(bar, rc(0, 386, 160, 40));
+        let side = place(sel, (40, 500), 6, MON, Some(bar));
+        assert_eq!(side, rc(166, 0, 40, 500));
+        assert!(disjoint(side, bar));
+        // Đẩy lên được thì giữ như cũ.
+        let avoid = rc(400, 350, 100, 40);
+        assert_eq!(
+            place(rc(100, 100, 300, 300), (40, 200), 6, MON, Some(avoid)),
+            rc(406, 144, 40, 200)
         );
     }
 }
