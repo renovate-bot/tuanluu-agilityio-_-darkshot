@@ -60,7 +60,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 45 Core: chọn, biến đổi, bố cục thanh | task/45-pro-core-edit | builder | sonnet | xong | 133.995 | 82.851 | 0 | 216.846 |
 | 46 Vẽ Hình elip, Đánh số | task/46-pro-render | specialist | opus | xong | 97.463 | 75.587 | 0 | 173.050 |
 | 47 Lớp phủ: thanh 14 mục, Cỡ, Làm lại, công cụ mới | task/47-pro-overlay-tools | specialist | opus | xong | 296.581 | 132.113 | 0 | 428.694 |
-| 48 Lớp phủ: công cụ Chọn | task/48-pro-overlay-select | specialist | opus | chờ | | | | |
+| 48 Lớp phủ: công cụ Chọn | task/48-pro-overlay-select | specialist | opus | xong | 231.489 | 230.105 | 246.135 | 707.729 |
 | 49 Tài liệu đợt 6 | task/49-docs-batch6 | scaffolder | haiku | chờ | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
