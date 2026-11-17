@@ -16,7 +16,7 @@ use darkshot_core::config::{
 };
 use darkshot_core::i18n::{self, expiry_label, t, Lang, Msg};
 use darkshot_core::theme::{
-    Rgb, BG, DANGER, INPUT, INPUT_BORDER, LINE, SUCCESS, SURFACE, TEXT, TEXT_DISABLED, TEXT_MUTED,
+    Rgb, BG, DANGER, INPUT, LINE, SUCCESS, SURFACE, TEXT, TEXT_DISABLED, TEXT_MUTED,
 };
 use darkshot_core::upload::R2Uploader;
 use std::cell::{Cell, RefCell};
@@ -65,15 +65,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
     WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_HSCROLL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
     WM_MBUTTONDOWN, WM_NCLBUTTONDOWN, WM_NCRBUTTONDOWN, WM_NOTIFY, WM_PRINTCLIENT, WM_RBUTTONDOWN,
-    WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WM_SETFONT, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD,
     WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_APPWINDOW, WS_EX_CONTROLPARENT, WS_GROUP, WS_SYSMENU,
     WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetDlgCtrlID, GetWindowRect, CB_GETLBTEXT, CB_GETLBTEXTLEN, NCCALCSIZE_PARAMS,
-    SWP_FRAMECHANGED, WM_CHAR, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_ENABLE, WM_KILLFOCUS,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE, WM_NCDESTROY, WM_NCPAINT, WM_PAINT,
-    WM_SETFOCUS, WM_UPDATEUISTATE, WS_CLIPCHILDREN,
+    GetDlgCtrlID, GetSystemMetrics, GetWindowRect, CB_GETLBTEXT, CB_GETLBTEXTLEN,
+    NCCALCSIZE_PARAMS, SM_CXBORDER, SWP_FRAMECHANGED, WM_CHAR, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
+    WM_ENABLE, WM_KILLFOCUS, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCALCSIZE,
+    WM_NCDESTROY, WM_NCPAINT, WM_PAINT, WM_SETFOCUS, WM_UPDATEUISTATE, WS_CLIPCHILDREN,
 };
 
 /// Giá trị đọc từ các ô của cửa sổ.
@@ -1082,9 +1082,13 @@ fn paint_tabs(hwnd: HWND) {
 }
 
 /// Độ dày (px) phần viền tự vẽ quanh ô nhập: đủ cho viền 1 DIP và gạch dưới 2 DIP (ở 150%: 3 px,
-/// viền 2 px, gạch dưới 3 px).
+/// viền 2 px, gạch dưới 3 px), cộng phần trước đây là khung vuông riêng của ô `WS_BORDER`. Ô nhập không
+/// còn `WS_BORDER` (nó tự vẽ khung vuông 1 px trong vùng client, chồng lên viền bo) và lùi vùng chữ ít
+/// hơn đúng `SM_CXBORDER + 1` px, nên vùng ngoài client nhận thêm chừng ấy để chữ giữ nguyên chỗ.
 fn edit_inset() -> i32 {
-    scale(2, dpi())
+    // SAFETY: chỉ đọc một số đo hệ thống.
+    let old_frame = unsafe { GetSystemMetrics(SM_CXBORDER) }.max(0) + 1;
+    scale(2, dpi()) + old_frame
 }
 
 /// Ô nhập (kể cả ô bí mật và ô phím): viền tự vẽ ở vùng ngoài client (nền `INPUT`, viền `INPUT_BORDER`
@@ -1140,7 +1144,7 @@ unsafe extern "system" fn edit_proc(
     }
 }
 
-/// Vẽ viền tự vẽ của ô nhập `hwnd` (chỉ vùng ngoài client).
+/// Vẽ viền tự vẽ của ô nhập `hwnd` (chỉ vùng ngoài client): một viền bo mịn duy nhất.
 fn paint_edit_frame(hwnd: HWND) {
     let dpi = dpi();
     let k = edit_inset();
@@ -1158,31 +1162,16 @@ fn paint_edit_frame(hwnd: HWND) {
         ExcludeClipRect(dc, k, k, w - k, h - k);
         let enabled = IsWindowEnabled(hwnd).as_bool();
         let focused = GetFocus() == hwnd || is_capturing_edit(hwnd);
-        let (border, thick) = theme::edit_border(focused, enabled);
         let all = RECT {
             left: 0,
             top: 0,
             right: w,
             bottom: h,
         };
-        theme::fill(dc, &all, SURFACE);
-        theme::round_rect(
-            dc,
-            &all,
-            scale(theme::RADIUS, dpi),
-            INPUT,
-            INPUT_BORDER,
-            scale(1, dpi).max(1),
-        );
-        if thick > 1 {
-            let ul = RECT {
-                left: scale(2, dpi),
-                top: h - scale(thick as i32, dpi),
-                right: w - scale(2, dpi),
-                bottom: h,
-            };
-            theme::fill(dc, &ul, border);
-        }
+        theme::buffered(dc, &all, |m| {
+            theme::fill(m, &all, SURFACE);
+            theme::draw_field(m, &all, dpi, theme::edit_border(focused, enabled));
+        });
         ReleaseDC(Some(hwnd), dc);
     }
 }
@@ -1296,24 +1285,7 @@ fn paint_combo(hwnd: HWND) {
         let font = theme::control_font(hwnd);
         theme::buffered(hdc, &rc, |dc| {
             theme::fill(dc, &rc, bg_under(hwnd));
-            theme::round_rect(
-                dc,
-                &rc,
-                scale(theme::RADIUS, dpi),
-                INPUT,
-                INPUT_BORDER,
-                scale(1, dpi).max(1),
-            );
-            let (border, thick) = theme::edit_border(focused, enabled);
-            if thick > 1 {
-                let ul = RECT {
-                    left: rc.left + scale(2, dpi),
-                    top: rc.bottom - scale(thick as i32, dpi),
-                    right: rc.right - scale(2, dpi),
-                    bottom: rc.bottom,
-                };
-                theme::fill(dc, &ul, border);
-            }
+            theme::draw_field(dc, &rc, dpi, theme::edit_border(focused, enabled));
             let tr = RECT {
                 left: rc.left + scale(8, dpi),
                 right: rc.right - scale(28, dpi),
@@ -2155,7 +2127,7 @@ impl Builder {
         self.make(
             w!("EDIT"),
             "",
-            WS_GROUP | WS_TABSTOP | ws(ES_AUTOHSCROLL) | style | WS_BORDER,
+            WS_GROUP | WS_TABSTOP | ws(ES_AUTOHSCROLL) | style,
             rect,
             id,
         )

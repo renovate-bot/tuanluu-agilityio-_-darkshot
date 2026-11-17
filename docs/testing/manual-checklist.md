@@ -257,3 +257,4 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Mở đóng Tùy chọn 20 lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored options_no_gdi_leak` qua).
 - [ ] Thông tin và Trợ giúp có nút Đóng xanh, chữ trắng đậm; Enter và Esc vẫn đóng.
 - [ ] Ô tích, nút chọn và núm thanh trượt mịn, không răng cưa, vòng không có điểm lồi, ở DPI 100% và 150%.
+- [ ] Ô nhập (thường, Secret Access Key, ô phím) và hộp chọn chỉ có một viền bo mịn, không khung vuông bên trong, khi bật, khi vô hiệu, khi có tiêu điểm và khi đang bắt phím; gạch dưới xanh nằm trong góc bo; chữ trong ô không xê dịch so với trước; ở DPI 100%, 150% và 200%.

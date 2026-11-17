@@ -3,7 +3,7 @@
 use crate::winutil::scale;
 use darkshot_core::theme::{
     Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED, BG, BUTTON,
-    BUTTON_BORDER, BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT_BORDER, LINE, SURFACE,
+    BUTTON_BORDER, BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT, INPUT_BORDER, LINE, SURFACE,
     TAB_HOVER, TEXT, TEXT_DISABLED, TEXT_MUTED, TRACK, WHITE,
 };
 use std::ffi::c_void;
@@ -578,9 +578,14 @@ fn sd_circle(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> f32 {
 
 /// Khoảng cách có dấu tới hình vuông tâm (`cx`, `cy`), nửa cạnh `half`, bo góc `r`.
 fn sd_round_rect(x: f32, y: f32, cx: f32, cy: f32, half: f32, r: f32) -> f32 {
-    let r = r.clamp(0.0, half.max(0.0));
-    let qx = (x - cx).abs() - half + r;
-    let qy = (y - cy).abs() - half + r;
+    sd_round_box(x, y, cx, cy, half, half, r)
+}
+
+/// Khoảng cách có dấu tới hình chữ nhật tâm (`cx`, `cy`), nửa rộng `hw`, nửa cao `hh`, bo góc `r`.
+fn sd_round_box(x: f32, y: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> f32 {
+    let r = r.clamp(0.0, hw.min(hh).max(0.0));
+    let qx = (x - cx).abs() - hw + r;
+    let qy = (y - cy).abs() - hh + r;
     qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
 }
 
@@ -613,30 +618,36 @@ fn tick_arms(s: f32) -> [((f32, f32), (f32, f32)); 2] {
     [(p(-3.5, 4.5), p(3.5, 4.5)), (p(2.5, -5.5), p(2.5, 5.5))]
 }
 
-/// Lớp vẽ vuông cạnh `n` px, mỗi pixel là (r, g, b, a) nhân trước alpha trong [0, 1].
+/// Lớp vẽ `w`×`h` px, mỗi pixel là (r, g, b, a) nhân trước alpha trong [0, 1].
 struct Layer {
-    n: usize,
+    w: usize,
+    h: usize,
     px: Vec<[f32; 4]>,
 }
 
 impl Layer {
     fn new(n: usize) -> Layer {
+        Layer::with_size(n, n)
+    }
+
+    fn with_size(w: usize, h: usize) -> Layer {
         Layer {
-            n,
-            px: vec![[0.0; 4]; n * n],
+            w,
+            h,
+            px: vec![[0.0; 4]; w * h],
         }
     }
 
     /// Phủ màu `c` lên phần có `sdf < 0`; pixel ở cạnh phủ theo khoảng cách từ tâm pixel tới cạnh.
     fn paint(&mut self, c: Rgb, sdf: impl Fn(f32, f32) -> f32) {
         let col = [c.0, c.1, c.2].map(|v| v as f32 / 255.0);
-        for y in 0..self.n {
-            for x in 0..self.n {
+        for y in 0..self.h {
+            for x in 0..self.w {
                 let cov = (0.5 - sdf(x as f32 + 0.5, y as f32 + 0.5)).clamp(0.0, 1.0);
                 if cov <= 0.0 {
                     continue;
                 }
-                let p = &mut self.px[y * self.n + x];
+                let p = &mut self.px[y * self.w + x];
                 let keep = 1.0 - cov;
                 for i in 0..3 {
                     p[i] = col[i] * cov + p[i] * keep;
@@ -704,20 +715,90 @@ fn knob_mark(n: usize, k: f32, fill: Rgb, border: Rgb, bw_dip: f32) -> Vec<u32> 
     l.into_bgra()
 }
 
+/// Ô nhập hoặc hộp chọn `w`×`h` px ở tỉ lệ `k` px/DIP: hình bo `RADIUS`, viền `border` 1 DIP (làm tròn
+/// thành số px nguyên, ít nhất 1, để cạnh thẳng không mờ), lòng `fill`. `underline` (màu, độ dày DIP) là
+/// gạch dưới khi có tiêu điểm, vẽ trong chính hình bo nên không lòi ra ngoài góc. Góc ngoài hình trong suốt.
+fn field_mark(
+    w: usize,
+    h: usize,
+    k: f32,
+    fill: Rgb,
+    border: Rgb,
+    underline: Option<(Rgb, u32)>,
+) -> Vec<u32> {
+    let mut l = Layer::with_size(w, h);
+    let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
+    let r = RADIUS as f32 * k;
+    let bw = k.round().max(1.0);
+    let outer = |x: f32, y: f32| sd_round_box(x, y, cx, cy, cx, cy, r);
+    let inner = |x: f32, y: f32| sd_round_box(x, y, cx, cy, cx - bw, cy - bw, r - bw);
+    // Gạch dưới chiếm các hàng từ `top` trở xuống. Viền và gạch dưới phủ hai miền rời nhau (ranh giới là
+    // hàng pixel nguyên), để pixel phủ một phần ở góc không bị phủ hai lần và đậm hơn.
+    let top = match underline {
+        Some((_, dip)) => h as f32 - (dip as f32 * k).round().max(1.0),
+        None => h as f32 + 1.0,
+    };
+    l.paint(border, |x, y| outer(x, y).max(y - top));
+    l.paint(fill, |x, y| inner(x, y).max(y - top));
+    if let Some((c, _)) = underline {
+        l.paint(c, |x, y| outer(x, y).max(top - y));
+    }
+    l.into_bgra()
+}
+
+/// Khung ô nhập hoặc hộp chọn trong `rc`, khử răng cưa: nền `INPUT`, viền `INPUT_BORDER` 1 DIP bo
+/// `RADIUS`; `focus` là kết quả `edit_border` (độ dày lớn hơn 1 thì có gạch dưới màu đó). Bên gọi tô sẵn
+/// nền dưới bốn góc. Không trộn được thì vẽ bằng GDI thường.
+pub fn draw_field(hdc: HDC, rc: &RECT, dpi: u32, focus: (Rgb, u32)) {
+    let (w, h) = (rc.right - rc.left, rc.bottom - rc.top);
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let (border, thick) = focus;
+    let underline = (thick > 1).then_some((border, thick));
+    let k = dpi as f32 / 96.0;
+    let px = field_mark(w as usize, h as usize, k, INPUT, INPUT_BORDER, underline);
+    if blend_rect(hdc, rc.left, rc.top, w as usize, h as usize, &px) {
+        return;
+    }
+    round_rect(
+        hdc,
+        rc,
+        scale(RADIUS, dpi),
+        INPUT,
+        INPUT_BORDER,
+        scale(1, dpi).max(1),
+    );
+    if thick > 1 {
+        let ul = RECT {
+            left: rc.left + scale(2, dpi),
+            top: rc.bottom - scale(thick as i32, dpi),
+            right: rc.right - scale(2, dpi),
+            bottom: rc.bottom,
+        };
+        fill(hdc, &ul, border);
+    }
+}
+
 /// Trộn bộ đệm `px` (cạnh `n`, BGRA nhân trước alpha) lên `hdc` tại (`x`, `y`) bằng `AlphaBlend`.
 /// Trả `false` khi không làm được (bên gọi vẽ lại bằng GDI thường); mọi đối tượng tạm đều được xóa.
 fn blend(hdc: HDC, x: i32, y: i32, n: usize, px: &[u32]) -> bool {
-    let Ok(side) = i32::try_from(n) else {
+    blend_rect(hdc, x, y, n, n, px)
+}
+
+/// Như `blend` nhưng cho bộ đệm `w`×`h`.
+fn blend_rect(hdc: HDC, x: i32, y: i32, w: usize, h: usize, px: &[u32]) -> bool {
+    let (Ok(wi), Ok(hi)) = (i32::try_from(w), i32::try_from(h)) else {
         return false;
     };
-    if n == 0 || px.len() != n * n {
+    if w == 0 || h == 0 || px.len() != w * h {
         return false;
     }
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: side,
-            biHeight: -side, // âm: từ trên xuống
+            biWidth: wi,
+            biHeight: -hi, // âm: từ trên xuống
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB.0,
@@ -725,8 +806,8 @@ fn blend(hdc: HDC, x: i32, y: i32, n: usize, px: &[u32]) -> bool {
         },
         ..Default::default()
     };
-    // SAFETY: DC và DIB tạm tạo ở đây được bỏ chọn và xóa trên mọi đường đi; chép đúng n*n pixel vào
-    // vùng nhớ n*n*4 byte của DIB vừa tạo.
+    // SAFETY: DC và DIB tạm tạo ở đây được bỏ chọn và xóa trên mọi đường đi; chép đúng w*h pixel vào
+    // vùng nhớ w*h*4 byte của DIB vừa tạo.
     unsafe {
         let mem = CreateCompatibleDC(Some(hdc));
         if mem.is_invalid() {
@@ -745,7 +826,7 @@ fn blend(hdc: HDC, x: i32, y: i32, n: usize, px: &[u32]) -> bool {
             let _ = DeleteDC(mem);
             return false;
         }
-        std::ptr::copy_nonoverlapping(px.as_ptr(), bits as *mut u32, n * n);
+        std::ptr::copy_nonoverlapping(px.as_ptr(), bits as *mut u32, w * h);
         let old = SelectObject(mem, HGDIOBJ(bmp.0));
         let bf = BLENDFUNCTION {
             BlendOp: AC_SRC_OVER as u8,
@@ -753,7 +834,7 @@ fn blend(hdc: HDC, x: i32, y: i32, n: usize, px: &[u32]) -> bool {
             SourceConstantAlpha: 255,
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
-        let ok = AlphaBlend(hdc, x, y, side, side, mem, 0, 0, side, side, bf).as_bool();
+        let ok = AlphaBlend(hdc, x, y, wi, hi, mem, 0, 0, wi, hi, bf).as_bool();
         SelectObject(mem, old);
         let _ = DeleteObject(HGDIOBJ(bmp.0));
         let _ = DeleteDC(mem);
