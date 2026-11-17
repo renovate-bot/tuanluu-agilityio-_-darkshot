@@ -97,6 +97,8 @@ pub struct Form {
     pub jpeg_quality: u8,
     /// Hộp tích "Bật lịch sử ảnh chụp" ở tab Thông thường.
     pub history_enabled: bool,
+    /// Hộp tích "Gợi ý cửa sổ khi chọn vùng" ở tab Thông thường.
+    pub snap_windows: bool,
 }
 
 // Debug tự viết để khóa bí mật không bao giờ lọt vào log hay thông báo lỗi.
@@ -120,6 +122,7 @@ impl std::fmt::Debug for Form {
             .field("upload_format", &self.upload_format)
             .field("jpeg_quality", &self.jpeg_quality)
             .field("history_enabled", &self.history_enabled)
+            .field("snap_windows", &self.snap_windows)
             .finish()
     }
 }
@@ -294,7 +297,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         check_updates: form.check_updates,
         update_notified: current.update_notified,
         history_enabled: form.history_enabled,
-        snap_windows: current.snap_windows,
+        snap_windows: form.snap_windows,
     })
 }
 
@@ -477,6 +480,8 @@ const ID_CHECK_UPDATES: i32 = 152;
 /// Hộp tích "Bật lịch sử ảnh chụp" và dòng ghi chú (chữ phụ, tự xuống dòng) ngay dưới nó.
 const ID_HISTORY: i32 = 153;
 const ID_HISTORY_NOTE: i32 = 154;
+/// Hộp tích "Gợi ý cửa sổ khi chọn vùng" (ngay dưới "Chụp cả con trỏ").
+const ID_SNAP_WINDOWS: i32 = 155;
 /// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
@@ -526,6 +531,7 @@ struct Ctl {
     history: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
+    snap_windows: HWND,
     err: HWND,
 }
 
@@ -661,6 +667,7 @@ fn read_form() -> Option<Form> {
         // Đọc cả khi đang chọn PNG: giá trị được giữ cho lần chọn lại JPEG.
         jpeg_quality: trackbar_pos(c.quality),
         history_enabled: is_checked(c.history),
+        snap_windows: is_checked(c.snap_windows),
     })
 }
 
@@ -2189,6 +2196,7 @@ struct GeneralCtl {
     history: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
+    snap_windows: HWND,
     dir: HWND,
     language: HWND,
     height: i32,
@@ -2207,6 +2215,7 @@ struct GeneralLayout {
     history_note: DipRect,
     keep_selection: DipRect,
     include_cursor: DipRect,
+    snap_windows: DipRect,
     dir_label: DipRect,
     dir: DipRect,
     browse: DipRect,
@@ -2218,7 +2227,7 @@ struct GeneralLayout {
 
 #[cfg(test)]
 impl GeneralLayout {
-    fn rects(&self) -> [DipRect; 12] {
+    fn rects(&self) -> [DipRect; 13] {
         [
             self.autostart,
             self.notices,
@@ -2227,6 +2236,7 @@ impl GeneralLayout {
             self.history_note,
             self.keep_selection,
             self.include_cursor,
+            self.snap_windows,
             self.dir_label,
             self.dir,
             self.browse,
@@ -2271,6 +2281,8 @@ fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
     let keep_selection = (LX, y, cw, CHECK_H);
     y += CHECK_STEP;
     let include_cursor = (LX, y, cw, CHECK_H);
+    y += CHECK_STEP;
+    let snap_windows = (LX, y, cw, CHECK_H);
     y += 32;
     let dir_label = (LX, y + 3, EX - LX - 4, 20);
     let dir = (EX, y, l.ew - 76, 24);
@@ -2287,6 +2299,7 @@ fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
         history_note,
         keep_selection,
         include_cursor,
+        snap_windows,
         dir_label,
         dir,
         browse,
@@ -2337,7 +2350,7 @@ fn note_height_dip(font: HFONT, dpi: i32, texts: &[&str], w_dip: i32) -> Option<
 }
 
 /// Giá trị các ô tích của tab Thông thường theo cấu hình, theo thứ tự Tab.
-fn general_checks(c: &Config) -> [(i32, bool); 6] {
+fn general_checks(c: &Config) -> [(i32, bool); 7] {
     [
         (ID_AUTOSTART, c.autostart),
         (ID_NOTICES, c.show_success_notices),
@@ -2345,6 +2358,7 @@ fn general_checks(c: &Config) -> [(i32, bool); 6] {
         (ID_HISTORY, c.history_enabled),
         (ID_KEEP_SELECTION, c.keep_selection),
         (ID_INCLUDE_CURSOR, c.include_cursor),
+        (ID_SNAP_WINDOWS, c.snap_windows),
     ]
 }
 
@@ -2385,6 +2399,7 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         g.include_cursor,
         ID_INCLUDE_CURSOR,
     );
+    let snap_windows = check(b, Msg::ChkSnapWindows, g.snap_windows, ID_SNAP_WINDOWS);
     let (lx, ly, lw, lh) = g.dir_label;
     b.label(lang::tr(Msg::LabelSaveDir), lx, ly, lw, lh);
     let dir = b.edit(WINDOW_STYLE(0), g.dir, ID_DIR);
@@ -2404,6 +2419,7 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         history,
         keep_selection,
         include_cursor,
+        snap_windows,
         dir,
         language,
         height: g.height,
@@ -2836,6 +2852,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         g.history,
         g.keep_selection,
         g.include_cursor,
+        g.snap_windows,
         err,
     ];
     if all
@@ -2874,6 +2891,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         history: g.history,
         keep_selection: g.keep_selection,
         include_cursor: g.include_cursor,
+        snap_windows: g.snap_windows,
         err,
     };
     (y, Some(ctl))
@@ -3042,6 +3060,7 @@ pub fn show(
             ID_CHECK_UPDATES => c.check_updates,
             ID_HISTORY => c.history,
             ID_KEEP_SELECTION => c.keep_selection,
+            ID_SNAP_WINDOWS => c.snap_windows,
             _ => c.include_cursor,
         };
         set_checked(h, on);
@@ -3292,7 +3311,28 @@ mod tests {
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
             history_enabled: c.history_enabled,
+            snap_windows: c.snap_windows,
         }
+    }
+
+    #[test]
+    fn snap_windows_round_trips_and_others_unchanged() {
+        for on in [false, true] {
+            let mut c = base();
+            c.snap_windows = on;
+            let n = apply_form(&c, &form_of(&c), Lang::Vi).unwrap();
+            assert_eq!(n.snap_windows, on);
+            assert_eq!(n, c);
+            let mut f = form_of(&c);
+            f.snap_windows = !on;
+            let n = apply_form(&c, &f, Lang::Vi).unwrap();
+            assert_eq!(n.snap_windows, !on);
+            let mut want = c.clone();
+            want.snap_windows = !on;
+            assert_eq!(n, want);
+            assert!(general_checks(&c).contains(&(ID_SNAP_WINDOWS, on)));
+        }
+        assert_eq!(ID_SNAP_WINDOWS, 155);
     }
 
     #[test]
@@ -3327,7 +3367,8 @@ mod tests {
                     ID_CHECK_UPDATES,
                     ID_HISTORY,
                     ID_KEEP_SELECTION,
-                    ID_INCLUDE_CURSOR
+                    ID_INCLUDE_CURSOR,
+                    ID_SNAP_WINDOWS
                 ]
             );
             assert!(checks.contains(&(ID_HISTORY, on)));
@@ -3368,6 +3409,9 @@ mod tests {
                 assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
                 assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
                 assert!(g.history_note.1 < g.keep_selection.1, "dpi {dpi}");
+                assert!(g.include_cursor.1 < g.snap_windows.1, "dpi {dpi}");
+                assert!(g.snap_windows.1 < g.dir_label.1, "dpi {dpi}");
+                assert_eq!(g.snap_windows.1 - g.include_cursor.1, CHECK_STEP);
                 assert_eq!(g.history_note.3, note_h);
                 let rects = g.rects();
                 let px = |r: (i32, i32, i32, i32)| {
@@ -4143,7 +4187,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..13 {
+            for _ in 0..14 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -4155,6 +4199,7 @@ mod tests {
                 ID_HISTORY,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
+                ID_SNAP_WINDOWS,
                 ID_DIR,
                 ID_BROWSE,
                 ID_LANGUAGE,
