@@ -1,6 +1,6 @@
 # Thiết kế: công cụ Làm mờ (che thông tin nhạy cảm)
 
-Ngày: 2026-11-17. Trạng thái: chờ chủ dự án duyệt. Các chỗ ghi "(điều phối viên chọn)" là đề xuất; duyệt thiết kế này là duyệt luôn các chỗ đó.
+Ngày: 2026-11-17. Trạng thái: đã duyệt (2026-11-17, chủ dự án chọn cách "kính mờ giả"). Các chỗ ghi "(điều phối viên chọn)" là đề xuất; duyệt thiết kế này là duyệt luôn các chỗ đó.
 
 ## Ý định
 
