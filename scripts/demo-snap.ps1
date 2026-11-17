@@ -42,4 +42,5 @@ Remove-Item Env:\DARKSHOT_DEMO_DIR
 $env:DARKSHOT_PROFILE_DIR = $profileDir
 Write-Host "Demo: $profileDir"
 Write-Host 'Chup vung: Ctrl+Alt+Shift+F9'
-Start-Process -FilePath $Exe
+# --history: mo san cua so Lich su (du lieu tong hop) lam cua so de thu bat khung.
+Start-Process -FilePath $Exe -ArgumentList '--history'
