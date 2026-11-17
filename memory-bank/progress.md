@@ -59,7 +59,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 44 Core: hình mới, mức cỡ, sổ hoàn tác | task/44-pro-core-model | builder | sonnet | xong | 115.766 | 43.832 | 0 | 159.598 |
 | 45 Core: chọn, biến đổi, bố cục thanh | task/45-pro-core-edit | builder | sonnet | xong | 133.995 | 82.851 | 0 | 216.846 |
 | 46 Vẽ Hình elip, Đánh số | task/46-pro-render | specialist | opus | xong | 97.463 | 75.587 | 0 | 173.050 |
-| 47 Lớp phủ: thanh 14 mục, Cỡ, Làm lại, công cụ mới | task/47-pro-overlay-tools | specialist | opus | chờ | | | | |
+| 47 Lớp phủ: thanh 14 mục, Cỡ, Làm lại, công cụ mới | task/47-pro-overlay-tools | specialist | opus | xong | 296.581 | 132.113 | 0 | 428.694 |
 | 48 Lớp phủ: công cụ Chọn | task/48-pro-overlay-select | specialist | opus | chờ | | | | |
 | 49 Tài liệu đợt 6 | task/49-docs-batch6 | scaffolder | haiku | chờ | | | | |
 
