@@ -30,6 +30,7 @@ Gói task tự chứa. Thuộc kế hoạch `docs/superpowers/plans/2026-11-17-a
 ## Cách vẽ (thiết kế mục 5.3)
 
 - Pen: một đường nối các điểm (`GdipDrawLines`/path), đầu và chỗ nối tròn; một điểm → chấm tròn đường kính `width`.
+- Arrow dùng `arrow_geometry(a, b, width, annotate::arrow_min_head(width))` (Task 34 thêm `arrow_min_head`; `Shape::bounds` dùng cùng công thức, nên hình vẽ khớp hộp bao). Thêm khẳng định `arrow_min_head(4.5) == 18.0` vào một kiểm thử của task này.
 - Line: đầu tròn. Arrow: thân từ `a` tới `arrow_geometry(..).shaft_end` (đầu phẳng ở phía mũi), đầu là tam giác đặc `head`. Rect: viền `width`, góc vuông (nối Miter), hình chữ nhật chuẩn hóa từ a, b; viền nằm giữa trên đường a–b như CSS stroke.
 - Marker: màu với alpha `MARKER_ALPHA`, đầu vuông, cả nét phủ một lần (chỗ tự cắt không đậm hơn): ví dụ vẽ nét đục vào mặt nạ rồi trộn một lần, hoặc `GdipWidenPath` + tô `FillModeWinding`.
 - Text: Segoe UI đậm, em = `size` px; mỗi dòng cách nhau bằng chiều cao dòng của họ phông; chữ là path (`GdipAddPathString`), vẽ viền `outline_color(color)` dày 2 × `TEXT_OUTLINE_DIP` đổi ra px theo tỉ lệ `size / TEXT_DIP` (nối tròn) rồi tô `color`. `shape_bounds` và `caret_rect` đo bằng đúng phông và định dạng này.

@@ -32,7 +32,7 @@ Gói task tự chứa. Thuộc kế hoạch `docs/superpowers/plans/2026-11-17-a
 ## Các bước
 
 - [ ] **1. Kiểm thử trước.** Commit `test: annotate text tool`.
-  - `wm_char_sequence_builds_text` (Review Focus 4): mở lớp phủ có vùng, chọn Chữ, bấm trong vùng, gửi `WM_CHAR` theo chuỗi Unikey ("V","i","e",BS,"ê","t",BS,"ệ","t"), Enter, "2", rồi Ctrl+S → `Picked.shapes` có đúng một `Shape::Text` với `text == "Việt\n2"`, origin là điểm bấm (tọa độ ảnh chụp).
+  - `wm_char_sequence_builds_text` (Review Focus 4): mở lớp phủ có vùng, chọn Chữ, bấm trong vùng, gửi `WM_CHAR` theo chuỗi Unikey ("V","i","e",BS,"ê","t",BS,BS,"ệ","t") (Unikey xóa cả "êt" rồi gửi lại "ệt"; chuỗi giống kiểm thử `text_edit_unikey_sequence` của Task 34), Enter, "2", rồi Ctrl+S → `Picked.shapes` có đúng một `Shape::Text` với `text == "Việt\n2"`, origin là điểm bấm (tọa độ ảnh chụp).
   - `esc_cancels_text_not_overlay`: đang gõ, Esc (cả `WM_KEYDOWN` và `WM_HOTKEY` Esc) → ô hủy, lớp phủ còn; Esc lần nữa → `Ok(None)`.
   - `click_elsewhere_commits`: gõ "A", bấm chỗ khác trong vùng, gõ "B", Lưu → hai hình Text.
   - `empty_text_is_dropped`: bấm, không gõ, đổi công cụ, Lưu → không hình.
