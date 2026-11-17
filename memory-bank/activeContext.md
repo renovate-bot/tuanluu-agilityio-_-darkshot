@@ -21,7 +21,8 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Đợt 6 – Annotation Pro (2026-11-17), đang chạy.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `49-…`, quyết định 75. Chạy 44 → 49 không dừng. Task đang làm: 50 (nhánh theo `progress.md`).
+**Đợt 6 – Annotation Pro (2026-11-17), đang chạy.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `49-…`, quyết định 75. Chạy 44 → 49 không dừng. Task đang làm: không.
+- Task 50: thanh gọn: thanh dọc 9 mục (531→342 DIP ở 96 DPI), nút Hình nhớ hình gần nhất (mặc định Mũi tên) có bảng 4 ô, Hoàn tác/Làm lại sang đầu thanh ngang (BarItem, bar_layout). Rà soát DUYỆT.
 - Task 50 (thêm sau đợt 6, chủ dự án chọn "Gộp nhóm + dời" 2026-11-17): thanh dọc 14 → 9 mục (nút Hình nhớ hình gần nhất; Hoàn tác/Làm lại sang thanh ngang). Thiết kế `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, gói `docs/tasks/50-compact-toolbar.md`.
 - Task 49: tài liệu đợt 6: README, checklist, CLAUDE.md, next-task, decisions 76–83, systemPatterns, techContext. Rà soát DUYỆT; ghi chú: help_text trong i18n chưa nói về công cụ đánh dấu.
 - Task 48: công cụ Chọn: chọn, dời, đổi cỡ, xóa (Delete), Esc hủy kéo; sửa tri_contains. Rà soát lần 1 CẦN SỬA (tay nắm lệch tâm làm giật hình và ghi sổ khi chỉ bấm), đã sửa bằng độ lệch tay nắm + không ghi khi chuột không dịch; rà lại DUYỆT.
