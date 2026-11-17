@@ -98,7 +98,13 @@ fn same_sign_or(v: f32, fallback: f32) -> f32 {
     }
 }
 
+/// `p` nằm trong (hoặc trên cạnh) tam giác `t`; tam giác suy biến (diện tích 0) hoặc `p` không
+/// hữu hạn thì không chứa gì.
 fn tri_contains(p: Pt, t: [Pt; 3]) -> bool {
+    let area2 = (t[1].x - t[0].x) * (t[2].y - t[0].y) - (t[2].x - t[0].x) * (t[1].y - t[0].y);
+    if !p.x.is_finite() || !p.y.is_finite() || !area2.is_finite() || area2 == 0.0 {
+        return false;
+    }
     let s = |a: Pt, b: Pt| (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
     let (d1, d2, d3) = (s(t[0], t[1]), s(t[1], t[2]), s(t[2], t[0]));
     let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
