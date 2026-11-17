@@ -36,3 +36,7 @@ darkshot thay Lightshot cho riêng chủ dự án. Lightshot tải ảnh lên m�
 - Mỗi task một nhánh riêng.
 - Ghi số token của từng task để thống kê cuối dự án.
 - Dễ mở rộng; có thể hỗ trợ macOS và Linux sau này.
+
+## Sau bản đầu
+
+Chủ dự án đã thêm vào phạm vi (xem `decisions.md`): vẽ lên ảnh (đợt 5, 6 và Task 50: bút, hình, chữ, làm mờ, đánh số, chọn và sửa hình, hoàn tác nhiều bước), và kiểm tra bản mới qua `api.github.com` (Task 43, quyết định 74; tắt được). Hai mục "Vẽ lên ảnh" và "không kiểm tra cập nhật" ở trên chỉ đúng cho bản đầu.
