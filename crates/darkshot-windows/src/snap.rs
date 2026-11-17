@@ -143,15 +143,19 @@ pub fn windows_to_image(windows: &[Rect], origin: Point) -> Vec<Rect> {
 mod tests {
     use super::*;
     use windows::core::w;
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, ShowWindow,
-        UnregisterClassW, SW_HIDE, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-        WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+        UnregisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, WNDCLASSW, WS_EX_NOACTIVATE,
+        WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP, WS_VISIBLE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetLayeredWindowAttributes, LWA_ALPHA, LWA_COLORKEY, WS_EX_LAYERED,
     };
 
     const TRANSPARENT: u32 = WS_EX_TRANSPARENT.0;
+    const LAYERED: u32 = WS_EX_LAYERED.0;
     const TOOL: u32 = WS_EX_TOOLWINDOW.0;
 
     fn r(x: i32, y: i32, w: i32, h: i32) -> Rect {
@@ -172,21 +176,42 @@ mod tests {
     fn accept_table() {
         let cls = "Notepad";
         // Bình thường.
-        assert!(accept(true, false, false, 0, cls));
+        assert!(accept(true, false, false, false, 0, cls));
         // WS_EX_TOOLWINDOW đơn thuần vẫn nhận.
-        assert!(accept(true, false, false, TOOL, cls));
+        assert!(accept(true, false, false, false, TOOL, cls));
         // Ẩn.
-        assert!(!accept(false, false, false, 0, cls));
+        assert!(!accept(false, false, false, false, 0, cls));
         // Thu nhỏ.
-        assert!(!accept(true, true, false, 0, cls));
+        assert!(!accept(true, true, false, false, 0, cls));
         // Cloaked.
-        assert!(!accept(true, false, true, 0, cls));
+        assert!(!accept(true, false, true, false, 0, cls));
+        // Lớp phủ vô hình (WS_EX_LAYERED, độ mờ 0).
+        assert!(!accept(true, false, false, true, LAYERED, cls));
+        assert!(accept(true, false, false, false, LAYERED, cls));
         // Trong suốt với chuột.
-        assert!(!accept(true, false, false, TRANSPARENT, cls));
-        assert!(!accept(true, false, false, TRANSPARENT | TOOL, cls));
+        assert!(!accept(true, false, false, false, TRANSPARENT, cls));
+        assert!(!accept(true, false, false, false, TRANSPARENT | TOOL, cls));
         // Nền màn hình.
-        assert!(!accept(true, false, false, 0, "Progman"));
-        assert!(!accept(true, false, false, 0, "WorkerW"));
+        assert!(!accept(true, false, false, false, 0, "Progman"));
+        assert!(!accept(true, false, false, false, 0, "WorkerW"));
+    }
+
+    #[test]
+    fn invisible_layered_table() {
+        let alpha = LWA_ALPHA.0;
+        let key = LWA_COLORKEY.0;
+        // Không phải cửa sổ layered: không đọc, không loại.
+        assert!(!is_invisible_layered(0, Some((0, alpha))));
+        // Layered, độ mờ 0 qua LWA_ALPHA: loại.
+        assert!(is_invisible_layered(LAYERED, Some((0, alpha))));
+        assert!(is_invisible_layered(LAYERED, Some((0, alpha | key))));
+        // Độ mờ khác 0, hoặc không có LWA_ALPHA (chỉ màu khóa): giữ.
+        assert!(!is_invisible_layered(LAYERED, Some((1, alpha))));
+        assert!(!is_invisible_layered(LAYERED, Some((255, alpha))));
+        assert!(!is_invisible_layered(LAYERED, Some((0, key))));
+        assert!(!is_invisible_layered(LAYERED, Some((0, 0))));
+        // Lỗi đọc (ví dụ cửa sổ dùng UpdateLayeredWindow): giữ.
+        assert!(!is_invisible_layered(LAYERED, None));
     }
 
     #[test]
@@ -205,12 +230,12 @@ mod tests {
         unsafe { DefWindowProcW(h, m, w, l) }
     }
 
-    struct ClassGuard(windows::Win32::Foundation::HINSTANCE);
+    struct ClassGuard(windows::Win32::Foundation::HINSTANCE, windows::core::PCWSTR);
     impl Drop for ClassGuard {
         fn drop(&mut self) {
             // SAFETY: hủy đăng ký lớp do kiểm thử đăng ký; cửa sổ của lớp đã bị hủy trước (drop ngược thứ tự).
             unsafe {
-                let _ = UnregisterClassW(w!("DarkshotSnapTestPopup"), Some(self.0));
+                let _ = UnregisterClassW(self.1, Some(self.0));
             }
         }
     }
@@ -240,7 +265,7 @@ mod tests {
         // SAFETY: wc hợp lệ, tên lớp là hằng tĩnh.
         let atom = unsafe { RegisterClassW(&wc) };
         assert_ne!(atom, 0);
-        let _class = ClassGuard(inst.into());
+        let _class = ClassGuard(inst.into(), w!("DarkshotSnapTestPopup"));
         // SAFETY: lớp vừa đăng ký; không có cửa sổ cha.
         let hwnd = unsafe {
             CreateWindowExW(
@@ -275,6 +300,57 @@ mod tests {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
         assert!(!enumerate_windows().contains(&want));
+    }
+
+    #[test]
+    fn enumerate_skips_invisible_layered_window() {
+        let _dpi = crate::capture::DpiScope::per_monitor_v2();
+        // SAFETY: lấy handle của chính tiến trình.
+        let inst = unsafe { GetModuleHandleW(None) }.unwrap();
+        // Lớp riêng: kiểm thử chạy song song với `enumerate_finds_own_visible_window`.
+        let class = w!("DarkshotSnapTestLayered");
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(test_proc),
+            hInstance: inst.into(),
+            lpszClassName: class,
+            ..Default::default()
+        };
+        // SAFETY: wc hợp lệ, tên lớp là hằng tĩnh.
+        let atom = unsafe { RegisterClassW(&wc) };
+        assert_ne!(atom, 0);
+        let _class = ClassGuard(inst.into(), class);
+        let make = |x: i32, alpha: u8| {
+            // SAFETY: lớp vừa đăng ký; không có cửa sổ cha.
+            let hwnd = unsafe {
+                CreateWindowExW(
+                    WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    class,
+                    None,
+                    WS_POPUP,
+                    x,
+                    130,
+                    210,
+                    170,
+                    None,
+                    None,
+                    Some(inst.into()),
+                    None,
+                )
+            }
+            .unwrap();
+            let guard = WindowGuard(hwnd);
+            // SAFETY: cửa sổ layered của luồng này.
+            unsafe {
+                SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA).unwrap();
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            guard
+        };
+        let _clear = make(130, 0);
+        let _solid = make(370, 255);
+        let found = enumerate_windows();
+        assert!(!found.contains(&r(130, 130, 210, 170)), "{found:?}");
+        assert!(found.contains(&r(370, 130, 210, 170)), "{found:?}");
     }
 
     #[test]

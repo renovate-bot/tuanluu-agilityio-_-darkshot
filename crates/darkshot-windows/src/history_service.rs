@@ -652,17 +652,18 @@ mod tests {
             height: 5,
             bgra: vec![0; 3],
         };
-        let before = failure_count();
+        // Bộ đếm riêng của hàng này: kiểm thử song song không làm nó tăng.
+        assert_eq!(w.failure_count(), 0);
         assert!(copied(&w, &bad));
         assert!(w.flush(LONG));
-        assert!(failure_count() > before);
+        assert_eq!(w.failure_count(), 1);
         // Một việc panic thật: luồng ghi vẫn sống, bộ đếm vẫn giảm.
-        let before = failure_count();
         w.push(Box::new(|_root: &Path| panic!("boom")));
         assert!(w.flush(LONG));
-        assert!(failure_count() > before);
+        assert_eq!(w.failure_count(), 2);
         assert!(copied(&w, &img()));
         assert!(w.flush(LONG));
+        assert_eq!(w.failure_count(), 2);
         assert_eq!(Store::new(root).load().entries.len(), 1);
         assert_eq!(w.spawn_count(), 1);
     }
@@ -672,7 +673,7 @@ mod tests {
         let root = temp_dir().join("history");
         let saved = temp_dir().join("shot.png");
         std::fs::write(&saved, b"png").unwrap();
-        record_blocking_with(
+        assert!(record_blocking_with(
             true,
             root.clone(),
             &Outcome::UploadFailedSaved {
@@ -682,7 +683,7 @@ mod tests {
             &img(),
             Expiry::D7,
             now(),
-        );
+        ));
         let l = Store::new(root).load();
         assert_eq!(l.entries.len(), 1);
         assert_eq!(l.entries[0].kind, Kind::UploadFallback);
@@ -697,21 +698,97 @@ mod tests {
         let root = temp_dir().join("not_a_dir");
         std::fs::write(&root, b"x").unwrap();
         let w = Writer::new(root.clone());
-        let before = failure_count();
         assert!(copied(&w, &img()));
         assert!(w.flush(LONG), "luồng ghi không được kẹt");
-        assert!(failure_count() > before);
-        let before = failure_count();
-        record_blocking_with(
+        assert_eq!(w.failure_count(), 1);
+        // Đường đồng bộ: báo lỗi qua giá trị trả về.
+        assert!(!record_blocking_with(
             true,
             root.clone(),
             &Outcome::Copied,
             &img(),
             Expiry::D7,
             now(),
-        );
-        assert!(failure_count() > before);
+        ));
         assert_eq!(std::fs::read(&root).unwrap(), b"x");
+    }
+
+    fn fallback(path: &Path) -> Outcome {
+        Outcome::UploadFailedSaved {
+            path: path.to_path_buf(),
+            needs_settings: false,
+        }
+    }
+
+    #[test]
+    fn exit_writes_fallback_after_queued_entries() {
+        let root = temp_dir().join("history");
+        let saved = temp_dir().join("shot.png");
+        std::fs::write(&saved, b"png").unwrap();
+        let w = Writer::new(root.clone());
+        // Một việc chặn đầu hàng: mục Chép đẩy trước còn nằm trong hàng lúc thoát.
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        w.push(Box::new(move |_root: &Path| {
+            let _ = started_tx.send(());
+            let _ = release_rx.recv();
+        }));
+        assert!(copied(&w, &img()));
+        started_rx.recv_timeout(LONG).unwrap();
+        std::thread::sleep(Duration::from_millis(3));
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let _ = release_tx.send(());
+        });
+        let mut ran = false;
+        let ok = finish_on_exit_with(true, &w, now(), LONG, |record| {
+            ran = true;
+            record(&fallback(&saved), &img());
+        });
+        releaser.join().unwrap();
+        assert!(ran);
+        assert!(ok);
+        assert_eq!(w.failure_count(), 0);
+        let l = Store::new(root).load();
+        assert_eq!(l.entries.len(), 2);
+        // Mới nhất trước: mục dự phòng (thoát) mới hơn mục Chép đã đẩy trước.
+        assert_eq!(l.entries[0].kind, Kind::UploadFallback);
+        assert_eq!(l.entries[0].path.as_deref(), Some(saved.as_path()));
+        assert_eq!(l.entries[1].kind, Kind::Copied);
+        assert!(l.entries[0].unix >= l.entries[1].unix);
+    }
+
+    #[test]
+    fn exit_flush_respects_timeout() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        w.push(Box::new(move |_root: &Path| {
+            let _ = release_rx.recv();
+        }));
+        let start = std::time::Instant::now();
+        let ok = finish_on_exit_with(true, &w, now(), Duration::from_millis(50), |record| {
+            record(&Outcome::Copied, &img());
+        });
+        assert!(!ok);
+        assert!(start.elapsed() < Duration::from_secs(2));
+        release_tx.send(()).unwrap();
+        assert!(w.flush(LONG));
+        assert_eq!(Store::new(root).load().entries.len(), 1);
+    }
+
+    #[test]
+    fn exit_disabled_runs_save_without_history() {
+        let root = temp_dir().join("history");
+        let w = Writer::new(root.clone());
+        let mut ran = false;
+        assert!(finish_on_exit_with(false, &w, now(), LONG, |record| {
+            ran = true;
+            record(&Outcome::Copied, &img());
+        }));
+        assert!(ran);
+        assert_eq!(w.spawn_count(), 0);
+        assert!(!root.exists());
     }
 
     #[test]
