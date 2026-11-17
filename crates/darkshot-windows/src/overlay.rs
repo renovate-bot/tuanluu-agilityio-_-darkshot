@@ -1282,6 +1282,11 @@ struct State {
     preview: Option<Shape>,
     preview_bounds: Rect,
     gesture_at: Pt,
+    /// Tâm tay nắm đang nắm trừ điểm bấm (0 khi di chuyển): điểm đưa vào `transform` là điểm chuột
+    /// cộng độ lệch này, để cú nhích đầu không làm cạnh/góc nhảy tới điểm bấm.
+    grip_off: Pt,
+    /// Chuột đã dịch khỏi điểm bấm trong cử chỉ hiện tại (chưa dịch thì thả không ghi sổ).
+    gesture_moved: bool,
     side_hover: Option<SideItem>,
     side_pressed: Option<SideItem>,
     /// Bảng màu đang mở.
@@ -1787,7 +1792,7 @@ impl State {
         if on_bar {
             return IDC_ARROW;
         }
-        if let Some(g) = self.shape_grip_at(p) {
+        if let Some(g) = self.press_grip(p) {
             return cursor_for_grip(g);
         }
         if self.shape_hit_at(p).is_some() {
@@ -1942,6 +1947,24 @@ impl State {
         grip_at(s, b, to_pt(p), self.grip_radius(p))
     }
 
+    /// Tay nắm sẽ được nắm khi bấm tại `p`. Bấm trúng chính hình đang chọn mà xa tâm mọi tay nắm
+    /// hơn nửa cỡ tay nắm (hình nhỏ: vùng trúng tay nắm phủ lòng hình) thì là di chuyển, không nắm.
+    fn press_grip(&self, p: Point) -> Option<Grip> {
+        let grip = self.shape_grip_at(p)?;
+        if self.selected.is_some() && self.shape_hit_at(p) == self.selected {
+            let (s, b) = self.shown_selection()?;
+            let q = to_pt(p);
+            let near = handles(s, b)
+                .into_iter()
+                .map(|(_, c)| (c.x - q.x).abs().max((c.y - q.y).abs()))
+                .fold(f32::INFINITY, f32::min);
+            if near > (scaled(HANDLE_SIZE, self.dpi_at(p)) / 2) as f32 {
+                return None;
+            }
+        }
+        Some(grip)
+    }
+
     /// Hình trên cùng trúng `p` trong vùng chọn (khi công cụ Chọn bật).
     fn shape_hit_at(&self, p: Point) -> Option<usize> {
         if self.tool != Some(Tool::Select) || !self.sel.rect()?.contains(p) {
@@ -1978,7 +2001,21 @@ impl State {
             .copied()
             .unwrap_or_else(|| shape_bounds(&original));
         let start = self.clamp_to_sel(p);
+        let off = match grip {
+            Grip::Move => None,
+            _ => handles(&original, original_bounds)
+                .into_iter()
+                .find(|(g, _)| *g == grip)
+                .map(|(_, c)| Pt {
+                    x: c.x - start.x,
+                    y: c.y - start.y,
+                }),
+        }
+        .filter(|o| o.x.is_finite() && o.y.is_finite())
+        .unwrap_or(Pt { x: 0.0, y: 0.0 });
         self.change_selection(|s| {
+            s.grip_off = off;
+            s.gesture_moved = false;
             s.selected = Some(index);
             s.preview = Some(original.clone());
             s.preview_bounds = original_bounds;
@@ -2005,19 +2042,29 @@ impl State {
         let Some(g) = self.gesture.as_ref() else {
             return;
         };
+        self.gesture_at = at;
+        if at != g.start {
+            self.gesture_moved = true;
+        }
+        if !self.gesture_moved {
+            return;
+        }
         let dpi = self.dpi_at(Point {
             x: g.start.x as i32,
             y: g.start.y as i32,
         });
+        let to = Pt {
+            x: at.x + self.grip_off.x,
+            y: at.y + self.grip_off.y,
+        };
         let shape = transform(
             g,
-            at,
+            to,
             shift,
             dip_to_px(MIN_EXTENT_DIP, dpi),
             self.shot_image(),
         );
         let bounds = preview_bounds(g, &shape);
-        self.gesture_at = at;
         if self.preview.as_ref() == Some(&shape) {
             return;
         }
@@ -2033,7 +2080,8 @@ impl State {
         let Some(g) = self.gesture.take() else {
             return;
         };
-        let preview = self.preview.take();
+        let preview = self.preview.take().filter(|_| self.gesture_moved);
+        self.gesture_moved = false;
         if let Some(a) = preview.and_then(|s| self.marks.replace(g.index, s)) {
             self.apply_change(&a);
         }
@@ -2635,7 +2683,7 @@ impl State {
         }
         // Công cụ Chọn: tay nắm của hình đang chọn, rồi hình trên cùng trúng điểm bấm (trước tay
         // nắm vùng chọn).
-        if let (Some(grip), Some(i)) = (self.shape_grip_at(p), self.selected) {
+        if let (Some(grip), Some(i)) = (self.press_grip(p), self.selected) {
             return self.begin_gesture(i, grip, p);
         }
         if let Some(i) = self.shape_hit_at(p) {
@@ -4491,6 +4539,8 @@ pub fn pick_region(
         preview: None,
         preview_bounds: NO_RECT,
         gesture_at: Pt { x: 0.0, y: 0.0 },
+        grip_off: Pt { x: 0.0, y: 0.0 },
+        gesture_moved: false,
         side_hover: None,
         side_pressed: None,
         palette: false,
