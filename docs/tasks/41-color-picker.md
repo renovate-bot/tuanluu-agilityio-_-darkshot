@@ -9,6 +9,13 @@ Thuộc thiết kế `docs/superpowers/specs/2026-11-17-custom-colors-design.md`
 - Thiết kế trên; `crates/darkshot-core/src/color.rs` (Task 40: `Hls`, `rgb_to_hls`, `hls_to_rgb`, `CustomColors`, `picker_layout`, `spectrum_hs`, `spectrum_point`, `lum_at`, `lum_y`)
 - `crates/darkshot-windows/src/overlay.rs`: bảng màu hiện có (`palette`, `palette_rect_for`, `Painter::palette`, `pick_color`, `escape`, `on_down`/`on_move`/`on_up`, `on_key`, `on_char`, `bar_chrome`, `update_bars`, kiểm thử bảng màu và `live::*`), `main.rs` (gọi `pick_region`, lưu cấu hình như cửa sổ Tùy chọn làm), `theme.rs` (vẽ nút, ô nhập dùng chung nếu tiện)
 
+## Ghi chú từ Task 40
+
+- Dựng `CustomColors` bằng `default()` hoặc `CustomColors::from_slots(..)` (có trường private `next_overwrite`), không dùng literal.
+- Bố cục thật của `picker_layout`: dạng gọn 204×286 DIP, dạng đủ 456×320 DIP; nhãn ô số rộng 48, ô số 36; hàng OK/Hủy/Thêm ở dưới nút "Định nghĩa". Vẽ theo đúng rect hàm trả, không tự tính lại.
+- Nút Hủy dùng `Msg::BtnCancel`.
+- Thêm vào kiểm thử `layout_fits_and_disjoint` của core các DPI 120, 192, 288 (rà soát Task 40 đã tính tay là qua).
+
 ## Hành vi
 
 Đúng mục "Hành vi" và "Nhìn" của thiết kế. Thêm:
