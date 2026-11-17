@@ -34,9 +34,12 @@ impl Tool {
         Tool::Step,
     ];
 
-    /// Mã phím ảo chữ hoa: P, L, A, R, H, B, T.
+    /// Mã phím ảo chữ hoa: V, P, L, A, R, E, H, B, T, N.
     pub fn from_key(vk: u16) -> Option<Tool> {
         match vk {
+            0x56 => Some(Tool::Select),
+            0x46 => Some(Tool::Ellipse),
+            0x4E => Some(Tool::Step),
             0x50 => Some(Tool::Pen),
             0x4C => Some(Tool::Line),
             0x41 => Some(Tool::Arrow),
@@ -44,7 +47,7 @@ impl Tool {
             0x48 => Some(Tool::Marker),
             0x42 => Some(Tool::Blur),
             0x54 => Some(Tool::Text),
-            _ => None, // Task 44: thêm V, E, N
+            _ => None,
         }
     }
 }
@@ -140,29 +143,57 @@ impl SizeLevel {
     ];
 
     pub fn smaller(self) -> SizeLevel {
-        todo!()
+        match self {
+            SizeLevel::Small | SizeLevel::Medium => SizeLevel::Small,
+            SizeLevel::Large => SizeLevel::Medium,
+            SizeLevel::Huge => SizeLevel::Large,
+        }
     }
 
     pub fn larger(self) -> SizeLevel {
-        todo!()
+        match self {
+            SizeLevel::Small => SizeLevel::Medium,
+            SizeLevel::Medium => SizeLevel::Large,
+            SizeLevel::Large | SizeLevel::Huge => SizeLevel::Huge,
+        }
     }
 
     /// Pen, Line, Arrow, Rect, Ellipse.
     pub fn stroke_dip(self) -> f32 {
-        todo!()
+        match self {
+            SizeLevel::Small => 2.0,
+            SizeLevel::Medium => STROKE_DIP,
+            SizeLevel::Large => 5.0,
+            SizeLevel::Huge => 8.0,
+        }
     }
 
     pub fn marker_dip(self) -> f32 {
-        todo!()
+        match self {
+            SizeLevel::Small => 10.0,
+            SizeLevel::Medium => MARKER_DIP,
+            SizeLevel::Large => 24.0,
+            SizeLevel::Huge => 32.0,
+        }
     }
 
     pub fn text_dip(self) -> f32 {
-        todo!()
+        match self {
+            SizeLevel::Small => 14.0,
+            SizeLevel::Medium => TEXT_DIP,
+            SizeLevel::Large => 26.0,
+            SizeLevel::Huge => 36.0,
+        }
     }
 
     /// Bán kính vòng số.
     pub fn step_dip(self) -> f32 {
-        todo!()
+        match self {
+            SizeLevel::Small => 10.0,
+            SizeLevel::Medium => 13.0,
+            SizeLevel::Large => 17.0,
+            SizeLevel::Huge => 22.0,
+        }
     }
 }
 
@@ -283,7 +314,10 @@ impl Shape {
                 })
             }
             Shape::Text { .. } => None,
-            Shape::Ellipse { .. } | Shape::Step { .. } => None, // Task 44: chưa làm
+            Shape::Ellipse { a, b, width, .. } => bounds_of(&[*a, *b], width / 2.0 + 1.0),
+            Shape::Step { center, radius, .. } => {
+                bounds_of(&[*center], radius + radius * STEP_RING / 2.0 + 1.0)
+            }
         }
     }
 }
@@ -413,12 +447,12 @@ pub fn constrain_square(a: Pt, b: Pt) -> Pt {
     }
 }
 
-/// Line/Arrow: |ab| < MIN_DRAG_PX; Rect, Blur: |dx| hoặc |dy| < MIN_DRAG_PX; công cụ khác: false.
+/// Line/Arrow: |ab| < MIN_DRAG_PX; Rect, Ellipse, Blur: |dx| hoặc |dy| < MIN_DRAG_PX; công cụ khác: false.
 pub fn too_short(tool: Tool, a: Pt, b: Pt) -> bool {
     let (dx, dy) = ((b.x - a.x).abs(), (b.y - a.y).abs());
     match tool {
         Tool::Line | Tool::Arrow => dx.hypot(dy) < MIN_DRAG_PX,
-        Tool::Rect | Tool::Blur => dx < MIN_DRAG_PX || dy < MIN_DRAG_PX,
+        Tool::Rect | Tool::Ellipse | Tool::Blur => dx < MIN_DRAG_PX || dy < MIN_DRAG_PX,
         _ => false,
     }
 }
@@ -480,9 +514,11 @@ pub enum PressMode {
 
 /// Quyết định khi bấm chuột trong lớp phủ (ngoài thanh công cụ và bảng màu):
 /// có công cụ: Handle -> Selection, Inside -> Draw, Outside -> Ignore;
+/// công cụ Chọn: Inside, Outside -> Pick;
 /// không công cụ: Outside khi `has_shapes` -> Ignore, còn lại -> Selection.
 pub fn press_mode(tool: Option<Tool>, has_shapes: bool, hit: Hit) -> PressMode {
     match (tool, hit) {
+        (Some(Tool::Select), Hit::Inside | Hit::Outside) => PressMode::Pick,
         (Some(_), Hit::Handle(_)) => PressMode::Selection,
         (Some(_), Hit::Inside) => PressMode::Draw,
         (Some(_), Hit::Outside) => PressMode::Ignore,
@@ -537,40 +573,159 @@ impl Annotations {
         &self.shapes
     }
 
+    /// Đánh lại `n` của mọi Step theo thứ tự (1, 2, 3...); trả các vị trí đổi `n`.
+    fn renumber(&mut self) -> Vec<usize> {
+        let mut changed = Vec::new();
+        let mut next = 1u32;
+        for (i, s) in self.shapes.iter_mut().enumerate() {
+            if let Shape::Step { n, .. } = s {
+                if *n != next {
+                    *n = next;
+                    changed.push(i);
+                }
+                next = next.saturating_add(1);
+            }
+        }
+        changed
+    }
+
+    /// Đóng gói kết quả: `exclude` là vị trí của chính thay đổi (nếu hình còn đó).
+    fn finish(&mut self, change: Change, exclude: Option<usize>) -> Applied {
+        let mut renumbered = self.renumber();
+        renumbered.retain(|i| Some(*i) != exclude);
+        Applied { change, renumbered }
+    }
+
     /// Thêm vào cuối, ghi sổ, xóa ngăn làm lại.
     pub fn add(&mut self, s: Shape) -> Applied {
-        todo!()
+        let index = self.shapes.len();
+        self.shapes.push(s);
+        self.renumber();
+        if let Some(shape) = self.shapes.get(index) {
+            self.undo.push(Edit::Add {
+                index,
+                shape: shape.clone(),
+            });
+        }
+        self.redo.clear();
+        self.finish(Change::Inserted { index }, Some(index))
     }
 
     /// None khi `index` ngoài danh sách.
     pub fn remove(&mut self, index: usize) -> Option<Applied> {
-        todo!()
+        if index >= self.shapes.len() {
+            return None;
+        }
+        let shape = self.shapes.remove(index);
+        self.undo.push(Edit::Remove {
+            index,
+            shape: shape.clone(),
+        });
+        self.redo.clear();
+        Some(self.finish(Change::Removed { index, shape }, None))
     }
 
     /// None khi `index` ngoài danh sách hoặc `s` (sau khi đánh số theo vị trí) bằng hệt hình cũ.
-    pub fn replace(&mut self, index: usize, s: Shape) -> Option<Applied> {
-        todo!()
+    pub fn replace(&mut self, index: usize, mut s: Shape) -> Option<Applied> {
+        let before = self.shapes.get(index)?.clone();
+        if let Shape::Step { n, .. } = &mut s {
+            let prior = self.shapes[..index]
+                .iter()
+                .filter(|x| matches!(x, Shape::Step { .. }))
+                .count();
+            *n = u32::try_from(prior).unwrap_or(u32::MAX).saturating_add(1);
+        }
+        if s == before {
+            return None;
+        }
+        *self.shapes.get_mut(index)? = s.clone();
+        self.undo.push(Edit::Replace {
+            index,
+            before: before.clone(),
+            after: s,
+        });
+        self.redo.clear();
+        Some(self.finish(Change::Replaced { index, old: before }, Some(index)))
+    }
+
+    /// Áp một mục sổ theo chiều thuận (`forward`) hoặc ngược; None khi vị trí không hợp lệ.
+    fn apply(&mut self, edit: &Edit, forward: bool) -> Option<Applied> {
+        match (edit, forward) {
+            (Edit::Add { index, shape }, true) | (Edit::Remove { index, shape }, false) => {
+                if *index > self.shapes.len() {
+                    return None;
+                }
+                self.shapes.insert(*index, shape.clone());
+                Some(self.finish(Change::Inserted { index: *index }, Some(*index)))
+            }
+            (Edit::Add { index, .. }, false) | (Edit::Remove { index, .. }, true) => {
+                if *index >= self.shapes.len() {
+                    return None;
+                }
+                let shape = self.shapes.remove(*index);
+                Some(self.finish(
+                    Change::Removed {
+                        index: *index,
+                        shape,
+                    },
+                    None,
+                ))
+            }
+            (
+                Edit::Replace {
+                    index,
+                    before,
+                    after,
+                },
+                fwd,
+            ) => {
+                let (old, new) = if fwd {
+                    (before, after)
+                } else {
+                    (after, before)
+                };
+                *self.shapes.get_mut(*index)? = new.clone();
+                Some(self.finish(
+                    Change::Replaced {
+                        index: *index,
+                        old: old.clone(),
+                    },
+                    Some(*index),
+                ))
+            }
+        }
     }
 
     pub fn undo(&mut self) -> Option<Applied> {
-        todo!()
+        let edit = self.undo.pop()?;
+        let applied = self.apply(&edit, false);
+        self.redo.push(edit);
+        applied
     }
 
     pub fn redo(&mut self) -> Option<Applied> {
-        todo!()
+        let edit = self.redo.pop()?;
+        let applied = self.apply(&edit, true);
+        self.undo.push(edit);
+        applied
     }
 
     pub fn can_undo(&self) -> bool {
-        todo!()
+        !self.undo.is_empty()
     }
 
     pub fn can_redo(&self) -> bool {
-        todo!()
+        !self.redo.is_empty()
     }
 
     /// Số mà một Step thêm vào cuối sẽ mang (1 + số Step hiện có).
     pub fn next_step_number(&self) -> u32 {
-        todo!()
+        let count = self
+            .shapes
+            .iter()
+            .filter(|s| matches!(s, Shape::Step { .. }))
+            .count();
+        u32::try_from(count).unwrap_or(u32::MAX).saturating_add(1)
     }
 
     pub fn is_empty(&self) -> bool {
