@@ -39,17 +39,59 @@ impl Tool {
     }
 }
 
-pub const PALETTE: [Rgb; 8] = [
-    Rgb::hex(0xFF3B30),
-    Rgb::hex(0xFF9500),
-    Rgb::hex(0xFFCC00),
-    Rgb::hex(0x34C759),
-    Rgb::hex(0x0A84FF),
-    Rgb::hex(0xAF52DE),
-    Rgb::hex(0xFFFFFF),
+/// Bảng 48 màu cơ bản của hộp chọn màu Windows, theo hàng từ trên xuống.
+pub const PALETTE: [Rgb; 48] = [
+    Rgb::hex(0xFF8080),
+    Rgb::hex(0xFFFF80),
+    Rgb::hex(0x80FF80),
+    Rgb::hex(0x00FF80),
+    Rgb::hex(0x80FFFF),
+    Rgb::hex(0x0080FF),
+    Rgb::hex(0xFF80C0),
+    Rgb::hex(0xFF80FF),
+    Rgb::hex(0xFF0000),
+    Rgb::hex(0xFFFF00),
+    Rgb::hex(0x80FF00),
+    Rgb::hex(0x00FF40),
+    Rgb::hex(0x00FFFF),
+    Rgb::hex(0x0080C0),
+    Rgb::hex(0x8080C0),
+    Rgb::hex(0xFF00FF),
+    Rgb::hex(0x804040),
+    Rgb::hex(0xFF8040),
+    Rgb::hex(0x00FF00),
+    Rgb::hex(0x008080),
+    Rgb::hex(0x004080),
+    Rgb::hex(0x8080FF),
+    Rgb::hex(0x800040),
+    Rgb::hex(0xFF0080),
+    Rgb::hex(0x800000),
+    Rgb::hex(0xFF8000),
+    Rgb::hex(0x008000),
+    Rgb::hex(0x008040),
+    Rgb::hex(0x0000FF),
+    Rgb::hex(0x0000A0),
+    Rgb::hex(0x800080),
+    Rgb::hex(0x8000FF),
+    Rgb::hex(0x400000),
+    Rgb::hex(0x804000),
+    Rgb::hex(0x004000),
+    Rgb::hex(0x004040),
+    Rgb::hex(0x000080),
+    Rgb::hex(0x000040),
+    Rgb::hex(0x400040),
+    Rgb::hex(0x400080),
     Rgb::hex(0x000000),
+    Rgb::hex(0x808000),
+    Rgb::hex(0x808040),
+    Rgb::hex(0x808080),
+    Rgb::hex(0x408080),
+    Rgb::hex(0xC0C0C0),
+    Rgb::hex(0x400040),
+    Rgb::hex(0xFFFFFF),
 ];
-pub const DEFAULT_COLOR: Rgb = PALETTE[0];
+pub const PALETTE_COLS: usize = 8;
+pub const DEFAULT_COLOR: Rgb = PALETTE[8];
 pub const STROKE_DIP: f32 = 3.0;
 pub const MARKER_DIP: f32 = 16.0;
 pub const MARKER_ALPHA: u8 = 102;
