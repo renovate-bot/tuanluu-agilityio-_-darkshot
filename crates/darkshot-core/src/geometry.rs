@@ -772,4 +772,34 @@ mod tests {
             rc(-194, 200, 40, 200)
         );
     }
+
+    /// Đẩy lên trên thanh bốn nút vẫn giao (vùng chọn sát mép trên, hẹp hơn thanh bốn nút):
+    /// đặt ở chỗ không giao, trọn trong màn hình, gần vùng chọn nhất.
+    #[test]
+    fn side_toolbar_leaves_avoid_when_push_up_fails() {
+        let place = place_side_toolbar;
+        let disjoint = |a: Rect, b: Rect| {
+            a.right() <= b.x || b.right() <= a.x || a.bottom() <= b.y || b.bottom() <= a.y
+        };
+        // Dưới thanh bốn nút còn chỗ và gần vùng hơn: xuống dưới thanh.
+        let sel = rc(0, 0, 50, 300);
+        let bar = place_toolbar(sel, (160, 40), 6, MON);
+        assert_eq!(bar, rc(0, 306, 160, 40));
+        let side = place(sel, (40, 400), 6, MON, Some(bar));
+        assert_eq!(side, rc(56, 352, 40, 400));
+        assert!(disjoint(side, bar));
+        // Dưới không đủ chỗ: sang phải mép phải thanh bốn nút, cách gap.
+        let sel = rc(0, 0, 50, 380);
+        let bar = place_toolbar(sel, (160, 40), 6, MON);
+        assert_eq!(bar, rc(0, 386, 160, 40));
+        let side = place(sel, (40, 500), 6, MON, Some(bar));
+        assert_eq!(side, rc(166, 0, 40, 500));
+        assert!(disjoint(side, bar));
+        // Đẩy lên được thì giữ như cũ.
+        let avoid = rc(400, 350, 100, 40);
+        assert_eq!(
+            place(rc(100, 100, 300, 300), (40, 200), 6, MON, Some(avoid)),
+            rc(406, 144, 40, 200)
+        );
+    }
 }

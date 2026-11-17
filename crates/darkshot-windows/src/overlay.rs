@@ -4033,6 +4033,86 @@ mod tests {
         }
     }
 
+    /// Hai trường hợp rà soát Task 42 tìm ra: vùng chọn hẹp sát góc trên trái, thanh dọc từng che
+    /// nút Màu của thanh bốn nút.
+    #[test]
+    fn side_bar_never_covers_action_bar_near_top_left() {
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            w: 1366,
+            h: 768,
+        };
+        for (dpi, sel) in [
+            (
+                144,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 100,
+                    h: 380,
+                },
+            ),
+            (
+                96,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 100,
+                    h: 300,
+                },
+            ),
+        ] {
+            let (bar, side) = bars_for(sel, mon, dpi);
+            let disjoint = bar.right() <= side.x
+                || side.right() <= bar.x
+                || bar.bottom() <= side.y
+                || side.bottom() <= bar.y;
+            assert!(disjoint, "dpi {dpi}: {bar:?} {side:?}");
+            assert!(side.x >= 0 && side.y >= 0 && side.right() <= 1366 && side.bottom() <= 768);
+            // Nút Màu không bị che.
+            let color = side_item_rect(side, scaled(SIDE_SEP, dpi), COLOR_INDEX);
+            assert!(!mon_overlap(color, bar));
+        }
+    }
+
+    fn mon_overlap(a: Rect, b: Rect) -> bool {
+        a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+    }
+
+    /// Thuộc tính: trên lưới cỡ và vị trí vùng chọn ở màn hình 1366×768 (100% và 150%), hai thanh
+    /// không bao giờ giao nhau và cả hai nằm trọn trong màn hình.
+    #[test]
+    fn bars_never_overlap_on_low_screen_grid() {
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            w: 1366,
+            h: 768,
+        };
+        let inside = |r: Rect| r.x >= 0 && r.y >= 0 && r.right() <= mon.w && r.bottom() <= mon.h;
+        let sizes = [1, 20, 60, 100, 150, 216, 300, 450, 700, 1000, 1366];
+        let heights = [1, 20, 60, 100, 200, 300, 380, 500, 650, 768];
+        for dpi in [96, 144] {
+            for &w in &sizes {
+                for &h in &heights {
+                    for x in (0..=mon.w - w).step_by(37).chain([mon.w - w]) {
+                        for y in (0..=mon.h - h).step_by(29).chain([mon.h - h]) {
+                            let sel = Rect { x, y, w, h };
+                            let (bar, side) = bars_for(sel, mon, dpi);
+                            assert!(inside(bar), "dpi {dpi} sel {sel:?}: bar {bar:?}");
+                            assert!(inside(side), "dpi {dpi} sel {sel:?}: side {side:?}");
+                            assert!(
+                                !mon_overlap(bar, side),
+                                "dpi {dpi} sel {sel:?}: {bar:?} {side:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn picker_hit_testing() {
         let dpi = 144;
