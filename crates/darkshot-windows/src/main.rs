@@ -41,6 +41,9 @@ use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM,
 };
+use windows::Win32::System::Com::{
+    CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
@@ -242,15 +245,27 @@ pub fn update_outcome(found: Option<&Release>, notified: Option<Version>) -> (bo
     }
 }
 
+/// Mục "Có bản mới" sau một lần kiểm tra: lỗi hoặc không có bản mới (`None`) không xóa mục đã
+/// hiện (lỗi mạng ở lần kiểm tra sau không được làm mất nó); chỉ có bản mới thì ghi đè.
+pub fn update_after_check(current: Option<Release>, found: Option<Release>) -> Option<Release> {
+    found.or(current)
+}
+
 /// Mở trang tải về bằng trình duyệt mặc định. Chỉ mở link thuộc repo darkshot; lỗi thì bỏ qua.
 fn open_release_url(url: &str) {
     if !url.starts_with(RELEASE_URL_PREFIX) {
         return;
     }
     let url = HSTRING::from(url);
-    // SAFETY: các chuỗi sống đến hết lời gọi; ShellExecuteW không giữ con trỏ.
+    // SAFETY: các chuỗi sống đến hết lời gọi; ShellExecuteW không giữ con trỏ. COM được khởi
+    // tạo (nếu được) rồi giải phóng cân bằng quanh lời gọi, vì ShellExecuteW cần COM ở luồng gọi.
     unsafe {
+        let inited =
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_ok();
         let _ = ShellExecuteW(None, w!("open"), &url, None, None, SW_SHOWNORMAL);
+        if inited {
+            CoUninitialize();
+        }
     }
 }
 
@@ -330,7 +345,7 @@ fn on_update_result(found: Option<Release>) {
         return;
     }
     let (_, notify) = update_outcome(found.as_ref(), notified);
-    with_app(|a| a.update = found.clone());
+    with_app(|a| a.update = update_after_check(a.update.take(), found.clone()));
     let (Some(rel), true) = (found, notify) else {
         return;
     };
@@ -1129,6 +1144,22 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn update_after_check_keeps_item_on_none() {
+        let rel = |p| Release {
+            version: Version {
+                major: 0,
+                minor: 3,
+                patch: p,
+            },
+            url: String::new(),
+        };
+        assert_eq!(update_after_check(None, None), None);
+        assert_eq!(update_after_check(Some(rel(0)), None), Some(rel(0)));
+        assert_eq!(update_after_check(None, Some(rel(1))), Some(rel(1)));
+        assert_eq!(update_after_check(Some(rel(0)), Some(rel(1))), Some(rel(1)));
+    }
 
     #[test]
     fn update_outcome_rules() {
