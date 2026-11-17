@@ -45,6 +45,12 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 30b Ô tích, nút chọn mịn | task/30b-check-radio-aa | specialist | opus | xong | 146.263 | 67.580 | 0 (phiên điều phối dời một chú thích) | 213.843 |
 | 30c Ô nhập một viền bo mịn | task/30c-edit-frame | specialist | opus | xong | 171.111 | 78.174 | 0 | 249.285 |
 | 32 Biểu tượng tối (phương án B) | task/32-dark-icon | builder | sonnet | xong | 58.938 | 27.339 | 0 | 86.277 |
+| 33 README (cỡ build, biểu tượng) | task/33-readme-refresh | phiên điều phối | opus | xong | 0 | 0 | 0 | 0 |
+| 34 Mô hình đánh dấu ở core | task/34-annotate-core | builder | sonnet | chờ | | | | |
+| 35 Vẽ hình đánh dấu, in vào ảnh | task/35-annotate-render | specialist | opus | chờ | | | | |
+| 36 Thanh công cụ vẽ trong lớp phủ | task/36-annotate-overlay | specialist | opus | chờ | | | | |
+| 37 Công cụ Chữ | task/37-annotate-text | specialist | opus | chờ | | | | |
+| 38 Tài liệu đợt 5 | task/38-docs-batch5 | scaffolder | haiku | chờ | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

@@ -1,6 +1,6 @@
 # Thiết kế đợt 5: công cụ đánh dấu trên ảnh chụp
 
-Ngày: 2026-11-17. Trạng thái: chờ chủ dự án duyệt.
+Ngày: 2026-11-17. Trạng thái: đã duyệt (2026-11-17: chủ dự án bảo phân bổ model và tiến hành theo kế hoạch, không hỏi lại, xem bản demo cuối).
 
 ## 1. Ý định
 
