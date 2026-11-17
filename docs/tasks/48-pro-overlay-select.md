@@ -58,4 +58,4 @@
 - [ ] **2. Mã** theo quyết định trên.
 - [ ] **3.** `cargo fmt --all`; check → `ALL CHECKS PASSED`; chạy từng kiểm thử `#[ignore]` mới và chống rò với `--test-threads=1`. Build release `--target-dir target/task48`, ghi cỡ exe. Commit `feat: overlay select, move, resize, delete`.
 
-**Xong khi:** check qua và các kiểm thử chạy tay mới qua. Báo cáo: commit, dòng cuối check, kết quả từng kiểm thử chạy tay, cỡ exe release; ảnh chụp lớp phủ (hình được chọn có khung và tay nắm; Ellipse đang đổi cỡ) ghi vào `C:/Users/Client/AppData/Local/Temp/claude/9bda5e44761d6d15/b97deff2-6606-45cc-bdfe-d1822c907752/scratchpad/t48_*.png` theo cách Task 47 (không commit phần tạm); những gì chưa nhìn bằng mắt; chỗ khác gói.
+**Xong khi:** check qua và các kiểm thử chạy tay mới qua. Báo cáo: commit, dòng cuối check, kết quả từng kiểm thử chạy tay, cỡ exe release; ảnh chụp lớp phủ (hình được chọn có khung và tay nắm; Ellipse đang đổi cỡ) ghi vào `C:/Users/Client/AppData/Local/Temp/claude/9bda5e44761d6d15/b97deff2-6606-44cc-bdfe-d1822c907752/scratchpad/t48_*.png` theo cách Task 47 (không commit phần tạm); những gì chưa nhìn bằng mắt; chỗ khác gói.

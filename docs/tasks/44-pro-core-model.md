@@ -33,7 +33,7 @@ pub enum Tool { Select, Pen, Line, Arrow, Rect, Ellipse, Marker, Blur, Text, Ste
 impl Tool {
     /// Thứ tự trên thanh: Select, Pen, Line, Arrow, Rect, Ellipse, Marker, Blur, Text, Step.
     pub const ALL: [Tool; 10];
-    /// Thêm: 0x56 'V' => Select, 0x46 'E' => Ellipse, 0x4E 'N' => Step (giữ P L A R H B T).
+    /// Thêm: 0x56 'V' => Select, 0x45 'E' => Ellipse, 0x4E 'N' => Step (giữ P L A R H B T).
     pub fn from_key(vk: u16) -> Option<Tool>;
 }
 
@@ -122,7 +122,7 @@ i18n (`Msg` mới, Việt / English):
 ## Các bước
 
 - [ ] **1. Kiểm thử** (commit `test: annotation pro core model`; thân hàm mới `todo!()`). Trong `annotate.rs` mod tests:
-  - `tool_keys_and_order`: `Tool::ALL` đúng thứ tự trên; `from_key(0x56)==Some(Select)`, `0x46`→Ellipse, `0x4E`→Step; P L A R H B T giữ nguyên.
+  - `tool_keys_and_order`: `Tool::ALL` đúng thứ tự trên; `from_key(0x56)==Some(Select)`, `0x45`→Ellipse, `0x4E`→Step; P L A R H B T giữ nguyên.
   - `size_level_values`: bảng bốn mức đúng như Interfaces; `SizeLevel::default()==Medium`; `Medium.stroke_dip()==STROKE_DIP`, `marker_dip()==MARKER_DIP`, `text_dip()==TEXT_DIP`; `Small.smaller()==Small`, `Huge.larger()==Huge`, `Small.larger()==Medium`.
   - `ellipse_and_step_bounds`: Ellipse a(10,10) b(30,20) width 4 → `Rect{x:7,y:7,w:26,h:16}`; Step center(50,50) radius 10 → pad 10+0.6+1=11.6 → `Rect{x:38,y:38,w:24,h:24}`.
   - `too_short_ellipse_like_rect`.

@@ -99,7 +99,7 @@ Tọa độ điểm chuột trong lúc kéo được **kẹp vào vùng chọn**
 | Hình | Tay nắm | Đổi cỡ |
 |---|---|---|
 | Hình chữ nhật, Hình elip, Làm mờ | 8 (4 góc, 4 cạnh) của hộp a–b | Cạnh/góc đối diện đứng yên; kéo qua cạnh đối diện thì lật; mỗi chiều ≥ `MIN_EXTENT_DIP` = 6 DIP; góc + Shift giữ tỉ lệ |
-| Đường thẳng, Mũi tên | 2 (hai đầu) | Kéo một đầu; Shift khóa 46° theo đầu kia; dài ≥ `MIN_DRAG_PX` |
+| Đường thẳng, Mũi tên | 2 (hai đầu) | Kéo một đầu; Shift khóa 45° theo đầu kia; dài ≥ `MIN_DRAG_PX` |
 | Bút vẽ, Bút dạ quang | 4 góc của hộp các điểm | Co giãn các điểm quanh góc đối diện (mỗi chiều riêng; Shift giữ tỉ lệ); chiều đang bằng 0 thì không co giãn chiều đó; độ dày nét giữ nguyên |
 | Chữ | 4 góc của hộp bao | Phóng đều quanh góc đối diện: hệ số k = hình chiếu của (chuột − góc đối) lên (góc nắm − góc đối), chia độ dài bình phương; `origin' = neo + (origin − neo)·k`, `size' = size·k`, cỡ kẹp trong [8, 400] px |
 | Đánh số | 4 góc của hộp vòng | Như Chữ: phóng đều quanh góc đối diện, bán kính kẹp trong [6, 300] px |
