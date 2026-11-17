@@ -290,7 +290,27 @@ pub fn place_side_toolbar(
     monitor: Rect,
     avoid: Option<Rect>,
 ) -> Rect {
-    todo!()
+    let (w, h) = size;
+    let right_x = sel.right().saturating_add(gap);
+    let left_x = sel.x.saturating_sub(gap).saturating_sub(w);
+    let x = if right_x.saturating_add(w) <= monitor.right() {
+        right_x
+    } else if left_x >= monitor.x {
+        left_x
+    } else {
+        sel.right().saturating_sub(gap).saturating_sub(w)
+    };
+    let clamp_x = |x: i32| x.min(monitor.right() - w).max(monitor.x);
+    let clamp_y = |y: i32| y.min(monitor.bottom() - h).max(monitor.y);
+    let x = clamp_x(x);
+    let mut y = clamp_y(sel.bottom() - h);
+    if let Some(a) = avoid {
+        let overlaps = x < a.right() && a.x < x + w && y < a.bottom() && a.y < y + h;
+        if overlaps {
+            y = clamp_y(a.y - gap - h);
+        }
+    }
+    Rect { x, y, w, h }
 }
 
 #[cfg(test)]

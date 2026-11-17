@@ -27,7 +27,15 @@ impl Tool {
 
     /// Mã phím ảo chữ hoa: P, L, A, R, H, T.
     pub fn from_key(vk: u16) -> Option<Tool> {
-        todo!()
+        match vk {
+            0x50 => Some(Tool::Pen),
+            0x4C => Some(Tool::Line),
+            0x41 => Some(Tool::Arrow),
+            0x52 => Some(Tool::Rect),
+            0x48 => Some(Tool::Marker),
+            0x54 => Some(Tool::Text),
+            _ => None,
+        }
     }
 }
 
@@ -99,46 +107,115 @@ pub enum Shape {
 
 /// Hộp bao của các điểm, nới `pad` mỗi phía, làm tròn ra ngoài.
 fn bounds_of(pts: &[Pt], pad: f32) -> Option<Rect> {
-    todo!()
+    let first = pts.first()?;
+    let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x, first.y);
+    for p in pts {
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    let (fx, fy) = ((x0 - pad).floor() as i32, (y0 - pad).floor() as i32);
+    let (cx, cy) = ((x1 + pad).ceil() as i32, (y1 + pad).ceil() as i32);
+    Some(Rect {
+        x: fx,
+        y: fy,
+        w: cx.saturating_sub(fx),
+        h: cy.saturating_sub(fy),
+    })
 }
 
 /// Độ dài tối thiểu của đầu mũi tên (px) theo độ dày nét: độ dày luôn là `STROKE_DIP` đổi theo DPI,
 /// nên tỉ lệ độ dày / `STROKE_DIP` chính là hệ số DPI.
 pub fn arrow_min_head(width: f32) -> f32 {
-    todo!()
+    ARROW_HEAD_MIN_DIP * width / STROKE_DIP
 }
 
 impl Shape {
     /// Hộp bao (tọa độ ảnh, làm tròn ra ngoài) gồm nửa độ dày nét, đầu mũi tên, +1 px khử răng cưa.
     /// `None` với Text (cần đo chữ: lớp Windows tính) và với danh sách điểm rỗng.
     pub fn bounds(&self) -> Option<Rect> {
-        todo!()
+        match self {
+            Shape::Pen { points, width, .. } => bounds_of(points, width / 2.0 + 1.0),
+            // Đầu vuông và góc nhọn có thể nhô ra tới nửa độ dày nhân căn 2.
+            Shape::Marker { points, width, .. } => {
+                bounds_of(points, width / 2.0 * std::f32::consts::SQRT_2 + 1.0)
+            }
+            Shape::Line { a, b, width, .. } => bounds_of(&[*a, *b], width / 2.0 + 1.0),
+            Shape::Rect { a, b, width, .. } => {
+                bounds_of(&[*a, *b], width / 2.0 * std::f32::consts::SQRT_2 + 1.0)
+            }
+            Shape::Arrow { a, b, width, .. } => {
+                let g = arrow_geometry(*a, *b, *width, arrow_min_head(*width));
+                bounds_of(
+                    &[*a, *b, g.shaft_end, g.head[1], g.head[2]],
+                    width / 2.0 + 1.0,
+                )
+            }
+            Shape::Text { .. } => None,
+        }
     }
 }
 
 /// `dip * dpi / 96`.
 pub fn dip_to_px(dip: f32, dpi: u32) -> f32 {
-    todo!()
+    dip * dpi as f32 / 96.0
 }
 
 /// Thêm điểm; bỏ qua nếu cách điểm cuối dưới 1 px.
 pub fn add_point(points: &mut Vec<Pt>, p: Pt) {
-    todo!()
+    if let Some(last) = points.last() {
+        let (dx, dy) = (p.x - last.x, p.y - last.y);
+        if dx * dx + dy * dy < 1.0 {
+            return;
+        }
+    }
+    points.push(p);
 }
 
 /// Kéo `b` về hướng gần nhất trong 8 hướng (bội 45°), giữ độ dài hình chiếu (không âm).
 pub fn constrain_45(a: Pt, b: Pt) -> Pt {
-    todo!()
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    if dx == 0.0 && dy == 0.0 {
+        return b;
+    }
+    let k = (dy.atan2(dx) / std::f32::consts::FRAC_PI_4).round() as i32;
+    let s = std::f32::consts::FRAC_1_SQRT_2;
+    let (ux, uy) = match k.rem_euclid(8) {
+        0 => (1.0, 0.0),
+        1 => (s, s),
+        2 => (0.0, 1.0),
+        3 => (-s, s),
+        4 => (-1.0, 0.0),
+        5 => (-s, -s),
+        6 => (0.0, -1.0),
+        _ => (s, -s),
+    };
+    let len = (dx * ux + dy * uy).max(0.0);
+    Pt {
+        x: a.x + ux * len,
+        y: a.y + uy * len,
+    }
 }
 
 /// Cạnh = max(|dx|, |dy|), giữ dấu của từng hướng (0 coi là dương).
 pub fn constrain_square(a: Pt, b: Pt) -> Pt {
-    todo!()
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let side = dx.abs().max(dy.abs());
+    Pt {
+        x: a.x + if dx < 0.0 { -side } else { side },
+        y: a.y + if dy < 0.0 { -side } else { side },
+    }
 }
 
 /// Line/Arrow: |ab| < MIN_DRAG_PX; Rect: |dx| hoặc |dy| < MIN_DRAG_PX; công cụ khác: false.
 pub fn too_short(tool: Tool, a: Pt, b: Pt) -> bool {
-    todo!()
+    let (dx, dy) = ((b.x - a.x).abs(), (b.y - a.y).abs());
+    match tool {
+        Tool::Line | Tool::Arrow => dx.hypot(dy) < MIN_DRAG_PX,
+        Tool::Rect => dx < MIN_DRAG_PX || dy < MIN_DRAG_PX,
+        _ => false,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -151,12 +228,41 @@ pub struct ArrowGeom {
 /// Đầu dài `max(4 × width, min_head)` (cạnh bên của tam giác); nếu dài hơn cả mũi tên thì
 /// đầu = |ab| và `shaft_end = a`. Thân dừng ở gốc đầu mũi tên.
 pub fn arrow_geometry(a: Pt, b: Pt, width: f32, min_head: f32) -> ArrowGeom {
-    todo!()
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let len = dx.hypot(dy);
+    let (ux, uy) = if len > 0.0 {
+        (dx / len, dy / len)
+    } else {
+        (1.0, 0.0)
+    };
+    let head_len = (ARROW_HEAD_FACTOR * width).max(min_head).min(len);
+    let theta = ARROW_HALF_ANGLE_DEG.to_radians();
+    let (cos, sin) = (theta.cos(), theta.sin());
+    let (nx, ny) = (-uy, ux);
+    let base = Pt {
+        x: b.x - ux * head_len * cos,
+        y: b.y - uy * head_len * cos,
+    };
+    let side = |sign: f32| Pt {
+        x: base.x + nx * head_len * sin * sign,
+        y: base.y + ny * head_len * sin * sign,
+    };
+    let shaft_end = if head_len >= len { a } else { base };
+    ArrowGeom {
+        shaft_end,
+        head: [b, side(1.0), side(-1.0)],
+    }
 }
 
 /// Đen hoặc trắng, cái có tỉ lệ tương phản với `c` cao hơn (hòa thì đen).
 pub fn outline_color(c: Rgb) -> Rgb {
-    todo!()
+    let black = Rgb::hex(0x000000);
+    let white = Rgb::hex(0xFFFFFF);
+    if contrast_ratio(c, white) > contrast_ratio(c, black) {
+        white
+    } else {
+        black
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +276,13 @@ pub enum PressMode {
 /// có công cụ: Handle -> Selection, Inside -> Draw, Outside -> Ignore;
 /// không công cụ: Outside khi `has_shapes` -> Ignore, còn lại -> Selection.
 pub fn press_mode(tool: Option<Tool>, has_shapes: bool, hit: Hit) -> PressMode {
-    todo!()
+    match (tool, hit) {
+        (Some(_), Hit::Handle(_)) => PressMode::Selection,
+        (Some(_), Hit::Inside) => PressMode::Draw,
+        (Some(_), Hit::Outside) => PressMode::Ignore,
+        (None, Hit::Outside) if has_shapes => PressMode::Ignore,
+        (None, _) => PressMode::Selection,
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -180,30 +292,46 @@ pub struct Annotations {
 
 impl Annotations {
     pub fn shapes(&self) -> &[Shape] {
-        todo!()
+        &self.shapes
     }
 
     pub fn push(&mut self, s: Shape) {
-        todo!()
+        self.shapes.push(s);
     }
 
     /// Bỏ hình cuối.
     pub fn undo(&mut self) -> Option<Shape> {
-        todo!()
+        self.shapes.pop()
     }
 
     pub fn is_empty(&self) -> bool {
-        todo!()
+        self.shapes.is_empty()
     }
 
     pub fn into_shapes(self) -> Vec<Shape> {
-        todo!()
+        self.shapes
     }
 }
 
 /// "\r\n" và "\r" thành "\n"; bỏ ký tự điều khiển khác ('\t' thành ' ').
 pub fn sanitize_paste(s: &str) -> String {
-    todo!()
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\r' => {
+                if it.peek() == Some(&'\n') {
+                    it.next();
+                }
+                out.push('\n');
+            }
+            '\n' => out.push('\n'),
+            '\t' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Mô hình soạn chữ: con trỏ theo chỉ số ký tự (char), dòng tách bởi '\n'.
@@ -218,80 +346,130 @@ pub struct TextEdit {
 
 impl TextEdit {
     pub fn new(origin: Pt, size: f32, color: Rgb) -> TextEdit {
-        todo!()
+        TextEdit {
+            origin,
+            chars: Vec::new(),
+            caret: 0,
+            color,
+            size,
+        }
     }
 
     pub fn text(&self) -> String {
-        todo!()
+        self.chars.iter().collect()
     }
 
     pub fn caret(&self) -> usize {
-        todo!()
+        self.caret
     }
 
     /// Chỉ số đầu dòng chứa vị trí `i`.
     fn line_start(&self, i: usize) -> usize {
-        todo!()
+        let i = i.min(self.chars.len());
+        self.chars[..i]
+            .iter()
+            .rposition(|c| *c == '\n')
+            .map_or(0, |p| p + 1)
     }
 
     /// Chỉ số cuối dòng (vị trí '\n' kế tiếp hoặc hết chuỗi) tính từ `i`.
     fn line_end(&self, i: usize) -> usize {
-        todo!()
+        let i = i.min(self.chars.len());
+        self.chars[i..]
+            .iter()
+            .position(|c| *c == '\n')
+            .map_or(self.chars.len(), |p| i + p)
     }
 
     /// (dòng, cột), đếm từ 0.
     pub fn line_col(&self) -> (usize, usize) {
-        todo!()
+        let line = self.chars[..self.caret]
+            .iter()
+            .filter(|c| **c == '\n')
+            .count();
+        (line, self.caret - self.line_start(self.caret))
     }
 
     /// Chèn tại con trỏ, lọc như `sanitize_paste`.
     pub fn insert(&mut self, s: &str) {
-        todo!()
+        for c in sanitize_paste(s).chars() {
+            self.chars.insert(self.caret, c);
+            self.caret += 1;
+        }
     }
 
     pub fn backspace(&mut self) {
-        todo!()
+        if self.caret > 0 {
+            self.caret -= 1;
+            self.chars.remove(self.caret);
+        }
     }
 
     pub fn delete(&mut self) {
-        todo!()
+        if self.caret < self.chars.len() {
+            self.chars.remove(self.caret);
+        }
     }
 
     pub fn left(&mut self) {
-        todo!()
+        self.caret = self.caret.saturating_sub(1);
     }
 
     pub fn right(&mut self) {
-        todo!()
+        if self.caret < self.chars.len() {
+            self.caret += 1;
+        }
     }
 
     /// Đầu dòng hiện tại.
     pub fn home(&mut self) {
-        todo!()
+        self.caret = self.line_start(self.caret);
     }
 
     /// Cuối dòng hiện tại.
     pub fn end(&mut self) {
-        todo!()
+        self.caret = self.line_end(self.caret);
     }
 
     /// Cùng cột, kẹp theo độ dài dòng đích; ở dòng đầu thì giữ nguyên.
     pub fn up(&mut self) {
-        todo!()
+        let start = self.line_start(self.caret);
+        if start == 0 {
+            return;
+        }
+        let col = self.caret - start;
+        let prev_end = start - 1;
+        let prev_start = self.line_start(prev_end);
+        self.caret = prev_start + col.min(prev_end - prev_start);
     }
 
     /// Cùng cột, kẹp theo độ dài dòng đích; ở dòng cuối thì giữ nguyên.
     pub fn down(&mut self) {
-        todo!()
+        let end = self.line_end(self.caret);
+        if end >= self.chars.len() {
+            return;
+        }
+        let col = self.caret - self.line_start(self.caret);
+        let next_start = end + 1;
+        let next_end = self.line_end(next_start);
+        self.caret = next_start + col.min(next_end - next_start);
     }
 
     pub fn set_color(&mut self, c: Rgb) {
-        todo!()
+        self.color = c;
     }
 
     /// `None` khi chữ chỉ có khoảng trắng hoặc xuống dòng.
     pub fn to_shape(&self) -> Option<Shape> {
-        todo!()
+        if self.chars.iter().all(|c| c.is_whitespace()) {
+            return None;
+        }
+        Some(Shape::Text {
+            origin: self.origin,
+            text: self.text(),
+            size: self.size,
+            color: self.color,
+        })
     }
 }
 
@@ -602,6 +780,8 @@ mod tests {
         e.backspace();
         e.insert("ê");
         e.insert("t");
+        // Unikey xóa cả "êt" rồi gửi lại "ệt"
+        e.backspace();
         e.backspace();
         e.insert("ệ");
         e.insert("t");
