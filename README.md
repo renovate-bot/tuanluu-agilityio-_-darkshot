@@ -79,6 +79,8 @@ DIP là đơn vị theo tỉ lệ hiển thị của Windows, nên nét trên m�
 
 **Màu:** bấm nút Màu để mở bảng 48 màu cạnh nút (6 hàng × 8 cột như hộp chọn màu của Windows; mặc định đỏ `#FF0000`). Bấm một ô để chọn màu và đóng bảng. Bấm ra ngoài bảng hoặc bấm Esc thì chỉ đóng bảng, lớp phủ còn. Hình đã vẽ không đổi màu. Màu được nhớ trong lúc darkshot chạy; thoát rồi mở lại thì về đỏ.
 
+Tự chọn màu: bảng mở ở dạng gọn ("Màu cơ bản", 16 ô "Màu tự chọn" và nút "Định nghĩa màu tự chọn >>"). Bấm một ô màu tự chọn đã có màu để dùng màu đó; ô trống thì không làm gì. Bấm "Định nghĩa màu tự chọn >>" để mở rộng bảng như hộp chọn màu của Windows: ô sắc độ (ngang là Hue, dọc là Sat), thanh độ sáng bên phải (Lum), ô xem màu và sáu ô số Sắc độ/Bão hòa/Độ sáng (thang 0–240 như Windows, Sắc độ 0–239) và Đỏ/Lục/Lam (0–255). Bấm hoặc kéo trong ô sắc độ và trên thanh độ sáng, hoặc bấm vào một ô số rồi gõ số (Tab sang ô kế, mũi tên lên/xuống tăng/giảm 1, Enter chốt ô; số quá khoảng được kẹp lại). Ở dạng đủ, bấm ô màu cơ bản hay ô tự chọn có màu chỉ lấy màu đó làm màu đang chỉnh; bấm một ô tự chọn để chọn nó làm ô đích (viền sáng). "Thêm vào màu tự chọn" ghi màu đang chỉnh vào ô đích (rồi ô đích sang ô kế), không có ô đích thì vào ô trống đầu tiên, hết ô trống thì ghi đè lần lượt từ ô đầu. "OK" hoặc Enter dùng màu đang chỉnh và đóng bảng; "Hủy", Esc hoặc bấm ra ngoài đóng bảng, màu vẽ không đổi. Khi đang sửa một ô số, Esc chỉ bỏ sửa ô đó. Lần mở bảng sau trong cùng lần chụp mở lại ở dạng đã dùng; lần chụp mới luôn mở dạng gọn. Màu tự chọn được lưu vào file cấu hình khi lớp phủ đóng, còn sau khi thoát và mở lại darkshot.
+
 **Chữ:**
 
 - Khi đang chọn Chữ, bấm trong vùng để đặt ô chữ tại đó. Ô đang gõ có khung nét đứt xanh và con trỏ nháy; khung và con trỏ không in ra ảnh.

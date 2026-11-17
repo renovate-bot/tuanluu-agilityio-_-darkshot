@@ -273,6 +273,10 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Ảnh tải lên, ảnh lưu và ảnh chép có đúng các nét như trên màn hình (mở file so: vị trí, màu, độ dày, độ mịn), cả khi vùng chọn ở màn hình bên trái hoặc màn hình khác DPI; nét ra ngoài vùng bị cắt.
 - [ ] Không chọn công cụ, không vẽ: chọn vùng, kéo khung mới, di chuyển, tay nắm, thanh bốn nút, Ctrl+D/S/C, Esc, "Giữ vị trí vùng" và hai phím tắt toàn màn hình chạy như cũ.
 - [ ] Vẽ nét dài (Bút vẽ và Bút dạ quang) trên màn hình lớn (4K, hai màn hình) không giật thấy rõ.
+- [ ] Bảng chọn màu dạng gọn và dạng đủ (sau "Định nghĩa màu tự chọn >>") nằm trọn trong màn hình chứa nút Màu ở DPI 100% và 150%; chữ Tiếng Việt và English không bị cắt.
+- [ ] Chọn màu bằng ô sắc độ (bấm và kéo, dấu chữ thập theo chuột), thanh độ sáng (bấm và kéo, tam giác theo chuột; nhả chuột ngoài bảng không đóng bảng) và ô số (gõ số, Backspace, Tab/Shift+Tab, lên/xuống, Enter; Esc chỉ bỏ sửa ô); khi đang sửa ô số, phím P/L/A/R/H/T không đổi công cụ; OK hoặc Enter dùng màu, Hủy hoặc Esc không đổi màu vẽ.
+- [ ] "Thêm vào màu tự chọn" ghi vào ô đích đã bấm (rồi ô đích sang ô kế), không có ô đích thì vào ô trống đầu tiên; ô tự chọn có màu chọn được ở dạng gọn.
+- [ ] Màu tự chọn còn sau khi thoát và mở lại darkshot; sau đó Tùy chọn > Kiểm tra kết nối vẫn thành công (khóa R2 không bị ghi sai khi lưu màu tự chọn).
 - [ ] Mở lớp phủ, vẽ, hoàn tác, mở bảng màu, đóng nhiều lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored overlay_round_trip_without_gdi_leaks --test-threads=1` qua).
 - [ ] Chữ: gõ tiếng Việt bằng Unikey kiểu Telex và kiểu VNI (ví dụ "Việt Nam", "Thưởng", "Nguyễn") ra đúng chữ, không thừa hay thiếu ký tự.
 - [ ] Chữ: gõ tiếng Việt bằng EVKey (Telex) ra đúng chữ.

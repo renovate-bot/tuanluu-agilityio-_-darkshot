@@ -224,11 +224,22 @@ struct PickColor {
 
 impl PickColor {
     fn from_rgb(rgb: Rgb) -> PickColor {
-        todo!()
+        PickColor {
+            hls: rgb_to_hls(rgb),
+            rgb,
+        }
     }
 
     fn from_hls(hls: Hls) -> PickColor {
-        todo!()
+        let hls = Hls {
+            h: hls.h.min(HUE_MAX),
+            l: hls.l.min(HLS_MAX),
+            s: hls.s.min(HLS_MAX),
+        };
+        PickColor {
+            hls,
+            rgb: hls_to_rgb(hls),
+        }
     }
 }
 
@@ -240,13 +251,31 @@ const FIELD_DIGITS: usize = 3;
 
 /// Giá trị ô số `i` của màu `c`.
 fn field_value(c: PickColor, i: usize) -> u16 {
-    todo!()
+    match i {
+        0 => c.hls.h,
+        1 => c.hls.s,
+        2 => c.hls.l,
+        3 => u16::from(c.rgb.0),
+        4 => u16::from(c.rgb.1),
+        _ => u16::from(c.rgb.2),
+    }
 }
 
 /// Màu `c` sau khi ô `i` nhận giá trị `v` (kẹp vào khoảng của ô). Ô HLS thì RGB tính lại từ HLS;
 /// ô RGB thì HLS tính lại từ RGB.
 fn with_field(c: PickColor, i: usize, v: u16) -> PickColor {
-    todo!()
+    let v = v.min(FIELD_MAX.get(i).copied().unwrap_or(0));
+    // Sau khi kẹp, ô RGB luôn vừa u8.
+    let b = u8::try_from(v).unwrap_or(u8::MAX);
+    match i {
+        0 => PickColor::from_hls(Hls { h: v, ..c.hls }),
+        1 => PickColor::from_hls(Hls { s: v, ..c.hls }),
+        2 => PickColor::from_hls(Hls { l: v, ..c.hls }),
+        3 => PickColor::from_rgb(Rgb(b, c.rgb.1, c.rgb.2)),
+        4 => PickColor::from_rgb(Rgb(c.rgb.0, b, c.rgb.2)),
+        5 => PickColor::from_rgb(Rgb(c.rgb.0, c.rgb.1, b)),
+        _ => c,
+    }
 }
 
 /// Ô số đang sửa: chỉ số ô, chữ đang gõ; `fresh`: chưa gõ gì (chữ số đầu tiên thay cả giá trị).
@@ -259,25 +288,51 @@ struct FieldEdit {
 
 impl FieldEdit {
     fn new(idx: usize, c: PickColor) -> FieldEdit {
-        todo!()
+        FieldEdit {
+            idx,
+            text: field_value(c, idx).to_string(),
+            fresh: true,
+        }
     }
 
     fn digit(&mut self, d: char) {
-        todo!()
+        if !d.is_ascii_digit() {
+            return;
+        }
+        if self.fresh {
+            self.text.clear();
+            self.fresh = false;
+        }
+        if self.text.len() < FIELD_DIGITS {
+            self.text.push(d);
+        }
     }
 
     fn backspace(&mut self) {
-        todo!()
+        self.fresh = false;
+        self.text.pop();
     }
 
     /// Màu sau khi chốt chữ đang gõ (kẹp); chữ rỗng thì giữ nguyên.
     fn commit(&self, c: PickColor) -> PickColor {
-        todo!()
+        match self.text.parse::<u16>() {
+            Ok(v) => with_field(c, self.idx, v),
+            Err(_) => c,
+        }
     }
 
     /// Lên (`up`) hoặc xuống: chốt chữ đang gõ, tăng/giảm 1 (kẹp biên), chữ hiện giá trị mới.
     fn step(&mut self, c: PickColor, up: bool) -> PickColor {
-        todo!()
+        let c = self.commit(c);
+        let v = field_value(c, self.idx);
+        let v = if up {
+            v.saturating_add(1)
+        } else {
+            v.saturating_sub(1)
+        };
+        let c = with_field(c, self.idx, v);
+        *self = FieldEdit::new(self.idx, c);
+        c
     }
 }
 
@@ -297,6 +352,9 @@ enum PickerHit {
     Panel,
 }
 
+/// Khóa của ảnh thanh độ sáng: Hue, Sat, rộng, cao.
+type LumKey = (u16, u16, i32, i32);
+
 /// Đang kéo trong ô sắc độ hoặc thanh độ sáng.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PickerDrag {
@@ -315,22 +373,87 @@ fn at(pal: Rect, r: Rect) -> Rect {
 
 /// Vùng bấm của thanh độ sáng (tương đối): thanh và cột tam giác bên phải nó.
 fn lum_hit_rect(l: &PickerLayout, dpi: u32) -> Rect {
-    todo!()
+    let right = l.lum_arrow_x + scaled(LUM_ARROW, dpi) + scaled(2, dpi);
+    Rect {
+        w: (right - l.lum_bar.x).max(l.lum_bar.w),
+        ..l.lum_bar
+    }
 }
 
 /// Phần dưới điểm `p` của bảng `pal` có bố cục `l`; ngoài bảng trả `None`.
 fn picker_hit(l: &PickerLayout, dpi: u32, pal: Rect, p: Point) -> Option<PickerHit> {
-    todo!()
+    let panel = Rect {
+        x: pal.x,
+        y: pal.y,
+        w: l.size.0,
+        h: l.size.1,
+    };
+    if !panel.contains(p) {
+        return None;
+    }
+    let inside = |r: Rect| r.w > 0 && r.h > 0 && at(pal, r).contains(p);
+    if let Some(i) = l.basic.iter().position(|r| inside(*r)) {
+        return Some(PickerHit::Basic(i));
+    }
+    if let Some(i) = l.custom.iter().position(|r| inside(*r)) {
+        return Some(PickerHit::Custom(i));
+    }
+    let single = [
+        (l.define_btn, PickerHit::Define),
+        (l.spectrum, PickerHit::Spectrum),
+        (lum_hit_rect(l, dpi), PickerHit::Lum),
+        (l.add_btn, PickerHit::Add),
+        (l.ok_btn, PickerHit::Ok),
+        (l.cancel_btn, PickerHit::Cancel),
+    ];
+    if let Some((_, h)) = single.iter().find(|(r, _)| inside(*r)) {
+        return Some(*h);
+    }
+    if let Some(i) = l.fields.iter().position(|(_, b)| inside(*b)) {
+        return Some(PickerHit::Field(i));
+    }
+    Some(PickerHit::Panel)
 }
 
 /// Ảnh BGRA `w`×`h` của ô sắc độ: Hue theo chiều ngang, Sat theo chiều dọc, Lum 120.
 fn spectrum_image(w: i32, h: i32) -> Vec<u8> {
-    todo!()
+    if w <= 0 || h <= 0 {
+        return Vec::new();
+    }
+    let rect = Rect { x: 0, y: 0, w, h };
+    let mut bits = Vec::with_capacity(w as usize * h as usize * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let (hue, sat) = spectrum_hs(rect, x, y);
+            let c = hls_to_rgb(Hls {
+                h: hue,
+                l: HLS_MAX / 2,
+                s: sat,
+            });
+            bits.extend_from_slice(&[c.2, c.1, c.0, 0xFF]);
+        }
+    }
+    bits
 }
 
 /// Ảnh BGRA `w`×`h` của thanh độ sáng cho Hue `hue`, Sat `sat`: Lum 240 ở trên, 0 ở dưới.
 fn lum_image(hue: u16, sat: u16, w: i32, h: i32) -> Vec<u8> {
-    todo!()
+    if w <= 0 || h <= 0 {
+        return Vec::new();
+    }
+    let bar = Rect { x: 0, y: 0, w, h };
+    let mut bits = Vec::with_capacity(w as usize * h as usize * 4);
+    for y in 0..h {
+        let c = hls_to_rgb(Hls {
+            h: hue,
+            l: lum_at(bar, y),
+            s: sat,
+        });
+        for _ in 0..w {
+            bits.extend_from_slice(&[c.2, c.1, c.0, 0xFF]);
+        }
+    }
+    bits
 }
 
 /// Thanh bốn nút và thanh dọc cho vùng chọn `sel`, màn hình chứa góc dưới phải `mon` ở `dpi`.
@@ -865,7 +988,7 @@ struct State {
     /// Ảnh ô sắc độ đã dựng, theo cỡ ô (mỗi DPI một cỡ).
     spectra: Vec<((i32, i32), Vec<u8>)>,
     /// Ảnh thanh độ sáng đã dựng: (Hue, Sat, rộng, cao) và ảnh.
-    lum_img: Option<((u16, u16, i32, i32), Vec<u8>)>,
+    lum_img: Option<(LumKey, Vec<u8>)>,
     /// WM_CHAR cần nuốt (Enter đã được bảng màu dùng ở WM_KEYDOWN).
     eat_char: Option<u16>,
     result: Option<Option<Picked>>,

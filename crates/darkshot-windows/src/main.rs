@@ -417,7 +417,7 @@ fn capture_flow(hwnd: HWND) {
 
 /// Có ghi cấu hình sau khi lớp phủ đóng không: chỉ khi màu tự chọn đã đổi.
 pub fn custom_colors_need_save(before: &CustomColors, after: &CustomColors) -> bool {
-    todo!()
+    before != after
 }
 
 /// Cập nhật màu tự chọn trong cấu hình đang dùng rồi ghi file bằng đúng đường lưu cấu hình của
