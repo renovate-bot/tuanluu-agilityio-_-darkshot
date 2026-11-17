@@ -64,26 +64,31 @@ pub const HINT_CLEAR_DIP: i32 = 48;
 
 /// Đổi `v` DIP sang pixel ở `dpi` (làm tròn, tối thiểu 1; cùng công thức với lớp phủ).
 pub fn dip(v: i32, dpi: u32) -> i32 {
-    let _ = (v, dpi);
-    0
+    let dpi = i64::from(dpi.max(1));
+    ((i64::from(v) * dpi + 48) / 96).clamp(1, i64::from(i32::MAX)) as i32
 }
 
 /// Gợi ý cửa sổ chạy khi có ứng viên, chưa có vùng chọn, không đang kéo, không bảng nổi nào mở.
 pub fn snap_active(has_cands: bool, has_selection: bool, dragging: bool, panel_open: bool) -> bool {
-    let _ = (has_cands, has_selection, dragging, panel_open);
-    false
+    has_cands && !has_selection && !dragging && !panel_open
 }
 
 /// Viên nhắc: giữa mép trên của `monitor`, cách mép trên `HINT_TOP_DIP`; cỡ = chữ `text_size` cộng
 /// đệm. Chữ rộng hơn màn hình thì dán mép trái màn hình.
 pub fn hint_rect(monitor: Rect, text_size: (i32, i32), dpi: u32) -> Rect {
-    let _ = (monitor, text_size, dpi);
-    Rect {
-        x: 0,
-        y: 0,
-        w: 0,
-        h: 0,
-    }
+    let w = text_size
+        .0
+        .max(0)
+        .saturating_add(2 * dip(HINT_PAD_X_DIP, dpi));
+    let h = text_size
+        .1
+        .max(0)
+        .saturating_add(2 * dip(HINT_PAD_Y_DIP, dpi));
+    let x = monitor
+        .x
+        .saturating_add((monitor.w.saturating_sub(w) / 2).max(0));
+    let y = monitor.y.saturating_add(dip(HINT_TOP_DIP, dpi));
+    Rect { x, y, w, h }
 }
 
 /// Viên nhắc hiện khi chưa có vùng chọn, không đang kéo và con trỏ không nằm trong viên nhắc mở
@@ -95,8 +100,14 @@ pub fn hint_visible(
     has_selection: bool,
     dragging: bool,
 ) -> bool {
-    let _ = (hint, cursor, dpi, has_selection, dragging);
-    false
+    if has_selection || dragging {
+        return false;
+    }
+    let m = i64::from(dip(HINT_CLEAR_DIP, dpi));
+    let (cx, cy) = (i64::from(cursor.x), i64::from(cursor.y));
+    let near_x = cx >= i64::from(hint.x) - m && cx < i64::from(hint.x) + i64::from(hint.w) + m;
+    let near_y = cy >= i64::from(hint.y) - m && cy < i64::from(hint.y) + i64::from(hint.h) + m;
+    !(near_x && near_y)
 }
 
 #[cfg(test)]

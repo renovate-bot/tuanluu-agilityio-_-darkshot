@@ -1738,9 +1738,48 @@ impl State {
         (sz.cx, sz.cy)
     }
 
+    /// Khung đang hiển thị: vùng chọn, hoặc ứng viên xem trước khi chưa có vùng chọn.
+    fn shown_rect(&self) -> Option<Rect> {
+        self.sel.rect().or(self.snap_hover)
+    }
+
+    /// Gợi ý cửa sổ đang chạy (thiết kế 3.1). Có hình đánh dấu thì coi như đã có vùng chọn; ô chữ
+    /// đang gõ coi như bảng nổi.
+    fn snap_active(&self) -> bool {
+        snap::snap_active(
+            !self.cands.is_empty(),
+            self.sel.rect().is_some() || !self.marks.is_empty(),
+            self.dragging(),
+            self.palette || self.sizes_open || self.shapes_open || self.text.is_some(),
+        )
+    }
+
+    /// Ứng viên xem trước tại `p` (None khi gợi ý không chạy).
+    fn snap_at(&self, p: Point) -> Option<Rect> {
+        if self.snap_active() {
+            snap::candidate_at(&self.cands, p)
+        } else {
+            None
+        }
+    }
+
+    /// Chọn ứng viên `c` làm vùng chọn thật (như kéo xong: có tay nắm, thanh công cụ).
+    fn select_candidate(&mut self, c: Rect) {
+        self.sel = Selection::with_rect(
+            Rect {
+                x: 0,
+                y: 0,
+                w: self.w,
+                h: self.h,
+            },
+            Some(c),
+        );
+        self.snap_hover = None;
+    }
+
     /// Nhãn kích thước: vị trí, chữ, DPI.
     fn label(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
-        let r = self.sel.rect()?;
+        let r = self.shown_rect()?;
         let corner = Point { x: r.x, y: r.y };
         let mon = monitor_containing(corner, &self.monitors);
         let dpi = self.monitor_dpi(mon);
@@ -1757,7 +1796,21 @@ impl State {
 
     /// Viên nhắc (khi đang hiện): vị trí, chữ, DPI.
     fn hint(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
-        None
+        let (has_sel, dragging) = (self.sel.rect().is_some(), self.dragging());
+        if has_sel || dragging {
+            return None;
+        }
+        let mon = monitor_containing(self.mouse, &self.monitors);
+        let dpi = self.monitor_dpi(mon);
+        let msg = if self.snap_windows {
+            Msg::OverlayHintSnap
+        } else {
+            Msg::OverlayHintDrag
+        };
+        let text = wide(lang::tr(msg));
+        let size = self.text_size(&text, dpi);
+        let r = snap::hint_rect(mon, size, dpi);
+        snap::hint_visible(r, self.mouse, dpi, has_sel, dragging).then_some((r, text, dpi))
     }
 
     /// Chú thích của nút đang rê chuột (thanh ngang, thanh dọc, bảng Cỡ, bảng Hình): vị trí, chữ,
@@ -1920,11 +1973,14 @@ impl State {
     /// Mọi vùng có vẽ thêm ngoài nền tối (khung, tay nắm, nhãn, các thanh, bảng màu, chú thích).
     fn chrome(&mut self) -> Vec<Rect> {
         let mut v = Vec::new();
-        if let Some(r) = self.sel.rect() {
+        if let Some(r) = self.shown_rect() {
             v.push(inflate(r, scaled(HANDLE_SIZE, self.max_dpi()) / 2 + 3));
         }
         if let Some((r, _, _)) = self.label() {
             v.push(r);
+        }
+        if let Some((r, _, _)) = self.hint() {
+            v.push(inflate(r, 1));
         }
         v.extend(self.bar_chrome());
         v
@@ -2889,8 +2945,12 @@ impl State {
         if self.gesture.is_some() {
             self.commit_gesture();
         }
+        self.snap_armed = false;
         if self.sel.is_dragging() {
-            self.update(|s| s.sel.release());
+            self.update(|s| {
+                s.sel.release();
+                s.snap_hover = s.snap_at(s.mouse);
+            });
         }
     }
 
@@ -3009,10 +3069,14 @@ impl State {
                 }
             }
             PressMode::Selection => {
+                // Gợi ý đang chạy lúc bấm: nhả không kéo thì chọn ứng viên (on_up).
+                let armed = self.snap_active();
                 if hit == Hit::Outside {
                     self.deselect();
                 }
                 self.update(|s| {
+                    s.snap_armed = armed;
+                    s.snap_hover = None;
                     s.new_drag = hit == Hit::Outside;
                     s.drag_cursor = cursor_for_hit(hit);
                     s.hover = None;
@@ -3030,6 +3094,8 @@ impl State {
     }
 
     fn on_move(&mut self, p: Point) {
+        let hint_before = self.hint().map(|h| h.0);
+        self.mouse = p;
         if let Some(kind) = self.picker_drag {
             self.drag_picker(kind, p);
         } else if self.gesture.is_some() {
@@ -3068,6 +3134,19 @@ impl State {
             if side_hover != self.side_hover {
                 self.update_bars(|s| s.side_hover = side_hover);
             }
+            let snap_hover = self.snap_at(p);
+            if snap_hover != self.snap_hover {
+                self.update(|s| s.snap_hover = snap_hover);
+            }
+        }
+        let hint_after = self.hint().map(|h| h.0);
+        if hint_before != hint_after {
+            let dirty: Vec<Rect> = [hint_before, hint_after]
+                .into_iter()
+                .flatten()
+                .map(|r| inflate(r, 1))
+                .collect();
+            self.invalidate(&dirty);
         }
         set_cursor(self.cursor_at(p));
     }
@@ -3112,10 +3191,18 @@ impl State {
             };
         }
         if self.sel.is_dragging() {
+            let armed = std::mem::take(&mut self.snap_armed);
             self.update(|s| {
                 s.sel.drag_to(p);
                 s.sel.release();
+                // Bấm không kéo (vùng < MIN_SIZE bị bỏ) khi gợi ý đang chạy: chọn ứng viên.
+                if armed && s.sel.rect().is_none() {
+                    if let Some(c) = snap::candidate_at(&s.cands, p) {
+                        s.select_candidate(c);
+                    }
+                }
                 s.hover = s.bar_item_at(p);
+                s.snap_hover = s.snap_at(p);
             });
             return Effects {
                 release: true,
@@ -3172,6 +3259,16 @@ impl State {
         }
         if self.text.is_some() {
             self.text_key(vk);
+            return;
+        }
+        if vk == VK_RETURN.0 && !repeat && self.sel.rect().is_none() {
+            // Enter khi chưa có vùng chọn: chọn ứng viên đang xem trước (như bấm).
+            if let Some(c) = self.snap_hover.filter(|_| self.snap_active()) {
+                self.update(|s| {
+                    s.select_candidate(c);
+                    s.hover = s.bar_item_at(s.mouse);
+                });
+            }
             return;
         }
         if self.dragging() || self.sel.rect().is_none() {
@@ -3290,7 +3387,9 @@ impl State {
     }
 
     fn draw(&mut self, p: &Painter, area: Rect) {
-        let sel = self.sel.rect().and_then(|r| intersect(r, area));
+        // Khung hiển thị: vùng chọn, hoặc ứng viên xem trước (sáng trong, tối ngoài như vùng chọn).
+        let shown = self.shown_rect();
+        let sel = shown.and_then(|r| intersect(r, area));
         let (w, h) = (self.w, self.h);
         // SAFETY: `bright`/`bright_len` là bộ đệm của Screenshot::image, sống suốt pick_region
         // (State bị hủy trước khi pick_region trả về) và không bị ai ghi trong lúc này.
@@ -3402,20 +3501,26 @@ impl State {
                 p.fill(b.caret, ACCENT);
             }
         }
-        let Some(r) = self.sel.rect() else { return };
+        let Some(r) = shown else {
+            self.draw_hint(p, area);
+            return;
+        };
         p.border(r);
-        for (hx, hy) in [
-            (r.x, r.y),
-            (r.x + r.w / 2, r.y),
-            (r.right(), r.y),
-            (r.right(), r.y + r.h / 2),
-            (r.right(), r.bottom()),
-            (r.x + r.w / 2, r.bottom()),
-            (r.x, r.bottom()),
-            (r.x, r.y + r.h / 2),
-        ] {
-            let size = scaled(HANDLE_SIZE, self.dpi_at(Point { x: hx, y: hy }));
-            p.handle(hx, hy, size);
+        // Xem trước ứng viên: không tay nắm (và không thanh công cụ: `bars` cần vùng chọn).
+        if self.sel.rect().is_some() {
+            for (hx, hy) in [
+                (r.x, r.y),
+                (r.x + r.w / 2, r.y),
+                (r.right(), r.y),
+                (r.right(), r.y + r.h / 2),
+                (r.right(), r.bottom()),
+                (r.x + r.w / 2, r.bottom()),
+                (r.x, r.bottom()),
+                (r.x, r.y + r.h / 2),
+            ] {
+                let size = scaled(HANDLE_SIZE, self.dpi_at(Point { x: hx, y: hy }));
+                p.handle(hx, hy, size);
+            }
         }
         if let Some((rect, mut text, dpi)) = self.label() {
             let font = self.font(dpi);
@@ -3489,6 +3594,26 @@ impl State {
                 OVERLAY_BORDER,
             );
         }
+        self.draw_hint(p, area);
+    }
+
+    /// Viên nhắc (chỉ trên lớp phủ, không bao giờ vào ảnh xuất ra).
+    fn draw_hint(&mut self, p: &Painter, area: Rect) {
+        let Some((rect, mut text, dpi)) = self.hint() else {
+            return;
+        };
+        if intersect(inflate(rect, 1), area).is_none() {
+            return;
+        }
+        let font = self.font(dpi);
+        p.bubble(
+            rect,
+            scaled(snap::HINT_RADIUS_DIP, dpi),
+            &mut text,
+            font,
+            OVERLAY_LABEL,
+            OVERLAY_BORDER,
+        );
     }
 }
 
@@ -5041,9 +5166,10 @@ pub fn pick_region(
             SetTimer(Some(hwnd), FOCUS_TIMER_ID, FOCUS_RETRY_MS, None);
         }
     }
-    if initial.is_some() && with_state(|s| s.sel.rect().is_some()) == Some(true) {
+    let follow = with_state(|s| (initial.is_some() && s.sel.rect().is_some()) || s.snap_active());
+    if follow == Some(true) {
         // Mở với khung có sẵn: con trỏ chuột và nút đang rê theo chỗ chuột đứng ngay,
-        // không đợi lần di chuột đầu tiên.
+        // không đợi lần di chuột đầu tiên. Gợi ý cửa sổ: hiện ngay ứng viên dưới con trỏ.
         let mut pt = POINT::default();
         // SAFETY: chỉ đọc vị trí chuột.
         if unsafe { GetCursorPos(&mut pt) }.is_ok() {
@@ -5464,7 +5590,7 @@ mod tests {
         // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
         let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
         let run = |i: usize| {
-            let (target, at) = if i % 2 == 0 {
+            let (target, at) = if i.is_multiple_of(2) {
                 (win, in_win)
             } else {
                 (inner, in_inner)
