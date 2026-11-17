@@ -7,18 +7,48 @@ pub const MAX_WINDOWS: usize = 512;
 
 /// Cắt mỗi khung theo `bounds`; bỏ khung có chiều nào < MIN_SNAP sau khi cắt; bỏ khung trùng hệt khung ngay trước;
 /// giữ thứ tự; chỉ lấy tối đa MAX_WINDOWS khung cửa sổ đầu; rồi nối thêm `monitors` (cũng cắt, cũng lọc < MIN_SNAP).
-pub fn candidates(_windows: &[Rect], _monitors: &[Rect], _bounds: Rect) -> Vec<Rect> {
-    todo!()
+pub fn candidates(windows: &[Rect], monitors: &[Rect], bounds: Rect) -> Vec<Rect> {
+    let mut out: Vec<Rect> = Vec::new();
+    for w in windows.iter().take(MAX_WINDOWS) {
+        if let Some(c) = clip(*w, bounds).filter(big_enough) {
+            if out.last() != Some(&c) {
+                out.push(c);
+            }
+        }
+    }
+    out.extend(
+        monitors
+            .iter()
+            .filter_map(|m| clip(*m, bounds))
+            .filter(big_enough),
+    );
+    out
+}
+
+fn big_enough(r: &Rect) -> bool {
+    r.w >= MIN_SNAP && r.h >= MIN_SNAP
 }
 
 /// Ứng viên đầu tiên chứa `p` (theo `Rect::contains`).
-pub fn candidate_at(_cands: &[Rect], _p: Point) -> Option<Rect> {
-    todo!()
+pub fn candidate_at(cands: &[Rect], p: Point) -> Option<Rect> {
+    cands.iter().copied().find(|c| c.contains(p))
 }
 
 /// Giao hai khung; None khi không giao hoặc rỗng. Dùng i64 để không tràn.
-pub fn clip(_r: Rect, _bounds: Rect) -> Option<Rect> {
-    todo!()
+pub fn clip(r: Rect, bounds: Rect) -> Option<Rect> {
+    let x0 = i64::from(r.x).max(i64::from(bounds.x));
+    let y0 = i64::from(r.y).max(i64::from(bounds.y));
+    let x1 = (i64::from(r.x) + i64::from(r.w)).min(i64::from(bounds.x) + i64::from(bounds.w));
+    let y1 = (i64::from(r.y) + i64::from(r.h)).min(i64::from(bounds.y) + i64::from(bounds.h));
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    Some(Rect {
+        x: i32::try_from(x0).ok()?,
+        y: i32::try_from(y0).ok()?,
+        w: i32::try_from(x1 - x0).ok()?,
+        h: i32::try_from(y1 - y0).ok()?,
+    })
 }
 
 #[cfg(test)]
@@ -57,11 +87,10 @@ mod tests {
         let b = r(i32::MAX - 100, i32::MAX - 100, 100, 100);
         let big = r(i32::MAX - 50, i32::MAX - 50, 50, 50);
         assert_eq!(clip(big, b), Some(big));
-        let huge = r(i32::MIN, i32::MIN, i32::MAX, i32::MAX);
-        assert_eq!(
-            clip(huge, r(0, 0, 10, 10)),
-            Some(r(0, 0, 10, 10)).filter(|_| true)
-        );
+        let huge = r(-5, -5, i32::MAX, i32::MAX);
+        assert_eq!(clip(huge, r(0, 0, 10, 10)), Some(r(0, 0, 10, 10)));
+        let over = r(i32::MAX - 50, i32::MAX - 50, 100, 100);
+        assert_eq!(clip(over, b), Some(big));
     }
 
     #[test]

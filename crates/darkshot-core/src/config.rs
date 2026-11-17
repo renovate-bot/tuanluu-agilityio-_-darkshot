@@ -276,7 +276,7 @@ impl Config {
             check_updates: true,
             update_notified: None,
             history_enabled: false,
-            snap_windows: false,
+            snap_windows: true,
         }
     }
 }
@@ -520,7 +520,7 @@ pub fn load(
         check_updates: f.check_updates.as_bool().unwrap_or(true),
         update_notified: f.update_notified.as_str().and_then(Version::parse),
         history_enabled: f.history_enabled.as_bool().unwrap_or(false),
-        snap_windows: f.snap_windows.as_bool().unwrap_or(false),
+        snap_windows: f.snap_windows.as_bool().unwrap_or(true),
     };
     Ok(Loaded {
         config,
