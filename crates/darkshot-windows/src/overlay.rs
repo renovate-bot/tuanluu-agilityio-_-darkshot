@@ -12,15 +12,20 @@ use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
     add_point, constrain_45, constrain_square, dip_to_px, press_mode, sanitize_paste, too_short,
     Annotations, PressMode, Pt, Shape, TextEdit, Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE,
-    PALETTE_COLS, STROKE_DIP, TEXT_DIP,
+    STROKE_DIP, TEXT_DIP,
+};
+use darkshot_core::color::{
+    hls_to_rgb, lum_at, lum_y, picker_layout, rgb_to_hls, spectrum_hs, spectrum_point,
+    CustomColors, Hls, PickerLayout, CUSTOM_SLOTS, HLS_MAX, HUE_MAX, RGB_MAX,
 };
 use darkshot_core::geometry::{
     monitor_containing, place_side_toolbar, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
-use darkshot_core::i18n::Msg;
+use darkshot_core::i18n::{self, Msg};
 use darkshot_core::theme::{
-    Rgb, ACCENT, OVERLAY_BORDER, OVERLAY_HOVER, OVERLAY_ICON, OVERLAY_LABEL, OVERLAY_TIP, SURFACE,
-    TEXT, TEXT_DISABLED, WHITE,
+    Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_PRESSED, BUTTON as BUTTON_FILL, BUTTON_BORDER,
+    BUTTON_PRESSED, INPUT, INPUT_BORDER, OVERLAY_BORDER, OVERLAY_HOVER, OVERLAY_ICON,
+    OVERLAY_LABEL, OVERLAY_TIP, SURFACE, TEXT, TEXT_DISABLED, TEXT_MUTED, WHITE,
 };
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -31,9 +36,10 @@ use windows::Win32::Graphics::Gdi::{
     CreateFontIndirectW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, EndPaint,
     FillRect, GetStockObject, GetTextExtentPoint32W, IntersectClipRect, InvalidateRect,
     MonitorFromPoint, Rectangle, RoundRect, SelectClipRgn, SelectObject, SetBkMode, SetTextColor,
-    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, DT_CENTER,
-    DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_BOLD, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTW,
-    MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE, PAINTSTRUCT, PS_SOLID, SRCCOPY, TRANSPARENT,
+    StretchDIBits, UpdateWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    DRAW_TEXT_FORMAT, DT_CENTER, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
+    FW_BOLD, HBITMAP, HDC, HFONT, HGDIOBJ, LOGFONTW, MONITOR_DEFAULTTONEAREST, NULL_BRUSH, OPAQUE,
+    PAINTSTRUCT, PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows::Win32::Graphics::GdiPlus::{
     DashCapFlat, FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure,
@@ -50,9 +56,9 @@ use windows::Win32::UI::Input::Ime::{
     CPS_CANCEL, GCS_COMPSTR, NI_COMPOSITIONSTR,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus, UnregisterHotKey,
-    MOD_NOREPEAT, VIRTUAL_KEY, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_LEFT,
-    VK_MENU, VK_RIGHT, VK_SHIFT, VK_UP,
+    GetCapture, GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus,
+    UnregisterHotKey, MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
+    VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -84,10 +90,12 @@ const HANDLE_HIT: i32 = 6;
 const ICON: i32 = 20;
 /// Ô vạch ngăn của thanh dọc (vạch 1 px ở giữa, phần còn lại là lề).
 const SIDE_SEP: i32 = 9;
-/// Ô màu của bảng màu.
-const CELL: i32 = 20;
-/// Khe và lề của bảng màu.
-const PAL_GAP: i32 = 4;
+/// Tam giác chỉ độ sáng: rộng (DIP).
+const LUM_ARROW: i32 = 8;
+/// Dấu chữ thập trong ô sắc độ: nửa chiều dài, khe giữa, độ dày (DIP).
+const CROSS_ARM: i32 = 9;
+const CROSS_GAP: i32 = 3;
+const CROSS_THICK: i32 = 2;
 /// Ô vuông màu hiện tại trên nút Màu.
 const SWATCH: i32 = 16;
 /// Vạch đánh dấu công cụ đang chọn ở mép trái nút, và viền ô màu đang chọn.
@@ -206,32 +214,246 @@ fn side_item_at(bar: Rect, sep: i32, p: Point) -> Option<SideItem> {
         .map(|(_, item)| *item)
 }
 
-/// Cỡ bảng màu 8 cột × 6 hàng ô cạnh `cell`, khe và lề `gap`.
-fn palette_size(cell: i32, gap: i32) -> (i32, i32) {
-    let (cols, rows) = (PALETTE_COLS as i32, (PALETTE.len() / PALETTE_COLS) as i32);
-    (
-        cols * cell + (cols + 1) * gap,
-        rows * cell + (rows + 1) * gap,
-    )
+/// Màu hiện tại của phần tự chọn: giữ cả HLS và RGB (như hộp Windows) để sửa một ô số không làm
+/// trôi các ô cùng hệ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PickColor {
+    hls: Hls,
+    rgb: Rgb,
 }
 
-/// Ô màu thứ `i` (theo hàng, 8 ô mỗi hàng) của bảng `pal`.
-fn palette_cell_rect(pal: Rect, cell: i32, gap: i32, i: usize) -> Rect {
-    let (col, row) = ((i % PALETTE_COLS) as i32, (i / PALETTE_COLS) as i32);
-    Rect {
-        x: pal.x + gap + col * (cell + gap),
-        y: pal.y + gap + row * (cell + gap),
-        w: cell,
-        h: cell,
+impl PickColor {
+    fn from_rgb(rgb: Rgb) -> PickColor {
+        PickColor {
+            hls: rgb_to_hls(rgb),
+            rgb,
+        }
+    }
+
+    fn from_hls(hls: Hls) -> PickColor {
+        let hls = Hls {
+            h: hls.h.min(HUE_MAX),
+            l: hls.l.min(HLS_MAX),
+            s: hls.s.min(HLS_MAX),
+        };
+        PickColor {
+            hls,
+            rgb: hls_to_rgb(hls),
+        }
     }
 }
 
-/// Ô màu dưới điểm `p`; khe và lề trả `None`.
-fn palette_cell_at(pal: Rect, cell: i32, gap: i32, p: Point) -> Option<usize> {
-    if !pal.contains(p) {
+/// Giá trị lớn nhất của sáu ô số: Hue, Sat, Lum, Red, Green, Blue.
+const FIELD_MAX: [u16; 6] = [HUE_MAX, HLS_MAX, HLS_MAX, RGB_MAX, RGB_MAX, RGB_MAX];
+const FIELD_COUNT: usize = 6;
+/// Số chữ số tối đa của một ô số.
+const FIELD_DIGITS: usize = 3;
+
+/// Giá trị ô số `i` của màu `c`.
+fn field_value(c: PickColor, i: usize) -> u16 {
+    match i {
+        0 => c.hls.h,
+        1 => c.hls.s,
+        2 => c.hls.l,
+        3 => u16::from(c.rgb.0),
+        4 => u16::from(c.rgb.1),
+        _ => u16::from(c.rgb.2),
+    }
+}
+
+/// Màu `c` sau khi ô `i` nhận giá trị `v` (kẹp vào khoảng của ô). Ô HLS thì RGB tính lại từ HLS;
+/// ô RGB thì HLS tính lại từ RGB.
+fn with_field(c: PickColor, i: usize, v: u16) -> PickColor {
+    let v = v.min(FIELD_MAX.get(i).copied().unwrap_or(0));
+    // Sau khi kẹp, ô RGB luôn vừa u8.
+    let b = u8::try_from(v).unwrap_or(u8::MAX);
+    match i {
+        0 => PickColor::from_hls(Hls { h: v, ..c.hls }),
+        1 => PickColor::from_hls(Hls { s: v, ..c.hls }),
+        2 => PickColor::from_hls(Hls { l: v, ..c.hls }),
+        3 => PickColor::from_rgb(Rgb(b, c.rgb.1, c.rgb.2)),
+        4 => PickColor::from_rgb(Rgb(c.rgb.0, b, c.rgb.2)),
+        5 => PickColor::from_rgb(Rgb(c.rgb.0, c.rgb.1, b)),
+        _ => c,
+    }
+}
+
+/// Ô số đang sửa: chỉ số ô, chữ đang gõ; `fresh`: chưa gõ gì (chữ số đầu tiên thay cả giá trị).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FieldEdit {
+    idx: usize,
+    text: String,
+    fresh: bool,
+}
+
+impl FieldEdit {
+    fn new(idx: usize, c: PickColor) -> FieldEdit {
+        FieldEdit {
+            idx,
+            text: field_value(c, idx).to_string(),
+            fresh: true,
+        }
+    }
+
+    fn digit(&mut self, d: char) {
+        if !d.is_ascii_digit() {
+            return;
+        }
+        if self.fresh {
+            self.text.clear();
+            self.fresh = false;
+        }
+        if self.text.len() < FIELD_DIGITS {
+            self.text.push(d);
+        }
+    }
+
+    fn backspace(&mut self) {
+        self.fresh = false;
+        self.text.pop();
+    }
+
+    /// Màu sau khi chốt chữ đang gõ (kẹp); chữ rỗng thì giữ nguyên.
+    fn commit(&self, c: PickColor) -> PickColor {
+        match self.text.parse::<u16>() {
+            Ok(v) => with_field(c, self.idx, v),
+            Err(_) => c,
+        }
+    }
+
+    /// Lên (`up`) hoặc xuống: chốt chữ đang gõ, tăng/giảm 1 (kẹp biên), chữ hiện giá trị mới.
+    fn step(&mut self, c: PickColor, up: bool) -> PickColor {
+        let c = self.commit(c);
+        let v = field_value(c, self.idx);
+        let v = if up {
+            v.saturating_add(1)
+        } else {
+            v.saturating_sub(1)
+        };
+        let c = with_field(c, self.idx, v);
+        *self = FieldEdit::new(self.idx, c);
+        c
+    }
+}
+
+/// Phần của bảng chọn màu dưới chuột.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PickerHit {
+    Basic(usize),
+    Custom(usize),
+    Define,
+    Spectrum,
+    Lum,
+    Field(usize),
+    Add,
+    Ok,
+    Cancel,
+    /// Trong bảng nhưng không trúng phần nào.
+    Panel,
+}
+
+/// Khóa của ảnh thanh độ sáng: Hue, Sat, rộng, cao.
+type LumKey = (u16, u16, i32, i32);
+
+/// Đang kéo trong ô sắc độ hoặc thanh độ sáng.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PickerDrag {
+    Spectrum,
+    Lum,
+}
+
+/// Dời `r` (tương đối góc bảng) theo góc trên trái của bảng `pal`.
+fn at(pal: Rect, r: Rect) -> Rect {
+    Rect {
+        x: pal.x + r.x,
+        y: pal.y + r.y,
+        ..r
+    }
+}
+
+/// Vùng bấm của thanh độ sáng (tương đối): thanh và cột tam giác bên phải nó.
+fn lum_hit_rect(l: &PickerLayout, dpi: u32) -> Rect {
+    let right = l.lum_arrow_x + scaled(LUM_ARROW, dpi) + scaled(2, dpi);
+    Rect {
+        w: (right - l.lum_bar.x).max(l.lum_bar.w),
+        ..l.lum_bar
+    }
+}
+
+/// Phần dưới điểm `p` của bảng `pal` có bố cục `l`; ngoài bảng trả `None`.
+fn picker_hit(l: &PickerLayout, dpi: u32, pal: Rect, p: Point) -> Option<PickerHit> {
+    let panel = Rect {
+        x: pal.x,
+        y: pal.y,
+        w: l.size.0,
+        h: l.size.1,
+    };
+    if !panel.contains(p) {
         return None;
     }
-    (0..PALETTE.len()).find(|i| palette_cell_rect(pal, cell, gap, *i).contains(p))
+    let inside = |r: Rect| r.w > 0 && r.h > 0 && at(pal, r).contains(p);
+    if let Some(i) = l.basic.iter().position(|r| inside(*r)) {
+        return Some(PickerHit::Basic(i));
+    }
+    if let Some(i) = l.custom.iter().position(|r| inside(*r)) {
+        return Some(PickerHit::Custom(i));
+    }
+    let single = [
+        (l.define_btn, PickerHit::Define),
+        (l.spectrum, PickerHit::Spectrum),
+        (lum_hit_rect(l, dpi), PickerHit::Lum),
+        (l.add_btn, PickerHit::Add),
+        (l.ok_btn, PickerHit::Ok),
+        (l.cancel_btn, PickerHit::Cancel),
+    ];
+    if let Some((_, h)) = single.iter().find(|(r, _)| inside(*r)) {
+        return Some(*h);
+    }
+    if let Some(i) = l.fields.iter().position(|(_, b)| inside(*b)) {
+        return Some(PickerHit::Field(i));
+    }
+    Some(PickerHit::Panel)
+}
+
+/// Ảnh BGRA `w`×`h` của ô sắc độ: Hue theo chiều ngang, Sat theo chiều dọc, Lum 120.
+fn spectrum_image(w: i32, h: i32) -> Vec<u8> {
+    if w <= 0 || h <= 0 {
+        return Vec::new();
+    }
+    let rect = Rect { x: 0, y: 0, w, h };
+    let mut bits = Vec::with_capacity(w as usize * h as usize * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let (hue, sat) = spectrum_hs(rect, x, y);
+            let c = hls_to_rgb(Hls {
+                h: hue,
+                l: HLS_MAX / 2,
+                s: sat,
+            });
+            bits.extend_from_slice(&[c.2, c.1, c.0, 0xFF]);
+        }
+    }
+    bits
+}
+
+/// Ảnh BGRA `w`×`h` của thanh độ sáng cho Hue `hue`, Sat `sat`: Lum 240 ở trên, 0 ở dưới.
+fn lum_image(hue: u16, sat: u16, w: i32, h: i32) -> Vec<u8> {
+    if w <= 0 || h <= 0 {
+        return Vec::new();
+    }
+    let bar = Rect { x: 0, y: 0, w, h };
+    let mut bits = Vec::with_capacity(w as usize * h as usize * 4);
+    for y in 0..h {
+        let c = hls_to_rgb(Hls {
+            h: hue,
+            l: lum_at(bar, y),
+            s: sat,
+        });
+        for _ in 0..w {
+            bits.extend_from_slice(&[c.2, c.1, c.0, 0xFF]);
+        }
+    }
+    bits
 }
 
 /// Thanh bốn nút và thanh dọc cho vùng chọn `sel`, màn hình chứa góc dưới phải `mon` ở `dpi`.
@@ -256,11 +478,12 @@ fn clamp_into(mut r: Rect, m: Rect) -> Rect {
     r
 }
 
-/// Bảng màu cạnh nút Màu của thanh dọc `side`: bên trái thanh nếu thanh nằm nửa phải vùng chọn,
-/// ngược lại bên phải; giữa theo chiều dọc nút Màu; kẹp vào màn hình `mon`.
-fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32) -> Rect {
+/// Bảng màu (dạng gọn hoặc đủ theo `expanded`) cạnh nút Màu của thanh dọc `side`: bên trái thanh
+/// nếu thanh nằm nửa phải vùng chọn, ngược lại bên phải; giữa theo chiều dọc nút Màu; kẹp vào màn
+/// hình `mon` (màn hình hẹp hơn bảng thì bảng sát mép trái màn hình).
+fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32, expanded: bool) -> Rect {
     let gap = scaled(GAP, dpi);
-    let (w, h) = palette_size(scaled(CELL, dpi), scaled(PAL_GAP, dpi));
+    let (w, h) = picker_layout(dpi, expanded).size;
     let btn = side_item_rect(side, scaled(SIDE_SEP, dpi), COLOR_INDEX);
     let x = if side_on_right(side, sel) {
         side.x - gap - w
@@ -700,6 +923,12 @@ fn set_cursor(id: PCWSTR) {
     }
 }
 
+/// Trả chuột khi nhả nút: lần kéo vừa xong (`release`), hoặc lớp phủ còn giữ chuột mà không còn
+/// kéo gì (bảng màu bị đóng bằng Esc/Enter giữa lúc kéo ô sắc độ hay thanh độ sáng).
+fn should_release(release: bool, has_capture: bool, dragging: bool) -> bool {
+    release || (has_capture && !dragging)
+}
+
 /// Việc phải làm sau khi đã trả mượn trạng thái (các API này có thể gửi thông điệp đồng bộ).
 #[derive(Default)]
 struct Effects {
@@ -749,7 +978,25 @@ struct State {
     side_pressed: Option<SideItem>,
     /// Bảng màu đang mở.
     palette: bool,
-    cell_pressed: Option<usize>,
+    /// Bảng màu ở dạng đủ; nhớ trong lần chụp này.
+    expanded: bool,
+    /// 16 màu tự chọn; `pick_region` chép ra cho bên gọi khi đóng.
+    custom: CustomColors,
+    /// Màu hiện tại của phần tự chọn (dạng đủ).
+    pick: PickColor,
+    /// Ô tự chọn đích của "Thêm vào màu tự chọn".
+    target: Option<usize>,
+    /// Ô số đang sửa.
+    field: Option<FieldEdit>,
+    /// Phần bảng đang được nhấn (tác dụng khi nhả trên cùng phần).
+    picker_pressed: Option<PickerHit>,
+    picker_drag: Option<PickerDrag>,
+    /// Ảnh ô sắc độ đã dựng, theo cỡ ô (mỗi DPI một cỡ).
+    spectra: Vec<((i32, i32), Vec<u8>)>,
+    /// Ảnh thanh độ sáng đã dựng: (Hue, Sat, rộng, cao) và ảnh.
+    lum_img: Option<(LumKey, Vec<u8>)>,
+    /// WM_CHAR cần nuốt (Enter đã được bảng màu dùng ở WM_KEYDOWN).
+    eat_char: Option<u16>,
     result: Option<Option<Picked>>,
     fonts: Vec<(u32, HFONT)>,
     /// DC bộ nhớ dùng để đo chữ.
@@ -912,17 +1159,40 @@ impl State {
             return None;
         }
         let b = self.bars()?;
-        Some((palette_rect_for(b.side, b.sel, b.mon, b.dpi), b.dpi))
+        Some((
+            palette_rect_for(b.side, b.sel, b.mon, b.dpi, self.expanded),
+            b.dpi,
+        ))
     }
 
-    fn palette_cell_at(&self, p: Point) -> Option<usize> {
+    /// Phần bảng màu dưới `p`; `None` khi bảng đóng hoặc `p` ngoài bảng.
+    fn picker_hit_at(&self, p: Point) -> Option<PickerHit> {
         let (pal, dpi) = self.palette_rect()?;
-        palette_cell_at(pal, scaled(CELL, dpi), scaled(PAL_GAP, dpi), p)
+        picker_hit(&picker_layout(dpi, self.expanded), dpi, pal, p)
+    }
+
+    /// Làm mới cả bảng màu (chỉ bảng).
+    fn invalidate_picker(&self) {
+        if let Some((r, _)) = self.palette_rect() {
+            self.invalidate(&[inflate(r, 1)]);
+        }
+    }
+
+    /// Dựng (nếu chưa có) ảnh ô sắc độ cho cỡ ô của `l` và ảnh thanh độ sáng cho Hue/Sat hiện tại.
+    fn ensure_picker_images(&mut self, l: &PickerLayout) {
+        let size = (l.spectrum.w, l.spectrum.h);
+        if size.0 > 0 && size.1 > 0 && !self.spectra.iter().any(|(k, _)| *k == size) {
+            self.spectra.push((size, spectrum_image(size.0, size.1)));
+        }
+        let key = (self.pick.hls.h, self.pick.hls.s, l.lum_bar.w, l.lum_bar.h);
+        if key.2 > 0 && key.3 > 0 && self.lum_img.as_ref().map(|(k, _)| *k) != Some(key) {
+            self.lum_img = Some((key, lum_image(key.0, key.1, key.2, key.3)));
+        }
     }
 
     /// Đang kéo (vùng chọn hoặc nét vẽ).
     fn dragging(&self) -> bool {
-        self.sel.is_dragging() || self.stroke.is_some()
+        self.sel.is_dragging() || self.stroke.is_some() || self.picker_drag.is_some()
     }
 
     fn font(&mut self, dpi: u32) -> HFONT {
@@ -1316,6 +1586,18 @@ impl State {
 
     /// WM_CHAR khi đang gõ; `false` khi không có ô chữ (để xử lý mặc định).
     fn on_char(&mut self, unit: u16) -> bool {
+        if self.eat_char.take() == Some(unit) {
+            return true;
+        }
+        if self.palette && self.field.is_some() {
+            // Ô số đang sửa: chỉ nhận chữ số; mọi ký tự khác (kể cả chữ của công cụ) bị nuốt.
+            let d = char::from_u32(u32::from(unit)).filter(char::is_ascii_digit);
+            if let (Some(d), Some(f)) = (d, self.field.as_mut()) {
+                f.digit(d);
+                self.invalidate_picker();
+            }
+            return true;
+        }
         if self.text.is_none() {
             return false;
         }
@@ -1400,34 +1682,208 @@ impl State {
         }
     }
 
-    fn pick_color(&mut self, i: usize) {
-        let Some(c) = PALETTE.get(i).copied() else {
-            return;
-        };
+    /// Dùng màu `c` cho công cụ vẽ (và ô chữ đang gõ), đóng bảng màu.
+    fn choose_color(&mut self, c: Rgb) {
         LAST_COLOR.with(|l| l.set(c));
         self.update_bars(|s| {
             s.color = c;
-            s.palette = false;
+            s.close_picker_state();
         });
         self.edit_text(|e| e.set_color(c));
+    }
+
+    /// Bỏ mọi trạng thái tạm của bảng màu và đóng nó (màu tự chọn đã thêm vẫn giữ).
+    fn close_picker_state(&mut self) {
+        self.palette = false;
+        self.field = None;
+        self.picker_pressed = None;
+        self.picker_drag = None;
+        self.target = None;
+    }
+
+    /// Đóng bảng màu, màu vẽ không đổi.
+    fn close_palette(&mut self) {
+        self.update_bars(|s| s.close_picker_state());
+    }
+
+    fn open_palette(&mut self) {
+        self.update_bars(|s| {
+            s.palette = true;
+            s.pick = PickColor::from_rgb(s.color);
+            s.target = None;
+            s.field = None;
+            s.picker_pressed = None;
+        });
     }
 
     fn activate(&mut self, item: SideItem) {
         match item {
             SideItem::Tool(t) => self.toggle_tool(t),
-            SideItem::Color => self.update_bars(|s| s.palette = !s.palette),
+            SideItem::Color if self.palette => self.close_palette(),
+            SideItem::Color => self.open_palette(),
             SideItem::Undo => self.undo(),
         }
     }
 
-    /// Esc (phím hoặc phím tắt toàn cục): bảng màu đang mở thì chỉ đóng bảng; đang gõ thì hủy ô
-    /// chữ (trừ khi bộ gõ đang soạn: Esc thuộc về bộ gõ); còn lại đóng lớp phủ.
+    /// Chốt ô số đang sửa (nếu có) vào màu hiện tại của phần tự chọn.
+    fn commit_field(&mut self) {
+        if let Some(f) = self.field.take() {
+            self.pick = f.commit(self.pick);
+            self.invalidate_picker();
+        }
+    }
+
+    /// Đổi màu hiện tại của phần tự chọn.
+    fn set_pick(&mut self, c: PickColor) {
+        if c != self.pick {
+            self.pick = c;
+            self.invalidate_picker();
+        }
+    }
+
+    /// Kéo hoặc bấm trong ô sắc độ (đổi Hue, Sat) hay trên thanh độ sáng (đổi Lum) tại `p`.
+    fn drag_picker(&mut self, kind: PickerDrag, p: Point) {
+        let Some((pal, dpi)) = self.palette_rect() else {
+            return;
+        };
+        let l = picker_layout(dpi, self.expanded);
+        let cur = self.pick.hls;
+        let hls = match kind {
+            PickerDrag::Spectrum => {
+                let (h, s) = spectrum_hs(at(pal, l.spectrum), p.x, p.y);
+                Hls { h, s, l: cur.l }
+            }
+            PickerDrag::Lum => Hls {
+                l: lum_at(at(pal, l.lum_bar), p.y),
+                ..cur
+            },
+        };
+        if hls != cur {
+            self.set_pick(PickColor::from_hls(hls));
+        }
+    }
+
+    /// Nhấn chuột trên phần `hit` của bảng màu tại `p`.
+    fn picker_down(&mut self, hit: PickerHit, p: Point) -> Effects {
+        self.commit_field();
+        match hit {
+            PickerHit::Spectrum | PickerHit::Lum => {
+                let kind = if hit == PickerHit::Spectrum {
+                    PickerDrag::Spectrum
+                } else {
+                    PickerDrag::Lum
+                };
+                self.picker_drag = Some(kind);
+                self.drag_cursor = IDC_ARROW;
+                self.drag_picker(kind, p);
+                Effects {
+                    capture: true,
+                    ..Default::default()
+                }
+            }
+            PickerHit::Field(i) => {
+                self.field = Some(FieldEdit::new(i, self.pick));
+                self.invalidate_picker();
+                Effects::default()
+            }
+            other => {
+                self.picker_pressed = Some(other);
+                self.invalidate_picker();
+                Effects::default()
+            }
+        }
+    }
+
+    /// Nhả chuột trên phần `hit` đã nhấn.
+    fn picker_activate(&mut self, hit: PickerHit) {
+        match hit {
+            PickerHit::Basic(i) => {
+                let Some(c) = PALETTE.get(i).copied() else {
+                    return;
+                };
+                if self.expanded {
+                    self.set_pick(PickColor::from_rgb(c));
+                } else {
+                    self.choose_color(c);
+                }
+            }
+            PickerHit::Custom(i) => {
+                let c = self.custom.slots.get(i).copied().flatten();
+                if self.expanded {
+                    self.target = Some(i);
+                    if let Some(c) = c {
+                        self.pick = PickColor::from_rgb(c);
+                    }
+                    self.invalidate_picker();
+                } else if let Some(c) = c {
+                    self.choose_color(c);
+                }
+            }
+            PickerHit::Define => {
+                if !self.expanded {
+                    self.update_bars(|s| s.expanded = true);
+                }
+            }
+            PickerHit::Add => {
+                let had = self.target;
+                let idx = self.custom.add(self.pick.rgb, had);
+                if had.is_some() {
+                    self.target = Some((idx + 1) % CUSTOM_SLOTS);
+                }
+                self.invalidate_picker();
+            }
+            PickerHit::Ok => self.choose_color(self.pick.rgb),
+            PickerHit::Cancel => self.close_palette(),
+            PickerHit::Spectrum | PickerHit::Lum | PickerHit::Field(_) | PickerHit::Panel => {}
+        }
+    }
+
+    /// WM_KEYDOWN (không Ctrl) khi bảng màu mở; `true` nếu bảng đã dùng phím.
+    fn picker_key(&mut self, vk: u16) -> bool {
+        if let Some(f) = self.field.as_mut() {
+            match VIRTUAL_KEY(vk) {
+                VK_TAB => {
+                    let back = key_held(VK_SHIFT);
+                    let idx = f.idx;
+                    self.pick = f.commit(self.pick);
+                    let next = if back {
+                        (idx + FIELD_COUNT - 1) % FIELD_COUNT
+                    } else {
+                        (idx + 1) % FIELD_COUNT
+                    };
+                    self.field = Some(FieldEdit::new(next, self.pick));
+                }
+                VK_UP | VK_DOWN => {
+                    self.pick = f.step(self.pick, vk == VK_UP.0);
+                }
+                VK_RETURN => {
+                    self.eat_char = Some(0x0D);
+                    self.commit_field();
+                }
+                VK_BACK => f.backspace(),
+                _ => {}
+            }
+            self.invalidate_picker();
+            return true;
+        }
+        if vk == VK_RETURN.0 && self.expanded {
+            self.eat_char = Some(0x0D);
+            self.choose_color(self.pick.rgb);
+            return true;
+        }
+        // Phím chữ không chọn công cụ khi bảng mở; ô chữ đang gõ thì vẫn nhận phím như trước.
+        self.text.is_none()
+    }
+
+    /// Esc (phím hoặc phím tắt toàn cục): ô số đang sửa thì bỏ sửa; bảng màu đang mở thì chỉ
+    /// đóng bảng; đang gõ thì hủy ô chữ (trừ khi bộ gõ đang soạn: Esc thuộc về bộ gõ); còn lại
+    /// đóng lớp phủ.
     fn escape(&mut self) {
-        if self.palette {
-            self.update_bars(|s| {
-                s.palette = false;
-                s.cell_pressed = None;
-            });
+        if self.palette && self.field.is_some() {
+            self.field = None;
+            self.invalidate_picker();
+        } else if self.palette {
+            self.close_palette();
         } else if self.text.is_some() {
             if !ime_composing(self.hwnd) {
                 self.close_text(false);
@@ -1458,6 +1914,7 @@ impl State {
 
     /// Mất chuột giữa chừng: chốt nét, kết thúc lần kéo vùng.
     fn lost_capture(&mut self) {
+        self.picker_drag = None;
         if self.stroke.is_some() {
             self.commit_stroke();
         }
@@ -1477,15 +1934,11 @@ impl State {
             self.close_text(true);
         }
         if self.palette {
-            if self.palette_rect().is_some_and(|(r, _)| r.contains(p)) {
-                self.cell_pressed = self.palette_cell_at(p);
-            } else {
-                // Bấm ngoài bảng màu chỉ đóng bảng (kể cả trên nút Màu), không làm gì khác.
-                self.update_bars(|s| {
-                    s.palette = false;
-                    s.cell_pressed = None;
-                });
+            if let Some(hit) = self.picker_hit_at(p) {
+                return self.picker_down(hit, p);
             }
+            // Bấm ngoài bảng màu chỉ đóng bảng (kể cả trên nút Màu), không làm gì khác.
+            self.close_palette();
             return Effects::default();
         }
         if let Some((bar, _)) = self.toolbar() {
@@ -1552,7 +2005,9 @@ impl State {
     }
 
     fn on_move(&mut self, p: Point) {
-        if let Some(stroke) = self.stroke.as_mut() {
+        if let Some(kind) = self.picker_drag {
+            self.drag_picker(kind, p);
+        } else if let Some(stroke) = self.stroke.as_mut() {
             let at = Pt {
                 x: p.x as f32,
                 y: p.y as f32,
@@ -1576,6 +2031,15 @@ impl State {
     }
 
     fn on_up(&mut self, p: Point) -> Effects {
+        if let Some(kind) = self.picker_drag {
+            // Nhả ở đâu (kể cả ngoài bảng) cũng chỉ kết thúc lần kéo, không đóng bảng.
+            self.drag_picker(kind, p);
+            self.picker_drag = None;
+            return Effects {
+                release: true,
+                ..Default::default()
+            };
+        }
         if let Some(stroke) = self.stroke.as_mut() {
             let at = Pt {
                 x: p.x as f32,
@@ -1601,10 +2065,11 @@ impl State {
                 ..Default::default()
             };
         }
-        if let Some(i) = self.cell_pressed.take() {
-            if self.palette_cell_at(p) == Some(i) {
-                self.pick_color(i);
+        if let Some(hit) = self.picker_pressed.take() {
+            if self.picker_hit_at(p) == Some(hit) {
+                self.picker_activate(hit);
             }
+            self.invalidate_picker();
             return Effects::default();
         }
         if let Some(item) = self.side_pressed.take() {
@@ -1623,12 +2088,16 @@ impl State {
 
     /// WM_KEYDOWN; `repeat`: lần lặp của phím đang giữ.
     fn on_key(&mut self, vk: u16, repeat: bool) {
+        self.eat_char = None;
         if vk == VK_ESCAPE.0 {
             self.escape();
             return;
         }
         if vk == VK_SHIFT.0 {
             self.shift_changed(true);
+            return;
+        }
+        if self.palette && !key_held(VK_CONTROL) && self.picker_key(vk) {
             return;
         }
         if self.text.is_some() {
@@ -1857,7 +2326,29 @@ impl State {
             p.side_toolbar(side, dpi, &look, self.gdiplus);
         }
         if let Some((pal, dpi)) = self.palette_rect() {
-            p.palette(pal, dpi, self.color);
+            let l = picker_layout(dpi, self.expanded);
+            let font = self.font(dpi);
+            if self.expanded {
+                self.ensure_picker_images(&l);
+            }
+            let spectrum = self
+                .spectra
+                .iter()
+                .find(|(k, _)| *k == (l.spectrum.w, l.spectrum.h))
+                .map(|(_, v)| v.as_slice());
+            let lum = self.lum_img.as_ref().map(|(_, v)| v.as_slice());
+            let look = PickerLook {
+                expanded: self.expanded,
+                current: self.color,
+                pick: self.pick,
+                target: self.target,
+                field: self.field.as_ref(),
+                custom: &self.custom,
+                pressed: self.picker_pressed,
+                spectrum,
+                lum,
+            };
+            p.picker(pal, &l, dpi, font, &look);
         }
         if let Some((rect, mut text, dpi)) = self.tooltip() {
             let font = self.font(dpi);
@@ -1889,6 +2380,21 @@ impl SideLook {
     fn enabled(&self, item: SideItem) -> bool {
         item != SideItem::Undo || self.can_undo
     }
+}
+
+/// Trạng thái hiển thị của bảng chọn màu.
+struct PickerLook<'a> {
+    expanded: bool,
+    /// Màu vẽ hiện tại.
+    current: Rgb,
+    pick: PickColor,
+    target: Option<usize>,
+    field: Option<&'a FieldEdit>,
+    custom: &'a CustomColors,
+    pressed: Option<PickerHit>,
+    /// Ảnh ô sắc độ và thanh độ sáng đã dựng (cùng cỡ với ô trong bố cục).
+    spectrum: Option<&'a [u8]>,
+    lum: Option<&'a [u8]>,
 }
 
 /// Vẽ vào DC bộ nhớ có gốc tại (`ox`, `oy`) của tọa độ client.
@@ -2173,20 +2679,289 @@ impl Painter {
         }
     }
 
-    /// Bảng màu 8 × 6: nền SURFACE, viền OVERLAY_BORDER; ô đang chọn có viền TEXT.
-    fn palette(&self, pal: Rect, dpi: u32, current: Rgb) {
+    /// Chữ `text` trong `r` bằng phông `font`, màu `color`, nền trong suốt, một dòng.
+    fn text(&self, r: Rect, text: &str, font: HFONT, color: Rgb, flags: DRAW_TEXT_FORMAT) {
+        let mut buf = wide(text);
+        if buf.is_empty() {
+            return;
+        }
+        let mut rc = self.rc(r);
+        // SAFETY: font còn sống (State giữ); đối tượng cũ được chọn lại; bộ đệm sống suốt lời gọi.
+        unsafe {
+            let old = SelectObject(self.dc, font.into());
+            SetBkMode(self.dc, TRANSPARENT);
+            SetTextColor(self.dc, cr(color));
+            DrawTextW(
+                self.dc,
+                &mut buf,
+                &mut rc,
+                flags | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+            );
+            SelectObject(self.dc, old);
+        }
+    }
+
+    /// Chép trọn ảnh BGRA `w`×`h` (`bits`) vào `dest` (cùng cỡ); ảnh thiếu byte thì bỏ qua.
+    fn bitmap(&self, bits: &[u8], w: i32, h: i32, dest: Rect) {
+        let need = i64::from(w) * i64::from(h) * 4;
+        if w <= 0 || h <= 0 || i64::try_from(bits.len()).unwrap_or(i64::MAX) < need {
+            return;
+        }
+        let bmi = dib_info(w, h);
+        // SAFETY: `bits` chứa đủ w×h điểm 32 bit (đã kiểm ở trên) và sống suốt lời gọi.
+        unsafe {
+            StretchDIBits(
+                self.dc,
+                dest.x - self.ox,
+                dest.y - self.oy,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                Some(bits.as_ptr() as *const c_void),
+                &bmi,
+                DIB_RGB_COLORS,
+                SRCCOPY,
+            );
+        }
+    }
+
+    /// Viền 1 px `color` ngay ngoài `r`.
+    fn frame_outside(&self, r: Rect, color: Rgb) {
+        let o = inflate(r, 1);
+        for side in [
+            Rect { h: 1, ..o },
+            Rect {
+                y: o.bottom() - 1,
+                h: 1,
+                ..o
+            },
+            Rect { w: 1, ..o },
+            Rect {
+                x: o.right() - 1,
+                w: 1,
+                ..o
+            },
+        ] {
+            self.fill(side, color);
+        }
+    }
+
+    /// Viền TEXT dày `ring` quanh ô `r`, cách ô 1 px nền để nổi cả trên ô trắng.
+    fn ring(&self, r: Rect, ring: i32) {
+        self.fill(inflate(r, ring + 1), TEXT);
+        self.fill(inflate(r, 1), SURFACE);
+    }
+
+    /// Nút của bảng màu: nút phụ (`BUTTON`) hoặc nút chính (`ACCENT_BUTTON`, chữ trắng).
+    #[allow(clippy::too_many_arguments)]
+    fn picker_button(
+        &self,
+        r: Rect,
+        text: &str,
+        font: HFONT,
+        dpi: u32,
+        primary: bool,
+        enabled: bool,
+        pressed: bool,
+    ) {
+        let (fill, edge, fg) = match (primary, pressed) {
+            (true, false) => (ACCENT_BUTTON, ACCENT_BUTTON, WHITE),
+            (true, true) => (ACCENT_BUTTON_PRESSED, ACCENT_BUTTON_PRESSED, WHITE),
+            (false, false) => (BUTTON_FILL, BUTTON_BORDER, TEXT),
+            (false, true) => (BUTTON_PRESSED, BUTTON_BORDER, TEXT),
+        };
+        let fg = if enabled { fg } else { TEXT_DISABLED };
+        self.round_rect(r, scaled(4, dpi), fill, edge);
+        self.text(r, text, font, fg, DT_CENTER);
+    }
+
+    /// Bảng chọn màu ở góc trên trái `pal` theo bố cục `l`: màu cơ bản, màu tự chọn, nút
+    /// "Định nghĩa…"; dạng đủ thêm ô sắc độ, thanh độ sáng, ô xem màu, sáu ô số và các nút.
+    fn picker(&self, pal: Rect, l: &PickerLayout, dpi: u32, font: HFONT, look: &PickerLook) {
         self.round_rect(pal, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
-        let (cell, gap) = (scaled(CELL, dpi), scaled(PAL_GAP, dpi));
         let ring = scaled(MARK, dpi);
-        for (i, c) in PALETTE.iter().enumerate() {
-            let r = palette_cell_rect(pal, cell, gap, i);
-            if *c == current {
-                // Viền TEXT dày `ring`, cách ô 1 px nền để nổi cả trên ô trắng.
-                self.fill(inflate(r, ring + 1), TEXT);
-                self.fill(inflate(r, 1), SURFACE);
+        self.text(
+            at(pal, l.basic_label),
+            lang::tr(Msg::PickerBasic),
+            font,
+            TEXT,
+            DT_LEFT,
+        );
+        self.text(
+            at(pal, l.custom_label),
+            lang::tr(Msg::PickerCustom),
+            font,
+            TEXT,
+            DT_LEFT,
+        );
+        // Ô đang chọn: dạng gọn là màu vẽ, dạng đủ là màu hiện tại của phần tự chọn.
+        let shown = if look.expanded {
+            look.pick.rgb
+        } else {
+            look.current
+        };
+        for (r, c) in l.basic.iter().zip(PALETTE.iter()) {
+            let r = at(pal, *r);
+            if *c == shown {
+                self.ring(r, ring);
             }
             self.round_rect(r, 0, *c, OVERLAY_BORDER);
         }
+        for (i, (r, slot)) in l.custom.iter().zip(look.custom.slots.iter()).enumerate() {
+            let r = at(pal, *r);
+            let marked = if look.expanded {
+                look.target == Some(i)
+            } else {
+                *slot == Some(shown)
+            };
+            if marked {
+                self.ring(r, ring);
+            }
+            self.round_rect(r, 0, slot.unwrap_or(INPUT), OVERLAY_BORDER);
+        }
+        self.picker_button(
+            at(pal, l.define_btn),
+            lang::tr(Msg::PickerDefine),
+            font,
+            dpi,
+            false,
+            !look.expanded,
+            !look.expanded && look.pressed == Some(PickerHit::Define),
+        );
+        if !look.expanded {
+            return;
+        }
+        let spectrum = at(pal, l.spectrum);
+        if let Some(bits) = look.spectrum {
+            self.bitmap(bits, spectrum.w, spectrum.h, spectrum);
+        }
+        self.frame_outside(spectrum, OVERLAY_BORDER);
+        // Dấu chữ thập ở (Hue, Sat) hiện tại, cắt theo ô sắc độ.
+        let (cx, cy) = spectrum_point(spectrum, look.pick.hls.h, look.pick.hls.s);
+        let (arm, gap, t) = (
+            scaled(CROSS_ARM, dpi),
+            scaled(CROSS_GAP, dpi),
+            scaled(CROSS_THICK, dpi),
+        );
+        let half = t / 2;
+        for arm_rect in [
+            Rect {
+                x: cx - arm,
+                y: cy - half,
+                w: arm - gap,
+                h: t,
+            },
+            Rect {
+                x: cx + gap + 1,
+                y: cy - half,
+                w: arm - gap,
+                h: t,
+            },
+            Rect {
+                x: cx - half,
+                y: cy - arm,
+                w: t,
+                h: arm - gap,
+            },
+            Rect {
+                x: cx - half,
+                y: cy + gap + 1,
+                w: t,
+                h: arm - gap,
+            },
+        ] {
+            if let Some(r) = intersect(arm_rect, spectrum) {
+                self.fill(r, OVERLAY_LABEL);
+            }
+        }
+        let bar = at(pal, l.lum_bar);
+        if let Some(bits) = look.lum {
+            self.bitmap(bits, bar.w, bar.h, bar);
+        }
+        self.frame_outside(bar, OVERLAY_BORDER);
+        // Tam giác chỉ Lum hiện tại, mũi nhọn quay vào thanh: cột thứ `i` cao 2·i·k + 1.
+        let ly = lum_y(bar, look.pick.hls.l);
+        let aw = scaled(LUM_ARROW, dpi);
+        let ax = pal.x + l.lum_arrow_x + scaled(1, dpi);
+        for i in 0..aw {
+            let half_h = i * 3 / 4;
+            self.fill(
+                Rect {
+                    x: ax + i,
+                    y: ly - half_h,
+                    w: 1,
+                    h: 2 * half_h + 1,
+                },
+                TEXT,
+            );
+        }
+        self.round_rect(at(pal, l.preview), 0, look.pick.rgb, OVERLAY_BORDER);
+        const LABELS: [Msg; FIELD_COUNT] = [
+            Msg::PickerHue,
+            Msg::PickerSat,
+            Msg::PickerLum,
+            Msg::PickerRed,
+            Msg::PickerGreen,
+            Msg::PickerBlue,
+        ];
+        let pad = scaled(4, dpi);
+        for (i, ((label, bx), msg)) in l.fields.iter().zip(LABELS).enumerate() {
+            let label = at(pal, *label);
+            self.text(
+                Rect {
+                    w: label.w - pad,
+                    ..label
+                },
+                lang::tr(msg),
+                font,
+                TEXT_MUTED,
+                DT_RIGHT,
+            );
+            let bx = at(pal, *bx);
+            let editing = look.field.filter(|f| f.idx == i);
+            let edge = if editing.is_some() {
+                ACCENT
+            } else {
+                INPUT_BORDER
+            };
+            self.round_rect(bx, scaled(2, dpi), INPUT, edge);
+            let value = match editing {
+                Some(f) => f.text.clone(),
+                None => field_value(look.pick, i).to_string(),
+            };
+            self.text(bx, &value, font, TEXT, DT_CENTER);
+        }
+        let pressed = |h| look.pressed == Some(h);
+        self.picker_button(
+            at(pal, l.add_btn),
+            lang::tr(Msg::PickerAdd),
+            font,
+            dpi,
+            false,
+            true,
+            pressed(PickerHit::Add),
+        );
+        self.picker_button(
+            at(pal, l.ok_btn),
+            i18n::OK_LABEL,
+            font,
+            dpi,
+            true,
+            true,
+            pressed(PickerHit::Ok),
+        );
+        self.picker_button(
+            at(pal, l.cancel_btn),
+            lang::tr(Msg::BtnCancel),
+            font,
+            dpi,
+            false,
+            true,
+            pressed(PickerHit::Cancel),
+        );
     }
 
     fn toolbar(&self, bar: Rect, dpi: u32, hover: Option<Action>, gdiplus: bool) {
@@ -2431,6 +3206,16 @@ impl Drop for StateGuard {
     }
 }
 
+/// Chép màu tự chọn của lớp phủ ra cho bên gọi khi `pick_region` kết thúc.
+struct CustomOut<'a>(&'a mut CustomColors);
+impl Drop for CustomOut<'_> {
+    fn drop(&mut self) {
+        if let Some(c) = with_state(|s| s.custom) {
+            *self.0 = c;
+        }
+    }
+}
+
 struct WindowGuard(HWND);
 impl Drop for WindowGuard {
     fn drop(&mut self) {
@@ -2504,8 +3289,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_LBUTTONUP => {
             let p = point_from_lparam(lp);
-            if let Some(fx) = with_state(|s| s.on_up(p)) {
-                if fx.release {
+            if let Some((fx, dragging)) = with_state(|s| (s.on_up(p), s.dragging())) {
+                // SAFETY: chỉ hỏi cửa sổ đang giữ chuột của luồng này.
+                let has_capture = unsafe { GetCapture() } == hwnd;
+                if should_release(fx.release, has_capture, dragging) {
                     // SAFETY: trả chuột sau khi kéo xong; WM_CAPTURECHANGED đến khi đã trả mượn.
                     unsafe {
                         let _ = ReleaseCapture();
@@ -2691,7 +3478,12 @@ impl Drop for EscHotkey {
 /// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh.
 /// `initial` (tọa độ ảnh): khung chọn sẵn, lớp phủ mở ở trạng thái đã chọn xong; khung không
 /// nằm trọn trong ảnh thì như `None`. `Ok(None)` khi người dùng hủy; `Err` khi không mở được.
-pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Picked>, String> {
+/// `custom`: 16 màu tự chọn; bảng màu sửa trực tiếp (thêm màu), giữ cả khi lớp phủ bị hủy.
+pub fn pick_region(
+    shot: &Screenshot,
+    initial: Option<Rect>,
+    custom: &mut CustomColors,
+) -> Result<Option<Picked>, String> {
     let img = &shot.image;
     let size = (i32::try_from(img.width), i32::try_from(img.height));
     let (Ok(w), Ok(h)) = size else {
@@ -2725,6 +3517,7 @@ pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Pi
         .collect();
     // SAFETY: DC bộ nhớ để đo chữ; State xóa nó khi drop.
     let measure = unsafe { CreateCompatibleDC(None) };
+    let color = LAST_COLOR.with(|c| c.get());
     let state = State {
         hwnd: HWND::default(),
         w,
@@ -2748,12 +3541,21 @@ pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Pi
         caret_on: false,
         high_surrogate: None,
         esc_registered: false,
-        color: LAST_COLOR.with(|c| c.get()),
+        color,
         stroke: None,
         side_hover: None,
         side_pressed: None,
         palette: false,
-        cell_pressed: None,
+        expanded: false,
+        custom: *custom,
+        pick: PickColor::from_rgb(color),
+        target: None,
+        field: None,
+        picker_pressed: None,
+        picker_drag: None,
+        spectra: Vec::new(),
+        lum_img: None,
+        eat_char: None,
         result: None,
         fonts: Vec::new(),
         measure,
@@ -2770,6 +3572,8 @@ pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Pi
         return Err(lang::tr(Msg::OverlayErrAlreadyOpen).to_string());
     }
     let _state = StateGuard;
+    // Thả trước _state: chép màu tự chọn ra cho bên gọi trên mọi đường đi.
+    let _custom = CustomOut(custom);
     let Some(hwnd) = create_window(shot.origin, w, h) else {
         return Err(lang::tr(Msg::OverlayErrWindow).to_string());
     };
@@ -2955,7 +3759,7 @@ mod tests {
                 }
                 false
             });
-            let r = pick_region(&shot, None);
+            let r = pick_region(&shot, None, &mut CustomColors::default());
             assert!(driver.join().unwrap(), "không thấy cửa sổ lớp phủ");
             r
         };
@@ -3002,6 +3806,30 @@ mod tests {
         let p = r.unwrap().unwrap();
         assert_eq!(p.shapes.len(), 2);
         assert!(p.shapes.iter().all(|s| matches!(s, Shape::Text { .. })));
+        // Vòng bảng chọn màu: mở dạng đủ, kéo ô sắc độ và thanh độ sáng, thêm màu, đóng bằng Esc.
+        let mut steps = live::click(l.item(6));
+        steps.extend(live::click(l.define()));
+        steps.extend(live::drag(
+            l.full_center(|p| p.spectrum),
+            l.full_center(|p| Rect {
+                x: p.spectrum.x + 10,
+                y: p.spectrum.y + 10,
+                w: 1,
+                h: 1,
+            }),
+        ));
+        steps.extend(live::drag(
+            l.full_center(|p| p.lum_bar),
+            l.full_center(|p| Rect { h: 1, ..p.lum_bar }),
+        ));
+        steps.extend(live::click(l.full_center(|p| p.add_btn)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.extend(live::click(l.save()));
+        let mut custom = CustomColors::default();
+        let (r, ok) = live::drive_custom(&shot, Some(sel), &mut custom, steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().action, Action::Save);
+        assert_eq!(custom.slots.iter().flatten().count(), 1);
         assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
@@ -3057,45 +3885,234 @@ mod tests {
     }
 
     #[test]
-    fn palette_hit_testing() {
-        let (cell, gap) = (20, 4);
-        let (w, h) = palette_size(cell, gap);
-        assert_eq!((w, h), (196, 148));
+    fn picker_hit_testing() {
+        let dpi = 144;
         let pal = Rect {
             x: 200,
             y: 300,
-            w,
-            h,
+            w: 0,
+            h: 0,
         };
-        for i in 0..48usize {
-            let (col, row) = ((i % 8) as i32, (i / 8) as i32);
-            let c = Point {
-                x: 200 + 4 + col * 24 + 10,
-                y: 300 + 4 + row * 24 + 10,
+        let center = |r: Rect| Point {
+            x: pal.x + r.x + r.w / 2,
+            y: pal.y + r.y + r.h / 2,
+        };
+        for expanded in [false, true] {
+            let l = picker_layout(dpi, expanded);
+            let pal = Rect {
+                w: l.size.0,
+                h: l.size.1,
+                ..pal
             };
-            assert_eq!(palette_cell_at(pal, cell, gap, c), Some(i), "ô {i}");
-            let r = palette_cell_rect(pal, cell, gap, i);
+            let hit = |p| picker_hit(&l, dpi, pal, p);
+            for (i, r) in l.basic.iter().enumerate() {
+                assert_eq!(hit(center(*r)), Some(PickerHit::Basic(i)), "ô {i}");
+            }
+            for (i, r) in l.custom.iter().enumerate() {
+                assert_eq!(hit(center(*r)), Some(PickerHit::Custom(i)), "ô {i}");
+            }
+            assert_eq!(hit(center(l.define_btn)), Some(PickerHit::Define));
+            // Khe giữa hai ô, lề, nhãn: trong bảng nhưng không trúng phần nào.
+            let gap = Point {
+                x: pal.x + l.basic[0].right() + 1,
+                y: center(l.basic[0]).y,
+            };
+            assert_eq!(hit(gap), Some(PickerHit::Panel));
+            assert_eq!(hit(center(l.basic_label)), Some(PickerHit::Panel));
+            assert_eq!(hit(Point { x: 201, y: 301 }), Some(PickerHit::Panel));
+            // Ngoài bảng.
+            assert_eq!(hit(Point { x: 199, y: 310 }), None);
             assert_eq!(
-                r,
-                Rect {
-                    x: c.x - 10,
-                    y: c.y - 10,
-                    w: 20,
-                    h: 20
-                }
+                hit(Point {
+                    x: pal.right(),
+                    y: 310
+                }),
+                None
             );
+            assert_eq!(
+                hit(Point {
+                    x: 210,
+                    y: pal.bottom()
+                }),
+                None
+            );
+            if !expanded {
+                continue;
+            }
+            assert_eq!(hit(center(l.spectrum)), Some(PickerHit::Spectrum));
+            assert_eq!(hit(center(l.lum_bar)), Some(PickerHit::Lum));
+            // Cột tam giác bên phải thanh cũng là thanh độ sáng.
+            let arrow = Point {
+                x: pal.x + l.lum_arrow_x + scaled(LUM_ARROW, dpi) / 2,
+                y: center(l.lum_bar).y,
+            };
+            assert_eq!(hit(arrow), Some(PickerHit::Lum));
+            for (i, (label, bx)) in l.fields.iter().enumerate() {
+                assert_eq!(hit(center(*bx)), Some(PickerHit::Field(i)), "ô số {i}");
+                assert_eq!(hit(center(*label)), Some(PickerHit::Panel), "nhãn {i}");
+            }
+            assert_eq!(hit(center(l.preview)), Some(PickerHit::Panel));
+            assert_eq!(hit(center(l.add_btn)), Some(PickerHit::Add));
+            assert_eq!(hit(center(l.ok_btn)), Some(PickerHit::Ok));
+            assert_eq!(hit(center(l.cancel_btn)), Some(PickerHit::Cancel));
         }
-        let at = |x, y| palette_cell_at(pal, cell, gap, Point { x, y });
-        // Ô 7 góc trên phải, ô 40 góc dưới trái, ô 47 góc dưới phải.
-        assert_eq!(at(200 + w - 4 - 10, 300 + 14), Some(7));
-        assert_eq!(at(200 + 14, 300 + h - 4 - 10), Some(40));
-        assert_eq!(at(200 + w - 14, 300 + h - 14), Some(47));
-        // Khe ngang, khe dọc, lề, ngoài bảng.
-        assert_eq!(at(200 + 4 + 20 + 2, 300 + 14), None);
-        assert_eq!(at(200 + 14, 300 + 4 + 20 + 2), None);
-        assert_eq!(at(201, 301), None);
-        assert_eq!(at(200 + w - 2, 300 + 14), None);
-        assert_eq!(at(199, 314), None);
+    }
+
+    #[test]
+    fn capture_released_when_nothing_drags() {
+        assert!(should_release(true, true, false));
+        assert!(should_release(true, false, false));
+        // Bảng đóng giữa lúc kéo: còn giữ chuột, không kéo gì -> trả.
+        assert!(should_release(false, true, false));
+        // Còn đang kéo (nét, vùng) -> giữ.
+        assert!(!should_release(false, true, true));
+        assert!(!should_release(false, false, false));
+    }
+
+    #[test]
+    fn field_edit_rules() {
+        let c = PickColor::from_rgb(Rgb(10, 20, 30));
+        assert_eq!(c.hls, rgb_to_hls(Rgb(10, 20, 30)));
+        for (i, v) in [(3, 10), (4, 20), (5, 30)] {
+            assert_eq!(field_value(c, i), v);
+        }
+        assert_eq!(field_value(c, 0), c.hls.h);
+        assert_eq!(field_value(c, 1), c.hls.s);
+        assert_eq!(field_value(c, 2), c.hls.l);
+        // Gõ 2, 5, 9 vào Red: kẹp 255 khi chốt; Hue/Sat/Lum theo rgb_to_hls.
+        let mut e = FieldEdit::new(3, c);
+        assert_eq!(e.text, "10");
+        for d in ['2', '5', '9'] {
+            e.digit(d);
+        }
+        assert_eq!(e.text, "259");
+        // Tối đa 3 chữ số.
+        e.digit('1');
+        assert_eq!(e.text, "259");
+        let red = e.commit(c);
+        assert_eq!(red.rgb, Rgb(255, 20, 30));
+        assert_eq!(red.hls, rgb_to_hls(Rgb(255, 20, 30)));
+        // Hue "300" -> 239; RGB theo hls_to_rgb.
+        let mut e = FieldEdit::new(0, c);
+        for d in ['3', '0', '0'] {
+            e.digit(d);
+        }
+        let hue = e.commit(c);
+        assert_eq!(hue.hls.h, 239);
+        assert_eq!((hue.hls.s, hue.hls.l), (c.hls.s, c.hls.l));
+        assert_eq!(hue.rgb, hls_to_rgb(hue.hls));
+        // Sat, Lum kẹp 240.
+        let mut e = FieldEdit::new(1, c);
+        for d in ['9', '9', '9'] {
+            e.digit(d);
+        }
+        assert_eq!(e.commit(c).hls.s, 240);
+        // Backspace: "25" -> "2" -> "20".
+        let mut e = FieldEdit::new(4, c);
+        e.digit('2');
+        e.digit('5');
+        e.backspace();
+        assert_eq!(e.text, "2");
+        e.digit('0');
+        assert_eq!(e.commit(c).rgb, Rgb(10, 20, 30));
+        let mut e = FieldEdit::new(4, c);
+        e.digit('2');
+        e.digit('5');
+        e.backspace();
+        e.digit('1');
+        assert_eq!(e.commit(c).rgb, Rgb(10, 21, 30));
+        // Backspace ngay khi mới chọn ô: bớt chữ số cuối của giá trị.
+        let mut e = FieldEdit::new(3, c);
+        e.backspace();
+        assert_eq!(e.text, "1");
+        assert_eq!(e.commit(c).rgb, Rgb(1, 20, 30));
+        // Xóa hết rồi chốt: giữ nguyên.
+        e.backspace();
+        assert_eq!(e.text, "");
+        assert_eq!(e.commit(c), c);
+        // Lên/xuống: tăng/giảm 1, kẹp biên, chữ hiện giá trị mới.
+        let mut e = FieldEdit::new(3, c);
+        let up = e.step(c, true);
+        assert_eq!(up.rgb, Rgb(11, 20, 30));
+        assert_eq!(e.text, "11");
+        let white = PickColor::from_rgb(Rgb(255, 255, 255));
+        let mut e = FieldEdit::new(3, white);
+        assert_eq!(e.step(white, true), white);
+        assert_eq!(e.text, "255");
+        let black = PickColor::from_rgb(Rgb(0, 0, 0));
+        let mut e = FieldEdit::new(5, black);
+        assert_eq!(e.step(black, false), black);
+        let top = PickColor::from_hls(Hls {
+            h: 239,
+            l: 240,
+            s: 0,
+        });
+        let mut e = FieldEdit::new(0, top);
+        assert_eq!(e.step(top, true).hls.h, 239);
+        let mut e = FieldEdit::new(2, top);
+        assert_eq!(e.step(top, true).hls.l, 240);
+        let mut e = FieldEdit::new(1, top);
+        assert_eq!(e.step(top, false).hls.s, 0);
+        // Lên chốt chữ đang gõ trước rồi mới tăng.
+        let mut e = FieldEdit::new(3, c);
+        e.digit('4');
+        e.digit('0');
+        assert_eq!(e.step(c, true).rgb, Rgb(41, 20, 30));
+        assert_eq!(e.text, "41");
+        // with_field: HLS tính lại RGB, RGB tính lại HLS.
+        let g = with_field(c, 5, 999);
+        assert_eq!(g.rgb, Rgb(10, 20, 255));
+        assert_eq!(g.hls, rgb_to_hls(g.rgb));
+        let l = with_field(c, 2, 200);
+        assert_eq!(l.hls, Hls { l: 200, ..c.hls });
+        assert_eq!(l.rgb, hls_to_rgb(l.hls));
+        assert_eq!(PickColor::from_hls(l.hls), l);
+    }
+
+    #[test]
+    fn picker_images() {
+        let (w, h) = (50, 40);
+        let sp = spectrum_image(w, h);
+        assert_eq!(sp.len(), (w * h * 4) as usize);
+        let px = |bits: &[u8], w: i32, x: i32, y: i32| {
+            let i = ((y * w + x) * 4) as usize;
+            Rgb(bits[i + 2], bits[i + 1], bits[i])
+        };
+        // Góc trên trái: Hue 0, Sat 240, Lum 120 = đỏ; hàng dưới cùng: xám Lum 120.
+        assert_eq!(px(&sp, w, 0, 0), Rgb(255, 0, 0));
+        let grey = hls_to_rgb(Hls { h: 0, l: 120, s: 0 });
+        assert_eq!(px(&sp, w, 0, h - 1), grey);
+        assert_eq!(px(&sp, w, w - 1, h - 1), grey);
+        let rect = Rect { x: 0, y: 0, w, h };
+        let (hh, ss) = spectrum_hs(rect, 30, 10);
+        assert_eq!(
+            px(&sp, w, 30, 10),
+            hls_to_rgb(Hls {
+                h: hh,
+                l: 120,
+                s: ss
+            })
+        );
+        // Thanh độ sáng: trên trắng, dưới đen, giữa theo lum_at.
+        let lum = lum_image(0, 240, 3, 60);
+        assert_eq!(lum.len(), 3 * 60 * 4);
+        assert_eq!(px(&lum, 3, 0, 0), Rgb(255, 255, 255));
+        assert_eq!(px(&lum, 3, 2, 59), Rgb(0, 0, 0));
+        let bar = Rect {
+            x: 0,
+            y: 0,
+            w: 3,
+            h: 60,
+        };
+        assert_eq!(
+            px(&lum, 3, 1, 25),
+            hls_to_rgb(Hls {
+                h: 0,
+                l: lum_at(bar, 25),
+                s: 240
+            })
+        );
+        assert!(spectrum_image(0, 10).is_empty());
     }
 
     #[test]
@@ -3170,6 +4187,8 @@ mod tests {
             Hotkey,
             /// Lớp phủ vẫn mở sau bước này.
             Alive,
+            /// Lớp phủ đang giữ chuột (`true`) hay không (đọc qua `GetGUIThreadInfo`).
+            Captured(bool),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -3187,7 +4206,9 @@ mod tests {
         pub struct Layout {
             pub bar: Rect,
             pub side: Rect,
+            /// Bảng màu dạng gọn và dạng đủ.
             pub palette: Rect,
+            pub full: Rect,
             pub dpi: u32,
         }
 
@@ -3204,10 +4225,32 @@ mod tests {
                 Self::center(side_item_rect(self.side, scaled(SIDE_SEP, self.dpi), i))
             }
 
-            /// Giữa ô màu thứ `i`.
+            /// Giữa ô màu cơ bản thứ `i` của bảng dạng gọn.
             pub fn cell(&self, i: usize) -> Point {
-                let (cell, gap) = (scaled(CELL, self.dpi), scaled(PAL_GAP, self.dpi));
-                Self::center(palette_cell_rect(self.palette, cell, gap, i))
+                Self::center(at(self.palette, picker_layout(self.dpi, false).basic[i]))
+            }
+
+            /// Bảng (gốc) và bố cục theo dạng.
+            pub fn picker(&self, expanded: bool) -> (Rect, PickerLayout) {
+                let pal = if expanded { self.full } else { self.palette };
+                (pal, picker_layout(self.dpi, expanded))
+            }
+
+            /// Ô `r` (tương đối) của bảng dạng gọn/đủ, tọa độ ảnh.
+            pub fn abs(&self, expanded: bool, r: Rect) -> Rect {
+                at(self.picker(expanded).0, r)
+            }
+
+            /// Giữa nút "Định nghĩa màu tự chọn >>" (dạng gọn).
+            pub fn define(&self) -> Point {
+                let (pal, l) = self.picker(false);
+                Self::center(at(pal, l.define_btn))
+            }
+
+            /// Giữa phần `f` của bố cục dạng đủ.
+            pub fn full_center(&self, f: impl Fn(&PickerLayout) -> Rect) -> Point {
+                let (pal, l) = self.picker(true);
+                Self::center(at(pal, f(&l)))
             }
 
             /// Giữa nút Lưu của thanh bốn nút.
@@ -3236,11 +4279,13 @@ mod tests {
             let mon = monitor_containing(corner, &shot.monitors);
             let dpi = dpi_of(shot, mon);
             let (bar, side) = bars_for(sel, mon, dpi);
-            let palette = palette_rect_for(side, sel, mon, dpi);
+            let palette = palette_rect_for(side, sel, mon, dpi, false);
+            let full = palette_rect_for(side, sel, mon, dpi, true);
             Layout {
                 bar,
                 side,
                 palette,
+                full,
                 dpi,
             }
         }
@@ -3266,6 +4311,16 @@ mod tests {
         pub fn drive(
             shot: &Screenshot,
             initial: Option<Rect>,
+            steps: Vec<Step>,
+        ) -> (Result<Option<Picked>, String>, bool) {
+            drive_custom(shot, initial, &mut CustomColors::default(), steps)
+        }
+
+        /// Như `drive`, với màu tự chọn `custom` (lớp phủ sửa trực tiếp).
+        pub fn drive_custom(
+            shot: &Screenshot,
+            initial: Option<Rect>,
+            custom: &mut CustomColors,
             steps: Vec<Step>,
         ) -> (Result<Option<Picked>, String>, bool) {
             let driver = std::thread::spawn(move || {
@@ -3313,6 +4368,10 @@ mod tests {
                             std::thread::sleep(Duration::from_millis(300));
                             ok &= alive();
                         }
+                        Step::Captured(want) => {
+                            std::thread::sleep(Duration::from_millis(300));
+                            ok &= captured(h) == want;
+                        }
                     }
                     std::thread::sleep(Duration::from_millis(40));
                 }
@@ -3325,9 +4384,23 @@ mod tests {
                 post(WM_CLOSE, 0, LPARAM(0));
                 false
             });
-            let r = pick_region(shot, initial);
+            let r = pick_region(shot, initial, custom);
             let ok = driver.join().unwrap();
             (r, ok)
+        }
+
+        /// Cửa sổ `h` đang giữ chuột của luồng của nó.
+        fn captured(h: HWND) -> bool {
+            use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO};
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            // SAFETY: chỉ đọc; info có cbSize đúng.
+            unsafe {
+                let tid = GetWindowThreadProcessId(h, None);
+                GetGUIThreadInfo(tid, &mut info).is_ok() && info.hwndCapture == h
+            }
         }
 
         /// Thử đăng ký Esc toàn cục ở luồng này; được thì gỡ ngay và trả `true`.
@@ -3804,5 +4877,218 @@ mod tests {
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
         assert_eq!(r, Ok(None));
+    }
+
+    /// Hai điểm trong vùng chọn thử để vẽ một đường.
+    fn line_points(sel: Rect) -> (Point, Point) {
+        (
+            Point {
+                x: sel.x + 40,
+                y: sel.y + 50,
+            },
+            Point {
+                x: sel.x + 210,
+                y: sel.y + 130,
+            },
+        )
+    }
+
+    /// Màu của hình Line duy nhất trong `shapes`.
+    fn line_color(shapes: &[Shape]) -> Rgb {
+        match shapes {
+            [Shape::Line { color, .. }] => *color,
+            other => panic!("không phải một Line: {other:?}"),
+        }
+    }
+
+    fn near(a: Rgb, b: Rgb, tol: u8) -> bool {
+        a.0.abs_diff(b.0) <= tol && a.1.abs_diff(b.1) <= tol && a.2.abs_diff(b.2) <= tol
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_compact_click_selects_and_closes --test-threads=1"]
+    fn picker_compact_click_selects_and_closes() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = line_points(sel);
+        let mut steps = live::click(l.item(6));
+        steps.extend(live::click(l.cell(5)));
+        steps.push(live::Step::Alive);
+        // Bảng đã đóng: phím L chọn công cụ, kéo vẽ được (bảng mở thì cú bấm chỉ đóng bảng).
+        steps.push(live::Step::Key(u16::from(b'L')));
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "lớp phủ phải còn sau khi chọn màu");
+        let p = r.unwrap().unwrap();
+        assert_eq!(line_color(&p.shapes), PALETTE[5]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_define_add_ok --test-threads=1"]
+    fn picker_define_add_ok() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = line_points(sel);
+        let full = picker_layout(l.dpi, true);
+        let sp = l.abs(true, full.spectrum);
+        let click_sp = Point {
+            x: sp.x + sp.w / 3,
+            y: sp.y + sp.h / 4,
+        };
+        let (h, s) = spectrum_hs(sp, click_sp.x, click_sp.y);
+        let bar = l.abs(true, full.lum_bar);
+        let lum_from = Point {
+            x: bar.x + bar.w / 2,
+            y: bar.y + bar.h / 2,
+        };
+        let lum_to = Point {
+            y: bar.y + bar.h / 3,
+            ..lum_from
+        };
+        let want = hls_to_rgb(Hls {
+            h,
+            l: lum_at(bar, lum_to.y),
+            s,
+        });
+        let mut steps = live::click(l.item(6));
+        steps.extend(live::click(l.define()));
+        steps.extend(live::click(click_sp));
+        steps.extend(live::drag(lum_from, lum_to));
+        steps.extend(live::click(l.full_center(|p| p.add_btn)));
+        steps.extend(live::click(l.full_center(|p| p.ok_btn)));
+        steps.push(live::Step::Key(u16::from(b'L')));
+        steps.extend(live::drag(a, b));
+        steps.extend(live::click(l.save()));
+        let mut custom = CustomColors::default();
+        let (r, ok) = live::drive_custom(&shot, Some(sel), &mut custom, steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.action, Action::Save);
+        let c = line_color(&p.shapes);
+        assert!(near(c, want, 2), "{c:?} khác {want:?}");
+        let added: Vec<Rgb> = custom.slots.iter().flatten().copied().collect();
+        assert_eq!(added, vec![c]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_cancel_keeps_custom --test-threads=1"]
+    fn picker_cancel_keeps_custom() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = line_points(sel);
+        let before = LAST_COLOR.with(|c| c.get());
+        let full = picker_layout(l.dpi, true);
+        let sp = l.abs(true, full.spectrum);
+        let click_sp = Point {
+            x: sp.x + sp.w * 2 / 3,
+            y: sp.y + sp.h / 5,
+        };
+        let (h, s) = spectrum_hs(sp, click_sp.x, click_sp.y);
+        let added_color = hls_to_rgb(Hls {
+            h,
+            l: rgb_to_hls(before).l,
+            s,
+        });
+        let mut steps = live::click(l.item(6));
+        steps.extend(live::click(l.define()));
+        steps.extend(live::click(click_sp));
+        steps.extend(live::click(l.full_center(|p| p.add_btn)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(u16::from(b'L')));
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let mut custom = CustomColors::default();
+        let (r, ok) = live::drive_custom(&shot, Some(sel), &mut custom, steps);
+        assert!(ok, "Esc phải chỉ đóng bảng");
+        assert_eq!(line_color(&r.unwrap().unwrap().shapes), before);
+        let added: Vec<Rgb> = custom.slots.iter().flatten().copied().collect();
+        assert_eq!(added, vec![added_color]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_typing_does_not_reach_tools --test-threads=1"]
+    fn picker_typing_does_not_reach_tools() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let before = LAST_COLOR.with(|c| c.get());
+        let red = l.full_center(|p| p.fields[3].1);
+        // Bảng mở, chưa sửa ô số: phím chữ không chọn công cụ.
+        let mut steps = live::click(l.item(6));
+        steps.push(live::Step::Key(u16::from(b'H')));
+        steps.extend(live::click(l.define()));
+        steps.extend(live::click(red));
+        // Đang sửa Red: phím công cụ bị nuốt, chữ số vào ô.
+        steps.push(live::Step::Key(u16::from(b'P')));
+        steps.push(live::Step::Char(u16::from(b'1')));
+        steps.push(live::Step::Key(u16::from(b'R')));
+        steps.push(live::Step::Char(u16::from(b'2')));
+        // Enter chốt ô, Enter lần nữa là OK.
+        steps.push(live::Step::Key(VK_RETURN.0));
+        steps.push(live::Step::Key(VK_RETURN.0));
+        steps.push(live::Step::Alive);
+        // Không công cụ nào được chọn: kéo trong vùng chỉ dời vùng, không vẽ.
+        steps.extend(live::drag(
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 150,
+                y: sel.y + 90,
+            },
+        ));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, Vec::new());
+        // Màu đã nhận Red = 12 (lần mở sau nhớ màu).
+        let (a, b) = line_points(sel);
+        let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(
+            line_color(&r.unwrap().unwrap().shapes),
+            Rgb(12, before.1, before.2)
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_close_while_dragging_releases_capture --test-threads=1"]
+    fn picker_close_while_dragging_releases_capture() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let from = l.full_center(|p| p.spectrum);
+        let to = l.full_center(|p| p.lum_bar);
+        for close in [VK_ESCAPE.0, VK_RETURN.0] {
+            let mut steps = live::click(l.item(6));
+            steps.extend(live::click(l.define()));
+            // Kéo trong ô sắc độ, đóng bảng giữa chừng, rồi nhả.
+            steps.push(live::Step::Down(from));
+            steps.push(live::Step::Move(to));
+            steps.push(live::Step::Captured(true));
+            steps.push(live::Step::Key(close));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Up(to));
+            steps.push(live::Step::Captured(false));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Key(VK_ESCAPE.0));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok, "phím {close:#x}: lớp phủ phải trả chuột sau khi nhả");
+            assert_eq!(r, Ok(None));
+        }
     }
 }

@@ -24,6 +24,7 @@ use app::{AppState, UploadJob};
 use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
+use darkshot_core::color::CustomColors;
 use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
@@ -219,6 +220,9 @@ thread_local! {
     static LAST_SELECTION: Cell<Option<Rect>> = const { Cell::new(None) };
     /// Lý do của yêu cầu mở Tùy chọn đang chờ (gộp bằng `merge_reason`); `run_settings` lấy ra.
     static OPEN_REASON: Cell<OpenReason> = const { Cell::new(OpenReason::User) };
+    /// Cấu hình trong bộ nhớ khớp file trên đĩa (đọc bình thường lúc khởi động, hoặc Tùy chọn đã
+    /// lưu thành công): chỉ khi đó màu tự chọn mới được ghi ra file.
+    static CONFIG_WRITABLE: Cell<bool> = const { Cell::new(false) };
     /// Menu khay đang hiện.
     static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
     /// Sổ các lượt tải lên đang chạy; luồng tải lên giữ bản sao `Arc`.
@@ -359,8 +363,14 @@ fn capture_flow(hwnd: HWND) {
                 None
             };
             with_app(|a| a.overlay_open = true);
-            let picked = overlay::pick_region(&shot, initial);
+            let before = with_app(|a| a.config.custom_colors).unwrap_or_default();
+            let mut custom = before;
+            let picked = overlay::pick_region(&shot, initial, &mut custom);
             with_app(|a| a.overlay_open = false);
+            if custom != before {
+                let write = CONFIG_WRITABLE.with(|w| w.get());
+                store_custom_colors(custom, custom_colors_need_save(&before, &custom, write));
+            }
             match picked {
                 Ok(Some(p)) => {
                     // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
@@ -407,6 +417,38 @@ fn capture_flow(hwnd: HWND) {
         return;
     };
     run_on_image(hwnd, action, image, notifier);
+}
+
+/// Có ghi file cấu hình sau khi lớp phủ đóng không: chỉ khi màu tự chọn đã đổi và cấu hình
+/// trong bộ nhớ khớp file (`config_ok`, xem `config_ok_at_start`). Cấu hình hỏng hoặc không đọc
+/// được thì không bao giờ ghi đè file (sẽ mất khóa R2 trong đó).
+pub fn custom_colors_need_save(
+    before: &CustomColors,
+    after: &CustomColors,
+    config_ok: bool,
+) -> bool {
+    config_ok && before != after
+}
+
+/// Cấu hình đọc lúc khởi động có khớp file không: chỉ khi file đã có (`file_existed`) và đọc
+/// bình thường, không thông báo nào (hỏng, không đọc được, hay mất khóa bí mật). Chưa có file
+/// thì không ghi, để lần chạy đầu không tạo file với R2 rỗng (mất việc tự mở Tùy chọn).
+pub fn config_ok_at_start(notice: Option<app::ConfigNotice>, file_existed: bool) -> bool {
+    file_existed && notice.is_none()
+}
+
+/// Cập nhật màu tự chọn trong cấu hình đang dùng; `write` thì ghi file bằng đúng đường lưu cấu
+/// hình của cửa sổ Tùy chọn (khóa R2 được mã hóa lại như khi lưu Tùy chọn). Ghi lỗi thì bỏ qua.
+fn store_custom_colors(custom: CustomColors, write: bool) {
+    let Some(cfg) = with_app(|a| {
+        a.config.custom_colors = custom;
+        a.config.clone()
+    }) else {
+        return;
+    };
+    if write {
+        let _ = darkshot_core::config::save(&paths::config_path(), &cfg, &DpapiStore);
+    }
 }
 
 /// Ảnh cắt theo `rect` (tọa độ ảnh chụp) có in các hình `shapes`; không hình thì đúng `crop`.
@@ -554,6 +596,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 help::close();
             }
             with_app(|a| a.config = new);
+            // File giờ khớp cấu hình trong bộ nhớ: từ đây màu tự chọn được ghi.
+            CONFIG_WRITABLE.with(|w| w.set(true));
         }
         Err(e) => {
             // Không ghi được: giữ cấu hình cũ và phím cũ (chỉ các dòng đang bật của cấu hình cũ).
@@ -863,13 +907,15 @@ fn main() {
         lang::os_default(),
     );
     lang::set(state.config.language);
-    let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
+    let config_existed = config_path.exists();
+    let open_settings_now = app::needs_settings_on_start(&state, config_existed);
     let keys = state.config.hotkeys;
     // Khóa Run theo đúng cấu hình darkshot: bỏ giá trị cũ, ghi lại đường dẫn exe hiện tại.
     // Cấu hình hỏng hoặc không đọc được thì không đụng khóa Run.
     if app::should_sync_autostart(state.config_notice) {
         migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
+    CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
 
@@ -905,6 +951,49 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn custom_colors_saved_only_when_changed() {
+        use app::ConfigNotice;
+        use darkshot_core::theme::Rgb;
+        let empty = CustomColors::default();
+        let mut added = CustomColors::default();
+        added.add(Rgb(1, 2, 3), None);
+        // Đổi + cấu hình ổn -> ghi.
+        assert!(custom_colors_need_save(&empty, &added, true));
+        let mut other = added;
+        other.add(Rgb(4, 5, 6), Some(0));
+        assert!(custom_colors_need_save(&added, &other, true));
+        // Đổi + cấu hình hỏng / không đọc được / mất khóa -> không ghi.
+        for n in [
+            ConfigNotice::Corrupt,
+            ConfigNotice::Unreadable,
+            ConfigNotice::SecretLost,
+        ] {
+            let ok = config_ok_at_start(Some(n), true);
+            assert!(!ok, "{n:?}");
+            assert!(!custom_colors_need_save(&empty, &added, ok));
+        }
+        assert!(config_ok_at_start(None, true));
+        // Chưa có file lúc khởi động -> không ghi.
+        assert!(!config_ok_at_start(None, false));
+        assert!(!custom_colors_need_save(
+            &empty,
+            &added,
+            config_ok_at_start(None, false)
+        ));
+        // Không đổi -> không ghi.
+        assert!(!custom_colors_need_save(
+            &empty,
+            &CustomColors::default(),
+            true
+        ));
+        assert!(!custom_colors_need_save(&added, &added.clone(), true));
+        // Ghi lại đúng màu đang có ở cùng ô: không đổi, không ghi.
+        let mut same = added;
+        same.add(Rgb(1, 2, 3), Some(0));
+        assert!(!custom_colors_need_save(&added, &same, true));
+    }
 
     #[test]
     fn annotated_capture_writes_marked_image() {
