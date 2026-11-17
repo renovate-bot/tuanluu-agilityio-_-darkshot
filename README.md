@@ -63,6 +63,7 @@ Tám nút từ trên xuống. Chú thích hiện khi rê chuột vào nút.
 | Mũi tên | `A` | Như đường thẳng, có đầu mũi tên ở điểm cuối. |
 | Hình chữ nhật | `R` | Kéo theo đường chéo, chỉ vẽ viền. |
 | Bút dạ quang | `H` | Nét 16 DIP, trong mờ. Chỗ nét tự chồng lên nhau không đậm thêm. |
+| Làm mờ | `B` | Tô kín vùng kéo bằng một màu trung bình của ảnh; không khôi phục được chữ bên dưới. |
 | Chữ | `T` | Bấm để đặt ô chữ rồi gõ. |
 | Màu | | Mở bảng màu. |
 | Hoàn tác | `Ctrl+Z` | Bỏ hình vẽ cuối cùng. Mờ khi chưa có gì để bỏ. |

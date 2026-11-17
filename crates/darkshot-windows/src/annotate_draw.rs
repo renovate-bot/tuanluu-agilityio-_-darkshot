@@ -2,8 +2,8 @@
 
 use crate::gdiplus::{GdiPlus, Gp};
 use darkshot_core::annotate::{
-    arrow_geometry, arrow_min_head, outline_color, Pt, Shape, TextEdit, MARKER_ALPHA, TEXT_DIP,
-    TEXT_OUTLINE_DIP,
+    arrow_geometry, arrow_min_head, blur_pixel_rect, outline_color, Pt, Shape, TextEdit,
+    MARKER_ALPHA, TEXT_DIP, TEXT_OUTLINE_DIP,
 };
 use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
@@ -20,16 +20,18 @@ use windows::Win32::Graphics::GdiPlus::{
     GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
     GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
     GdipDeleteStringFormat, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipDrawRectangle,
-    GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle, GdipGetEmHeight,
-    GdipGetLineSpacing, GdipGetPathWorldBounds, GdipMeasureString, GdipSetClipRectI,
-    GdipSetPathFillMode, GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin,
-    GdipSetPenStartCap, GdipSetStringFormatFlags, GdipSetTextRenderingHint,
-    GdipStringFormatGetGenericTypographic, GdipTranslateWorldTransform, GdipWidenPath, GpBrush,
-    GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpSolidFill, GpStringFormat, LineCap,
-    LineCapFlat, LineCapRound, LineCapSquare, LineJoin, LineJoinMiter, LineJoinRound,
-    MatrixOrderPrepend, PointF, RectF, Status, StringFormatFlagsLineLimit,
-    StringFormatFlagsMeasureTrailingSpaces, StringFormatFlagsNoClip,
-    StringFormatFlagsNoFitBlackBox, StringFormatFlagsNoWrap, TextRenderingHintAntiAlias, UnitPixel,
+    GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle, GdipFillRectangleI,
+    GdipGetEmHeight, GdipGetLineSpacing, GdipGetPathWorldBounds, GdipGetPixelOffsetMode,
+    GdipGetSmoothingMode, GdipMeasureString, GdipSetClipRectI, GdipSetPathFillMode,
+    GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin, GdipSetPenStartCap,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipSetStringFormatFlags,
+    GdipSetTextRenderingHint, GdipStringFormatGetGenericTypographic, GdipTranslateWorldTransform,
+    GdipWidenPath, GpBrush, GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpSolidFill,
+    GpStringFormat, LineCap, LineCapFlat, LineCapRound, LineCapSquare, LineJoin, LineJoinMiter,
+    LineJoinRound, MatrixOrderPrepend, PixelOffsetModeHalf, PointF, RectF, SmoothingModeAntiAlias,
+    SmoothingModeNone, Status, StringFormatFlagsLineLimit, StringFormatFlagsMeasureTrailingSpaces,
+    StringFormatFlagsNoClip, StringFormatFlagsNoFitBlackBox, StringFormatFlagsNoWrap,
+    TextRenderingHintAntiAlias, UnitPixel,
 };
 
 /// Độ phẳng khi đổi đường cong thành đoạn thẳng cho `GdipWidenPath` (mặc định của GDI+).
@@ -430,9 +432,30 @@ fn draw_marker(g: *mut GpGraphics, points: &[Pt], width: f32, color: Rgb) -> boo
 }
 
 /// Vùng che: tô đặc `blur_pixel_rect(a, b)` bằng `color`, alpha 255, không khử răng cưa.
+/// Lõi đục phủ đúng các điểm ảnh của hình chữ nhật: tắt khử răng cưa, lệch nửa pixel (tâm điểm ảnh
+/// i ở i + 0,5 nên hình [x, x + w) phủ trọn đúng w điểm ảnh), rồi trả lại chế độ cũ.
 fn draw_blur(g: *mut GpGraphics, a: Pt, b: Pt, color: Rgb) -> bool {
-    let _ = (g, a, b, color);
-    todo!()
+    let r = blur_pixel_rect(a, b);
+    if r.w <= 0 || r.h <= 0 {
+        return true;
+    }
+    let Some(brush) = Brush::new(argb(color, 255)) else {
+        return false;
+    };
+    let mut smooth = SmoothingModeAntiAlias;
+    let mut offset = PixelOffsetModeHalf;
+    // SAFETY: g và chổi hợp lệ; hai con trỏ ra trỏ tới biến cục bộ.
+    unsafe {
+        let saved =
+            ok(GdipGetSmoothingMode(g, &mut smooth)) && ok(GdipGetPixelOffsetMode(g, &mut offset));
+        let drawn = saved
+            && ok(GdipSetSmoothingMode(g, SmoothingModeNone))
+            && ok(GdipSetPixelOffsetMode(g, PixelOffsetModeHalf))
+            && ok(GdipFillRectangleI(g, brush.raw(), r.x, r.y, r.w, r.h));
+        // Trả chế độ cũ trên mọi đường đi để các hình sau không bị ảnh hưởng.
+        let restored = ok(GdipSetSmoothingMode(g, smooth)) && ok(GdipSetPixelOffsetMode(g, offset));
+        drawn && restored
+    }
 }
 
 fn draw_text(

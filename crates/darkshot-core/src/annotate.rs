@@ -216,8 +216,15 @@ impl Shape {
 
 /// Hình chữ nhật điểm ảnh của vùng che: min làm tròn xuống (floor), max làm tròn lên (ceil).
 pub fn blur_pixel_rect(a: Pt, b: Pt) -> Rect {
-    let _ = (a, b);
-    todo!()
+    // `as i32` bão hòa (NaN thành 0), không panic.
+    let (x0, y0) = (a.x.min(b.x).floor() as i32, a.y.min(b.y).floor() as i32);
+    let (x1, y1) = (a.x.max(b.x).ceil() as i32, a.y.max(b.y).ceil() as i32);
+    Rect {
+        x: x0,
+        y: y0,
+        w: x1.saturating_sub(x0).max(0),
+        h: y1.saturating_sub(y0).max(0),
+    }
 }
 
 /// Số mẫu tối đa khi tính màu che.
@@ -225,16 +232,60 @@ pub const REDACT_MAX_SAMPLES: u64 = 65_536;
 
 /// Bước lưới mẫu cho vùng w×h: số nguyên nhỏ nhất s ≥ 1 sao cho ceil(w/s)·ceil(h/s) ≤ REDACT_MAX_SAMPLES.
 pub fn redact_step(w: i32, h: i32) -> i32 {
-    let _ = (w, h);
-    todo!()
+    let (w, h) = (w.max(0) as u64, h.max(0) as u64);
+    let fits = |s: u64| w.div_ceil(s) * h.div_ceil(s) <= REDACT_MAX_SAMPLES;
+    // Số mẫu không tăng khi s tăng; s = max(w, h, 1) cho tối đa 1 mẫu: tìm nhị phân.
+    let (mut lo, mut hi) = (1u64, w.max(h).max(1));
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if fits(mid) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    i32::try_from(lo).unwrap_or(i32::MAX)
 }
 
 /// Trung bình cộng B, G, R (làm tròn gần nhất) của các điểm ảnh (x, y) với
 /// x = r'.x + i·s, y = r'.y + j·s nằm trong r', trong đó r' = r ∩ ảnh và s = redact_step(r'.w, r'.h).
 /// None khi r' rỗng hoặc ảnh không hợp lệ.
 pub fn redact_color(img: &Image, r: Rect) -> Option<Rgb> {
-    let _ = (img, r);
-    todo!()
+    if !img.is_valid() {
+        return None;
+    }
+    let x0 = i64::from(r.x).max(0);
+    let y0 = i64::from(r.y).max(0);
+    let x1 = (i64::from(r.x) + i64::from(r.w)).min(i64::from(img.width));
+    let y1 = (i64::from(r.y) + i64::from(r.h)).min(i64::from(img.height));
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    // Ảnh hợp lệ nên các cạnh vừa usize; vùng đã cắt vào ảnh.
+    let (x0, y0, x1, y1) = (x0 as usize, y0 as usize, x1 as usize, y1 as usize);
+    let s = redact_step(
+        i32::try_from(x1 - x0).unwrap_or(i32::MAX),
+        i32::try_from(y1 - y0).unwrap_or(i32::MAX),
+    )
+    .max(1) as usize;
+    let stride = img.width as usize * 4;
+    let (mut sum, mut n) = ([0u64; 3], 0u64);
+    for y in (y0..y1).step_by(s) {
+        let row = img.bgra.get(y * stride..(y + 1) * stride)?;
+        for x in (x0..x1).step_by(s) {
+            let px = row.get(x * 4..x * 4 + 3)?;
+            for (acc, v) in sum.iter_mut().zip(px) {
+                *acc += u64::from(*v);
+            }
+            n += 1;
+        }
+    }
+    if n == 0 {
+        return None;
+    }
+    let avg = |v: u64| ((v + n / 2) / n).min(255) as u8;
+    // BGRA: sum[0] = B, sum[1] = G, sum[2] = R.
+    Some(Rgb(avg(sum[2]), avg(sum[1]), avg(sum[0])))
 }
 
 /// `dip * dpi / 96`.

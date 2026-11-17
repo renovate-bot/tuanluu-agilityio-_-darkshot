@@ -166,24 +166,25 @@ impl SideItem {
 }
 
 /// Thứ tự trên thanh dọc; vạch ngăn nằm trước Màu và trước Hoàn tác.
-const SIDE_ITEMS: [SideItem; 8] = [
+const SIDE_ITEMS: [SideItem; 9] = [
     SideItem::Tool(Tool::Pen),
     SideItem::Tool(Tool::Line),
     SideItem::Tool(Tool::Arrow),
     SideItem::Tool(Tool::Rect),
     SideItem::Tool(Tool::Marker),
+    SideItem::Tool(Tool::Blur),
     SideItem::Tool(Tool::Text),
     SideItem::Color,
     SideItem::Undo,
 ];
 /// Chỉ số của nút Màu trong `SIDE_ITEMS`.
-const COLOR_INDEX: usize = 6;
+const COLOR_INDEX: usize = 7;
 
 /// Số vạch ngăn nằm phía trên mục thứ `i`.
 fn seps_before(i: usize) -> i32 {
     match i {
-        0..=5 => 0,
-        6 => 1,
+        0..=6 => 0,
+        7 => 1,
         _ => 2,
     }
 }
@@ -540,14 +541,18 @@ const BLUR_FALLBACK: Rgb = Rgb(128, 128, 128);
 
 /// Màu của điểm ảnh chứa `p` trong ảnh `img`; `None` khi ngoài ảnh.
 fn pixel_color(img: &Image, p: Pt) -> Option<Rgb> {
-    let _ = (img, p);
-    todo!()
+    let px = Rect {
+        x: p.x.floor() as i32,
+        y: p.y.floor() as i32,
+        w: 1,
+        h: 1,
+    };
+    redact_color(img, px)
 }
 
 /// Màu che cho vùng `a`–`b` tính trên ảnh chụp gốc `img`; `old` khi vùng nằm ngoài ảnh.
 fn blur_color(img: &Image, a: Pt, b: Pt, old: Rgb) -> Rgb {
-    let _ = (img, a, b, old);
-    todo!()
+    redact_color(img, blur_pixel_rect(a, b)).unwrap_or(old)
 }
 
 /// Bắt đầu nét tại `p` với độ dày theo `dpi` của màn hình chứa `p`; `None` với Chữ.
