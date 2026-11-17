@@ -16,8 +16,8 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
     LoadImageW, PostMessageW, SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION,
-    IMAGE_ICON, LR_SHARED, MF_STRING, SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, WM_APP, WM_NULL,
+    IMAGE_ICON, LR_SHARED, MF_SEPARATOR, MF_STRING, SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
 };
 
 /// Thông điệp riêng của biểu tượng khay.
@@ -31,9 +31,11 @@ const ID_OPTIONS: usize = 2;
 const ID_ABOUT: usize = 3;
 const ID_HELP: usize = 4;
 const ID_QUIT: usize = 5;
+const ID_UPDATE: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
+    OpenUpdate,
     Capture,
     Options,
     About,
@@ -55,6 +57,8 @@ pub struct Tray {
     added: Cell<bool>,
     /// Thông báo đến lúc biểu tượng chưa có.
     pending: RefCell<VecDeque<Notice>>,
+    /// Bong bóng gần nhất là thông báo có bản mới (bấm vào thì mở trang tải về).
+    update_notice: Cell<bool>,
 }
 
 fn hwnd_from(v: isize) -> HWND {
@@ -111,6 +115,7 @@ impl Tray {
             icon,
             added: Cell::new(false),
             pending: RefCell::new(VecDeque::new()),
+            update_notice: Cell::new(false),
         };
         // Explorer có thể chưa sẵn sàng (tự khởi động cùng Windows): không phải lỗi chết.
         tray.try_add();
@@ -142,8 +147,8 @@ impl Tray {
         ok
     }
 
-    /// Hiện menu tại con trỏ chuột và trả về mục được chọn.
-    pub fn show_menu(&self) -> Option<MenuCommand> {
+    /// Hiện menu tại con trỏ chuột và trả về mục được chọn. `update` là chữ của mục "Có bản mới".
+    pub fn show_menu(&self, update: Option<&str>) -> Option<MenuCommand> {
         // SAFETY: menu được tạo và hủy trong hàm này; hwnd thuộc luồng gọi.
         unsafe {
             let menu = CreatePopupMenu().ok()?;
@@ -152,11 +157,32 @@ impl Tray {
             let about = HSTRING::from(lang::tr(Msg::TrayAbout));
             let help = HSTRING::from(lang::tr(Msg::TrayHelp));
             let exit = HSTRING::from(lang::tr(Msg::TrayExit));
-            let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
-            let _ = AppendMenuW(menu, MF_STRING, ID_OPTIONS, &options);
-            let _ = AppendMenuW(menu, MF_STRING, ID_ABOUT, &about);
-            let _ = AppendMenuW(menu, MF_STRING, ID_HELP, &help);
-            let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, &exit);
+            let update_text = HSTRING::from(update.unwrap_or_default());
+            for entry in menu_layout(update.is_some()) {
+                match entry {
+                    MenuEntry::Separator => {
+                        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                    }
+                    MenuEntry::Item(MenuCommand::OpenUpdate) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_UPDATE, &update_text);
+                    }
+                    MenuEntry::Item(MenuCommand::Capture) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
+                    }
+                    MenuEntry::Item(MenuCommand::Options) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_OPTIONS, &options);
+                    }
+                    MenuEntry::Item(MenuCommand::About) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_ABOUT, &about);
+                    }
+                    MenuEntry::Item(MenuCommand::Help) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_HELP, &help);
+                    }
+                    MenuEntry::Item(MenuCommand::Quit) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, &exit);
+                    }
+                }
+            }
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             // Cần để menu đóng khi bấm ra ngoài.
@@ -173,6 +199,7 @@ impl Tray {
             let _ = PostMessageW(Some(self.hwnd), WM_NULL, WPARAM(0), LPARAM(0));
             let _ = DestroyMenu(menu);
             match cmd.0 as usize {
+                ID_UPDATE => Some(MenuCommand::OpenUpdate),
                 ID_CAPTURE => Some(MenuCommand::Capture),
                 ID_OPTIONS => Some(MenuCommand::Options),
                 ID_ABOUT => Some(MenuCommand::About),
@@ -198,6 +225,23 @@ impl Tray {
     /// Hiện bong bóng thông báo. Chỉ gọi ở luồng chính.
     /// Chưa có biểu tượng thì xếp vào hàng đợi, hiện khi biểu tượng được thêm.
     pub fn show_notice(&self, n: &Notice) {
+        self.update_notice.set(false);
+        self.display(n);
+    }
+
+    /// Hiện thông báo có bản mới và nhớ rằng bong bóng này mở trang tải về khi được bấm.
+    /// Biểu tượng chưa có thì thông báo xếp hàng và không mở link (nó có thể bị thay trước khi hiện).
+    pub fn show_update_notice(&self, n: &Notice) {
+        self.display(n);
+        self.update_notice.set(self.added.get());
+    }
+
+    /// Thông báo khay gần nhất là thông báo có bản mới.
+    pub fn is_update_notice(&self) -> bool {
+        self.update_notice.get()
+    }
+
+    fn display(&self, n: &Notice) {
         if !self.added.get() {
             enqueue_notice(&mut self.pending.borrow_mut(), n.clone());
             return;
@@ -261,6 +305,33 @@ impl Notifier for TrayNotifier {
             drop(unsafe { Box::from_raw(raw) });
         }
     }
+}
+
+/// Một dòng của menu khay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuEntry {
+    Item(MenuCommand),
+    Separator,
+}
+
+/// Các dòng của menu khay theo thứ tự; có bản mới thì mục cập nhật và vạch ngăn đứng đầu.
+pub fn menu_layout(has_update: bool) -> Vec<MenuEntry> {
+    let mut v = Vec::new();
+    if has_update {
+        v.push(MenuEntry::Item(MenuCommand::OpenUpdate));
+        v.push(MenuEntry::Separator);
+    }
+    v.extend(
+        [
+            MenuCommand::Capture,
+            MenuCommand::Options,
+            MenuCommand::About,
+            MenuCommand::Help,
+            MenuCommand::Quit,
+        ]
+        .map(MenuEntry::Item),
+    );
+    v
 }
 
 /// Số thông báo giữ lại tối đa trong lúc biểu tượng khay chưa có.
@@ -346,6 +417,34 @@ mod tests {
         assert!(blue(16, m) < 0x60, "giữa cạnh trên bị tô màu nhấn");
         assert!(blue(m, 16) < 0x60, "giữa cạnh trái bị tô màu nhấn");
         assert!(blue(m, m) > 200, "góc trên trái phải là nét màu nhấn");
+    }
+
+    #[test]
+    fn menu_layout_puts_update_first_with_separator() {
+        use MenuCommand::*;
+        use MenuEntry::*;
+        assert_eq!(
+            menu_layout(true),
+            vec![
+                Item(OpenUpdate),
+                Separator,
+                Item(Capture),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        assert_eq!(
+            menu_layout(false),
+            vec![
+                Item(Capture),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
     }
 
     #[test]

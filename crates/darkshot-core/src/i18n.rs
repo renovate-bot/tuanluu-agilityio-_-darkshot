@@ -235,6 +235,8 @@ messages! {
         "Hiện các thông báo lưu và sao chép",
         "Show save and copy notifications"
     ),
+    ChkCheckUpdates => ("Tự kiểm tra bản mới", "Check for updates automatically"),
+    UpdateNoticeTitle => ("Có bản darkshot mới", "darkshot update available"),
     ChkKeepSelection => ("Giữ vị trí vùng đã chọn", "Remember the selected region's position"),
     ChkIncludeCursor => (
         "Bao gồm con trỏ chuột vào ảnh chụp màn hình",
@@ -606,6 +608,22 @@ pub fn about_version(lang: Lang, version: &str) -> String {
     }
 }
 
+/// "Có bản mới 0.3.0" | "New version 0.3.0 available" (mục menu khay).
+pub fn update_menu(lang: Lang, v: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Có bản mới {v}"),
+        Lang::En => format!("New version {v} available"),
+    }
+}
+
+/// Nội dung thông báo có bản mới.
+pub fn update_notice_body(lang: Lang, v: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Bản {v} đã có. Bấm để mở trang tải về."),
+        Lang::En => format!("Version {v} is available. Click to open the download page."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,6 +642,33 @@ mod tests {
         for m in Msg::ALL {
             assert_ne!(t(Lang::Vi, *m), t(Lang::En, *m), "{m:?}");
         }
+    }
+
+    #[test]
+    fn update_texts() {
+        assert_eq!(update_menu(Lang::Vi, "0.3.0"), "Có bản mới 0.3.0");
+        assert_eq!(
+            update_menu(Lang::En, "0.3.0"),
+            "New version 0.3.0 available"
+        );
+        assert_eq!(
+            update_notice_body(Lang::Vi, "0.3.0"),
+            "Bản 0.3.0 đã có. Bấm để mở trang tải về."
+        );
+        assert_eq!(
+            update_notice_body(Lang::En, "0.3.0"),
+            "Version 0.3.0 is available. Click to open the download page."
+        );
+        assert_eq!(t(Lang::Vi, Msg::ChkCheckUpdates), "Tự kiểm tra bản mới");
+        assert_eq!(
+            t(Lang::En, Msg::ChkCheckUpdates),
+            "Check for updates automatically"
+        );
+        assert_eq!(t(Lang::Vi, Msg::UpdateNoticeTitle), "Có bản darkshot mới");
+        assert_eq!(
+            t(Lang::En, Msg::UpdateNoticeTitle),
+            "darkshot update available"
+        );
     }
 
     #[test]

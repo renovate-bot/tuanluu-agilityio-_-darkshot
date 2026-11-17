@@ -6,6 +6,7 @@ use darkshot_core::config::{Config, ConfigError, SecretStore, UploadFormat, JPEG
 use darkshot_core::i18n::{t, Lang, Msg};
 use darkshot_core::image::Image;
 use darkshot_core::naming::LocalTime;
+use darkshot_core::update::Release;
 use darkshot_core::upload::Uploader;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -33,6 +34,8 @@ pub struct AppState {
     pub config: Config,
     pub config_notice: Option<ConfigNotice>,
     pub overlay_open: bool,
+    /// Bản mới nhất đã tìm thấy (mới hơn bản đang chạy); menu khay đọc giá trị này.
+    pub update: Option<Release>,
 }
 
 /// Đọc cấu hình lúc khởi động. Không bao giờ ghi file.
@@ -54,6 +57,7 @@ pub fn startup(
         config,
         config_notice,
         overlay_open: false,
+        update: None,
     }
 }
 

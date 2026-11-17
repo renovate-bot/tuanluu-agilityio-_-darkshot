@@ -299,6 +299,10 @@ impl Uploader for R2Uploader {
     }
 }
 
+/// Dùng chung với kiểm thử của `update`: không ai bind cổng 0 khi một kiểm thử đang giữ cổng vừa nhả.
+#[cfg(test)]
+pub(crate) static PORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,8 +383,6 @@ mod tests {
             body,
         })
     }
-
-    static PORT_LOCK: Mutex<()> = Mutex::new(());
 
     /// Mock server: replies with `responses` in order (200 empty when exhausted).
     /// If `stall` is set it accepts connections and never answers.

@@ -131,7 +131,7 @@ Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạ
 
 Cửa sổ Tùy chọn có bốn tab:
 
-- **Thông thường:** **Khởi động cùng Windows**, ba ô tích **Hiện các thông báo lưu và sao chép**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
+- **Thông thường:** **Khởi động cùng Windows**, bốn ô tích **Hiện các thông báo lưu và sao chép**, **Tự kiểm tra bản mới**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
 - **Phím tắt:** ba dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
 - **Định dạng:** hai nút chọn **PNG** (mặc định) và **JPEG**, thanh trượt **Chất lượng JPEG** từ 50 đến 100 (mặc định 90). Thanh trượt và số mờ khi chọn PNG. Chỉ áp dụng cho ảnh tải lên; ảnh lưu vào máy luôn là PNG. JPEG vẫn là nén có mất mát, kể cả ở mức 100.
 - **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
@@ -303,18 +303,26 @@ Nếu `PrintScreen` không mở được lớp phủ, một ứng dụng khác �
 
 Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của darkshot (tab Phím tắt) sang tổ hợp khác, ví dụ `Ctrl+Shift+S`. Bỏ tích dòng "Chụp vùng màn hình" cũng trả `PrintScreen` về cho Windows; menu khay vẫn chụp được.
 
+## Cập nhật
+
+- Ứng dụng tự hỏi GitHub xem có bản mới không: một lần sau khoảng 1 phút kể từ khi khởi động, rồi mỗi 24 giờ trong lúc còn chạy. Việc này chạy ở luồng nền, không làm đứng giao diện.
+- Mỗi lần hỏi chỉ gửi tên và phiên bản ứng dụng (`User-Agent: darkshot/<phiên bản>`) tới `https://api.github.com/repos/tuanluu-agilityio/darkshot/releases/latest`. Không gửi khóa, ảnh hay cấu hình. Không có mạng, hết thời gian hoặc kết quả lạ thì im lặng, đợi lần sau.
+- Có bản mới hơn: menu khay có mục **Có bản mới X.Y.Z** ở trên cùng; mỗi phiên bản được báo một lần bằng thông báo khay. Bấm mục hoặc thông báo thì mở trang release trên GitHub bằng trình duyệt mặc định. Ứng dụng không tự tải hay tự thay file.
+- Tắt bằng ô **Tự kiểm tra bản mới** (tab Thông thường của Tùy chọn). Tắt thì không gửi yêu cầu nào và mục menu biến mất. Repo riêng tư thì GitHub trả 404 và ứng dụng coi như không có bản mới.
+- Cách cập nhật: tải `darkshot.exe` mới ở trang release, thoát darkshot ở khay (menu **Thoát**), rồi thay file `darkshot.exe` cũ bằng file mới và chạy lại. Cấu hình ở `%APPDATA%\darkshot` được giữ nguyên.
+
 ## Bảo mật
 
 - Cấu hình nằm ở `%APPDATA%\darkshot\config.json`.
 - **Secret Access Key** được mã hóa bằng DPAPI của Windows, gắn với tài khoản Windows hiện tại, trước khi ghi vào file. Các mục khác ghi dạng văn bản thường. Nếu chép file sang tài khoản Windows khác thì khóa không đọc được, và Tùy chọn sẽ yêu cầu nhập lại.
 - Ứng dụng tải ảnh thẳng lên địa chỉ S3 của R2 qua HTTPS, yêu cầu được ký theo AWS Signature V4. Không có máy chủ trung gian.
-- Ứng dụng chỉ mở kết nối đến hai địa chỉ: `https://{Account ID}.r2.cloudflarestorage.com` và địa chỉ công khai của kho do bạn nhập. Tên miền của hai địa chỉ này vẫn được hỏi qua máy chủ DNS mà Windows đang dùng, nên máy chủ DNS đó thấy được tên miền.
+- Ứng dụng chỉ mở kết nối đến ba địa chỉ: `https://{Account ID}.r2.cloudflarestorage.com`, địa chỉ công khai của kho do bạn nhập, và `https://api.github.com` (chỉ khi ô **Tự kiểm tra bản mới** đang bật, xem mục "Cập nhật"). Tên miền của các địa chỉ này vẫn được hỏi qua máy chủ DNS mà Windows đang dùng, nên máy chủ DNS đó thấy được tên miền.
 - Ảnh và link do darkshot chép vào clipboard được đánh dấu bằng các định dạng `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` = 0 và `CanUploadToCloudClipboard` = 0 theo tài liệu của Microsoft, để Windows không đưa chúng vào lịch sử clipboard (`Win+V`) và không đồng bộ sang thiết bị khác. Đây là quy ước của Windows; trình quản lý clipboard của hãng khác có thể không tuân theo.
 - Lúc khởi động, darkshot tự loại mình khỏi Báo cáo lỗi của Windows (WER) cho tài khoản hiện tại, để khi ứng dụng sự cố Windows không gửi bản kết xuất bộ nhớ đi. Việc này ghi một giá trị DWORD `darkshot.exe` = 1 vào `HKEY_CURRENT_USER\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications`. Muốn gỡ, xóa giá trị đó (ví dụ `reg delete "HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications" /v darkshot.exe /f`). Chính sách WER do quản trị viên đặt cho cả máy vẫn có thể ghi đè. Việc loại trừ có hiệu lực từ sau lần darkshot khởi động đầu tiên, và chưa được thử bằng một sự cố thật.
 - Nếu bạn chọn Thoát (hoặc tắt máy, đăng xuất) lúc một lượt tải lên còn chạy, ảnh của lượt đó được lưu PNG vào thư mục lưu trước khi thoát. Có thể ảnh vừa được lưu vừa đã lên kho.
 - HTTPS dùng thư viện `rustls` với danh sách chứng chỉ gốc đóng kèm trong file, không dùng bộ chứng chỉ của Windows.
-- Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng.
-- Ứng dụng không ghi log ra file. Không gửi thống kê, không kiểm tra cập nhật.
+- Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng. Ứng dụng chỉ mở trình duyệt khi bạn bấm mục hoặc thông báo "Có bản mới", và chỉ tới trang release của repo darkshot trên GitHub.
+- Ứng dụng không ghi log ra file. Không gửi thống kê. Việc kiểm tra bản mới chỉ gửi tên và phiên bản ứng dụng (xem mục "Cập nhật") và tắt được.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.
 - **Ứng dụng không xóa được ảnh chụp đã tải lên.** (Nó chỉ xóa file thử của nút Kiểm tra kết nối.) Muốn xóa, vào trang Cloudflare R2, mở bucket và xóa đối tượng đó.

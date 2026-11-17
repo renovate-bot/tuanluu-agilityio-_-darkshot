@@ -28,6 +28,7 @@ use darkshot_core::color::CustomColors;
 use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
+use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
 use darkshot_core::upload::{R2Uploader, Uploader};
 use secret::DpapiStore;
 use settings::OpenReason;
@@ -36,18 +37,22 @@ use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::Arc;
 use tray::{MenuCommand, Notice, Tray, WM_NOTICE, WM_TRAY};
-use windows::core::w;
+use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM,
 };
+use windows::Win32::System::Com::{
+    CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::Shell::{ShellExecuteW, NIN_BALLOONUSERCLICK};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EndMenu, GetMessageW,
     KillTimer, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetTimer,
-    TranslateMessage, CW_USEDEFAULT, MSG, WM_APP, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY,
-    WM_LBUTTONUP, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
-    WS_OVERLAPPED,
+    TranslateMessage, CW_USEDEFAULT, MSG, SW_SHOWNORMAL, WM_APP, WM_DESTROY, WM_ENDSESSION,
+    WM_HOTKEY, WM_LBUTTONUP, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+    WS_EX_TOOLWINDOW, WS_OVERLAPPED,
 };
 
 /// Sự kiện nội bộ; Task 11 mở rộng.
@@ -225,8 +230,144 @@ thread_local! {
     static CONFIG_WRITABLE: Cell<bool> = const { Cell::new(false) };
     /// Menu khay đang hiện.
     static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
+    /// Một lần kiểm tra bản mới đang chạy ở luồng nền.
+    static UPDATE_CHECKING: Cell<bool> = const { Cell::new(false) };
     /// Sổ các lượt tải lên đang chạy; luồng tải lên giữ bản sao `Arc`.
     static PENDING: Arc<app::PendingUploads> = Arc::new(app::PendingUploads::new());
+}
+
+/// Luật hiển thị khi kiểm tra bản mới xong: (hiện mục menu, hiện thông báo).
+/// Có bản mới thì luôn hiện mục menu; chỉ thông báo khi chưa báo đúng bản đó.
+pub fn update_outcome(found: Option<&Release>, notified: Option<Version>) -> (bool, bool) {
+    match found {
+        None => (false, false),
+        Some(r) => (true, notified != Some(r.version)),
+    }
+}
+
+/// Mục "Có bản mới" sau một lần kiểm tra: lỗi hoặc không có bản mới (`None`) không xóa mục đã
+/// hiện (lỗi mạng ở lần kiểm tra sau không được làm mất nó); chỉ có bản mới thì ghi đè.
+pub fn update_after_check(current: Option<Release>, found: Option<Release>) -> Option<Release> {
+    found.or(current)
+}
+
+/// Mở trang tải về bằng trình duyệt mặc định. Chỉ mở link thuộc repo darkshot; lỗi thì bỏ qua.
+fn open_release_url(url: &str) {
+    if !url.starts_with(RELEASE_URL_PREFIX) {
+        return;
+    }
+    let url = HSTRING::from(url);
+    // SAFETY: các chuỗi sống đến hết lời gọi; ShellExecuteW không giữ con trỏ. COM được khởi
+    // tạo (nếu được) rồi giải phóng cân bằng quanh lời gọi, vì ShellExecuteW cần COM ở luồng gọi.
+    unsafe {
+        let inited =
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_ok();
+        let _ = ShellExecuteW(None, w!("open"), &url, None, None, SW_SHOWNORMAL);
+        if inited {
+            CoUninitialize();
+        }
+    }
+}
+
+fn running_version() -> Option<Version> {
+    Version::parse(env!("CARGO_PKG_VERSION"))
+}
+
+/// Hẹn giờ kiểm tra bản mới: chạy lần đầu sau 60 giây.
+fn start_update_timer(hwnd: HWND) {
+    // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
+    unsafe {
+        SetTimer(Some(hwnd), UPDATE_TIMER_ID, UPDATE_FIRST_DELAY_MS, None);
+    }
+}
+
+fn stop_update_timer(hwnd: HWND) {
+    // SAFETY: hủy bộ hẹn giờ của chính cửa sổ này (không có thì lỗi, bỏ qua).
+    unsafe {
+        let _ = KillTimer(Some(hwnd), UPDATE_TIMER_ID);
+    }
+    with_app(|a| a.update = None);
+}
+
+/// Hẹn giờ kiểm tra chạy: đặt lại 24 giờ rồi hỏi GitHub ở luồng nền (không chặn giao diện).
+fn on_update_timer(hwnd: HWND) {
+    let enabled = with_app(|a| a.config.check_updates).unwrap_or(false);
+    if !enabled {
+        stop_update_timer(hwnd);
+        return;
+    }
+    // SAFETY: đặt lại bộ hẹn giờ của chính cửa sổ này.
+    unsafe {
+        SetTimer(Some(hwnd), UPDATE_TIMER_ID, UPDATE_INTERVAL_MS, None);
+    }
+    let Some(current) = running_version() else {
+        return;
+    };
+    if UPDATE_CHECKING.with(|c| c.replace(true)) {
+        return;
+    }
+    let raw_hwnd = hwnd.0 as isize;
+    let spawned = std::thread::Builder::new()
+        .name("update-check".into())
+        .spawn(move || {
+            let found =
+                update::newer_than(current, update::fetch_latest(update::LATEST_URL, current));
+            let raw = Box::into_raw(Box::new(found));
+            // SAFETY: con trỏ chỉ được giải phóng đúng một lần: ở đây nếu gửi thất bại, hoặc ở
+            // luồng chính khi xử lý WM_UPDATE_RESULT.
+            let posted = unsafe {
+                PostMessageW(
+                    Some(HWND(raw_hwnd as *mut c_void)),
+                    WM_UPDATE_RESULT,
+                    WPARAM(0),
+                    LPARAM(raw as isize),
+                )
+            };
+            if posted.is_err() {
+                // SAFETY: tin nhắn không vào hàng đợi nên raw vẫn thuộc về ta.
+                drop(unsafe { Box::from_raw(raw) });
+            }
+        });
+    if spawned.is_err() {
+        UPDATE_CHECKING.with(|c| c.set(false));
+    }
+}
+
+/// Kết quả kiểm tra về tới luồng chính. Bỏ qua nếu ô kiểm tra đã tắt.
+fn on_update_result(found: Option<Release>) {
+    UPDATE_CHECKING.with(|c| c.set(false));
+    let Some((enabled, notified)) =
+        with_app(|a| (a.config.check_updates, a.config.update_notified))
+    else {
+        return;
+    };
+    if !enabled {
+        return;
+    }
+    let (_, notify) = update_outcome(found.as_ref(), notified);
+    with_app(|a| a.update = update_after_check(a.update.take(), found.clone()));
+    let (Some(rel), true) = (found, notify) else {
+        return;
+    };
+    if let Some(t) = current_tray() {
+        let v = rel.version.to_string();
+        let lang = lang::current();
+        // Thông tin, không qua bộ lọc "thông báo thành công".
+        t.show_update_notice(&Notice {
+            kind: NoticeKind::Info,
+            title: i18n::t(lang, Msg::UpdateNoticeTitle).to_string(),
+            body: i18n::update_notice_body(lang, &v),
+        });
+    }
+    // Nhớ trong bộ nhớ; ghi file chỉ khi cấu hình khớp file (quyết định 72), lỗi thì bỏ qua.
+    let write = CONFIG_WRITABLE.with(|w| w.get());
+    let cfg = with_app(|a| {
+        a.config.update_notified = Some(rel.version);
+        a.config.clone()
+    });
+    if let (Some(cfg), true) = (cfg, write) {
+        let _ = darkshot_core::config::save(&paths::config_path(), &cfg, &DpapiStore);
+    }
 }
 
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
@@ -239,7 +380,12 @@ fn save_pending_uploads() {
 
 /// Luồng nền (hoặc lúc khởi động) nhờ luồng chính mở Cài đặt.
 const WM_OPEN_SETTINGS: u32 = WM_APP + 3;
+/// Kết quả kiểm tra bản mới từ luồng nền: `lparam` là `Box<Option<Release>>` đã chuyển quyền sở hữu.
+const WM_UPDATE_RESULT: u32 = WM_APP + 4;
 const RETRY_TIMER_ID: usize = 1;
+const UPDATE_TIMER_ID: usize = 3;
+const UPDATE_FIRST_DELAY_MS: u32 = 60_000;
+const UPDATE_INTERVAL_MS: u32 = 24 * 60 * 60 * 1000;
 const MENU_CAPTURE_TIMER_ID: usize = 2;
 const MENU_CAPTURE_DELAY_MS: u32 = 250;
 const RETRY_INTERVAL_MS: u32 = 2000;
@@ -573,7 +719,11 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
         }
     };
     // `show` đã đăng ký phím mới cho hwnd; ở đây chỉ ghi đĩa.
-    let new = result.config;
+    let mut new = result.config;
+    // Một lần kiểm tra có thể báo xong trong lúc Tùy chọn mở: giữ số bản đã báo mới nhất.
+    if let Some(n) = with_app(|a| a.config.update_notified) {
+        new.update_notified = n;
+    }
     let saved = darkshot_core::config::save(&paths::config_path(), &new, &DpapiStore);
     // Ghi thất bại thì ngôn ngữ giữ nguyên, cùng với cấu hình cũ và phím cũ.
     lang::set(lang_after_save(
@@ -595,7 +745,13 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 about::close();
                 help::close();
             }
+            let check_after = new.check_updates;
             with_app(|a| a.config = new);
+            if check_after && !config.check_updates {
+                start_update_timer(hwnd);
+            } else if !check_after && config.check_updates {
+                stop_update_timer(hwnd);
+            }
             // File giờ khớp cấu hình trong bộ nhớ: từ đây màu tự chọn được ghi.
             CONFIG_WRITABLE.with(|w| w.set(true));
         }
@@ -742,14 +898,38 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TRAY => {
             let ev = (lp.0 & 0xFFFF) as u32;
+            if ev == NIN_BALLOONUSERCLICK {
+                // Chỉ mở link khi bong bóng vừa bấm là thông báo có bản mới.
+                if current_tray().is_some_and(|t| t.is_update_notice()) {
+                    if let Some(url) =
+                        with_app(|a| a.update.as_ref().map(|r| r.url.clone())).flatten()
+                    {
+                        open_release_url(&url);
+                    }
+                }
+                return LRESULT(0);
+            }
             // Menu đang mở thì bỏ qua hẳn: không mở menu lồng và không hạ cờ MENU_OPEN sớm.
             if tray_click_opens_menu(ev, MENU_OPEN.with(|m| m.get()))
                 && gate(hwnd, GateEvent::TrayClick) == GateAction::None
             {
                 MENU_OPEN.with(|m| m.set(true));
-                let cmd = current_tray().and_then(|t| t.show_menu());
+                let label = with_app(|a| {
+                    a.update
+                        .as_ref()
+                        .map(|r| i18n::update_menu(lang::current(), &r.version.to_string()))
+                })
+                .flatten();
+                let cmd = current_tray().and_then(|t| t.show_menu(label.as_deref()));
                 MENU_OPEN.with(|m| m.set(false));
                 match cmd {
+                    Some(MenuCommand::OpenUpdate) => {
+                        if let Some(url) =
+                            with_app(|a| a.update.as_ref().map(|r| r.url.clone())).flatten()
+                        {
+                            open_release_url(&url);
+                        }
+                    }
                     Some(MenuCommand::Capture) => {
                         request(hwnd, GateEvent::MenuCapture, CaptureKind::Region);
                     }
@@ -803,6 +983,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
             }
             gate(hwnd, GateEvent::TimerFired);
+            LRESULT(0)
+        }
+        WM_UPDATE_RESULT => {
+            // SAFETY: con trỏ do luồng kiểm tra cấp phát và chuyển quyền sở hữu cho ta.
+            let found = unsafe { Box::from_raw(lp.0 as *mut Option<Release>) };
+            on_update_result(*found);
+            LRESULT(0)
+        }
+        WM_TIMER if wp.0 == UPDATE_TIMER_ID => {
+            on_update_timer(hwnd);
             LRESULT(0)
         }
         WM_TIMER if wp.0 == RETRY_TIMER_ID => {
@@ -918,6 +1108,9 @@ fn main() {
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
+    if with_app(|a| a.config.check_updates).unwrap_or(false) {
+        start_update_timer(hwnd);
+    }
 
     if open_settings_now {
         post_open_settings(hwnd.0 as isize);
@@ -951,6 +1144,40 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn update_after_check_keeps_item_on_none() {
+        let rel = |p| Release {
+            version: Version {
+                major: 0,
+                minor: 3,
+                patch: p,
+            },
+            url: String::new(),
+        };
+        assert_eq!(update_after_check(None, None), None);
+        assert_eq!(update_after_check(Some(rel(0)), None), Some(rel(0)));
+        assert_eq!(update_after_check(None, Some(rel(1))), Some(rel(1)));
+        assert_eq!(update_after_check(Some(rel(0)), Some(rel(1))), Some(rel(1)));
+    }
+
+    #[test]
+    fn update_outcome_rules() {
+        let v = |m, n, p| Version {
+            major: m,
+            minor: n,
+            patch: p,
+        };
+        let rel = Release {
+            version: v(0, 3, 0),
+            url: String::new(),
+        };
+        assert_eq!(update_outcome(None, None), (false, false));
+        assert_eq!(update_outcome(None, Some(v(0, 3, 0))), (false, false));
+        assert_eq!(update_outcome(Some(&rel), None), (true, true));
+        assert_eq!(update_outcome(Some(&rel), Some(v(0, 3, 0))), (true, false));
+        assert_eq!(update_outcome(Some(&rel), Some(v(0, 2, 0))), (true, true));
+    }
 
     #[test]
     fn custom_colors_saved_only_when_changed() {
