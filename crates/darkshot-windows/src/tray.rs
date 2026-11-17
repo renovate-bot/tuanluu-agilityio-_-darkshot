@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(sizes, [16, 20, 24, 32, 40, 48, 64, 256]);
     }
 
-    /// Khung phải là bốn góc chữ L rời nhau: điểm giữa cạnh trên và cạnh trái (cỡ 32) là nền xanh.
+    /// Khung phải là bốn góc chữ L rời nhau: điểm giữa cạnh trên và cạnh trái (cỡ 32) là nền tối.
     #[test]
     fn ico_32_frame_edges_are_open_at_midpoints() {
         let ico: &[u8] = include_bytes!("../res/darkshot.ico");
@@ -341,11 +341,11 @@ mod tests {
             .find(|&e| ico[e] == 32)
             .expect("thiếu cỡ 32");
         let base = u32at(e + 12) + 40; // bỏ BITMAPINFOHEADER; điểm ảnh BGRA, từ dưới lên
-        let red = |x: usize, y: usize| ico[base + ((31 - y) * 32 + x) * 4 + 2];
+        let blue = |x: usize, y: usize| ico[base + ((31 - y) * 32 + x) * 4]; // nền blue 0x28, nét nhấn 0xFF
         let m = (0.285f32 * 32.0).round() as usize; // đường giữa nét của cạnh khung
-        assert!(red(16, m) < 128, "giữa cạnh trên bị tô trắng");
-        assert!(red(m, 16) < 128, "giữa cạnh trái bị tô trắng");
-        assert!(red(m, m) > 200, "góc trên trái phải là nét trắng");
+        assert!(blue(16, m) < 0x60, "giữa cạnh trên bị tô màu nhấn");
+        assert!(blue(m, 16) < 0x60, "giữa cạnh trái bị tô màu nhấn");
+        assert!(blue(m, m) > 200, "góc trên trái phải là nét màu nhấn");
     }
 
     #[test]

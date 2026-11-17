@@ -258,3 +258,4 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Thông tin và Trợ giúp có nút Đóng xanh, chữ trắng đậm; Enter và Esc vẫn đóng.
 - [ ] Ô tích, nút chọn và núm thanh trượt mịn, không răng cưa, vòng không có điểm lồi, ở DPI 100% và 150%.
 - [ ] Ô nhập (thường, Secret Access Key, ô phím) và hộp chọn chỉ có một viền bo mịn, không khung vuông bên trong, khi bật, khi vô hiệu, khi có tiêu điểm và khi đang bắt phím; gạch dưới xanh nằm trong góc bo; chữ trong ô không xê dịch so với trước; ở DPI 100%, 150% và 200%.
+- [ ] Biểu tượng tối (nền than chì, viền xám, khung xanh) rõ ở khay, thanh tác vụ, Alt+Tab, file exe trong Explorer, cửa sổ Thông tin và thanh tiêu đề Tùy chọn; rõ trên thanh tác vụ sáng và tối, DPI 100% và 150% (có thể phải khởi động lại Explorer vì bộ đệm biểu tượng).
