@@ -3,7 +3,7 @@
 use crate::gdiplus::{GdiPlus, Gp};
 use darkshot_core::annotate::{
     arrow_geometry, arrow_min_head, blur_pixel_rect, outline_color, Pt, Shape, TextEdit,
-    MARKER_ALPHA, TEXT_DIP, TEXT_OUTLINE_DIP,
+    MARKER_ALPHA, STEP_RING, TEXT_DIP, TEXT_OUTLINE_DIP,
 };
 use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
@@ -19,12 +19,12 @@ use windows::Win32::Graphics::GdiPlus::{
     GdipAddPathLine2, GdipAddPathString, GdipCloneStringFormat, GdipCreateFont,
     GdipCreateFontFamilyFromName, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
     GdipDeleteBrush, GdipDeleteFont, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
-    GdipDeleteStringFormat, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipDrawRectangle,
-    GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle, GdipFillRectangleI,
-    GdipGetEmHeight, GdipGetLineSpacing, GdipGetPathWorldBounds, GdipGetPixelOffsetMode,
-    GdipGetSmoothingMode, GdipMeasureString, GdipSetClipRectI, GdipSetPathFillMode,
-    GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin, GdipSetPenStartCap,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipSetStringFormatFlags,
+    GdipDeleteStringFormat, GdipDrawEllipse, GdipDrawLine, GdipDrawLines, GdipDrawPath,
+    GdipDrawRectangle, GdipFillEllipse, GdipFillPath, GdipFillPolygon, GdipFillRectangle,
+    GdipFillRectangleI, GdipGetEmHeight, GdipGetLineSpacing, GdipGetPathWorldBounds,
+    GdipGetPixelOffsetMode, GdipGetSmoothingMode, GdipMeasureString, GdipSetClipRectI,
+    GdipSetPathFillMode, GdipSetPenEndCap, GdipSetPenLineCap197819, GdipSetPenLineJoin,
+    GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipSetStringFormatFlags,
     GdipSetTextRenderingHint, GdipStringFormatGetGenericTypographic, GdipTranslateWorldTransform,
     GdipWidenPath, GpBrush, GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpSolidFill,
     GpStringFormat, LineCap, LineCapFlat, LineCapRound, LineCapSquare, LineJoin, LineJoinMiter,
@@ -354,9 +354,113 @@ fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool
             };
             draw_text(g, style, *origin, t, *size, *color)
         }
-        // Task 46: vẽ elip và vòng số.
-        Shape::Ellipse { .. } | Shape::Step { .. } => true,
+        Shape::Ellipse { a, b, width, color } => {
+            let Some(pen) = Pen::new(argb(*color, 255), *width, LineCapRound, LineJoinRound) else {
+                return false;
+            };
+            let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+            let (w, h) = ((b.x - a.x).abs(), (b.y - a.y).abs());
+            // SAFETY: g và bút hợp lệ.
+            ok(unsafe { GdipDrawEllipse(g, pen.0, x, y, w, h) })
+        }
+        Shape::Step {
+            center,
+            radius,
+            n,
+            color,
+        } => {
+            if *n != 0 && text.is_none() {
+                *text = TextStyle::new();
+            }
+            draw_step(g, text.as_ref(), *center, *radius, *n, *color)
+        }
     }
+}
+
+/// Vòng đánh số: lòng màu `color`, viền và số màu `outline_color(color)`. Viền dày
+/// `radius * STEP_RING` nằm trong hình tròn bán kính `radius` (mép ngoài của viền là mép vòng).
+/// `n == 0`: không vẽ số. `style` chỉ cần khi có số.
+fn draw_step(
+    g: *mut GpGraphics,
+    style: Option<&TextStyle>,
+    center: Pt,
+    radius: f32,
+    n: u32,
+    color: Rgb,
+) -> bool {
+    let ring = radius * STEP_RING;
+    let mid = radius - ring / 2.0;
+    let ink = argb(outline_color(color), 255);
+    let (Some(fill), Some(pen)) = (
+        Brush::new(argb(color, 255)),
+        Pen::new(ink, ring, LineCapFlat, LineJoinRound),
+    ) else {
+        return false;
+    };
+    let (x, y, d) = (center.x - mid, center.y - mid, 2.0 * mid);
+    // SAFETY: g, chổi và bút hợp lệ.
+    let disc = unsafe {
+        ok(GdipFillEllipse(g, fill.raw(), x, y, d, d)) && ok(GdipDrawEllipse(g, pen.0, x, y, d, d))
+    };
+    if !disc {
+        return false;
+    }
+    drop(fill);
+    drop(pen);
+    if n == 0 {
+        return true;
+    }
+    let Some(style) = style else {
+        return false;
+    };
+    draw_step_number(g, style, center, radius, n, ink)
+}
+
+/// Hộp (không viền) của đường chữ `s` cỡ `size` đặt ở gốc (0, 0).
+fn path_box(style: &TextStyle, s: &str, size: f32) -> Option<RectF> {
+    let path = style.path(Pt { x: 0.0, y: 0.0 }, s, size)?;
+    let mut b = RectF::default();
+    // SAFETY: đường hợp lệ; b là biến cục bộ; không ma trận, không bút.
+    let st = unsafe { GdipGetPathWorldBounds(path.0, &mut b, std::ptr::null(), std::ptr::null()) };
+    (ok(st) && b.Width > 0.0 && b.Height > 0.0).then_some(b)
+}
+
+/// Số `n` giữa vòng: cỡ em `radius * 1.1`, thu theo tỉ lệ nếu rộng quá `1.5 * radius`;
+/// tâm hộp đường đo được trùng `center`.
+fn draw_step_number(
+    g: *mut GpGraphics,
+    style: &TextStyle,
+    center: Pt,
+    radius: f32,
+    n: u32,
+    ink: u32,
+) -> bool {
+    let s = n.to_string();
+    let mut size = radius * 1.1;
+    let Some(mut b) = path_box(style, &s, size) else {
+        return false;
+    };
+    let max_w = 1.5 * radius;
+    if b.Width > max_w {
+        let k = max_w / b.Width;
+        size *= k;
+        // Đường chữ đặt ở gốc (0, 0) co giãn tuyến tính theo cỡ em.
+        b = RectF {
+            X: b.X * k,
+            Y: b.Y * k,
+            Width: b.Width * k,
+            Height: b.Height * k,
+        };
+    }
+    let origin = Pt {
+        x: center.x - (b.X + b.Width / 2.0),
+        y: center.y - (b.Y + b.Height / 2.0),
+    };
+    let (Some(path), Some(brush)) = (style.path(origin, &s, size), Brush::new(ink)) else {
+        return false;
+    };
+    // SAFETY: g, đường và chổi hợp lệ.
+    ok(unsafe { GdipFillPath(g, brush.raw(), path.0) })
 }
 
 fn draw_arrow(g: *mut GpGraphics, a: Pt, b: Pt, width: f32, color: Rgb) -> bool {
