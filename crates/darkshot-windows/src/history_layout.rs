@@ -31,10 +31,10 @@ const LIST_MAX: i32 = 420;
 pub const ROW_H: i32 = 72;
 pub const THUMB_W: i32 = 88;
 pub const THUMB_H: i32 = 56;
-/// Ô tìm: cao 32, rộng 220 co xuống 160.
+/// Ô tìm: cao 32, rộng tối đa 260 (thiết kế ghi 220; nới để chữ gợi ý tiếng Việt hiện đủ), co xuống 160.
 const SEARCH_H: i32 = 32;
 const SEARCH_MIN: i32 = 160;
-const SEARCH_MAX: i32 = 220;
+const SEARCH_MAX: i32 = 260;
 /// Viên thuốc lọc: cao 28; bề rộng cố định đủ cho nhãn dài nhất của hai ngôn ngữ.
 const CHIP_H: i32 = 28;
 const CHIP_W: [i32; 4] = [68, 76, 92, 80];
@@ -804,10 +804,46 @@ pub fn url_openable(u: &str) -> bool {
         && !u.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 
-/// Đối số của `explorer.exe` để mở thư mục và chọn sẵn tệp `p` (đường dẫn trong ngoặc kép, nên dấu
-/// cách và dấu phẩy không cắt đường dẫn; tên tệp Windows không chứa `"`).
-pub fn explorer_select_args(p: &Path) -> String {
-    format!("/select,\"{}\"", p.display())
+/// Đối số của `explorer.exe` để mở thư mục và chọn sẵn tệp `p`: đường dẫn trong ngoặc kép, nên dấu
+/// cách và dấu phẩy không cắt đường dẫn. `None` (không gọi explorer) khi đường dẫn không tuyệt đối, có
+/// dấu `"` hay ký tự điều khiển (không thể là tệp thật, và có thể chèn thêm đối số).
+pub fn explorer_select_args(p: &Path) -> Option<String> {
+    let s = p.to_str()?;
+    if !p.is_absolute() || s.chars().any(|c| c == '"' || c.is_control()) {
+        return None;
+    }
+    Some(format!("/select,\"{s}\""))
+}
+
+/// Đường dẫn đầy đủ của `explorer.exe` trong thư mục Windows `windir`; không biết (hoặc giá trị lạ) thì
+/// dự phòng tên trần `explorer.exe`.
+pub fn explorer_exe(windir: Option<&str>) -> String {
+    let Some(d) = windir.map(|d| d.trim_end_matches('\\')) else {
+        return "explorer.exe".to_string();
+    };
+    let exe = format!("{d}\\explorer.exe");
+    if Path::new(&exe).is_absolute() && !d.chars().any(|c| c == '"' || c.is_control()) {
+        exe
+    } else {
+        "explorer.exe".to_string()
+    }
+}
+
+/// Phím mũi tên trên nhóm viên lọc.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChipKey {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Hướng đổi bộ lọc của phím mũi tên: Lên như Trái, Xuống như Phải (như nhóm nút radio).
+pub fn chip_key_dir(k: ChipKey) -> i32 {
+    match k {
+        ChipKey::Left | ChipKey::Up => -1,
+        ChipKey::Right | ChipKey::Down => 1,
+    }
 }
 
 /// Kết quả một hành động, gửi về cửa sổ trong `WPARAM` của `WM_APP+10`.

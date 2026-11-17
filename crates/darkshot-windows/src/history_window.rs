@@ -8,12 +8,12 @@
 
 use crate::clipboard::WinClipboard;
 use crate::history_layout::{
-    actions_for, after_filter, card_text_width, chip_filter, chip_step, chip_tabstops,
-    compose_over, confirm_card, empty_state_rects, empty_text_width, explorer_select_args,
-    filter_chip, layout, menu_items, preview_target, search_parts, select_after_remove,
-    step_selection, url_openable, visible_indices, Avail, CardRects, Confirm, ConfirmBtn,
-    ConfirmKey, ConfirmOutcome, Generation, Layout, Nav, SearchParts, Status, ThumbCache,
-    ThumbSlot, MAX_THUMBS,
+    actions_for, after_filter, card_text_width, chip_filter, chip_key_dir, chip_step,
+    chip_tabstops, compose_over, confirm_card, empty_state_rects, empty_text_width, explorer_exe,
+    explorer_select_args, filter_chip, layout, menu_items, preview_target, search_parts,
+    select_after_remove, step_selection, url_openable, visible_indices, Avail, CardRects, ChipKey,
+    Confirm, ConfirmBtn, ConfirmKey, ConfirmOutcome, Generation, Layout, Nav, SearchParts, Status,
+    ThumbCache, ThumbSlot, MAX_THUMBS,
 };
 use crate::history_paint::{self as hp, Bmp, Fonts, PreviewView, RowView, ThumbView, Tip};
 use crate::history_service::{self, WM_HISTORY_CHANGED};
@@ -1089,6 +1089,16 @@ pub fn refresh_enabled() {
     }
 }
 
+fn chip_key_of(vk: u16) -> Option<ChipKey> {
+    Some(match vk {
+        v if v == VK_LEFT.0 => ChipKey::Left,
+        v if v == VK_RIGHT.0 => ChipKey::Right,
+        v if v == VK_UP.0 => ChipKey::Up,
+        v if v == VK_DOWN.0 => ChipKey::Down,
+        _ => return None,
+    })
+}
+
 /// `true`: thông điệp đã được xử lý, vòng lặp bỏ qua. Esc: đóng thẻ xác nhận, hoặc xóa chữ ô tìm, hoặc
 /// đóng cửa sổ; Ctrl+F vào ô tìm; mũi tên trái/phải đổi bộ lọc khi tiêu điểm ở viên lọc; khi thẻ xác
 /// nhận mở thì Tab chỉ xoay giữa hai nút của nó. Còn lại (Tab, Enter) qua `IsDialogMessageW`.
@@ -1131,12 +1141,12 @@ pub fn pre_translate(msg: &MSG) -> bool {
                 }
             }
             return true;
-        } else if vk == VK_LEFT.0 || vk == VK_RIGHT.0 {
+        } else if let Some(key) = chip_key_of(vk) {
             let chips = with_state(|s| (s.ctl.chips, s.filter));
             // SAFETY: chỉ hỏi cửa sổ có tiêu điểm.
             let f = unsafe { GetFocus() };
             if let Some((chips, cur)) = chips.filter(|(c, _)| c.contains(&f)) {
-                let next = chip_step(cur, if vk == VK_LEFT.0 { -1 } else { 1 });
+                let next = chip_step(cur, chip_key_dir(key));
                 set_filter(h, next);
                 show_focus_cues(h);
                 // SAFETY: đưa tiêu điểm tới viên vừa chọn (con của cửa sổ này).
@@ -1801,6 +1811,16 @@ fn shell_execute(file: &str, params: Option<&str>) -> bool {
     }
 }
 
+/// Thư mục Windows (`GetWindowsDirectoryW`), không hỏi được thì `None`.
+fn windows_dir() -> Option<String> {
+    let mut buf = [0u16; 260];
+    // SAFETY: buf là bộ đệm cục bộ; hàm ghi tối đa buf.len() ký tự và trả số ký tự đã ghi.
+    let n =
+        unsafe { windows::Win32::System::SystemInformation::GetWindowsDirectoryW(Some(&mut buf)) }
+            as usize;
+    (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]))
+}
+
 /// Hành động thứ `id` (201–205) cho mục đang chọn, nếu nó dùng được.
 fn on_action(id: i32) {
     let Some((hwnd, e, ok, root)) = with_state(|s| {
@@ -1862,17 +1882,20 @@ fn on_action(id: i32) {
             on_status(hwnd, st);
         }
         // Mở thư mục chứa ảnh, chọn sẵn tệp.
-        3 => {
-            if let Some(p) = e.path.clone() {
+        3 => match e.path.as_deref().and_then(explorer_select_args) {
+            Some(args) => {
+                let exe = explorer_exe(windows_dir().as_deref());
                 spawn_task(hwnd, move || {
-                    if shell_execute("explorer.exe", Some(&explorer_select_args(&p))) {
+                    if shell_execute(&exe, Some(&args)) {
                         Status::None
                     } else {
                         Status::Failed
                     }
                 });
             }
-        }
+            // Đường dẫn lạ (không tuyệt đối, có `"` hay ký tự điều khiển): không gọi explorer.
+            None => on_status(hwnd, Status::Failed),
+        },
         // Xóa khỏi lịch sử (không xác nhận; không đụng tệp của người dùng).
         _ => {
             let id = e.id.clone();
@@ -3034,8 +3057,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_MOUSEWHEEL => {
-            // Bánh xe khi tiêu điểm ở nút: cuộn danh sách.
-            if let Some(list) = with_state(|s| s.list) {
+            // Bánh xe khi tiêu điểm ở nút: cuộn danh sách (trừ khi thẻ xác nhận đang mở).
+            if let Some(list) = with_state(|s| s.list).filter(|_| !confirm_is_open()) {
                 // SAFETY: gửi đồng bộ cho danh sách của cửa sổ này (không giữ khóa STATE).
                 return unsafe { SendMessageW(list, msg, Some(wp), Some(lp)) };
             }
