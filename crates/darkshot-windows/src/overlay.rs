@@ -12,11 +12,14 @@ use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
     add_point, blur_pixel_rect, constrain_45, constrain_square, dip_to_px, press_mode,
     redact_color, sanitize_paste, too_short, Annotations, Applied, Change, PressMode, Pt, Shape,
-    SizeLevel, TextEdit, Tool, DEFAULT_COLOR, PALETTE,
+    SizeLevel, TextEdit, Tool, DEFAULT_COLOR, HIT_TOL_DIP, MIN_EXTENT_DIP, PALETTE,
 };
 use darkshot_core::color::{
     hls_to_rgb, lum_at, lum_y, picker_layout, rgb_to_hls, spectrum_hs, spectrum_point,
     CustomColors, Hls, PickerLayout, CUSTOM_SLOTS, HLS_MAX, HUE_MAX, RGB_MAX,
+};
+use darkshot_core::edit::{
+    frame, grip_at, handles, restyle, topmost_hit, transform, Gesture, Grip,
 };
 use darkshot_core::geometry::{
     monitor_containing, place_side_toolbar, place_toolbar, side_layout, Handle, Hit, Point, Rect,
@@ -1133,6 +1136,74 @@ fn cursor_for_hit(hit: Hit) -> PCWSTR {
     }
 }
 
+fn to_pt(p: Point) -> Pt {
+    Pt {
+        x: p.x as f32,
+        y: p.y as f32,
+    }
+}
+
+/// Con trỏ trên tay nắm `g` của hình đang chọn (đầu mút và di chuyển: `IDC_SIZEALL`).
+fn cursor_for_grip(g: Grip) -> PCWSTR {
+    match g {
+        Grip::Box(h) => cursor_for_hit(Hit::Handle(h)),
+        Grip::Move | Grip::End(_) => IDC_SIZEALL,
+    }
+}
+
+/// Vùng màn hình của hình `shape` (hộp bao `bounds`) cùng khung chọn và tay nắm của nó, nới `pad`.
+fn selection_dirty(shape: &Shape, bounds: Rect, pad: i32) -> Rect {
+    let mut r = union(Some(bounds), frame(shape, bounds));
+    for (_, c) in handles(shape, bounds) {
+        let dot = Rect {
+            x: c.x.floor() as i32,
+            y: c.y.floor() as i32,
+            w: 1,
+            h: 1,
+        };
+        r = union(r, Some(dot));
+    }
+    inflate(r.unwrap_or(bounds), pad)
+}
+
+/// Hộp bao ước lượng của Chữ `new` (biến đổi từ `old` có hộp đo `old_bounds`): phóng hộp đo theo
+/// cùng hệ số cỡ quanh gốc chữ; đổi cỡ thì nới thêm 2 px (đo thật lúc chốt).
+fn text_preview_bounds(old: &Shape, old_bounds: Rect, new: &Shape) -> Option<Rect> {
+    let (
+        Shape::Text {
+            origin: o, size: s, ..
+        },
+        Shape::Text {
+            origin: n, size: t, ..
+        },
+    ) = (old, new)
+    else {
+        return None;
+    };
+    let k = t / s;
+    if !k.is_finite() || k <= 0.0 {
+        return None;
+    }
+    let map = |v: i32, from: f32, to: f32| to + (v as f32 - from) * k;
+    let x0 = map(old_bounds.x, o.x, n.x).floor() as i32;
+    let y0 = map(old_bounds.y, o.y, n.y).floor() as i32;
+    let x1 = map(old_bounds.right(), o.x, n.x).ceil() as i32;
+    let y1 = map(old_bounds.bottom(), o.y, n.y).ceil() as i32;
+    let r = Rect {
+        x: x0,
+        y: y0,
+        w: x1.saturating_sub(x0),
+        h: y1.saturating_sub(y0),
+    };
+    Some(if k == 1.0 { r } else { inflate(r, 2) })
+}
+
+/// Hộp bao xem trước của hình `shape` trong cử chỉ `g`.
+fn preview_bounds(g: &Gesture, shape: &Shape) -> Rect {
+    text_preview_bounds(&g.original, g.original_bounds, shape)
+        .unwrap_or_else(|| shape_bounds(shape))
+}
+
 fn set_cursor(id: PCWSTR) {
     // SAFETY: con trỏ chuẩn của hệ thống, không cần giải phóng.
     unsafe {
@@ -1202,6 +1273,20 @@ struct State {
     size_pressed: Option<SizeLevel>,
     /// Nét đang kéo (chưa chốt vào `marks`).
     stroke: Option<Stroke>,
+    /// Vị trí hình đang chọn trong `marks` (chỉ khi công cụ Chọn bật).
+    selected: Option<usize>,
+    /// Cử chỉ kéo hình đang chọn (di chuyển, đổi cỡ).
+    gesture: Option<Gesture>,
+    /// Hình xem trước của cử chỉ (vẽ thay `marks[gesture.index]`), hộp bao của nó và điểm chuột
+    /// cuối (đã kẹp vào vùng chọn; để nhấn/nhả Shift cập nhật ngay).
+    preview: Option<Shape>,
+    preview_bounds: Rect,
+    gesture_at: Pt,
+    /// Tâm tay nắm đang nắm trừ điểm bấm (0 khi di chuyển): điểm đưa vào `transform` là điểm chuột
+    /// cộng độ lệch này, để cú nhích đầu không làm cạnh/góc nhảy tới điểm bấm.
+    grip_off: Pt,
+    /// Chuột đã dịch khỏi điểm bấm trong cử chỉ hiện tại (chưa dịch thì thả không ghi sổ).
+    gesture_moved: bool,
     side_hover: Option<SideItem>,
     side_pressed: Option<SideItem>,
     /// Bảng màu đang mở.
@@ -1445,7 +1530,10 @@ impl State {
 
     /// Đang kéo (vùng chọn hoặc nét vẽ).
     fn dragging(&self) -> bool {
-        self.sel.is_dragging() || self.stroke.is_some() || self.picker_drag.is_some()
+        self.sel.is_dragging()
+            || self.stroke.is_some()
+            || self.picker_drag.is_some()
+            || self.gesture.is_some()
     }
 
     fn font(&mut self, dpi: u32) -> HFONT {
@@ -1704,18 +1792,25 @@ impl State {
         if on_bar {
             return IDC_ARROW;
         }
+        if let Some(g) = self.press_grip(p) {
+            return cursor_for_grip(g);
+        }
+        if self.shape_hit_at(p).is_some() {
+            return IDC_SIZEALL;
+        }
         let hit = self.sel.hit_test(p, self.hit_radius(p));
         match press_mode(self.tool, !self.marks.is_empty(), hit) {
             PressMode::Draw if self.tool == Some(Tool::Text) => IDC_IBEAM,
             PressMode::Draw => IDC_CROSS,
             PressMode::Ignore => IDC_ARROW,
             PressMode::Selection => cursor_for_hit(hit),
-            PressMode::Pick => IDC_ARROW, // Task 47
+            PressMode::Pick => IDC_ARROW,
         }
     }
 
     fn finish(&mut self, a: Action) {
         self.close_text(true);
+        self.deselect();
         if a == Action::Cancel {
             self.result = Some(None);
         } else if let Some(r) = self.sel.rect() {
@@ -1730,6 +1825,7 @@ impl State {
 
     fn toggle_tool(&mut self, t: Tool) {
         self.close_text(true);
+        self.deselect();
         self.update_bars(|s| s.tool = if s.tool == Some(t) { None } else { Some(t) });
     }
 
@@ -1746,6 +1842,7 @@ impl State {
                 return;
             }
         }
+        self.deselect();
         if let Some(a) = self.marks.undo() {
             self.apply_change(&a);
         }
@@ -1756,6 +1853,7 @@ impl State {
         if self.text.is_some() || self.dragging() {
             return;
         }
+        self.deselect();
         if let Some(a) = self.marks.redo() {
             self.apply_change(&a);
         }
@@ -1774,6 +1872,258 @@ impl State {
         self.invalidate(&dirty);
         let bars = self.bar_chrome();
         self.invalidate(&bars);
+    }
+
+    /// Dung sai trúng hình (px) theo DPI màn hình chứa `p`.
+    fn shape_tol(&self, p: Point) -> f32 {
+        dip_to_px(HIT_TOL_DIP, self.dpi_at(p))
+    }
+
+    /// Bán kính trúng tay nắm của hình đang chọn (px) theo DPI màn hình chứa `p`.
+    fn grip_radius(&self, p: Point) -> f32 {
+        let dpi = self.dpi_at(p);
+        (scaled(HANDLE_SIZE, dpi) / 2 + scaled(HANDLE_HIT, dpi)) as f32
+    }
+
+    /// Phần nới quanh khung chọn hình khi làm mới (nửa tay nắm + 1).
+    fn selection_pad(&self) -> i32 {
+        scaled(HANDLE_SIZE, self.max_dpi()) / 2 + 1
+    }
+
+    /// Hình đang chọn như đang hiện (bản xem trước khi đang kéo) cùng hộp bao.
+    fn shown_selection(&self) -> Option<(&Shape, Rect)> {
+        if let (Some(_), Some(s)) = (&self.gesture, &self.preview) {
+            return Some((s, self.preview_bounds));
+        }
+        let i = self.selected?;
+        let s = self.marks.shapes().get(i)?;
+        let b = self
+            .mark_bounds
+            .get(i)
+            .copied()
+            .unwrap_or_else(|| shape_bounds(s));
+        Some((s, b))
+    }
+
+    /// Vùng màn hình của hình đang chọn cùng khung và tay nắm.
+    fn selection_area(&self) -> Option<Rect> {
+        self.shown_selection()
+            .map(|(s, b)| selection_dirty(s, b, self.selection_pad()))
+    }
+
+    /// Đổi trạng thái chọn hình qua `f`, làm mới vùng chọn hình cũ và mới.
+    fn change_selection(&mut self, f: impl FnOnce(&mut State)) {
+        let before = self.selection_area();
+        f(self);
+        let after = self.selection_area();
+        let dirty: Vec<Rect> = before.into_iter().chain(after).collect();
+        self.invalidate(&dirty);
+    }
+
+    /// Bỏ chọn hình (hủy cử chỉ đang kéo nếu có, không ghi sổ).
+    fn deselect(&mut self) {
+        self.cancel_gesture();
+        if self.selected.is_some() {
+            self.change_selection(|s| s.selected = None);
+        }
+    }
+
+    /// Hủy cử chỉ kéo hình: hình về như cũ, không ghi sổ; vẫn chọn hình.
+    fn cancel_gesture(&mut self) {
+        if self.gesture.is_some() || self.preview.is_some() {
+            self.change_selection(|s| {
+                s.gesture = None;
+                s.preview = None;
+            });
+        }
+    }
+
+    /// Tay nắm của hình đang chọn dưới `p` (khi công cụ Chọn bật).
+    fn shape_grip_at(&self, p: Point) -> Option<Grip> {
+        if self.tool != Some(Tool::Select) {
+            return None;
+        }
+        let (s, b) = self.shown_selection()?;
+        grip_at(s, b, to_pt(p), self.grip_radius(p))
+    }
+
+    /// Tay nắm sẽ được nắm khi bấm tại `p`. Bấm trúng chính hình đang chọn mà xa tâm mọi tay nắm
+    /// hơn nửa cỡ tay nắm (hình nhỏ: vùng trúng tay nắm phủ lòng hình) thì là di chuyển, không nắm.
+    fn press_grip(&self, p: Point) -> Option<Grip> {
+        let grip = self.shape_grip_at(p)?;
+        if self.selected.is_some() && self.shape_hit_at(p) == self.selected {
+            let (s, b) = self.shown_selection()?;
+            let q = to_pt(p);
+            let near = handles(s, b)
+                .into_iter()
+                .map(|(_, c)| (c.x - q.x).abs().max((c.y - q.y).abs()))
+                .fold(f32::INFINITY, f32::min);
+            if near > (scaled(HANDLE_SIZE, self.dpi_at(p)) / 2) as f32 {
+                return None;
+            }
+        }
+        Some(grip)
+    }
+
+    /// Hình trên cùng trúng `p` trong vùng chọn (khi công cụ Chọn bật).
+    fn shape_hit_at(&self, p: Point) -> Option<usize> {
+        if self.tool != Some(Tool::Select) || !self.sel.rect()?.contains(p) {
+            return None;
+        }
+        topmost_hit(
+            self.marks.shapes(),
+            &self.mark_bounds,
+            to_pt(p),
+            self.shape_tol(p),
+        )
+    }
+
+    /// `p` kẹp vào vùng chọn.
+    fn clamp_to_sel(&self, p: Point) -> Pt {
+        let q = match self.sel.rect() {
+            Some(r) => Point {
+                x: p.x.max(r.x).min(r.right() - 1),
+                y: p.y.max(r.y).min(r.bottom() - 1),
+            },
+            None => p,
+        };
+        to_pt(q)
+    }
+
+    /// Chọn hình `index` và bắt đầu kéo nó bằng tay nắm `grip` từ `p`.
+    fn begin_gesture(&mut self, index: usize, grip: Grip, p: Point) -> Effects {
+        let Some(original) = self.marks.shapes().get(index).cloned() else {
+            return Effects::default();
+        };
+        let original_bounds = self
+            .mark_bounds
+            .get(index)
+            .copied()
+            .unwrap_or_else(|| shape_bounds(&original));
+        let start = self.clamp_to_sel(p);
+        let off = match grip {
+            Grip::Move => None,
+            _ => handles(&original, original_bounds)
+                .into_iter()
+                .find(|(g, _)| *g == grip)
+                .map(|(_, c)| Pt {
+                    x: c.x - start.x,
+                    y: c.y - start.y,
+                }),
+        }
+        .filter(|o| o.x.is_finite() && o.y.is_finite())
+        .unwrap_or(Pt { x: 0.0, y: 0.0 });
+        self.change_selection(|s| {
+            s.grip_off = off;
+            s.gesture_moved = false;
+            s.selected = Some(index);
+            s.preview = Some(original.clone());
+            s.preview_bounds = original_bounds;
+            s.gesture_at = start;
+            s.gesture = Some(Gesture {
+                index,
+                grip,
+                start,
+                original,
+                original_bounds,
+            });
+        });
+        self.pressed = None;
+        self.side_pressed = None;
+        self.drag_cursor = cursor_for_grip(grip);
+        Effects {
+            capture: true,
+            ..Default::default()
+        }
+    }
+
+    /// Kéo cử chỉ tới `at` (đã kẹp vào vùng chọn): tính hình xem trước, làm mới hộp cũ và mới.
+    fn drag_gesture(&mut self, at: Pt, shift: bool) {
+        let Some(g) = self.gesture.as_ref() else {
+            return;
+        };
+        self.gesture_at = at;
+        if at != g.start {
+            self.gesture_moved = true;
+        }
+        if !self.gesture_moved {
+            return;
+        }
+        let dpi = self.dpi_at(Point {
+            x: g.start.x as i32,
+            y: g.start.y as i32,
+        });
+        let to = Pt {
+            x: at.x + self.grip_off.x,
+            y: at.y + self.grip_off.y,
+        };
+        let shape = transform(
+            g,
+            to,
+            shift,
+            dip_to_px(MIN_EXTENT_DIP, dpi),
+            self.shot_image(),
+        );
+        let bounds = preview_bounds(g, &shape);
+        if self.preview.as_ref() == Some(&shape) {
+            return;
+        }
+        self.change_selection(|s| {
+            s.preview = Some(shape);
+            s.preview_bounds = bounds;
+        });
+    }
+
+    /// Chốt cử chỉ: thay hình bằng bản xem trước (một mục sổ; không đổi thì không ghi); giữ chọn.
+    fn commit_gesture(&mut self) {
+        let before = self.selection_area();
+        let Some(g) = self.gesture.take() else {
+            return;
+        };
+        let preview = self.preview.take().filter(|_| self.gesture_moved);
+        self.gesture_moved = false;
+        if let Some(a) = preview.and_then(|s| self.marks.replace(g.index, s)) {
+            self.apply_change(&a);
+        }
+        let after = self.selection_area();
+        let dirty: Vec<Rect> = before.into_iter().chain(after).collect();
+        self.invalidate(&dirty);
+    }
+
+    /// Xóa hình đang chọn (ghi sổ), bỏ chọn.
+    fn delete_selected(&mut self) {
+        let Some(i) = self.selected else {
+            return;
+        };
+        self.deselect();
+        if let Some(a) = self.marks.remove(i) {
+            self.apply_change(&a);
+        }
+    }
+
+    /// Áp mức `level` và/hoặc màu `color` cho hình đang chọn (một mục sổ; Làm mờ bỏ qua).
+    fn restyle_selected(&mut self, level: Option<SizeLevel>, color: Option<Rgb>) {
+        if self.gesture.is_some() {
+            return;
+        }
+        let Some((shape, b)) = self.shown_selection() else {
+            return;
+        };
+        let Some(i) = self.selected else {
+            return;
+        };
+        let center = Point {
+            x: b.x + b.w / 2,
+            y: b.y + b.h / 2,
+        };
+        let new = restyle(shape, level, color, self.dpi_at(center));
+        let before = self.selection_area();
+        if let Some(a) = self.marks.replace(i, new) {
+            self.apply_change(&a);
+            let after = self.selection_area();
+            let dirty: Vec<Rect> = before.into_iter().chain(after).collect();
+            self.invalidate(&dirty);
+        }
     }
 
     /// Đăng ký (`on`) hoặc gỡ phím tắt Esc toàn cục của lớp phủ. Gỡ khi ô chữ mở để Esc tới được
@@ -1970,6 +2320,11 @@ impl State {
     /// Nhấn hoặc nhả Shift khi đang kéo Đường thẳng, Mũi tên, Hình chữ nhật: cập nhật nét ngay
     /// theo điểm chuột cuối.
     fn shift_changed(&mut self, shift: bool) {
+        if self.gesture.is_some() {
+            let at = self.gesture_at;
+            self.drag_gesture(at, shift);
+            return;
+        }
         let Some(st) = self.stroke.as_mut() else {
             return;
         };
@@ -1995,6 +2350,7 @@ impl State {
             s.close_picker_state();
         });
         self.edit_text(|e| e.set_color(c));
+        self.restyle_selected(None, Some(c));
     }
 
     /// Bỏ mọi trạng thái tạm của bảng màu và đóng nó (màu tự chọn đã thêm vẫn giữ).
@@ -2048,6 +2404,7 @@ impl State {
         if level != self.size {
             self.update_bars(|s| s.size = level);
         }
+        self.restyle_selected(Some(level), None);
         let color = self.color;
         let Some(b) = self.text.as_mut() else {
             return;
@@ -2240,6 +2597,11 @@ impl State {
             if !ime_composing(self.hwnd) {
                 self.close_text(false);
             }
+        } else if self.gesture.is_some() {
+            // Chuột được trả sau khi trả mượn trạng thái (`release_if_idle`).
+            self.cancel_gesture();
+        } else if self.selected.is_some() {
+            self.deselect();
         } else {
             self.result = Some(None);
         }
@@ -2269,6 +2631,9 @@ impl State {
         self.picker_drag = None;
         if self.stroke.is_some() {
             self.commit_stroke();
+        }
+        if self.gesture.is_some() {
+            self.commit_gesture();
         }
         if self.sel.is_dragging() {
             self.update(|s| s.sel.release());
@@ -2316,10 +2681,22 @@ impl State {
                 return Effects::default();
             }
         }
+        // Công cụ Chọn: tay nắm của hình đang chọn, rồi hình trên cùng trúng điểm bấm (trước tay
+        // nắm vùng chọn).
+        if let (Some(grip), Some(i)) = (self.press_grip(p), self.selected) {
+            return self.begin_gesture(i, grip, p);
+        }
+        if let Some(i) = self.shape_hit_at(p) {
+            return self.begin_gesture(i, Grip::Move, p);
+        }
         let rad = self.hit_radius(p);
         let hit = self.sel.hit_test(p, rad);
         match press_mode(self.tool, !self.marks.is_empty(), hit) {
-            PressMode::Ignore | PressMode::Pick => Effects::default(), // Task 47: Pick
+            PressMode::Ignore => Effects::default(),
+            PressMode::Pick => {
+                self.deselect();
+                Effects::default()
+            }
             PressMode::Draw => {
                 let Some(tool) = self.tool else {
                     return Effects::default();
@@ -2362,6 +2739,9 @@ impl State {
                 }
             }
             PressMode::Selection => {
+                if hit == Hit::Outside {
+                    self.deselect();
+                }
                 self.update(|s| {
                     s.new_drag = hit == Hit::Outside;
                     s.drag_cursor = cursor_for_hit(hit);
@@ -2382,6 +2762,9 @@ impl State {
     fn on_move(&mut self, p: Point) {
         if let Some(kind) = self.picker_drag {
             self.drag_picker(kind, p);
+        } else if self.gesture.is_some() {
+            let at = self.clamp_to_sel(p);
+            self.drag_gesture(at, key_held(VK_SHIFT));
         } else if self.stroke.is_some() {
             let at = Pt {
                 x: p.x as f32,
@@ -2420,6 +2803,15 @@ impl State {
             // Nhả ở đâu (kể cả ngoài bảng) cũng chỉ kết thúc lần kéo, không đóng bảng.
             self.drag_picker(kind, p);
             self.picker_drag = None;
+            return Effects {
+                release: true,
+                ..Default::default()
+            };
+        }
+        if self.gesture.is_some() {
+            let at = self.clamp_to_sel(p);
+            self.drag_gesture(at, key_held(VK_SHIFT));
+            self.commit_gesture();
             return Effects {
                 release: true,
                 ..Default::default()
@@ -2507,6 +2899,10 @@ impl State {
         }
         let ctrl = key_held(VK_CONTROL);
         if !ctrl {
+            if vk == VK_DELETE.0 || vk == VK_BACK.0 {
+                self.delete_selected();
+                return;
+            }
             if !key_held(VK_MENU) && !repeat {
                 if let Some(t) = Tool::from_key(vk) {
                     self.toggle_tool(t);
@@ -2657,11 +3053,23 @@ impl State {
         // Hình đánh dấu: sau ảnh sáng, trước khung và các thanh; cắt theo vùng chọn.
         if let (Some(clip), true) = (sel, self.gdiplus) {
             // Chỉ vẽ các hình có hộp bao giao vùng cần vẽ; giữ thứ tự bằng cách vẽ từng dải liền.
+            // Đang kéo hình: bản xem trước vẽ thay hình đó, đúng vị trí trong thứ tự.
             let shapes = self.marks.shapes();
-            let visible = |i: usize| {
-                self.mark_bounds
+            let sub = match (&self.gesture, &self.preview) {
+                (Some(g), Some(s)) => Some((g.index, s)),
+                _ => None,
+            };
+            let visible = |i: usize| match sub {
+                Some((gi, _)) if gi == i => intersect(self.preview_bounds, clip).is_some(),
+                _ => self
+                    .mark_bounds
                     .get(i)
-                    .is_none_or(|r| intersect(*r, clip).is_some())
+                    .is_none_or(|r| intersect(*r, clip).is_some()),
+            };
+            let draw_run = |a: usize, b: usize| {
+                if let Some(run) = shapes.get(a..b).filter(|r| !r.is_empty()) {
+                    draw_shapes(p.dc, run, p.ox, p.oy, clip);
+                }
             };
             let mut i = 0;
             while i < shapes.len() {
@@ -2673,8 +3081,13 @@ impl State {
                 while i < shapes.len() && visible(i) {
                     i += 1;
                 }
-                if let Some(run) = shapes.get(start..i) {
-                    draw_shapes(p.dc, run, p.ox, p.oy, clip);
+                match sub {
+                    Some((gi, s)) if (start..i).contains(&gi) => {
+                        draw_run(start, gi);
+                        draw_shapes(p.dc, std::slice::from_ref(s), p.ox, p.oy, clip);
+                        draw_run(gi + 1, i);
+                    }
+                    _ => draw_run(start, i),
                 }
             }
             if let Some(s) = &self.stroke {
@@ -2687,6 +3100,19 @@ impl State {
                 .and_then(|b| b.edit.to_shape());
             if let Some(shape) = typing {
                 draw_shapes(p.dc, std::slice::from_ref(&shape), p.ox, p.oy, clip);
+            }
+        }
+        // Khung và tay nắm của hình đang chọn: chỉ trên màn hình, không qua draw_shapes/burn.
+        if let Some((shape, b)) = self.shown_selection() {
+            if intersect(selection_dirty(shape, b, self.selection_pad()), area).is_some() {
+                if let Some(f) = frame(shape, b) {
+                    p.frame_outside(inflate(f, -1), ACCENT);
+                }
+                for (_, c) in handles(shape, b) {
+                    let (hx, hy) = (c.x.round() as i32, c.y.round() as i32);
+                    let size = scaled(HANDLE_SIZE, self.dpi_at(Point { x: hx, y: hy }));
+                    p.handle(hx, hy, size);
+                }
             }
         }
         // Khung nét đứt và con trỏ của ô đang gõ: chỉ trên màn hình, không in ra ảnh.
@@ -3772,6 +4198,19 @@ impl Drop for WindowGuard {
     }
 }
 
+/// Trả chuột khi lớp phủ còn giữ mà không còn kéo gì (Esc hủy kéo hình, đóng bảng màu giữa lúc
+/// kéo). Gọi ngoài lúc mượn trạng thái: `ReleaseCapture` gửi WM_CAPTURECHANGED đồng bộ.
+fn release_if_idle(hwnd: HWND) {
+    let dragging = with_state(|s| s.dragging()).unwrap_or(true);
+    // SAFETY: chỉ hỏi cửa sổ đang giữ chuột của luồng này.
+    if !dragging && unsafe { GetCapture() } == hwnd {
+        // SAFETY: trả chuột do chính cửa sổ này giữ.
+        unsafe {
+            let _ = ReleaseCapture();
+        }
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         // Vẽ nền ở WM_PAINT; xóa nền ở đây sẽ gây nháy.
@@ -3853,6 +4292,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_KEYDOWN => {
             with_state(|s| s.on_key(wp.0 as u16, key_repeat(lp)));
+            release_if_idle(hwnd);
             LRESULT(0)
         }
         WM_KEYUP => {
@@ -3890,6 +4330,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_DPICHANGED => LRESULT(0),
         WM_HOTKEY if wp.0 == ESC_HOTKEY_ID as usize => {
             with_state(|s| s.escape());
+            release_if_idle(hwnd);
             LRESULT(0)
         }
         WM_TIMER if wp.0 == FOCUS_TIMER_ID => {
@@ -4093,6 +4534,13 @@ pub fn pick_region(
         size_hover: None,
         size_pressed: None,
         stroke: None,
+        selected: None,
+        gesture: None,
+        preview: None,
+        preview_bounds: NO_RECT,
+        gesture_at: Pt { x: 0.0, y: 0.0 },
+        grip_off: Pt { x: 0.0, y: 0.0 },
+        gesture_moved: false,
         side_hover: None,
         side_pressed: None,
         palette: false,
@@ -4397,6 +4845,30 @@ mod tests {
         assert!(ok);
         assert_eq!(r.unwrap().unwrap().action, Action::Save);
         assert_eq!(custom.slots.iter().flatten().count(), 1);
+        // Vòng công cụ Chọn: hình chữ nhật, chọn, dời, đổi cỡ (tay nắm SE), xóa, hoàn tác, Lưu.
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(inside(40, 40), inside(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(inside(40, 70)));
+        // Dời: nắm cạnh trên giữa hai tay nắm (65, 40), +20,+10.
+        steps.extend(live::drag(inside(65, 40), inside(85, 50)));
+        steps.extend(live::drag(inside(160, 120), inside(220, 160)));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        match &p.shapes[0] {
+            Shape::Rect { a, b, .. } => {
+                assert_eq!(
+                    (*a, *b),
+                    (live::pt(inside(60, 50)), live::pt(inside(220, 160)))
+                );
+            }
+            other => panic!("không phải Rect: {other:?}"),
+        }
         assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
@@ -5333,6 +5805,8 @@ mod tests {
             Alive,
             /// Lớp phủ đang giữ chuột (`true`) hay không (đọc qua `GetGUIThreadInfo`).
             Captured(bool),
+            /// Giữ (`true`) hoặc nhả Shift giả cho các bước sau (`key_held(VK_SHIFT)`).
+            Shift(bool),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -5534,6 +6008,10 @@ mod tests {
                         Step::Captured(want) => {
                             std::thread::sleep(Duration::from_millis(300));
                             ok &= captured(h) == want;
+                        }
+                        Step::Shift(on) => {
+                            TEST_MODS.store(if on { 2 } else { 0 }, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(100));
                         }
                     }
                     std::thread::sleep(Duration::from_millis(40));
@@ -6535,6 +7013,513 @@ mod tests {
         match &p.shapes[0] {
             Shape::Pen { points, .. } => assert_eq!(points[0], live::pt(at(20, 20))),
             other => panic!("không phải Pen: {other:?}"),
+        }
+    }
+
+    /// Kéo `a`→`b` qua `n` bước di chuột đều nhau.
+    fn drag_n(a: Point, b: Point, n: i32) -> Vec<live::Step> {
+        let mut v = vec![live::Step::Down(a)];
+        for i in 1..=n {
+            v.push(live::Step::Move(Point {
+                x: a.x + (b.x - a.x) * i / n,
+                y: a.y + (b.y - a.y) * i / n,
+            }));
+        }
+        v.push(live::Step::Up(b));
+        v
+    }
+
+    /// (a, b) của hình Rect duy nhất trong `shapes`.
+    fn rect_ab(shapes: &[Shape]) -> (Pt, Pt) {
+        match shapes {
+            [Shape::Rect { a, b, .. }] => (*a, *b),
+            other => panic!("không phải một Rect: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored select_move_one_undo --test-threads=1"]
+    fn select_move_one_undo() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let new = (live::pt(at(80, 60)), live::pt(at(180, 130)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            // Bấm trên cạnh trái, kéo +40,+20 qua 5 bước.
+            steps.extend(drag_n(at(40, 70), at(80, 90), 5));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(rect_ab(&run(vec![])), new);
+        assert_eq!(rect_ab(&run(vec![live::Step::Ctrl(u16::from(b'Z'))])), old);
+        assert_eq!(
+            rect_ab(&run(vec![
+                live::Step::Ctrl(u16::from(b'Z')),
+                live::Step::Ctrl(u16::from(b'Y')),
+            ])),
+            new
+        );
+        let none = run(vec![
+            live::Step::Ctrl(u16::from(b'Z')),
+            live::Step::Ctrl(u16::from(b'Z')),
+        ]);
+        assert!(none.is_empty(), "{none:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_select_records_nothing --test-threads=1"]
+    fn click_select_records_nothing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+        steps.extend(live::drag(at(20, 20), at(120, 80)));
+        steps.extend(live::drag(at(20, 100), at(120, 160)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(20, 20)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        match p.shapes.as_slice() {
+            [Shape::Pen { points, .. }] => assert_eq!(points[0], live::pt(at(20, 20))),
+            other => panic!("phải còn đúng nét thứ nhất: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored esc_cancels_drag --test-threads=1"]
+    fn esc_cancels_drag() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.push(live::Step::Move(at(40, 70)));
+            steps.push(live::Step::Down(at(40, 70)));
+            steps.push(live::Step::Move(at(60, 80)));
+            steps.push(live::Step::Move(at(90, 100)));
+            steps.push(live::Step::Captured(true));
+            steps.push(live::Step::Key(VK_ESCAPE.0));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Captured(false));
+            steps.push(live::Step::Up(at(90, 100)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok, "Esc phải hủy kéo, nhả chuột, giữ lớp phủ mở");
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(rect_ab(&run(vec![])), old);
+        let none = run(vec![live::Step::Ctrl(u16::from(b'Z'))]);
+        assert!(none.is_empty(), "Esc khi kéo không được ghi sổ: {none:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored topmost_selected --test-threads=1"]
+    fn topmost_selected() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+        steps.extend(live::drag(at(20, 20), at(140, 120)));
+        steps.extend(live::drag(at(80, 60), at(220, 170)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(drag_n(at(100, 90), at(130, 100), 3));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        let ab: Vec<(Pt, Pt)> = p
+            .shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Blur { a, b, .. } => (*a, *b),
+                other => panic!("không phải Blur: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ab,
+            vec![
+                (live::pt(at(20, 20)), live::pt(at(140, 120))),
+                (live::pt(at(110, 70)), live::pt(at(250, 180))),
+            ]
+        );
+    }
+
+    /// a.y của các hình Line trong `shapes`.
+    fn line_ys(shapes: &[Shape]) -> Vec<f32> {
+        shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Line { a, .. } => a.y,
+                other => panic!("không phải Line: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored delete_and_undo --test-threads=1"]
+    fn delete_and_undo() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let y0 = sel.y as f32;
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+            for i in 0..3 {
+                steps.extend(live::drag(at(20, 20 + 40 * i), at(200, 30 + 40 * i)));
+            }
+            steps.push(live::Step::Key(u16::from(b'V')));
+            // Giữa đường thứ hai (20,60)–(200,70).
+            steps.extend(live::click(at(110, 65)));
+            steps.push(live::Step::Key(VK_DELETE.0));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(line_ys(&run(vec![])), vec![y0 + 20.0, y0 + 100.0]);
+        assert_eq!(
+            line_ys(&run(vec![live::Step::Ctrl(u16::from(b'Z'))])),
+            vec![y0 + 20.0, y0 + 60.0, y0 + 100.0]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored resize_rect_handle --test-threads=1"]
+    fn resize_rect_handle() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let run = |to: Point, shift: bool| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(40, 70)));
+            steps.push(live::Step::Shift(shift));
+            steps.extend(drag_n(at(140, 110), to, 4));
+            steps.push(live::Step::Shift(false));
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            rect_ab(&r.unwrap().unwrap().shapes)
+        };
+        assert_eq!(
+            run(at(200, 150), false),
+            (live::pt(at(40, 40)), live::pt(at(200, 150)))
+        );
+        // Shift: giữ tỉ lệ 100:70, hệ số lớn hơn (x: 200/100 = 2) thắng.
+        assert_eq!(
+            run(at(240, 130), true),
+            (live::pt(at(40, 40)), live::pt(at(240, 180)))
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored blur_move_save_covered --test-threads=1"]
+    fn blur_move_save_covered() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+        steps.extend(live::drag(at(20, 20), at(100, 80)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        // Dời +160,+100 (hình vẫn được chọn, khung đang hiện khi Lưu).
+        steps.extend(drag_n(at(60, 50), at(220, 150), 5));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        let (a, b) = (live::pt(at(180, 120)), live::pt(at(260, 180)));
+        let rect = blur_pixel_rect(a, b);
+        let want = redact_color(&shot.image, rect).unwrap();
+        assert_eq!(p.shapes, vec![Shape::Blur { a, b, color: want }]);
+        let out = crate::picked_image(&shot.image, p.rect, &p.shapes).unwrap();
+        let px = |x: i32, y: i32| {
+            let i = (((y - sel.y) as u32 * out.width + (x - sel.x) as u32) * 4) as usize;
+            Rgb(out.bgra[i + 2], out.bgra[i + 1], out.bgra[i])
+        };
+        let src = |x: i32, y: i32| {
+            let i = ((y as u32 * shot.image.width + x as u32) * 4) as usize;
+            Rgb(
+                shot.image.bgra[i + 2],
+                shot.image.bgra[i + 1],
+                shot.image.bgra[i],
+            )
+        };
+        for y in rect.y..rect.bottom() {
+            for x in rect.x..rect.right() {
+                assert_eq!(px(x, y), want, "({x},{y})");
+            }
+        }
+        // Khung chọn (ACCENT) không vào ảnh ra: điểm ảnh ACCENT chỉ có ở chỗ ảnh gốc đã ACCENT.
+        for y in sel.y..sel.bottom() {
+            for x in sel.x..sel.right() {
+                if px(x, y) == ACCENT {
+                    assert_eq!(src(x, y), ACCENT, "({x},{y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored restyle_selected --test-threads=1"]
+    fn restyle_selected() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let dpi = live::dpi_at(&shot, at(20, 20));
+        let run = |tail: Vec<live::Step>| {
+            // Màu mặc định đặt rõ (ô 0), vẽ Bút vẽ, chọn nét, đổi mức Rất lớn rồi màu ô 5.
+            let mut steps = live::click(l.item(SideItem::Color));
+            steps.extend(live::click(l.cell(0)));
+            steps.push(live::Step::Key(u16::from(b'P')));
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(20, 20)));
+            steps.extend(live::click(l.item(SideItem::Size)));
+            steps.extend(live::click(l.size_cell(SizeLevel::Huge)));
+            steps.extend(live::click(l.item(SideItem::Color)));
+            steps.extend(live::click(l.cell(5)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            LAST_SIZE.with(|s| s.set(SizeLevel::Medium));
+            assert!(ok);
+            match r.unwrap().unwrap().shapes.as_slice() {
+                [Shape::Pen { width, color, .. }] => (*width, *color),
+                other => panic!("không phải một Pen: {other:?}"),
+            }
+        };
+        assert_eq!(run(vec![]), (8.0 * dpi as f32 / 96.0, PALETTE[5]));
+        assert_eq!(
+            run(vec![
+                live::Step::Ctrl(u16::from(b'Z')),
+                live::Step::Ctrl(u16::from(b'Z')),
+            ]),
+            (dip_to_px(STROKE_DIP, dpi), PALETTE[0])
+        );
+        // Làm mờ được chọn: đổi màu không đổi hình, không ghi sổ (Ctrl+Z bỏ chính vùng che).
+        let blur_run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(60, 50)));
+            steps.extend(live::click(l.item(SideItem::Color)));
+            steps.extend(live::click(l.cell(9)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        let want = Shape::Blur {
+            a: live::pt(at(20, 20)),
+            b: live::pt(at(120, 80)),
+            color: redact_color(
+                &shot.image,
+                blur_pixel_rect(live::pt(at(20, 20)), live::pt(at(120, 80))),
+            )
+            .unwrap(),
+        };
+        assert_eq!(blur_run(vec![]), vec![want]);
+        assert!(blur_run(vec![live::Step::Ctrl(u16::from(b'Z'))]).is_empty());
+        LAST_COLOR.with(|c| c.set(DEFAULT_COLOR));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored no_tool_behaves_as_before --test-threads=1"]
+    fn no_tool_behaves_as_before() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let fresh = Rect::from_points(at(-80, -80), at(70, 40));
+        // Không công cụ (cả khi bật rồi tắt Chọn), không hình: kéo ngoài vùng tạo vùng mới.
+        for prefix in [vec![], vec![u16::from(b'V'), u16::from(b'V')]] {
+            let mut steps: Vec<live::Step> = prefix.into_iter().map(live::Step::Key).collect();
+            steps.extend(live::drag(at(-80, -80), at(70, 40)));
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            assert_eq!(
+                r,
+                Ok(Some(Picked {
+                    action: Action::Save,
+                    rect: fresh,
+                    shapes: Vec::new(),
+                }))
+            );
+        }
+        // Esc đóng lớp phủ.
+        let (r, ok) = live::drive(&shot, Some(sel), vec![live::Step::Key(VK_ESCAPE.0)]);
+        assert!(ok);
+        assert_eq!(r, Ok(None));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored tool_switch_deselects --test-threads=1"]
+    fn tool_switch_deselects() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        // Chọn hình, đổi sang P rồi về V: không còn hình chọn, Delete không xóa gì.
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(u16::from(b'P')));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(rect_ab(&r.unwrap().unwrap().shapes), old);
+        // Đối chứng: không đổi công cụ thì Delete xóa; Esc lần đầu chỉ bỏ chọn (lớp phủ còn mở,
+        // Delete sau đó không xóa gì).
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(rect_ab(&r.unwrap().unwrap().shapes), old);
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert!(r.unwrap().unwrap().shapes.is_empty());
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored off_center_grip_click_records_nothing --test-threads=1"]
+    fn off_center_grip_click_records_nothing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(65, 40)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        // Bấm-thả lệch tâm tay nắm SE (+6,+6): hình không đổi, không ghi sổ.
+        assert_eq!(rect_ab(&run(live::click(at(146, 116)))), old);
+        let mut tail = live::click(at(146, 116));
+        tail.push(live::Step::Ctrl(u16::from(b'Z')));
+        let none = run(tail);
+        assert!(none.is_empty(), "Ctrl+Z phải bỏ chính hình: {none:?}");
+        // Kéo từ điểm lệch tâm: góc dời đúng bằng quãng chuột đi, không giật theo điểm bấm.
+        assert_eq!(
+            rect_ab(&run(drag_n(at(146, 116), at(166, 136), 4))),
+            (live::pt(at(40, 40)), live::pt(at(160, 130)))
+        );
+        // Đường thẳng: bấm-thả cách đầu mút 6 px theo trục, đầu mút không nhảy.
+        let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+        steps.extend(live::drag(at(40, 60), at(200, 60)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(120, 60)));
+        steps.extend(live::click(at(206, 60)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let shapes = r.unwrap().unwrap().shapes;
+        assert!(shapes.is_empty(), "{shapes:?}");
+        // Vòng số nhỏ: bấm-thả đúng tâm (gần tay nắm góc) là di chuyển, bán kính giữ nguyên.
+        let mut steps = live::click(live::layout(&shot, sel).item(SideItem::Size));
+        steps.extend(live::click(
+            live::layout(&shot, sel).size_cell(SizeLevel::Small),
+        ));
+        steps.push(live::Step::Key(u16::from(b'N')));
+        steps.extend(live::click(at(100, 100)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(100, 100)));
+        steps.extend(live::click(at(100, 100)));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        LAST_SIZE.with(|s| s.set(SizeLevel::Medium));
+        assert!(ok);
+        match r.unwrap().unwrap().shapes.as_slice() {
+            [Shape::Step { center, radius, .. }] => {
+                assert_eq!(*center, live::pt(at(100, 100)));
+                assert_eq!(*radius, dip_to_px(10.0, live::dpi_at(&shot, at(100, 100))));
+            }
+            other => panic!("không phải một Step: {other:?}"),
         }
     }
 }
