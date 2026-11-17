@@ -58,6 +58,10 @@ pub const ACCENT_BUTTON_HOVER: Rgb = Rgb::hex(0x2563EB);
 pub const ACCENT_BUTTON_PRESSED: Rgb = Rgb::hex(0x1D4ED8);
 pub const DANGER: Rgb = Rgb::hex(0xFF7B72);
 pub const SUCCESS: Rgb = Rgb::hex(0x4ADE80);
+/// Nút nguy hiểm (xác nhận xóa): nền đỏ đậm, chữ trắng; trỏ và nhấn đậm dần như nút chính.
+pub const DANGER_BUTTON: Rgb = Rgb::hex(0xD13438);
+pub const DANGER_BUTTON_HOVER: Rgb = Rgb::hex(0xC42B1C);
+pub const DANGER_BUTTON_PRESSED: Rgb = Rgb::hex(0xA8201A);
 pub const OVERLAY_BORDER: Rgb = Rgb::hex(0x3F434A);
 pub const OVERLAY_ICON: Rgb = Rgb::hex(0xD5D9DF);
 pub const OVERLAY_HOVER: Rgb = Rgb::hex(0x363A41);
@@ -85,6 +89,9 @@ pub const TEXT_PAIRS: &[(Rgb, Rgb)] = &[
     (WHITE, ACCENT_BUTTON),
     (WHITE, ACCENT_BUTTON_HOVER),
     (WHITE, ACCENT_BUTTON_PRESSED),
+    (WHITE, DANGER_BUTTON),
+    (WHITE, DANGER_BUTTON_HOVER),
+    (WHITE, DANGER_BUTTON_PRESSED),
 ];
 
 /// (thành phần, nền) đang dùng; mỗi cặp phải đạt 3:1.
@@ -95,6 +102,8 @@ pub const UI_PAIRS: &[(Rgb, Rgb)] = &[
     (ACCENT, OVERLAY_HOVER),
     (CHECK_BORDER, SURFACE),
     (OVERLAY_ICON, SURFACE),
+    (DANGER_BUTTON, SURFACE),
+    (DANGER_BUTTON, BG),
 ];
 
 #[cfg(test)]

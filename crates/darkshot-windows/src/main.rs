@@ -509,13 +509,14 @@ fn current_tray() -> Option<Rc<Tray>> {
     TRAY.with(|t| t.borrow().clone())
 }
 
-fn post_open_settings(hwnd: isize) {
+/// Nhờ luồng chính mở Tùy chọn; `wp` như `WM_OPEN_SETTINGS` (0: ứng dụng tự mở, 1: người dùng).
+fn post_open_settings(hwnd: isize, wp: usize) {
     // SAFETY: PostMessageW an toàn từ luồng bất kỳ; cửa sổ đã hủy thì lỗi và ta bỏ qua.
     unsafe {
         let _ = PostMessageW(
             Some(HWND(hwnd as *mut c_void)),
             WM_OPEN_SETTINGS,
-            WPARAM(0),
+            WPARAM(wp),
             LPARAM(0),
         );
     }
@@ -777,7 +778,7 @@ fn run_on_image(
                 notifier: notifier.clone(),
                 image: image.clone(),
                 clock: paths::local_now,
-                on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
+                on_needs_settings: Box::new(move || post_open_settings(hwnd_raw, 0)),
                 pending: Some((registry.clone(), pending_id)),
                 lang: lang::current(),
                 upload_format: config.upload_format,
@@ -1090,11 +1091,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             });
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi mở Cài đặt sau khi menu thoát, không mở lồng.
+                // Gửi lại đúng `wp` gốc để lý do mở (người dùng hay ứng dụng) không bị đổi.
                 // SAFETY: đóng menu đang hiện của luồng này.
                 unsafe {
                     let _ = EndMenu();
                 }
-                post_open_settings(hwnd.0 as isize);
+                post_open_settings(hwnd.0 as isize, wp.0);
             } else {
                 handle_event(hwnd, AppEvent::OpenSettings);
             }
@@ -1260,7 +1262,7 @@ fn main() {
     }
 
     if open_settings_now {
-        post_open_settings(hwnd.0 as isize);
+        post_open_settings(hwnd.0 as isize, 0);
     }
     if args.open_history {
         // SAFETY: cửa sổ của luồng này; lỗi đăng thông điệp thì bỏ qua.

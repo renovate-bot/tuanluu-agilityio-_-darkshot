@@ -4,13 +4,14 @@
 //! Mọi số đo là DIP (thiết kế mục 3.2–3.5) và được quy đổi sang pixel theo `dpi`.
 
 use crate::winutil::scale;
-use darkshot_core::history::{format_dims, format_size, Entry, Kind};
-use darkshot_core::i18n::Lang;
+use darkshot_core::history::{filter_entries, format_dims, format_size, Entry, Filter, Kind};
+use darkshot_core::i18n::{Lang, Msg};
 use darkshot_core::image::Image;
 use darkshot_core::theme::Rgb;
 use darkshot_core::thumb::fit_within;
 use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
+use std::path::Path;
 use windows::Win32::Foundation::{POINT, RECT};
 
 /// Lề ngoài và đệm khung chi tiết.
@@ -381,14 +382,14 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
             remove: Avail::Enabled,
         },
         Kind::Uploaded => ActionSet {
-            open: if e.url.as_deref().is_some_and(|u| u.starts_with("https://")) {
+            open: if e.url.as_deref().is_some_and(url_openable) {
                 Avail::Enabled
             } else {
                 Avail::Disabled
             },
             open_is_link: true,
             copy_image: file,
-            copy_link: if e.url.is_some() {
+            copy_link: if e.url.as_deref().is_some_and(|u| !u.is_empty()) {
                 Avail::Enabled
             } else {
                 Avail::Hidden
@@ -717,6 +718,422 @@ pub fn row_subtitle(lang: Lang, e: &Entry) -> String {
         Some(b) => format!("{dims} \u{b7} {}", format_size(lang, b)),
         None => dims,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tìm và lọc (thiết kế mục 3.3, 6)
+// ---------------------------------------------------------------------------
+
+/// Bộ lọc theo thứ tự bốn viên thuốc: Tất cả, Đã lưu, Đã tải lên, Đã chép.
+pub const CHIP_FILTERS: [Filter; 4] =
+    [Filter::All, Filter::Saved, Filter::Uploaded, Filter::Copied];
+
+/// Bộ lọc của viên thứ `k` (`None` khi ngoài bốn viên).
+pub fn chip_filter(k: usize) -> Option<Filter> {
+    CHIP_FILTERS.get(k).copied()
+}
+
+/// Viên thuốc của bộ lọc `f`.
+pub fn filter_chip(f: Filter) -> usize {
+    CHIP_FILTERS.iter().position(|x| *x == f).unwrap_or(0)
+}
+
+/// Viên nào có `WS_TABSTOP`: chỉ viên đang chọn (như nhóm nút radio).
+pub fn chip_tabstops(f: Filter) -> [bool; 4] {
+    let sel = filter_chip(f);
+    std::array::from_fn(|k| k == sel)
+}
+
+/// Bộ lọc sau phím mũi tên (`dir` âm = trái), dừng ở hai đầu.
+pub fn chip_step(f: Filter, dir: i32) -> Filter {
+    let k = filter_chip(f) as i32 + dir.signum();
+    chip_filter(k.clamp(0, 3) as usize).unwrap_or(f)
+}
+
+/// Chỉ số vào `entries` (theo thứ tự hiển thị) của các mục qua `history::filter_entries`.
+pub fn visible_indices(entries: &[Entry], filter: Filter, query: &str, lang: Lang) -> Vec<usize> {
+    let base = entries.as_ptr() as usize;
+    let size = std::mem::size_of::<Entry>().max(1);
+    filter_entries(entries, filter, query, lang)
+        .into_iter()
+        .map(|e| (e as *const Entry as usize - base) / size)
+        .collect()
+}
+
+/// Mục chọn sau khi đổi bộ lọc hoặc ô tìm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refiltered {
+    /// Vị trí trong danh sách hiển thị mới.
+    pub selected: Option<usize>,
+    /// Cuộn về đầu (mục chọn cũ đã rời khỏi danh sách).
+    pub scroll_top: bool,
+}
+
+/// Giữ mục chọn nếu còn trong `new` (id theo thứ tự hiển thị); không thì chọn mục đầu và cuộn về đầu.
+pub fn after_filter(selected: Option<&str>, new: &[&str]) -> Refiltered {
+    if let Some(p) = selected.and_then(|id| new.iter().position(|x| *x == id)) {
+        return Refiltered {
+            selected: Some(p),
+            scroll_top: false,
+        };
+    }
+    Refiltered {
+        selected: (!new.is_empty()).then_some(0),
+        scroll_top: true,
+    }
+}
+
+/// Mục chọn sau khi nạp lại mà mục đang chọn là `removed`: còn thì giữ theo id; đã bị xóa thì mục kế ở
+/// cùng vị trí, hết thì mục cuối; không còn gì thì `None`.
+pub fn select_after_remove(old: &[&str], removed: &str, new: &[&str]) -> Option<usize> {
+    reselect(old, Some(removed), new)
+}
+
+// ---------------------------------------------------------------------------
+// Hành động (thiết kế mục 3.6)
+// ---------------------------------------------------------------------------
+
+/// Liên kết mở được trên trình duyệt: đúng tiền tố `https://` (chữ thường), có máy chủ, không có ký
+/// tự điều khiển hay khoảng trắng.
+pub fn url_openable(u: &str) -> bool {
+    let Some(rest) = u.strip_prefix("https://") else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.starts_with('/')
+        && !u.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
+/// Đối số của `explorer.exe` để mở thư mục và chọn sẵn tệp `p` (đường dẫn trong ngoặc kép, nên dấu
+/// cách và dấu phẩy không cắt đường dẫn; tên tệp Windows không chứa `"`).
+pub fn explorer_select_args(p: &Path) -> String {
+    format!("/select,\"{}\"", p.display())
+}
+
+/// Kết quả một hành động, gửi về cửa sổ trong `WPARAM` của `WM_APP+10`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Status {
+    /// Xong, không cần báo (mở tệp, mở thư mục).
+    None = 0,
+    ImageCopied = 1,
+    LinkCopied = 2,
+    Removed = 3,
+    Cleared = 4,
+    Failed = 5,
+}
+
+impl Status {
+    pub fn from_wparam(v: usize) -> Status {
+        match v {
+            1 => Status::ImageCopied,
+            2 => Status::LinkCopied,
+            3 => Status::Removed,
+            4 => Status::Cleared,
+            5 => Status::Failed,
+            _ => Status::None,
+        }
+    }
+
+    /// Chữ của dòng trạng thái.
+    pub fn msg(self) -> Option<Msg> {
+        Some(match self {
+            Status::None => return None,
+            Status::ImageCopied => Msg::HistoryStatusImageCopied,
+            Status::LinkCopied => Msg::HistoryStatusLinkCopied,
+            Status::Removed => Msg::HistoryStatusRemoved,
+            Status::Cleared => Msg::HistoryStatusCleared,
+            Status::Failed => Msg::HistoryStatusFailed,
+        })
+    }
+
+    /// Lỗi: vẽ bằng `DANGER`.
+    pub fn is_error(self) -> bool {
+        self == Status::Failed
+    }
+}
+
+/// Một mục của menu chuột phải.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuItem {
+    /// Chỉ số hành động (0–4, như thứ tự nút).
+    pub action: usize,
+    pub label: Msg,
+    pub enabled: bool,
+    /// Phím tắt in bên phải (tên phím, giống nhau ở mọi ngôn ngữ).
+    pub shortcut: Option<&'static str>,
+    pub separator_before: bool,
+}
+
+/// Các mục menu theo bảng hành động: ẩn mục không áp dụng, vô hiệu mục không làm được, vạch ngăn trước
+/// "Xóa khỏi lịch sử".
+pub fn menu_items(a: &ActionSet) -> Vec<MenuItem> {
+    let labels = [
+        if a.open_is_link {
+            Msg::HistoryOpenLink
+        } else {
+            Msg::HistoryOpen
+        },
+        Msg::HistoryCopyImage,
+        Msg::HistoryCopyLink,
+        Msg::HistoryShowInFolder,
+        Msg::HistoryRemove,
+    ];
+    let keys = [
+        Some("Enter"),
+        Some("Ctrl+C"),
+        Some("Ctrl+Shift+C"),
+        None,
+        Some("Del"),
+    ];
+    a.as_array()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, av)| *av != Avail::Hidden)
+        .map(|(k, av)| MenuItem {
+            action: k,
+            label: labels[k],
+            enabled: av == Avail::Enabled,
+            shortcut: keys[k],
+            separator_before: k == 4,
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Thẻ xác nhận "Xóa toàn bộ lịch sử?" (thiết kế mục 3.7)
+// ---------------------------------------------------------------------------
+
+/// Hai nút của thẻ xác nhận.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ConfirmBtn {
+    #[default]
+    Cancel,
+    Yes,
+}
+
+/// Phím thẻ xác nhận tự xử lý.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmKey {
+    Esc,
+    Enter,
+    Tab,
+    ShiftTab,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfirmOutcome {
+    /// Thẻ vẫn mở (hoặc đang đóng sẵn).
+    Stay,
+    Cancel,
+    Confirm,
+}
+
+/// Trạng thái thẻ xác nhận: mở/đóng và nút đang có tiêu điểm (Hủy là mặc định).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Confirm {
+    open: bool,
+    focus: ConfirmBtn,
+}
+
+impl Confirm {
+    pub fn open(&mut self) {
+        self.open = true;
+        self.focus = ConfirmBtn::Cancel;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn focus(&self) -> ConfirmBtn {
+        self.focus
+    }
+
+    pub fn set_focus(&mut self, b: ConfirmBtn) {
+        self.focus = b;
+    }
+
+    /// Esc = Hủy; Enter = nút đang có tiêu điểm; Tab/Shift+Tab xoay giữa hai nút.
+    pub fn key(&mut self, k: ConfirmKey) -> ConfirmOutcome {
+        if !self.open {
+            return ConfirmOutcome::Stay;
+        }
+        match k {
+            ConfirmKey::Esc => {
+                self.open = false;
+                ConfirmOutcome::Cancel
+            }
+            ConfirmKey::Enter => {
+                self.open = false;
+                match self.focus {
+                    ConfirmBtn::Cancel => ConfirmOutcome::Cancel,
+                    ConfirmBtn::Yes => ConfirmOutcome::Confirm,
+                }
+            }
+            ConfirmKey::Tab | ConfirmKey::ShiftTab => {
+                self.focus = match self.focus {
+                    ConfirmBtn::Cancel => ConfirmBtn::Yes,
+                    ConfirmBtn::Yes => ConfirmBtn::Cancel,
+                };
+                ConfirmOutcome::Stay
+            }
+        }
+    }
+}
+
+const CARD_W: i32 = 400;
+const CARD_PAD: i32 = 24;
+const CARD_TITLE_GAP: i32 = 8;
+const CARD_BTN_TOP: i32 = 24;
+pub const CARD_RADIUS: i32 = 8;
+
+/// Vị trí thẻ xác nhận và các phần của nó (pixel, tọa độ client cửa sổ chính).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CardRects {
+    pub card: RECT,
+    pub title: RECT,
+    pub text: RECT,
+    pub cancel: RECT,
+    pub yes: RECT,
+}
+
+/// Bề rộng đoạn giải thích của thẻ xác nhận (để đo chiều cao chữ xuống dòng).
+pub fn card_text_width(dpi: u32) -> i32 {
+    scale(CARD_W - 2 * CARD_PAD, dpi)
+}
+
+/// Thẻ rộng 400 DIP giữa thân; `title_h`, `text_h` = chiều cao chữ đã đo; `btn_w` = bề rộng nút Hủy và
+/// nút xóa. Hai nút cùng hàng ở góc dưới phải, Hủy bên trái.
+pub fn confirm_card(l: &Layout, title_h: i32, text_h: i32, btn_w: [i32; 2]) -> CardRects {
+    let s = |v: i32| scale(v, l.dpi);
+    let w = s(CARD_W);
+    let h = 2 * s(CARD_PAD) + title_h + s(CARD_TITLE_GAP) + text_h + s(CARD_BTN_TOP) + s(BTN_H);
+    let b = &l.body;
+    let left = b.left + (b.right - b.left - w) / 2;
+    let top = (b.top + (b.bottom - b.top - h) / 2).max(b.top);
+    let card = rc(left, top, left + w, top + h);
+    let (x0, x1) = (left + s(CARD_PAD), left + w - s(CARD_PAD));
+    let title = rc(x0, top + s(CARD_PAD), x1, top + s(CARD_PAD) + title_h);
+    let tt = title.bottom + s(CARD_TITLE_GAP);
+    let text = rc(x0, tt, x1, tt + text_h);
+    let bt = text.bottom + s(CARD_BTN_TOP);
+    let yw = btn_w[1].min(x1 - x0);
+    let yes = rc(x1 - yw, bt, x1, bt + s(BTN_H));
+    let cw = btn_w[0].min((yes.left - s(BTN_GAP) - x0).max(0));
+    let cancel = rc(
+        yes.left - s(BTN_GAP) - cw,
+        bt,
+        yes.left - s(BTN_GAP),
+        bt + s(BTN_H),
+    );
+    CardRects {
+        card,
+        title,
+        text,
+        cancel,
+        yes,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vùng xem trước, ô tìm
+// ---------------------------------------------------------------------------
+
+/// Cách vẽ thông báo giữa vùng xem trước: cỡ biểu tượng (0 = không vẽ) và có dòng gợi ý hay không.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MsgPlan {
+    pub icon: i32,
+    pub hint: bool,
+}
+
+const MSG_TITLE_H: i32 = 22;
+const MSG_HINT_GAP: i32 = 6;
+
+impl MsgPlan {
+    /// Chiều cao cả khối (biểu tượng, tiêu đề, gợi ý cao `hint_h`).
+    pub fn height(&self, hint_h: i32, dpi: u32) -> i32 {
+        let s = |v: i32| scale(v, dpi);
+        let icon = if self.icon > 0 {
+            self.icon + if self.icon >= s(36) { s(12) } else { s(8) }
+        } else {
+            0
+        };
+        let hint = if self.hint {
+            s(MSG_HINT_GAP) + hint_h
+        } else {
+            0
+        };
+        icon + s(MSG_TITLE_H) + hint
+    }
+}
+
+/// Chọn cách vẽ vừa vùng cao `inner_h`: đủ chỗ thì biểu tượng 36 DIP và gợi ý; thiếu thì co biểu
+/// tượng còn 24, rồi bỏ biểu tượng, rồi mới bỏ dòng gợi ý (chữ quan trọng hơn hình).
+pub fn center_msg_plan(inner_h: i32, hint_h: i32, dpi: u32) -> MsgPlan {
+    let s = |v: i32| scale(v, dpi);
+    let plans = [
+        MsgPlan {
+            icon: s(36),
+            hint: true,
+        },
+        MsgPlan {
+            icon: s(24),
+            hint: true,
+        },
+        MsgPlan {
+            icon: 0,
+            hint: true,
+        },
+        MsgPlan {
+            icon: s(24),
+            hint: false,
+        },
+    ];
+    plans
+        .into_iter()
+        .find(|p| p.height(hint_h, dpi) <= inner_h)
+        .unwrap_or(MsgPlan {
+            icon: 0,
+            hint: false,
+        })
+}
+
+/// Các phần của ô tìm: kính lúp, ô EDIT con (không viền, căn giữa dọc), nút `×`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SearchParts {
+    pub lens: RECT,
+    pub edit: RECT,
+    pub clear: RECT,
+}
+
+/// Xếp ô tìm `search`; `text_h` = chiều cao một dòng chữ của phông thường.
+pub fn search_parts(search: &RECT, dpi: u32, text_h: i32) -> SearchParts {
+    let s = |v: i32| scale(v, dpi);
+    let cy = (search.top + search.bottom) / 2;
+    let d = s(12);
+    let lens = rc(
+        search.left + s(10),
+        cy - d / 2 - s(1),
+        search.left + s(10) + d,
+        cy + d / 2 - s(1),
+    );
+    let cs = s(24);
+    let clear = rc(
+        search.right - s(4) - cs,
+        cy - cs / 2,
+        search.right - s(4),
+        cy - cs / 2 + cs,
+    );
+    let max_h = (search.bottom - search.top - 2 * s(3)).max(1);
+    let eh = (text_h + s(2)).clamp(1, max_h);
+    let top = cy - eh / 2;
+    let edit = rc(lens.right + s(10), top, clear.left - s(2), top + eh);
+    SearchParts { lens, edit, clear }
 }
 
 #[cfg(test)]
