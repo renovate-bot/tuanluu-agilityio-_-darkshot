@@ -1,4 +1,193 @@
-//! Dịch vụ ghi lịch sử ảnh chụp.
+//! Dịch vụ ghi lịch sử ảnh chụp: ánh xạ kết quả hành động thành mục lịch sử và ghi trên luồng nền.
+//!
+//! Lịch sử không bao giờ làm hỏng hành động chụp: mọi lỗi và panic trên đường ghi bị nuốt và
+//! chỉ tăng bộ đếm trong bộ nhớ (không ghi nhật ký). Tắt thì không làm gì cả.
+
+use crate::paths;
+use darkshot_core::actions::Outcome;
+use darkshot_core::config::Expiry;
+use darkshot_core::history::{expires_on, Kind};
+use darkshot_core::history_store::{NewEntry, Store};
+use darkshot_core::image::Image;
+use darkshot_core::naming::LocalTime;
+use std::ffi::c_void;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::thread::JoinHandle;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APP};
+
+/// Gửi tới cửa sổ Lịch sử (nếu đang mở) sau khi một mục được ghi xong; Task 56 xử lý.
+pub const WM_HISTORY_CHANGED: u32 = WM_APP + 6;
+
+static ENABLED: AtomicBool = AtomicBool::new(false);
+static FAILURES: AtomicU32 = AtomicU32::new(0);
+static WINDOW: AtomicIsize = AtomicIsize::new(0);
+
+/// Bật/tắt lịch sử cho cả tiến trình (lúc khởi động và sau khi Tùy chọn lưu xong).
+pub fn set_enabled(on: bool) {
+    ENABLED.store(on, Ordering::SeqCst);
+}
+
+pub fn is_enabled() -> bool {
+    ENABLED.load(Ordering::SeqCst)
+}
+
+/// HWND của cửa sổ Lịch sử đang mở (0 khi không có); cửa sổ tự đặt và tự xóa.
+/// Cửa sổ thật có từ Task 55/56; tới lúc đó chưa ai gọi hàm này.
+#[allow(dead_code)]
+pub fn set_window(hwnd: isize) {
+    WINDOW.store(hwnd, Ordering::SeqCst);
+}
+
+/// Số lần ghi lịch sử thất bại trong tiến trình này (cho kiểm thử, không ghi nhật ký).
+#[allow(dead_code)]
+pub fn failure_count() -> u32 {
+    FAILURES.load(Ordering::SeqCst)
+}
+
+fn fail() {
+    FAILURES.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Ánh xạ thuần: kết quả hành động → mục mới. `Failed`/`Cancelled` không ghi.
+pub fn plan(
+    outcome: &Outcome,
+    expiry: Expiry,
+    now: &LocalTime,
+    unix_millis: u64,
+) -> Option<NewEntry> {
+    let base = |kind: Kind| NewEntry {
+        kind,
+        unix_millis,
+        local: *now,
+        path: None,
+        url: None,
+        expires: None,
+    };
+    match outcome {
+        Outcome::Saved(path) => Some(NewEntry {
+            path: Some(path.clone()),
+            ..base(Kind::Saved)
+        }),
+        Outcome::Copied => Some(base(Kind::Copied)),
+        Outcome::Uploaded(link) => Some(NewEntry {
+            url: Some(link.clone()),
+            expires: expires_on(now, expiry),
+            ..base(Kind::Uploaded)
+        }),
+        Outcome::UploadFailedSaved { path, .. } => Some(NewEntry {
+            path: Some(path.clone()),
+            ..base(Kind::UploadFallback)
+        }),
+        Outcome::Failed | Outcome::Cancelled => None,
+    }
+}
+
+/// Một lần Lưu thay cho lượt tải lên (lưu dự phòng): `Saved` thành `UploadFailedSaved`.
+pub fn as_fallback(outcome: Outcome) -> Outcome {
+    match outcome {
+        Outcome::Saved(path) => Outcome::UploadFailedSaved {
+            path,
+            needs_settings: false,
+        },
+        other => other,
+    }
+}
+
+fn unix_millis_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+fn notify_window() {
+    let h = WINDOW.load(Ordering::SeqCst);
+    if h == 0 {
+        return;
+    }
+    // SAFETY: PostMessageW an toàn từ luồng bất kỳ; cửa sổ đã hủy thì lỗi và ta bỏ qua.
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(h as *mut c_void)),
+            WM_HISTORY_CHANGED,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+}
+
+/// Ghi một mục (đồng bộ) và nuốt mọi lỗi/panic.
+fn write_entry(root: PathBuf, new: NewEntry, img: &Image) {
+    let r = catch_unwind(AssertUnwindSafe(|| Store::new(root).record(new, img)));
+    match r {
+        Ok(Ok(_)) => notify_window(),
+        Ok(Err(_)) | Err(_) => fail(),
+    }
+}
+
+/// Như `record_outcome` nhưng với thư mục gốc và cờ bật truyền vào; trả luồng đã tạo (nếu có).
+fn record_with(
+    enabled: bool,
+    root: PathBuf,
+    outcome: &Outcome,
+    img: &Image,
+    expiry: Expiry,
+    now: LocalTime,
+) -> Option<JoinHandle<()>> {
+    if !enabled {
+        return None;
+    }
+    let new = plan(outcome, expiry, &now, unix_millis_now())?;
+    // Bản sao duy nhất của ảnh, giao cho luồng ghi.
+    let img = img.clone();
+    match std::thread::Builder::new()
+        .name("darkshot-history".into())
+        .spawn(move || write_entry(root, new, &img))
+    {
+        Ok(h) => Some(h),
+        Err(_) => {
+            fail();
+            None
+        }
+    }
+}
+
+/// Như `record_outcome_blocking` nhưng với thư mục gốc và cờ bật truyền vào.
+fn record_blocking_with(
+    enabled: bool,
+    root: PathBuf,
+    outcome: &Outcome,
+    img: &Image,
+    expiry: Expiry,
+    now: LocalTime,
+) {
+    if !enabled {
+        return;
+    }
+    if let Some(new) = plan(outcome, expiry, &now, unix_millis_now()) {
+        write_entry(root, new, img);
+    }
+}
+
+/// Ghi kết quả vào lịch sử trên luồng nền `darkshot-history`; không chặn, không panic.
+/// Tắt thì không làm gì (không sao ảnh, không tạo thư mục, không tạo luồng).
+pub fn record_outcome(outcome: &Outcome, img: &Image, expiry: Expiry, now: LocalTime) {
+    if !is_enabled() {
+        return;
+    }
+    let _ = record_with(true, paths::history_dir(), outcome, img, expiry, now);
+}
+
+/// Như `record_outcome` nhưng ghi xong mới trả về (dùng khi thoát: lưu dự phòng).
+pub fn record_outcome_blocking(outcome: &Outcome, img: &Image, expiry: Expiry, now: LocalTime) {
+    if !is_enabled() {
+        return;
+    }
+    record_blocking_with(true, paths::history_dir(), outcome, img, expiry, now);
+}
 
 #[cfg(test)]
 mod tests {

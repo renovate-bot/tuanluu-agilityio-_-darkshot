@@ -161,7 +161,12 @@ impl Clipboard for NoClipboard {
 
 /// Lưu PNG của các lượt chưa xong vào thư mục lưu của từng lượt. Chỉ ghi file, không thông báo,
 /// không chạm clipboard, không mạng. Trả số ảnh đã lưu được.
-pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
+/// Mỗi ảnh lưu được thì gọi `on_saved` (đồng bộ) với `UploadFailedSaved` (lưu dự phòng).
+pub fn save_pending(
+    items: Vec<PendingUpload>,
+    now: LocalTime,
+    on_saved: &dyn Fn(&Outcome, &Image),
+) -> usize {
     items
         .iter()
         .filter(|p| {
@@ -176,10 +181,25 @@ pub fn save_pending(items: Vec<PendingUpload>, now: LocalTime) -> usize {
                 upload_format: UploadFormat::Png,
                 jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
-            matches!(run_action(&ctx, Action::Save, &p.image), Outcome::Saved(_))
+            match run_action(&ctx, Action::Save, &p.image) {
+                Outcome::Saved(path) => {
+                    on_saved(
+                        &Outcome::UploadFailedSaved {
+                            path,
+                            needs_settings: false,
+                        },
+                        &p.image,
+                    );
+                    true
+                }
+                _ => false,
+            }
         })
         .count()
 }
+
+/// Móc nhận kết quả của một lượt tải lên cùng ảnh của lượt đó.
+pub type OutcomeHook = Box<dyn Fn(&Outcome, &Image) + Send>;
 
 /// Mọi thứ một lượt tải lên cần; đã là bản chụp riêng, không tham chiếu trạng thái luồng chính.
 pub struct UploadJob {
@@ -198,6 +218,8 @@ pub struct UploadJob {
     pub lang: Lang,
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
+    /// Gọi đúng một lần với kết quả của lượt, sau khi lượt đã rút khỏi sổ (ghi lịch sử).
+    pub on_outcome: Option<OutcomeHook>,
 }
 
 /// Chạy một lượt tải lên trên luồng riêng. Lỗi tạo luồng trả về `Err` (không panic).
@@ -220,6 +242,9 @@ pub fn spawn_upload(job: UploadJob) -> Result<JoinHandle<()>, String> {
             // Lượt đã kết thúc (lên kho, đã lưu dự phòng, hoặc đã báo lỗi): rút khỏi sổ.
             if let Some((reg, id)) = &job.pending {
                 reg.remove(*id);
+            }
+            if let Some(hook) = &job.on_outcome {
+                hook(&outcome, &job.image);
             }
             if let Outcome::UploadFailedSaved {
                 needs_settings: true,
@@ -598,7 +623,7 @@ mod tests {
         }
     }
 
-    fn recording_hook(seen: Seen) -> Box<dyn Fn(&Outcome, &Image) + Send> {
+    fn recording_hook(seen: Seen) -> OutcomeHook {
         Box::new(move |o: &Outcome, img: &Image| {
             seen.lock().unwrap().push((outcome_tag(o), img.width));
         })

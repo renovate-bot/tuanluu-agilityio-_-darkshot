@@ -252,6 +252,8 @@ pub struct Config {
     pub custom_colors: CustomColors,
     pub check_updates: bool,
     pub update_notified: Option<Version>,
+    /// Lưu lịch sử ảnh chụp trên máy; mặc định tắt.
+    pub history_enabled: bool,
 }
 
 impl Config {
@@ -271,6 +273,7 @@ impl Config {
             custom_colors: CustomColors::default(),
             check_updates: true,
             update_notified: None,
+            history_enabled: false,
         }
     }
 }
@@ -380,6 +383,7 @@ struct FileConfig {
     custom_colors: serde_json::Value,
     check_updates: serde_json::Value,
     update_notified: serde_json::Value,
+    history_enabled: serde_json::Value,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -402,6 +406,7 @@ impl Default for FileConfig {
             custom_colors: serde_json::Value::Null,
             check_updates: serde_json::Value::Bool(true),
             update_notified: serde_json::Value::Null,
+            history_enabled: serde_json::Value::Bool(false),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -509,6 +514,7 @@ pub fn load(
         custom_colors: custom_from_json(&f.custom_colors),
         check_updates: f.check_updates.as_bool().unwrap_or(true),
         update_notified: f.update_notified.as_str().and_then(Version::parse),
+        history_enabled: f.history_enabled.as_bool().unwrap_or(false),
     };
     Ok(Loaded {
         config,
@@ -555,6 +561,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
             Some(v) => serde_json::Value::String(v.to_string()),
             None => serde_json::Value::Null,
         },
+        history_enabled: serde_json::Value::Bool(cfg.history_enabled),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
