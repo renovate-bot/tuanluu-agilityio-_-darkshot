@@ -137,10 +137,28 @@ Nguồn đầy đủ: thiết kế `docs/superpowers/specs/2026-11-17-annotate-d
 
 ### Ba chỗ
 
-- **Mô hình ở `darkshot_core::annotate`** (không phụ thuộc crate `windows`): `Tool` (sáu công cụ vẽ, thứ tự trên thanh trong `Tool::ALL`, `from_key` cho P, L, A, R, H, T), `PALETTE` (tám màu, `DEFAULT_COLOR` là phần tử đầu), hằng kích thước (`STROKE_DIP`, `MARKER_DIP`, `MARKER_ALPHA`, `TEXT_DIP`, `ARROW_*`, `MIN_DRAG_PX`), `Shape` (hình lưu theo tọa độ ảnh chụp, `f32`), `Annotations` (hoàn tác hình cuối), `TextEdit` (soạn chữ theo ký tự Unicode, `to_shape` trả `None` khi chỉ có khoảng trắng), `press_mode` (quyết định khi bấm chuột, bảng sáu tổ hợp), hình học (`add_point`, `constrain_45`, `constrain_square`, `too_short`, `arrow_min_head`, `arrow_geometry`, `outline_color`), `sanitize_paste`. Vị trí thanh dọc là `geometry::place_side_toolbar`.
+- **Mô hình ở `darkshot_core::annotate`** (không phụ thuộc crate `windows`): `Tool` (mười công cụ, thứ tự trên thanh trong `Tool::ALL`, `from_key` cho V, P, L, A, R, E, H, B, T, N), `PALETTE` (48 màu, `DEFAULT_COLOR` là `PALETTE[8]`), `SizeLevel` (bốn mức; `stroke_dip`, `marker_dip`, `text_dip`, `step_dip`), hằng kích thước (`STROKE_DIP`, `MARKER_DIP`, `MARKER_ALPHA`, `TEXT_DIP`, `ARROW_*`, `MIN_DRAG_PX`), `Shape` (hình lưu theo tọa độ ảnh chụp, `f32`), `Annotations` (sổ thay đổi theo hình: `add`, `remove`, `replace`, `undo`, `redo`, mỗi lần trả `Applied`; đánh lại số vòng Đánh số), `TextEdit` (soạn chữ theo ký tự Unicode, `to_shape` trả `None` khi chỉ có khoảng trắng), `press_mode` (quyết định khi bấm chuột, gồm `Pick` của công cụ Chọn), hình học (`add_point`, `constrain_45`, `constrain_square`, `too_short`, `arrow_min_head`, `arrow_geometry`, `outline_color`), `sanitize_paste`. Vị trí thanh dọc là `geometry::place_side_toolbar`; bố cục một hoặc hai cột là `geometry::side_layout`.
 - **Vẽ ở `crates/darkshot-windows/src/annotate_draw.rs`**: `draw_shapes(dc, shapes, ox, oy, clip)` là hàm vẽ duy nhất, dùng cho cả lớp phủ (vẽ lên bộ đệm sau) và cho ảnh ra. `burn(img, shapes, crop)` in hình vào ảnh đã cắt (dịch theo góc `crop`, alpha giữ 255). `shape_bounds` đo hộp bao (chữ đo bằng GDI+ cùng phông lúc vẽ); `caret_rect` cho con trỏ nháy của ô chữ. Kiểm thử `burn_offsets_by_crop_origin` là kiểm thử chống lệch vị trí.
 - **GDI+ ở `crates/darkshot-windows/src/gdiplus.rs`**: `GdiPlus` (khởi động và tắt, `Drop` gọi Shutdown) và `Gp` (đồ họa trên một DC, bật khử răng cưa và `PixelOffsetHalf`). Chuyển từ `overlay.rs` sang, giữ hành vi.
-- **Lớp phủ ở `overlay.rs`**: `SideItem` và `SIDE_ITEMS` (thanh dọc, vạch ngăn, `COLOR_INDEX`), `begin_stroke`/`extend_stroke`/`end_stroke` (một nét; `extend_stroke` chỉ làm mới hộp của đoạn mới), `TextBox` (ô chữ đang gõ), các hàm IME (`ime_composing`, `ime_end_composition`, `place_ime`). `pick_region` trả `Picked { action, rect, shapes }`; `main::picked_image` in hình, và nếu in lỗi thì báo `AnnotateFailed*` và không chạy hành động.
+- **Lớp phủ ở `overlay.rs`**: `SideItem` và `SIDE_ITEMS` (14 mục, `SIDE_SEPS` là vạch ngăn), `begin_stroke`/`extend_stroke`/`end_stroke` (một nét; `extend_stroke` chỉ làm mới hộp của đoạn mới), `TextBox` (ô chữ đang gõ), các hàm IME (`ime_composing`, `ime_end_composition`, `place_ime`). `pick_region` trả `Picked { action, rect, shapes }`; `main::picked_image` in hình, và nếu in lỗi thì báo `AnnotateFailed*` và không chạy hành động.
+
+### Đợt 6: chọn, sửa và loại hình mới
+
+Nguồn đầy đủ: thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, báo cáo Task 44–48 (`memory-bank/activeContext.md`).
+
+- **`darkshot_core::edit`** (không phụ thuộc `windows`): `hit_shape` và `topmost_hit` (trúng hình, hình trên cùng thắng), `handles` và `grip_at` (tay nắm), `frame` (khung chọn), `transform` (biến đổi theo loại hình; Làm mờ tính lại màu trên ảnh chụp gốc bằng `redact_color`), `restyle` (đổi mức và màu, đổi DIP sang px theo DPI truyền vào).
+- **Sổ thay đổi**: `Annotations` ghi `Change::{Inserted, Removed, Replaced}` trong `Applied { change, renumbered }`. Lớp phủ gọi `apply_change(&Applied)`, qua `apply_bounds(&mut mark_bounds, shapes, a)`, để `mark_bounds` luôn cùng độ dài và thứ tự với danh sách hình. Bản xem trước của cử chỉ kéo không nằm trong sổ; khi thả chuột chốt bằng một `Replace`.
+- **Số vòng Đánh số** là dẫn xuất (1 cộng số vòng đứng trước trong danh sách); lõi đánh lại sau mỗi thay đổi, kể cả hoàn tác và làm lại, trước khi `draw_shapes` vẽ.
+- **Hai loại hình mới**: `Shape::Ellipse { a, b, width, color }` và `Shape::Step { center, radius, n, color }`. `draw_shapes`/`burn` vẽ cùng một đường.
+
+### Thêm một loại hình mới (đợt 6)
+
+Theo các chỗ đợt 6 đã đụng:
+
+1. Lõi `annotate.rs`: biến thể của `Shape` và nhánh trong `Shape::bounds`; nếu là công cụ mới thì thêm vào `Tool`, `Tool::ALL`, `Tool::from_key` và `too_short`.
+2. Lõi `edit.rs`: nhánh trong `hit_shape`, `handles`, `transform` và `restyle` (`transform_box`, `transform_points`, `transform_scaled` hoặc nhánh riêng); kiểm thử tay nắm và biến đổi.
+3. Vẽ `annotate_draw::draw_one`: nhánh vẽ (match đủ, trình biên dịch báo thiếu); `shape_bounds` cho hộp bao nếu cần.
+4. Lớp phủ `overlay.rs`: nếu kéo thì nhánh trong `begin_stroke` (công cụ đặt ngay như Đánh số thì xử lý trong nhánh `PressMode::Draw`); biểu tượng trong `Painter`; thêm vào `SideItem`, `SideItem::tip`, `SIDE_ITEMS` và `SIDE_SEPS` nếu có vạch ngăn mới.
 
 ### Thêm một công cụ vẽ mới
 
@@ -148,7 +166,7 @@ Theo các chỗ Task 36–37 đã đụng:
 
 1. `annotate.rs`: thêm biến thể vào `Tool`, sửa `Tool::ALL` và độ dài của nó, thêm mã phím vào `from_key`; nếu kéo thì `too_short` cho công cụ đó.
 2. `i18n.rs`: thêm `Msg` tên và phím tắt cho chú thích (đủ hai ngôn ngữ, ví dụ `ToolPen` "Bút vẽ (P)" / "Pen (P)").
-3. `overlay.rs`: thêm biến thể vào `SideItem` và nhánh trong `SideItem::tip`; thêm vào `SIDE_ITEMS` (đổi độ dài `[SideItem; 8]`, cập nhật `COLOR_INDEX` và các kiểm thử vị trí nút); vẽ biểu tượng trong nhánh `Painter` (biểu tượng tự vẽ bằng GDI+, không chép biểu tượng ứng dụng khác); nếu công cụ có phím thì thêm vào bắt phím (chỉ khi không đang gõ chữ).
+3. `overlay.rs`: thêm biến thể vào `SideItem` và nhánh trong `SideItem::tip`; thêm vào `SIDE_ITEMS` (đổi độ dài `[SideItem; N]`, cập nhật `SIDE_SEPS` nếu có vạch ngăn mới, và các kiểm thử vị trí nút); vẽ biểu tượng trong nhánh `Painter` (biểu tượng tự vẽ bằng GDI+, không chép biểu tượng ứng dụng khác); nếu công cụ có phím thì thêm vào bắt phím (chỉ khi không đang gõ chữ).
 4. Hình mới: nếu cần kiểu hình mới thì thêm biến thể vào `Shape` và `Shape::bounds`; `annotate_draw::draw_one` phải có nhánh vẽ (match đủ, trình biên dịch báo thiếu); bổ sung vào `sample_shapes` và `non_text_bounds_match_core` để kiểm thử cùng đường vẽ.
 5. Kiểm: một kiểm thử ở core cho quy tắc riêng (ví dụ `too_short`), một kiểm thử vẽ ở `annotate_draw`, và kiểm thử chạy tay (`#[ignore]`) của lớp phủ nếu đụng tới vòng lặp chuột.
 

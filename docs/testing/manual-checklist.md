@@ -295,6 +295,26 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Làm mờ: Ctrl+Z gỡ vùng che, ảnh gốc hiện lại trên màn hình; ảnh ra không còn vùng che đó.
 - [ ] Thanh dọc 9 nút (thêm Làm mờ giữa Bút dạ quang và Chữ) nằm trọn trong màn hình ở DPI 100% và 150%, kể cả màn hình 1366×768; không chồng thanh bốn nút.
 
+## Đợt 6: Annotation Pro
+
+- [ ] Hoàn tác và làm lại nhiều bước: vẽ năm hình, Ctrl+Z năm lần về trống, Ctrl+Y năm lần đủ lại; Ctrl+Shift+Z làm lại như Ctrl+Y; nút Hoàn tác và Làm lại mờ đúng lúc.
+- [ ] Kéo một hình (di chuyển hoặc đổi cỡ) là một bước: một lần Ctrl+Z trả hình về đúng chỗ cũ; Esc giữa lúc kéo hủy, hình về như cũ và không tạo bước hoàn tác.
+- [ ] Delete hoặc Backspace xóa hình đang chọn; Ctrl+Z khôi phục đúng vị trí trong thứ tự vẽ.
+- [ ] Đang gõ chữ, Ctrl+Z vẫn như cũ (ô có chữ thì xóa ô; ô rỗng thì hoàn tác hình trước đó); Ctrl+Y khi ô đang mở không làm gì.
+- [ ] Chọn hình trên cùng khi các hình chồng nhau; bấm ra chỗ khác (trong hoặc ngoài vùng chọn) thì bỏ chọn và không tạo vùng chọn mới.
+- [ ] Di chuyển và đổi cỡ từng loại hình (Bút vẽ, Đường thẳng, Mũi tên, Hình chữ nhật, Hình elip, Bút dạ quang, Làm mờ, Chữ, Đánh số): hình đi theo chuột, tay nắm đúng chỗ, đổi cỡ đúng hướng; hình chỉ lật khi kéo qua cạnh đối diện.
+- [ ] Hình elip: kéo theo mọi hướng (trái sang phải, phải sang trái, trên xuống, dưới lên) đều ra đúng hình; Shift ra hình tròn; bấm vào lòng elip không chọn nó, chỉ bấm trên viền mới chọn.
+- [ ] Đánh số: mỗi lần bấm đặt một vòng; số là 1, 2, 3… liên tục; xóa vòng ở giữa, hoàn tác và làm lại đều đánh số lại đúng, không trùng và không thủng; số đọc được trên nền sáng và nền tối.
+- [ ] Bốn mức cỡ (Nhỏ, Vừa, Lớn, Rất lớn) cho hình mới bằng nút Cỡ và phím `[` `]`; chọn mức khi đang chọn một hình thì đổi hình đó; mức Vừa cho đúng độ dày và cỡ chữ như trước.
+- [ ] Chữ tiếng Việt (Unikey hoặc bộ gõ Windows) ở cả bốn mức cỡ: có dấu đúng, không bị cắt, chốt ô đúng vị trí.
+- [ ] Làm mờ: dời và đổi cỡ vùng che; vùng che luôn kín (không lộ chữ bên dưới), màu lấy từ ảnh gốc; sau khi dời, phần ảnh gốc hiện ra trên màn hình và trong ảnh ra đúng như màn hình.
+- [ ] Khung chọn và tay nắm không có trong ảnh Lưu, Chép và Tải lên (cả PNG và JPEG) khi đang có hình được chọn.
+- [ ] Ảnh nhỏ, ảnh 4K, hai màn hình 4K, 100 hình, nét tự do dài: vẽ, kéo và hoàn tác không giật thấy rõ.
+- [ ] DPI 100%, 125%, 150% và 200%: thanh dọc, bảng Cỡ, số trong vòng và cỡ chữ đúng tỉ lệ; ở 1920×1080 với DPI 200% thanh chuyển sang hai cột và không tràn khỏi màn hình.
+- [ ] Không chọn công cụ nào: PrintScreen, kéo vùng mới, Ctrl+D/S/C, Esc, "Giữ vị trí vùng" và hai phím toàn màn hình chạy như trước; kéo ngoài vùng khi chưa có công cụ và chưa có hình vẫn tạo vùng mới.
+- [ ] Esc lùi từng bước: bảng Cỡ hoặc bảng màu → ô chữ → hủy kéo hình → bỏ chọn hình → đóng lớp phủ.
+- [ ] Nút Hoàn tác và Làm lại trên thanh dọc làm đúng như Ctrl+Z và Ctrl+Y.
+
 ## Cập nhật (Task 43)
 
 - [ ] Chạy bản có phiên bản cũ hơn release mới nhất: sau khoảng 1 phút có thông báo "Có bản darkshot mới"; bấm vào thông báo thì mở đúng trang release.
