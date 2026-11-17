@@ -4,6 +4,7 @@
 //! Mọi trạng thái kéo thả nằm trong `geometry::Selection`; ở đây chỉ vẽ và nhận sự kiện.
 
 use crate::capture::Screenshot;
+use crate::gdiplus::{GdiPlus, Gp};
 use crate::lang;
 use darkshot_core::actions::Action;
 use darkshot_core::geometry::{
@@ -29,11 +30,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Graphics::GdiPlus::{
     DashCapFlat, FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure,
-    GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipDeleteGraphics, GdipDeletePath,
-    GdipDeletePen, GdipDrawPath, GdipSetPenLineCap197819, GdipSetPenLineJoin,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdipStartPathFigure, GdiplusShutdown,
-    GdiplusStartup, GdiplusStartupInput, GpGraphics, GpPath, LineCapRound, LineJoinRound,
-    PixelOffsetModeHalf, SmoothingModeAntiAlias, UnitPixel,
+    GdipCreatePath, GdipCreatePen1, GdipDeletePath, GdipDeletePen, GdipDrawPath,
+    GdipSetPenLineCap197819, GdipSetPenLineJoin, GdipStartPathFigure, GpPath, LineCapRound,
+    LineJoinRound, UnitPixel,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
@@ -938,25 +937,7 @@ impl Painter {
     }
 }
 
-/// Đối tượng GDI+ vẽ lên một DC; giải phóng khi drop.
-struct Gp(*mut GpGraphics);
-
 impl Gp {
-    fn new(dc: HDC) -> Option<Gp> {
-        let mut g: *mut GpGraphics = std::ptr::null_mut();
-        // SAFETY: dc còn sống suốt đời của Gp (Painter giữ nó trong lúc vẽ).
-        let st = unsafe { GdipCreateFromHDC(dc, &mut g) };
-        if st.0 != 0 || g.is_null() {
-            return None;
-        }
-        // SAFETY: g hợp lệ vừa tạo.
-        unsafe {
-            GdipSetSmoothingMode(g, SmoothingModeAntiAlias);
-            GdipSetPixelOffsetMode(g, PixelOffsetModeHalf);
-        }
-        Some(Gp(g))
-    }
-
     /// Vẽ biểu tượng trong lưới 24×24 (theo hình mẫu), cỡ `size` pixel, tâm (`cx`, `cy`).
     fn icon(&self, a: Action, cx: f32, cy: f32, size: f32, argb: u32) {
         let k = size / 24.0;
@@ -1038,43 +1019,9 @@ impl Gp {
                     poly(&[(18.0, 6.0), (6.0, 18.0)]);
                 }
             }
-            GdipDrawPath(self.0, pen, path);
+            GdipDrawPath(self.raw(), pen, path);
             GdipDeletePath(path);
             GdipDeletePen(pen);
-        }
-    }
-}
-
-impl Drop for Gp {
-    fn drop(&mut self) {
-        // SAFETY: đối tượng do GdipCreateFromHDC tạo, xóa đúng một lần.
-        unsafe {
-            GdipDeleteGraphics(self.0);
-        }
-    }
-}
-
-/// Khởi động GDI+ trong thời gian lớp phủ mở.
-struct GdiPlus(Option<usize>);
-
-impl GdiPlus {
-    fn start() -> GdiPlus {
-        let input = GdiplusStartupInput {
-            GdiplusVersion: 1,
-            ..Default::default()
-        };
-        let mut token = 0usize;
-        // SAFETY: input hợp lệ; output được phép null khi không tắt luồng nền.
-        let st = unsafe { GdiplusStartup(&mut token, &input, std::ptr::null_mut()) };
-        GdiPlus((st.0 == 0).then_some(token))
-    }
-}
-
-impl Drop for GdiPlus {
-    fn drop(&mut self) {
-        if let Some(t) = self.0 {
-            // SAFETY: token từ GdiplusStartup thành công; mọi đối tượng GDI+ đã xóa.
-            unsafe { GdiplusShutdown(t) };
         }
     }
 }
@@ -1408,7 +1355,7 @@ pub fn pick_region(
         result: None,
         fonts: Vec::new(),
         measure,
-        gdiplus: gdiplus.0.is_some(),
+        gdiplus: gdiplus.ok(),
     };
     let placed = OVERLAY.with(|o| match o.try_borrow_mut() {
         Ok(mut b) => {
