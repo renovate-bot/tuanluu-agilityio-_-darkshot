@@ -927,6 +927,156 @@ mod tests {
     /// Mọi cặp (chữ, nền dưới chữ) có thể vẽ khi điều khiển bật đều nằm trong `TEXT_PAIRS`, nên kiểm thử
     /// tương phản của core bao luôn chúng. Chữ của ô tích và nút chọn nằm trên nền khung (`SURFACE`),
     /// không nằm trên hộp, nên cặp của chúng là (text, SURFACE).
+    /// Pixel BGRA nhân trước alpha (`0xAARRGGBB`) thành (r, g, b, a).
+    fn unpack(p: u32) -> (u8, u8, u8, u8) {
+        ((p >> 16) as u8, (p >> 8) as u8, p as u8, (p >> 24) as u8)
+    }
+
+    fn opaque(c: Rgb) -> (u8, u8, u8, u8) {
+        (c.0, c.1, c.2, 255)
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    fn pt_close(a: (f32, f32), b: (f32, f32)) -> bool {
+        close(a.0, b.0) && close(a.1, b.1)
+    }
+
+    /// Pixel (`x`, `y`) của bộ đệm cạnh `n`.
+    fn at(px: &[u32], n: usize, x: usize, y: usize) -> (u8, u8, u8, u8) {
+        unpack(px[y * n + x])
+    }
+
+    /// Mọi pixel nhân trước alpha (kênh màu không vượt alpha) và có ít nhất một pixel phủ một phần
+    /// (cạnh được khử răng cưa).
+    fn assert_premultiplied_and_smooth(px: &[u32]) {
+        for &p in px {
+            let (r, g, b, a) = unpack(p);
+            assert!(r <= a && g <= a && b <= a, "{p:08X}");
+        }
+        assert!(px.iter().any(|&p| {
+            let a = p >> 24;
+            a > 0 && a < 255
+        }));
+    }
+
+    /// Mỗi pixel bằng pixel đối xứng qua trục dọc và trục ngang của bộ đệm cạnh `n`.
+    fn assert_symmetric(px: &[u32], n: usize) {
+        for y in 0..n {
+            for x in 0..n {
+                assert_eq!(px[y * n + x], px[y * n + (n - 1 - x)], "({x},{y})");
+                assert_eq!(px[y * n + x], px[(n - 1 - y) * n + x], "({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn tick_arms_follow_prototype() {
+        // CSS của hình mẫu: chữ L 5×9, viền phải và dưới 2 px, xoay 45° và dời (-1, -1), giữa hộp 18.
+        let [short, long] = tick_arms(18.0);
+        assert!(pt_close(short.0, (3.343, 8.293)), "{short:?}");
+        assert!(pt_close(short.1, (8.293, 13.243)), "{short:?}");
+        assert!(pt_close(long.0, (14.657, 5.464)), "{long:?}");
+        assert!(pt_close(long.1, (6.879, 13.243)), "{long:?}");
+        // Nét ngắn dài 7, nét dài 11 (tính cả phần góc vuông).
+        let len =
+            |(a, b): ((f32, f32), (f32, f32))| ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+        assert!(close(len(short), 7.0) && close(len(long), 11.0));
+        // Tỉ lệ theo cạnh hộp.
+        let [s2, l2] = tick_arms(36.0);
+        assert!(pt_close(s2.0, (short.0 .0 * 2.0, short.0 .1 * 2.0)));
+        assert!(pt_close(l2.1, (long.1 .0 * 2.0, long.1 .1 * 2.0)));
+    }
+
+    #[test]
+    fn signed_distances() {
+        assert!(close(sd_circle(9.0, 9.0, 9.0, 9.0, 4.0), -4.0));
+        assert!(close(sd_circle(15.0, 9.0, 9.0, 9.0, 4.0), 2.0));
+        // Hình vuông tâm (9, 9), nửa cạnh 9, bo 4.
+        assert!(close(sd_round_rect(9.0, 0.0, 9.0, 9.0, 9.0, 4.0), 0.0));
+        assert!(close(sd_round_rect(9.0, 9.0, 9.0, 9.0, 9.0, 4.0), -9.0));
+        // Góc: tâm cung (4, 4), điểm (0, 0) cách cung 4√2 - 4.
+        assert!(close(
+            sd_round_rect(0.0, 0.0, 9.0, 9.0, 9.0, 4.0),
+            32f32.sqrt() - 4.0
+        ));
+        // Thanh nét đầu bằng: giữa thanh là -nửa rộng, ngoài đầu thanh dương.
+        assert!(close(sd_bar(5.0, 0.0, (0.0, 0.0), (10.0, 0.0), 1.0), -1.0));
+        assert!(close(sd_bar(11.0, 0.0, (0.0, 0.0), (10.0, 0.0), 1.0), 1.0));
+        assert!(close(sd_bar(5.0, 3.0, (0.0, 0.0), (10.0, 0.0), 1.0), 2.0));
+    }
+
+    #[test]
+    fn check_mark_pixels() {
+        let n = 18;
+        let off = check_mark(n, 1.0, check_colors(NORMAL), false);
+        assert_eq!(off.len(), n * n);
+        assert_eq!(at(&off, n, 9, 9), opaque(SURFACE));
+        // Viền 1,5 px phủ trọn pixel đầu của cạnh trái.
+        assert_eq!(at(&off, n, 0, 9), opaque(CHECK_BORDER));
+        // Góc bo: ngoài hình, trong suốt.
+        assert_eq!(at(&off, n, 0, 0).3, 0);
+        assert_premultiplied_and_smooth(&off);
+        assert_symmetric(&off, n);
+
+        let on_state = st(false, false, false, true, true);
+        let on = check_mark(n, 1.0, check_colors(on_state), true);
+        assert_eq!(at(&on, n, 4, 3), opaque(ACCENT_BUTTON));
+        // Góc của dấu tích trắng.
+        assert_eq!(at(&on, n, 7, 12), opaque(WHITE));
+        assert_premultiplied_and_smooth(&on);
+
+        // DPI 200%: cùng hình, gấp đôi.
+        let big = check_mark(36, 2.0, check_colors(on_state), true);
+        assert_eq!(at(&big, 36, 14, 24), opaque(WHITE));
+        assert_eq!(at(&big, 36, 1, 18), opaque(ACCENT_BUTTON));
+        assert_eq!(at(&big, 36, 0, 0).3, 0);
+    }
+
+    #[test]
+    fn radio_mark_pixels() {
+        let n = 18;
+        let on = radio_mark(
+            n,
+            1.0,
+            radio_colors(st(false, false, false, true, true)),
+            true,
+        );
+        assert_eq!(on.len(), n * n);
+        // Chấm ACCENT ở giữa; giữa chấm và vòng trong suốt (như hình mẫu).
+        assert_eq!(at(&on, n, 9, 9), opaque(ACCENT));
+        assert_eq!(at(&on, n, 14, 9).3, 0);
+        assert_eq!(at(&on, n, 0, 0).3, 0);
+        assert_premultiplied_and_smooth(&on);
+        assert_symmetric(&on, n);
+
+        let off = radio_mark(n, 1.0, radio_colors(NORMAL), false);
+        // Tắt: không chấm, lòng vòng trong suốt.
+        assert_eq!(at(&off, n, 9, 9).3, 0);
+        // Vòng màu CHECK_BORDER: pixel trên vòng có màu (sau khi bỏ nhân alpha) đúng màu viền.
+        let (r, g, b, a) = at(&off, n, 0, 9);
+        assert!(a > 200, "{a}");
+        let un = |c: u8| (c as u32 * 255 + a as u32 / 2) / a as u32;
+        let want = CHECK_BORDER;
+        assert!(un(r).abs_diff(want.0 as u32) <= 2 && un(g).abs_diff(want.1 as u32) <= 2);
+        assert!(un(b).abs_diff(want.2 as u32) <= 2);
+        assert_premultiplied_and_smooth(&off);
+        assert_symmetric(&off, n);
+    }
+
+    #[test]
+    fn knob_mark_pixels() {
+        let n = 18;
+        let px = knob_mark(n, 1.0, TEXT, ACCENT, 4.0);
+        assert_eq!(at(&px, n, 9, 9), opaque(TEXT));
+        assert_eq!(at(&px, n, 2, 9), opaque(ACCENT));
+        assert_eq!(at(&px, n, 0, 0).3, 0);
+        assert_premultiplied_and_smooth(&px);
+        assert_symmetric(&px, n);
+    }
+
     #[test]
     fn every_drawn_text_pair_is_listed() {
         let listed = |fg: Rgb, bg: Rgb| TEXT_PAIRS.contains(&(fg, bg));
