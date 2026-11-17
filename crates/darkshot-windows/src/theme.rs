@@ -3,8 +3,9 @@
 use crate::winutil::scale;
 use darkshot_core::theme::{
     Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED, BG, BUTTON,
-    BUTTON_BORDER, BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT, INPUT_BORDER, LINE, SURFACE,
-    TAB_HOVER, TEXT, TEXT_DISABLED, TEXT_MUTED, TRACK, WHITE,
+    BUTTON_BORDER, BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, DANGER_BUTTON, DANGER_BUTTON_HOVER,
+    DANGER_BUTTON_PRESSED, INPUT, INPUT_BORDER, LINE, SURFACE, TAB_HOVER, TEXT, TEXT_DISABLED,
+    TEXT_MUTED, TRACK, WHITE,
 };
 use std::ffi::c_void;
 use std::sync::Mutex;
@@ -116,11 +117,13 @@ pub fn brush(c: Rgb) -> HBRUSH {
     h
 }
 
-/// Loại nút bấm: thường (nền xám) hoặc chính (OK, Đóng: nền màu nhấn, chữ trắng đậm).
+/// Loại nút bấm: thường (nền xám), chính (OK, Đóng: nền màu nhấn, chữ trắng đậm) hoặc nguy hiểm
+/// (xác nhận xóa: nền đỏ đậm, chữ trắng đậm).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ButtonKind {
     Normal,
     Primary,
+    Danger,
 }
 
 /// Trạng thái của một điều khiển lúc vẽ.
@@ -162,13 +165,18 @@ pub fn button_colors(kind: ButtonKind, s: ControlState) -> Colors {
             border: BUTTON_BORDER,
             text: TEXT,
         },
-        ButtonKind::Primary => {
-            let fill = if s.pressed {
-                ACCENT_BUTTON_PRESSED
-            } else if s.hot {
-                ACCENT_BUTTON_HOVER
+        ButtonKind::Primary | ButtonKind::Danger => {
+            let [normal, hover, pressed] = if kind == ButtonKind::Primary {
+                [ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED]
             } else {
-                ACCENT_BUTTON
+                [DANGER_BUTTON, DANGER_BUTTON_HOVER, DANGER_BUTTON_PRESSED]
+            };
+            let fill = if s.pressed {
+                pressed
+            } else if s.hot {
+                hover
+            } else {
+                normal
             };
             Colors {
                 fill,
@@ -541,7 +549,7 @@ pub fn draw_button(
     cues: (bool, bool),
 ) {
     let c = button_colors(kind, state);
-    let bw = if kind == ButtonKind::Primary {
+    let bw = if kind != ButtonKind::Normal {
         0
     } else {
         scale(1, dpi).max(1)
@@ -958,7 +966,7 @@ pub fn custom_draw_button(
         fill(dc, &rc, bg);
         match look {
             Look::Push => {
-                let f = if kind == ButtonKind::Primary {
+                let f = if kind != ButtonKind::Normal {
                     bold.or(font)
                 } else {
                     font
@@ -1475,7 +1483,7 @@ mod tests {
     fn every_drawn_text_pair_is_listed() {
         let listed = |fg: Rgb, bg: Rgb| TEXT_PAIRS.contains(&(fg, bg));
         for s in all_states().into_iter().filter(|s| s.enabled) {
-            for kind in [ButtonKind::Normal, ButtonKind::Primary] {
+            for kind in [ButtonKind::Normal, ButtonKind::Primary, ButtonKind::Danger] {
                 let c = button_colors(kind, s);
                 assert!(listed(c.text, c.fill), "{kind:?} {s:?}: {c:?}");
             }

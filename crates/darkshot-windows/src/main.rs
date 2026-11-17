@@ -8,6 +8,10 @@ mod capture;
 mod clipboard;
 mod gdiplus;
 mod help;
+mod history_layout;
+mod history_paint;
+mod history_service;
+mod history_window;
 mod hotkey;
 mod lang;
 mod legacy;
@@ -25,7 +29,9 @@ use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
 use darkshot_core::color::CustomColors;
-use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
+use darkshot_core::config::{
+    Config, Expiry, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT,
+};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
 use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
@@ -34,7 +40,9 @@ use secret::DpapiStore;
 use settings::OpenReason;
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
+use std::path::Path;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tray::{MenuCommand, Notice, Tray, WM_NOTICE, WM_TRAY};
 use windows::core::{w, HSTRING};
@@ -208,6 +216,12 @@ pub fn info_windows_stale(old: &Config, new: &Config) -> bool {
     old.language != new.language || old.hotkeys != new.hotkeys
 }
 
+/// Chữ trong cửa sổ Lịch sử đã cũ sau khi lưu cấu hình mới: chỉ khi đổi ngôn ngữ (cửa sổ này không
+/// hiện phím tắt nên đổi phím không cần đóng).
+pub fn history_window_stale(old: &Config, new: &Config) -> bool {
+    old.language != new.language
+}
+
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
 pub fn tray_click_opens_menu(ev: u32, menu_open: bool) -> bool {
     !menu_open && (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
@@ -275,6 +289,9 @@ fn running_version() -> Option<Version> {
 
 /// Hẹn giờ kiểm tra bản mới: chạy lần đầu sau 60 giây.
 fn start_update_timer(hwnd: HWND) {
+    if !side_effects_allowed() {
+        return;
+    }
     // SAFETY: bộ hẹn giờ gắn với cửa sổ của luồng này; WM_TIMER xử lý ở wndproc.
     unsafe {
         SetTimer(Some(hwnd), UPDATE_TIMER_ID, UPDATE_FIRST_DELAY_MS, None);
@@ -370,11 +387,85 @@ fn on_update_result(found: Option<Release>) {
     }
 }
 
+/// Đối số dòng lệnh đã phân tích.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Args {
+    /// `--history`: mở cửa sổ Lịch sử ngay khi khởi động.
+    pub open_history: bool,
+}
+
+/// Phân tích đối số (không gồm tên chương trình); đối số lạ bị bỏ qua.
+pub fn parse_args(args: &[String]) -> Args {
+    Args {
+        open_history: args.iter().any(|a| a == "--history"),
+    }
+}
+
+/// Những việc khởi động tùy theo chế độ cách ly (`DARKSHOT_PROFILE_DIR`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StartupMode {
+    pub sandbox: bool,
+    pub mutex_name: String,
+    /// Chuyển dữ liệu của bản cũ.
+    pub run_legacy: bool,
+    /// Đồng bộ và ghi khóa Run.
+    pub sync_autostart: bool,
+    /// Loại khỏi Windows Error Reporting.
+    pub exclude_wer: bool,
+    /// Hẹn giờ kiểm tra bản mới (gọi mạng).
+    pub update_timer: bool,
+}
+
+const MUTEX_NAME: &str = "Local\\darkshot-single-instance";
+
+/// Băm FNV-1a 64 bit của đường dẫn (chữ thường): tên mutex ổn định cho mỗi thư mục cách ly.
+fn short_hash(p: &Path) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in p.to_string_lossy().to_lowercase().bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Chế độ khởi động: có thư mục cách ly thì mutex riêng và bỏ mọi tác dụng phụ ra ngoài thư mục đó.
+pub fn startup_mode(profile: Option<&Path>) -> StartupMode {
+    match profile {
+        None => StartupMode {
+            sandbox: false,
+            mutex_name: MUTEX_NAME.to_string(),
+            run_legacy: true,
+            sync_autostart: true,
+            exclude_wer: true,
+            update_timer: true,
+        },
+        Some(dir) => StartupMode {
+            sandbox: true,
+            mutex_name: format!("{MUTEX_NAME}-sandbox-{}", short_hash(dir)),
+            run_legacy: false,
+            sync_autostart: false,
+            exclude_wer: false,
+            update_timer: false,
+        },
+    }
+}
+
+/// Sai ở chế độ cách ly: không hẹn giờ cập nhật (không mạng), không ghi khóa Run.
+static SIDE_EFFECTS_ALLOWED: AtomicBool = AtomicBool::new(true);
+
+fn side_effects_allowed() -> bool {
+    SIDE_EFFECTS_ALLOWED.load(Ordering::SeqCst)
+}
+
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
 fn save_pending_uploads() {
     let items = PENDING.with(|p| p.drain());
     if !items.is_empty() {
-        app::save_pending(items, paths::local_now());
+        let now = paths::local_now();
+        // Tiến trình sắp thoát: ghi lịch sử đồng bộ (luồng nền có thể bị cắt ngang).
+        app::save_pending(items, now, &|o, img| {
+            history_service::record_outcome_blocking(o, img, Expiry::Keep, now)
+        });
     }
 }
 
@@ -382,6 +473,8 @@ fn save_pending_uploads() {
 const WM_OPEN_SETTINGS: u32 = WM_APP + 3;
 /// Kết quả kiểm tra bản mới từ luồng nền: `lparam` là `Box<Option<Release>>` đã chuyển quyền sở hữu.
 const WM_UPDATE_RESULT: u32 = WM_APP + 4;
+/// Mở cửa sổ Lịch sử (cờ `--history` lúc khởi động).
+const WM_OPEN_HISTORY: u32 = WM_APP + 5;
 const RETRY_TIMER_ID: usize = 1;
 const UPDATE_TIMER_ID: usize = 3;
 const UPDATE_FIRST_DELAY_MS: u32 = 60_000;
@@ -416,13 +509,14 @@ fn current_tray() -> Option<Rc<Tray>> {
     TRAY.with(|t| t.borrow().clone())
 }
 
-fn post_open_settings(hwnd: isize) {
+/// Nhờ luồng chính mở Tùy chọn; `wp` như `WM_OPEN_SETTINGS` (0: ứng dụng tự mở, 1: người dùng).
+fn post_open_settings(hwnd: isize, wp: usize) {
     // SAFETY: PostMessageW an toàn từ luồng bất kỳ; cửa sổ đã hủy thì lỗi và ta bỏ qua.
     unsafe {
         let _ = PostMessageW(
             Some(HWND(hwnd as *mut c_void)),
             WM_OPEN_SETTINGS,
-            WPARAM(0),
+            WPARAM(wp),
             LPARAM(0),
         );
     }
@@ -435,6 +529,25 @@ fn note_open_reason(reason: OpenReason) {
 
 fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
     APP.with(|a| a.borrow_mut().as_mut().map(f))
+}
+
+/// Lịch sử đang bật theo cấu hình hiện hành (`Config.history_enabled`). Cấu hình đang bận hoặc chưa
+/// nạp thì theo cờ của dịch vụ ghi lịch sử (luôn khớp cấu hình).
+pub fn history_enabled_now() -> bool {
+    APP.with(|a| {
+        a.try_borrow()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| s.config.history_enabled))
+    })
+    .unwrap_or_else(history_service::is_enabled)
+}
+
+/// Cửa sổ Lịch sử nhờ mở Tùy chọn như mục menu khay (`wParam` = 1: người dùng tự mở).
+pub fn post_open_options(owner: HWND) {
+    // SAFETY: PostMessageW tới cửa sổ chính của luồng này; lỗi thì bỏ qua.
+    unsafe {
+        let _ = PostMessageW(Some(owner), WM_OPEN_SETTINGS, WPARAM(1), LPARAM(0));
+    }
 }
 
 /// Đăng ký các dòng đang bật của `keys` (dòng tắt không bao giờ được đăng ký); dòng nào không đăng
@@ -643,7 +756,8 @@ fn run_on_image(
                 upload_format: UploadFormat::Png,
                 jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
-            run_action(&ctx, action, &image);
+            let outcome = run_action(&ctx, action, &image);
+            history_service::record_outcome(&outcome, &image, config.expiry, ctx.now);
         }
         Action::Upload => {
             let uploader: Option<Arc<dyn Uploader>> = if config.r2.is_complete() {
@@ -652,6 +766,7 @@ fn run_on_image(
                 None
             };
             let image = Arc::new(image);
+            let expiry = config.expiry;
             let hwnd_raw = hwnd.0 as isize;
             let registry = PENDING.with(Arc::clone);
             let pending_id = registry.add(image.clone(), config.save_dir.clone());
@@ -663,11 +778,14 @@ fn run_on_image(
                 notifier: notifier.clone(),
                 image: image.clone(),
                 clock: paths::local_now,
-                on_needs_settings: Box::new(move || post_open_settings(hwnd_raw)),
+                on_needs_settings: Box::new(move || post_open_settings(hwnd_raw, 0)),
                 pending: Some((registry.clone(), pending_id)),
                 lang: lang::current(),
                 upload_format: config.upload_format,
                 jpeg_quality: config.jpeg_quality,
+                on_outcome: Some(Box::new(move |o, img| {
+                    history_service::record_outcome(o, img, expiry, paths::local_now())
+                })),
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.
@@ -689,7 +807,8 @@ fn run_on_image(
                     upload_format: UploadFormat::Png,
                     jpeg_quality: JPEG_QUALITY_DEFAULT,
                 };
-                run_action(&ctx, Action::Save, &image);
+                let outcome = history_service::as_fallback(run_action(&ctx, Action::Save, &image));
+                history_service::record_outcome(&outcome, &image, config.expiry, ctx.now);
             }
         }
     }
@@ -733,7 +852,13 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
     ));
     match saved {
         Ok(()) => {
-            if let Err(e) = autostart::set_enabled(new.autostart) {
+            history_service::set_enabled(new.history_enabled);
+            let autostart_result = if side_effects_allowed() {
+                autostart::set_enabled(new.autostart)
+            } else {
+                Ok(())
+            };
+            if let Err(e) = autostart_result {
                 notify(
                     NoticeKind::Error,
                     lang::tr(Msg::AutostartFailedTitle),
@@ -745,8 +870,13 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 about::close();
                 help::close();
             }
+            if history_window_stale(&config, &new) {
+                history_window::close_if_open();
+            }
             let check_after = new.check_updates;
             with_app(|a| a.config = new);
+            // Lịch sử vừa bật/tắt: cửa sổ đang mở vẽ lại dải thông báo.
+            history_window::refresh_enabled();
             if check_after && !config.check_updates {
                 start_update_timer(hwnd);
             } else if !check_after && config.check_updates {
@@ -937,7 +1067,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         note_open_reason(OpenReason::User);
                         handle_event(hwnd, AppEvent::OpenSettings);
                     }
-                    // Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
+                    // Lịch sử, Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
+                    Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
                         if let Some(keys) = with_app(|a| hotkey::help_keys(&a.config.hotkeys)) {
@@ -952,14 +1083,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_OPEN_SETTINGS => {
             // Ứng dụng tự mở (khởi động thiếu cấu hình, tải lên báo thiếu cấu hình): mở ở tab R2.
-            note_open_reason(OpenReason::NeedsR2);
+            // wParam 1: người dùng bấm "Mở Tùy chọn" trong cửa sổ Lịch sử, như mục menu khay.
+            note_open_reason(if wp.0 == 1 {
+                OpenReason::User
+            } else {
+                OpenReason::NeedsR2
+            });
             if MENU_OPEN.with(|m| m.get()) {
                 // Menu khay đang mở: đóng nó rồi mở Cài đặt sau khi menu thoát, không mở lồng.
+                // Gửi lại đúng `wp` gốc để lý do mở (người dùng hay ứng dụng) không bị đổi.
                 // SAFETY: đóng menu đang hiện của luồng này.
                 unsafe {
                     let _ = EndMenu();
                 }
-                post_open_settings(hwnd.0 as isize);
+                post_open_settings(hwnd.0 as isize, wp.0);
             } else {
                 handle_event(hwnd, AppEvent::OpenSettings);
             }
@@ -983,6 +1120,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
             }
             gate(hwnd, GateEvent::TimerFired);
+            LRESULT(0)
+        }
+        WM_OPEN_HISTORY => {
+            history_window::show(hwnd);
             LRESULT(0)
         }
         WM_UPDATE_RESULT => {
@@ -1009,9 +1150,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_DESTROY => {
-            // Cửa sổ Thông tin và Trợ giúp thuộc cửa sổ ẩn này: hủy cả hai, trả phông của chúng.
+            // Cửa sổ Thông tin, Trợ giúp và Lịch sử thuộc cửa sổ ẩn này: hủy cả ba, trả tài nguyên.
             about::close();
             help::close();
+            history_window::close_if_open();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -1054,16 +1196,22 @@ fn create_window() -> windows::core::Result<HWND> {
 }
 
 fn main() {
-    // SAFETY: mutex được giữ đến khi tiến trình thoát (biến `_instance`).
+    let args = parse_args(&std::env::args().skip(1).collect::<Vec<_>>());
+    let mode = startup_mode(paths::profile_override().as_deref());
+    SIDE_EFFECTS_ALLOWED.store(!mode.sandbox, Ordering::SeqCst);
+    let mutex_name = HSTRING::from(mode.mutex_name.as_str());
+    // SAFETY: mutex được giữ đến khi tiến trình thoát (biến `_instance`); tên là HSTRING còn sống.
     let _instance = unsafe {
-        let h = CreateMutexW(None, false, w!("Local\\darkshot-single-instance"));
+        let h = CreateMutexW(None, false, &mutex_name);
         if h.is_ok() && GetLastError() == ERROR_ALREADY_EXISTS {
             return;
         }
         h
     };
     // Không để Windows gửi bản kết xuất bộ nhớ (có thể chứa khóa, ảnh) đi khi sự cố.
-    wer::exclude_from_error_reporting();
+    if mode.exclude_wer {
+        wer::exclude_from_error_reporting();
+    }
 
     // Menu khay và menu hệ thống theo chế độ tối; phải gọi trước khi tạo cửa sổ.
     theme::enable_dark_menus();
@@ -1088,7 +1236,7 @@ fn main() {
     TRAY.with(|t| *t.borrow_mut() = Some(Rc::new(tray)));
 
     // Chép cấu hình của bản cũ (nếu cần) trước khi đọc cấu hình; lỗi thì bỏ qua, báo sau.
-    let mut migration_failed = legacy::run_before_startup();
+    let mut migration_failed = mode.run_legacy && legacy::run_before_startup();
     let config_path = paths::config_path();
     let state = app::startup(
         &config_path,
@@ -1097,23 +1245,30 @@ fn main() {
         lang::os_default(),
     );
     lang::set(state.config.language);
+    history_service::set_enabled(state.config.history_enabled);
     let config_existed = config_path.exists();
     let open_settings_now = app::needs_settings_on_start(&state, config_existed);
     let keys = state.config.hotkeys;
     // Khóa Run theo đúng cấu hình darkshot: bỏ giá trị cũ, ghi lại đường dẫn exe hiện tại.
     // Cấu hình hỏng hoặc không đọc được thì không đụng khóa Run.
-    if app::should_sync_autostart(state.config_notice) {
+    if mode.sync_autostart && app::should_sync_autostart(state.config_notice) {
         migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
-    if with_app(|a| a.config.check_updates).unwrap_or(false) {
+    if mode.update_timer && with_app(|a| a.config.check_updates).unwrap_or(false) {
         start_update_timer(hwnd);
     }
 
     if open_settings_now {
-        post_open_settings(hwnd.0 as isize);
+        post_open_settings(hwnd.0 as isize, 0);
+    }
+    if args.open_history {
+        // SAFETY: cửa sổ của luồng này; lỗi đăng thông điệp thì bỏ qua.
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_OPEN_HISTORY, WPARAM(0), LPARAM(0));
+        }
     }
     // Sau thông báo cấu hình (nếu có); loại Info nên không bị ô "thông báo lưu và sao chép" lọc.
     if migration_failed {
@@ -1128,7 +1283,10 @@ fn main() {
     // SAFETY: vòng lặp thông điệp chuẩn; GetMessageW trả về 0 (WM_QUIT) hoặc -1 (lỗi) thì dừng.
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            if about::pre_translate(&msg) || help::pre_translate(&msg) {
+            if about::pre_translate(&msg)
+                || help::pre_translate(&msg)
+                || history_window::pre_translate(&msg)
+            {
                 continue;
             }
             let _ = TranslateMessage(&msg);
@@ -1144,6 +1302,52 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn parse_args_history_flag() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(!parse_args(&s(&[])).open_history);
+        assert!(parse_args(&s(&["--history"])).open_history);
+        assert!(parse_args(&s(&["--foo", "--history"])).open_history);
+        assert!(!parse_args(&s(&["--histories", "history", "-history"])).open_history);
+    }
+
+    #[test]
+    fn normal_mode_keeps_everything() {
+        let m = startup_mode(None);
+        assert_eq!(m.mutex_name, "Local\\darkshot-single-instance");
+        assert!(m.run_legacy && m.sync_autostart && m.exclude_wer && m.update_timer);
+        assert!(!m.sandbox);
+    }
+
+    #[test]
+    fn sandbox_mode_skips_side_effects() {
+        let m = startup_mode(Some(std::path::Path::new("D:\\sb\\one")));
+        assert!(m.sandbox);
+        assert!(m
+            .mutex_name
+            .starts_with("Local\\darkshot-single-instance-sandbox-"));
+        let suffix = &m.mutex_name["Local\\darkshot-single-instance-sandbox-".len()..];
+        assert!(!suffix.is_empty() && suffix.len() <= 16);
+        assert!(suffix.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert!(!m.run_legacy && !m.sync_autostart && !m.exclude_wer && !m.update_timer);
+        // Đường dẫn khác → tên khác; cùng đường dẫn → cùng tên.
+        let other = startup_mode(Some(std::path::Path::new("D:\\sb\\two")));
+        assert_ne!(m.mutex_name, other.mutex_name);
+        assert_eq!(
+            m.mutex_name,
+            startup_mode(Some(std::path::Path::new("D:\\sb\\one"))).mutex_name
+        );
+        assert_ne!(m.mutex_name, startup_mode(None).mutex_name);
+    }
+
+    #[test]
+    fn history_message_ids() {
+        assert_eq!(WM_OPEN_HISTORY, WM_APP + 5);
+        assert_ne!(WM_OPEN_HISTORY, WM_OPEN_SETTINGS);
+        assert_ne!(WM_OPEN_HISTORY, WM_UPDATE_RESULT);
+        assert_ne!(WM_OPEN_HISTORY, history_service::WM_HISTORY_CHANGED);
+    }
 
     #[test]
     fn update_after_check_keeps_item_on_none() {
@@ -1394,6 +1598,24 @@ mod tests {
         let mut b = a.clone();
         b.autostart = true;
         assert!(!info_windows_stale(&a, &b));
+    }
+
+    /// Lịch sử chỉ có chữ theo ngôn ngữ (không hiện phím tắt): đổi ngôn ngữ thì đóng, đổi phím thì không.
+    #[test]
+    fn history_window_closes_only_when_language_changes() {
+        use std::path::Path;
+        let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
+        assert!(!history_window_stale(&a, &a.clone()));
+        let mut b = a.clone();
+        b.language = Lang::En;
+        assert!(history_window_stale(&a, &b));
+        let mut b = a.clone();
+        b.hotkeys.region.key.ctrl = !b.hotkeys.region.key.ctrl;
+        assert!(info_windows_stale(&a, &b));
+        assert!(!history_window_stale(&a, &b));
+        let mut b = a.clone();
+        b.history_enabled = !b.history_enabled;
+        assert!(!history_window_stale(&a, &b));
     }
 
     #[test]

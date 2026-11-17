@@ -1,6 +1,6 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-17
+Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
@@ -18,6 +18,10 @@ Cập nhật: 2026-11-17
 - Agent không được tự tắt tiến trình `shotme` đang chạy sẵn (có thể chủ dự án đang dùng): chỉ tắt tiến trình do chính nó khởi động; nếu exe bị khóa thì bỏ qua build release và báo lại.
 - shotme ghi `shotme.exe`=1 (DWORD) vào `HKCU\Software\Microsoft\Windows\Windows Error Reporting\ExcludedApplications` mỗi lần khởi động (đã có trên máy chủ dự án từ lượt chạy thử Task 13). Chưa thử bằng sự cố thật.
 - Biết mà để lại: thoát đúng lúc một lượt đang tự lưu dự phòng có thể để lại một file PNG 0 byte (ảnh không mất, bản đủ nằm ở tên `_2`). Việc còn lại sau đó: sửa lỗi họ báo (nhánh `task/13-...`, agent theo độ khó), rà soát toàn bộ bằng `specialist`, tổng kết token theo task/model/giai đoạn trong `progress.md`. Chủ dự án bảo "tiếp tục" mà chưa báo kết quả thử tay Task 7 và 8.
+
+## Đợt 7: Lịch sử ảnh chụp (2026-11-18) — CHỜ CHỦ DỰ ÁN XEM DEMO
+
+Làm xong theo mã trên nhánh `feature/screenshot-history` (tách từ `main` tại `afaea38`); Task 52–58 đã gộp vào nhánh đó, KHÔNG gộp vào `main`, KHÔNG đẩy lên `origin` (quyết định 86). Thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`, gói `docs/tasks/52-…` đến `57-…`, quyết định 86–92. Bản demo: `target/demo7/release/darkshot.exe`; chạy bằng `powershell -File scripts/demo-history.ps1 -Exe target\demo7elease\darkshot.exe [-Lang vi|en] [-State full|empty|off|offempty]` (dữ liệu tổng hợp, môi trường cách ly). Ảnh chụp màn hình thật: `target/demo7/screens/`. Việc kế tiếp: chủ dự án xem demo; được duyệt thì gộp `feature/screenshot-history` vào `main`, đẩy theo quy trình thường. Mục "Đợt 7" của `docs/testing/manual-checklist.md` chưa ai thử tay. Task đang làm: không.
 
 ## Bước kế tiếp
 

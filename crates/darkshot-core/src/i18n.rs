@@ -294,6 +294,77 @@ messages! {
     PickerRed => ("Đỏ", "Red"),
     PickerGreen => ("Lục", "Green"),
     PickerBlue => ("Lam", "Blue"),
+    TrayHistory => ("Lịch sử ảnh chụp", "Screenshot history"),
+    HistoryTitle => ("Lịch sử ảnh chụp", "Screenshot history"),
+    HistorySearchPlaceholder => ("Tìm theo tên, ngày hoặc liên kết", "Search by name, date or link"),
+    HistorySearchClear => ("Xóa chữ tìm", "Clear search"),
+    HistoryFilterAll => ("Tất cả", "All"),
+    HistoryFilterSaved => ("Đã lưu", "Saved"),
+    HistoryFilterUploaded => ("Đã tải lên", "Uploaded"),
+    HistoryFilterCopied => ("Đã chép", "Copied"),
+    HistoryKindSaved => ("Đã lưu", "Saved"),
+    HistoryKindUploaded => ("Đã tải lên", "Uploaded"),
+    HistoryKindCopied => ("Đã chép", "Copied"),
+    HistoryKindFallback => ("Lưu dự phòng", "Saved as fallback"),
+    HistoryClear => ("Xóa lịch sử", "Clear history"),
+    HistoryOpen => ("Mở", "Open"),
+    HistoryOpenLink => ("Mở liên kết", "Open link"),
+    HistoryCopyImage => ("Sao chép ảnh", "Copy image"),
+    HistoryCopyLink => ("Sao chép liên kết", "Copy link"),
+    HistoryShowInFolder => ("Mở thư mục chứa ảnh", "Show in folder"),
+    HistoryRemove => ("Xóa khỏi lịch sử", "Remove from history"),
+    HistoryLabelType => ("Loại", "Type"),
+    HistoryLabelDimensions => ("Kích thước", "Dimensions"),
+    HistoryLabelFileSize => ("Dung lượng", "File size"),
+    HistoryLabelFile => ("Tệp", "File"),
+    HistoryLabelLink => ("Liên kết", "Link"),
+    HistoryLabelExpires => ("Hết hạn", "Expires"),
+    HistoryExpired => ("Đã hết hạn", "Expired"),
+    HistoryNeverExpires => ("Không hết hạn", "Never expires"),
+    HistoryEmptyTitle => ("Chưa có ảnh nào", "No screenshots yet"),
+    HistoryEmptyBody => (
+        "Ảnh bạn chụp, lưu hoặc tải lên từ bây giờ sẽ xuất hiện ở đây.",
+        "Screenshots you capture, save or upload from now on will appear here."
+    ),
+    HistoryDisabledTitle => ("Lịch sử đang tắt", "History is turned off"),
+    HistoryDisabledBody => (
+        "Bật \"Bật lịch sử ảnh chụp\" trong Tùy chọn để giữ lại ảnh bạn chụp. Ảnh chỉ nằm trên máy này.",
+        "Turn on \"Enable Screenshot History\" in Options to keep what you capture. Images stay on this device."
+    ),
+    HistoryDisabledBanner => (
+        "Lịch sử đang tắt: ảnh mới không được ghi lại.",
+        "History is off: new screenshots aren't being recorded."
+    ),
+    HistoryOpenOptions => ("Mở Tùy chọn", "Open Options"),
+    HistoryNoMatchTitle => ("Không tìm thấy ảnh nào", "No matching screenshots"),
+    HistoryNoMatchBody => (
+        "Thử từ khóa khác hoặc chọn bộ lọc Tất cả.",
+        "Try another keyword or switch the filter to All."
+    ),
+    HistoryClearFilters => ("Xóa bộ lọc", "Clear filters"),
+    HistorySelectPrompt => ("Chọn một ảnh để xem trước", "Select a screenshot to preview"),
+    HistoryPreviewLoading => ("Đang tải bản xem trước…", "Loading preview…"),
+    HistoryFileMissing => ("Không tìm thấy tệp ảnh", "Image file not found"),
+    HistoryFileMissingHint => (
+        "Tệp đã bị di chuyển hoặc xóa. Vẫn có thể xóa mục này khỏi lịch sử.",
+        "The file was moved or deleted. You can still remove this entry from history."
+    ),
+    HistoryFileUnreadable => ("Không đọc được ảnh này", "This image can't be read"),
+    HistoryClearConfirmTitle => ("Xóa toàn bộ lịch sử?", "Clear all history?"),
+    HistoryClearConfirmYes => ("Xóa lịch sử", "Clear history"),
+    HistoryCancel => ("Hủy", "Cancel"),
+    HistoryStatusImageCopied => ("Đã sao chép ảnh", "Image copied"),
+    HistoryStatusLinkCopied => ("Đã sao chép liên kết", "Link copied"),
+    HistoryStatusRemoved => ("Đã xóa khỏi lịch sử", "Removed from history"),
+    HistoryStatusCleared => ("Đã xóa lịch sử", "History cleared"),
+    HistoryStatusFailed => ("Không thực hiện được thao tác này", "That action didn't work"),
+    HistoryToday => ("Hôm nay", "Today"),
+    HistoryYesterday => ("Hôm qua", "Yesterday"),
+    ChkHistory => ("Bật lịch sử ảnh chụp", "Enable Screenshot History"),
+    NoteHistory => (
+        "Lưu lịch sử ảnh chụp trên thiết bị này. Ảnh không được gửi đến máy chủ bổ sung.",
+        "Keep a local history of screenshots on this device. Images are never sent to an additional server."
+    ),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -318,6 +389,18 @@ pub const NOTICE_TITLES: &[Msg] = &[
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
 /// (bảng đòi hai bản khác nhau).
 pub const OK_LABEL: &str = "OK";
+
+pub fn history_clear_confirm_body(lang: Lang, n: usize) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!(
+            "{n} mục sẽ bị gỡ khỏi lịch sử. Ảnh bạn đã lưu và các liên kết đã tải lên không bị xóa."
+        ),
+        (Lang::En, 1) => "1 entry will be removed from history. Screenshots you saved and links you uploaded are not deleted.".to_string(),
+        (Lang::En, n) => format!(
+            "{n} entries will be removed from history. Screenshots you saved and links you uploaded are not deleted."
+        ),
+    }
+}
 
 pub fn expiry_label(lang: Lang, e: Expiry) -> &'static str {
     match (lang, e) {
@@ -527,7 +610,10 @@ e) Mở Tùy chọn, tab Lưu trữ R2, nhập Account ID, Access Key ID, Secret
 f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 \n\
 5. Khi tải lên không được\n\
-Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại."
+Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại.
+\n
+\n6. Lịch sử ảnh chụp
+\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -563,7 +649,10 @@ e) Open Options, the R2 storage tab, and enter the Account ID, Access Key ID, Se
 f) Click Test connection, wait for the success message, then click OK.\n\
 \n\
 5. When an upload fails\n\
-The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again."
+The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again.
+\n
+\n6. Screenshot history
+\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2."
         ),
     }
 }
