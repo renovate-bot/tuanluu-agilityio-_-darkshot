@@ -35,6 +35,13 @@ Gói task tự chứa. Thuộc kế hoạch `docs/superpowers/plans/2026-11-17-a
 - Hộp của `shape_bounds` đo theo phần mực, không gồm khoảng trắng cuối dòng: vùng làm mới và khung ô chữ phải gộp thêm `caret_rect`.
 - `shape_bounds`/`caret_rect` tốn công (khởi động GDI+, tạo phông): gọi mỗi lần gõ phím được, không gọi khi di chuột hay mỗi nhịp nháy con trỏ (lưu lại kết quả).
 
+## Sửa thêm từ rà soát Task 36 (cùng nhánh, cùng commit `feat:`)
+
+- `on_key`: bỏ qua lần lặp phím (bit 30 của `lParam` trong `WM_KEYDOWN`) cho phím chữ chọn công cụ, để giữ phím không bật tắt liên tục. Kiểm thử `held_tool_key_does_not_toggle`.
+- Nhấn hoặc nhả Shift khi đang kéo Line/Arrow/Rect (không di chuột) cập nhật ngay nét đang vẽ (dùng điểm chuột cuối), làm mới hộp bao trước và sau.
+- Hiệu năng: lưu sẵn hộp bao (tọa độ ảnh) của mỗi hình đã chốt lúc chốt; khi vẽ, bỏ qua hình có hộp bao không giao vùng cần vẽ. Không thêm lớp đệm.
+- Khi bảng màu mở, con trỏ trong vùng chọn là mũi tên (cú bấm chỉ đóng bảng).
+
 ## Các bước
 
 - [ ] **1. Kiểm thử trước.** Commit `test: annotate text tool`.
