@@ -56,7 +56,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 41 Bảng chọn màu tự do | task/41-color-picker | specialist | opus | xong | 261.538 | 118.709 | 21.208 | 401.455 |
 | 42 Công cụ Làm mờ | task/42-blur-redact | specialist | opus | xong | 185.859 | 117.015 | 16.865 | 319.739 |
 | 43 Báo có bản mới | task/43-update-check | builder | sonnet | xong | 181.336 | 120.194 | 4.582 | 306.112 |
-| 44 Core: hình mới, mức cỡ, sổ hoàn tác | task/44-pro-core-model | builder | sonnet | chờ | | | | |
+| 44 Core: hình mới, mức cỡ, sổ hoàn tác | task/44-pro-core-model | builder | sonnet | xong | 115.766 | 43.832 | 0 | 159.598 |
 | 45 Core: chọn, biến đổi, bố cục thanh | task/45-pro-core-edit | builder | sonnet | chờ | | | | |
 | 46 Vẽ Hình elip, Đánh số | task/46-pro-render | specialist | opus | chờ | | | | |
 | 47 Lớp phủ: thanh 14 mục, Cỡ, Làm lại, công cụ mới | task/47-pro-overlay-tools | specialist | opus | chờ | | | | |
