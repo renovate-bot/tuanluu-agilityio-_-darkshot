@@ -44,6 +44,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 31 Tài liệu đợt 4 | task/31-docs-batch4 | scaffolder | haiku | xong | 171.829 | 50.900 | 0 (phiên điều phối sửa một câu README) | 222.729 |
 | 30b Ô tích, nút chọn mịn | task/30b-check-radio-aa | specialist | opus | xong | 146.263 | 67.580 | 0 (phiên điều phối dời một chú thích) | 213.843 |
 | 30c Ô nhập một viền bo mịn | task/30c-edit-frame | specialist | opus | xong | 171.111 | 78.174 | 0 | 249.285 |
+| 32 Biểu tượng tối (phương án B) | task/32-dark-icon | builder | sonnet | xong | 58.938 | 27.339 | 0 | 86.277 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
