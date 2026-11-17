@@ -8,9 +8,12 @@ use std::time::Duration;
 use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
+    SetClipboardData,
 };
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Memory::{
+    GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
 };
@@ -258,6 +261,38 @@ fn put(format: u32, data: &[u8]) -> Result<(), String> {
     result
 }
 
+/// Số lần thử mở clipboard khi dán (ngắn hơn khi chép: người dùng đang chờ trong lớp phủ).
+const PASTE_ATTEMPTS: u32 = 3;
+
+/// Chữ thuần (CF_UNICODETEXT) đang có trên clipboard, đọc tới ký tự 0 đầu tiên. `owner` là cửa sổ
+/// của luồng gọi. `None` khi clipboard bận, không có chữ hoặc dữ liệu hỏng.
+pub fn paste_text(owner: HWND) -> Option<String> {
+    let _open = (0..PASTE_ATTEMPTS).find_map(|attempt| {
+        if attempt > 0 {
+            std::thread::sleep(OPEN_RETRY_DELAY);
+        }
+        // SAFETY: owner là cửa sổ của luồng này; mở thành công thì OpenGuard đóng khi drop.
+        unsafe { OpenClipboard(Some(owner)) }
+            .is_ok()
+            .then_some(OpenGuard)
+    })?;
+    // SAFETY: clipboard đang mở; handle thuộc hệ thống, chỉ khóa để đọc trong giới hạn GlobalSize
+    // rồi mở khóa trước khi clipboard được đóng (`_open` thả sau khối này).
+    unsafe {
+        let h = GetClipboardData(CF_UNICODETEXT).ok()?;
+        let g = HGLOBAL(h.0);
+        let p = GlobalLock(g) as *const u16;
+        if p.is_null() {
+            return None;
+        }
+        let units = std::slice::from_raw_parts(p, GlobalSize(g) / 2);
+        let end = units.iter().position(|u| *u == 0).unwrap_or(units.len());
+        let text = String::from_utf16_lossy(&units[..end]);
+        let _ = GlobalUnlock(g);
+        Some(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +419,16 @@ mod tests {
         WinClipboard.set_text(vi).unwrap();
         assert_eq!(read_text().as_deref(), Some(vi));
         assert_exclusion_formats_present();
+    }
+
+    #[test]
+    #[ignore = "ghi đè clipboard thật của máy; chạy tay: cargo test -p darkshot-windows clipboard -- --ignored"]
+    fn clipboard_paste_text_reads_unicode() {
+        let _g = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let owner = OwnerWindow::new().unwrap();
+        let s = "Vi\u{1ec7}t\r\nd\u{f2}ng 2 \u{1f600}";
+        WinClipboard.set_text(s).unwrap();
+        assert_eq!(paste_text(owner.0).as_deref(), Some(s));
     }
 
     #[test]

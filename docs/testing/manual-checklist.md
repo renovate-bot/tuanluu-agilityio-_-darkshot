@@ -274,3 +274,14 @@ Chủ dự án tự làm các bước này với kho thật. Agent không nhận
 - [ ] Không chọn công cụ, không vẽ: chọn vùng, kéo khung mới, di chuyển, tay nắm, thanh bốn nút, Ctrl+D/S/C, Esc, "Giữ vị trí vùng" và hai phím tắt toàn màn hình chạy như cũ.
 - [ ] Vẽ nét dài (Bút vẽ và Bút dạ quang) trên màn hình lớn (4K, hai màn hình) không giật thấy rõ.
 - [ ] Mở lớp phủ, vẽ, hoàn tác, mở bảng màu, đóng nhiều lần: không chậm dần (và `cargo test -p darkshot-windows -- --ignored overlay_round_trip_without_gdi_leaks --test-threads=1` qua).
+- [ ] Chữ: gõ tiếng Việt bằng Unikey kiểu Telex và kiểu VNI (ví dụ "Việt Nam", "Thưởng", "Nguyễn") ra đúng chữ, không thừa hay thiếu ký tự.
+- [ ] Chữ: gõ tiếng Việt bằng EVKey (Telex) ra đúng chữ.
+- [ ] Chữ: gõ tiếng Việt bằng bộ gõ tiếng Việt của Windows (Vietnamese Telex) ra đúng chữ; cửa sổ soạn của bộ gõ (nếu hiện) nằm cạnh con trỏ của ô chữ, không ở góc màn hình.
+- [ ] Chữ: đang soạn trong bộ gõ (còn chuỗi gạch chân), Esc chỉ hủy chuỗi soạn; ô chữ và lớp phủ còn. Esc lần nữa hủy ô chữ (không chốt); Esc lần nữa đóng lớp phủ.
+- [ ] Chữ: Enter xuống dòng; Backspace, Delete, mũi tên bốn hướng, Home, End đúng chỗ; P/L/A/R/H/T khi đang gõ đi vào ô, không đổi công cụ.
+- [ ] Chữ: Ctrl+V dán chữ nhiều dòng (chép từ Notepad), xuống dòng giữ nguyên, Tab thành khoảng trắng; clipboard đang là ảnh thì Ctrl+V không làm gì.
+- [ ] Chữ: đổi màu khi đang gõ đổi màu ô đang gõ; chữ đọc được trên nền sáng và nền tối (viền đen hoặc trắng).
+- [ ] Chữ: bấm chỗ khác trong vùng chốt ô và mở ô mới; bấm ngoài vùng, đổi công cụ, Ctrl+D/S/C, bốn nút hành động đều chốt ô; ô rỗng thì bỏ. Ctrl+Z khi ô có chữ xóa ô, ô rỗng thì hoàn tác hình trước đó.
+- [ ] Chữ: khung nét đứt xanh và con trỏ nháy chỉ có trên màn hình, không có trong ảnh lưu, chép hay tải lên; chữ trong ảnh đúng vị trí, cỡ, màu như trên màn hình.
+- [ ] Chữ ở DPI 100% và 150% (cả hai màn hình khác DPI): cỡ chữ, khung, con trỏ đúng tỉ lệ; ảnh ra khớp màn hình.
+- [ ] Đang gõ, chuyển cửa sổ (Alt+Tab) hoặc đóng lớp phủ: lần chụp sau phím Esc vẫn đóng lớp phủ, Esc trong ứng dụng khác không bị nuốt sau khi lớp phủ đóng.
