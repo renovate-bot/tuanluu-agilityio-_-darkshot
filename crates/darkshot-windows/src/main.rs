@@ -8,6 +8,8 @@ mod capture;
 mod clipboard;
 mod gdiplus;
 mod help;
+mod history_layout;
+mod history_paint;
 mod history_service;
 mod history_window;
 mod hotkey;

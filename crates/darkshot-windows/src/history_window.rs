@@ -501,4 +501,245 @@ mod tests {
             let _ = DestroyWindow(parent);
         }
     }
+
+    fn test_parent(class: PCWSTR) -> HWND {
+        // SAFETY: cửa sổ cha ẩn riêng của kiểm thử, bên gọi hủy ở cuối.
+        unsafe {
+            let hinst = GetModuleHandleW(None).unwrap();
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(proc_),
+                hInstance: hinst.into(),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                class,
+                w!("parent"),
+                WS_CAPTION,
+                0,
+                0,
+                10,
+                10,
+                None,
+                None,
+                Some(hinst.into()),
+                None,
+            )
+            .unwrap()
+        }
+    }
+
+    /// Chạy vòng thông điệp của luồng này tới khi `done()` hoặc hết `ms` mili giây.
+    fn pump_until(ms: u64, done: impl Fn() -> bool) -> bool {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            DispatchMessageW, PeekMessageW, TranslateMessage, PM_REMOVE,
+        };
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        loop {
+            let mut msg = MSG::default();
+            // SAFETY: vòng thông điệp chuẩn của luồng kiểm thử.
+            unsafe {
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    if !pre_translate(&msg) {
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                }
+            }
+            if done() {
+                return true;
+            }
+            if std::time::Instant::now() >= end {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    /// Kho tổng hợp `n` mục (ảnh PNG sinh bằng mã) dưới `dir`: đủ bốn loại, mục thứ 4 có tệp đã mất.
+    /// Kho giữ tối đa 50 mục mới nhất.
+    fn synthetic_store(dir: &std::path::Path, n: usize) -> std::path::PathBuf {
+        use darkshot_core::history::Kind;
+        use darkshot_core::history_store::{NewEntry, Store};
+        use darkshot_core::image::{encode_png, Image};
+        use darkshot_core::naming::LocalTime;
+        let root = dir.join("history");
+        let pics = dir.join("Pictures");
+        std::fs::create_dir_all(&pics).unwrap();
+        let store = Store::new(root.clone());
+        let sizes = [
+            (1920, 1080),
+            (1280, 720),
+            (800, 1000),
+            (2560, 1440),
+            (640, 360),
+            (300, 200),
+        ];
+        let mut lost = None;
+        for i in 0..n {
+            let (w, h) = sizes[i % sizes.len()];
+            let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    let band = ((x * 6 / w) + i as u32) % 6;
+                    let (r, g, b): (u8, u8, u8) = [
+                        (0x2F, 0x6F, 0xE4),
+                        (0x4A, 0xDE, 0x80),
+                        (0xFF, 0x7B, 0x72),
+                        (0xE7, 0xE9, 0xEC),
+                        (0x33, 0x37, 0x3E),
+                        (0xF5, 0xB0, 0x41),
+                    ][band as usize];
+                    let shade = (y * 60 / h) as u8;
+                    bgra.extend_from_slice(&[
+                        b.saturating_sub(shade),
+                        g.saturating_sub(shade),
+                        r.saturating_sub(shade),
+                        255,
+                    ]);
+                }
+            }
+            let img = Image {
+                width: w,
+                height: h,
+                bgra,
+            };
+            let kind = [
+                Kind::Saved,
+                Kind::Uploaded,
+                Kind::Copied,
+                Kind::UploadFallback,
+            ][i % 4];
+            let day = 18 - (n - 1 - i) as u8 / 3 % 15;
+            let local = LocalTime {
+                year: 2026,
+                month: 11,
+                day,
+                hour: (8 + i % 12) as u8,
+                minute: (i * 7 % 60) as u8,
+                second: (i % 60) as u8,
+            };
+            let path = matches!(kind, Kind::Saved | Kind::UploadFallback).then(|| {
+                let p = pics.join(format!("darkshot_2026-11-{day:02}_{i:03}.png"));
+                std::fs::write(&p, encode_png(&img).unwrap()).unwrap();
+                p
+            });
+            let new = NewEntry {
+                kind,
+                unix_millis: 1_790_000_000_000 + i as u64 * 60_000,
+                local,
+                path: path.clone(),
+                url: (kind == Kind::Uploaded)
+                    .then(|| format!("https://img.example.com/shots/darkshot_{i:03}.png")),
+                expires: (kind == Kind::Uploaded).then(|| {
+                    if i % 8 == 1 {
+                        String::from("2026-11-10")
+                    } else {
+                        String::from("2026-12-18")
+                    }
+                }),
+            };
+            store.record(new, &img).unwrap();
+            if i == n.saturating_sub(4) {
+                lost = path;
+            }
+        }
+        if let Some(p) = lost {
+            let _ = std::fs::remove_file(p);
+        }
+        root
+    }
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let d = std::env::temp_dir().join(format!("darkshot_hw_{tag}_{}_{t}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Kho tạm 60 mục: mở, chờ nạp xong và ảnh nhỏ về, mô phỏng cuộn/chọn 100 lần, đóng; năm vòng,
+    /// số đối tượng GDI không tăng dần.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --test-threads=1 history_window_with_entries`.
+    #[test]
+    #[ignore]
+    fn history_window_with_entries_has_no_gdi_leak() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            VK_DOWN, VK_END, VK_HOME, VK_NEXT, VK_UP,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_MOUSEWHEEL, WM_VSCROLL};
+        let dir = temp_dir("leak");
+        let root = synthetic_store(&dir, 60);
+        let parent = test_parent(w!("darkshot-history-test-parent-2"));
+        let mut counts = Vec::new();
+        for _round in 0..5 {
+            show_with_root(parent, root.clone());
+            assert!(
+                pump_until(10_000, || loaded_count() == Some(50)),
+                "store did not load: {:?}",
+                loaded_count()
+            );
+            let list = HWND(list_hwnd() as *mut c_void);
+            assert!(!list.is_invalid());
+            pump_until(3_000, || pending_thumbs() == 0);
+            for i in 0..100u32 {
+                let key = [VK_DOWN, VK_DOWN, VK_NEXT, VK_UP, VK_END, VK_HOME][i as usize % 6];
+                // SAFETY: thông điệp gửi đồng bộ tới danh sách của cửa sổ Lịch sử trong luồng này.
+                unsafe {
+                    SendMessageW(
+                        list,
+                        WM_KEYDOWN,
+                        Some(WPARAM(key.0 as usize)),
+                        Some(LPARAM(0)),
+                    );
+                    let delta: i16 = if i % 2 == 0 { -120 } else { 120 };
+                    SendMessageW(
+                        list,
+                        WM_MOUSEWHEEL,
+                        Some(WPARAM(((delta as u16 as usize) << 16) as usize)),
+                        Some(LPARAM(0)),
+                    );
+                    SendMessageW(list, WM_VSCROLL, Some(WPARAM(3)), Some(LPARAM(0)));
+                }
+                pump_until(5, || false);
+            }
+            assert!(selected_index().is_some(), "keyboard must select a row");
+            pump_until(3_000, || pending_thumbs() == 0 && !preview_loading());
+            close_if_open();
+            pump_until(50, || false);
+            counts.push(gdi_count());
+        }
+        assert!(
+            counts[4] <= counts[1] + 2,
+            "GDI objects grew across opens: {counts:?}"
+        );
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Dựng kho demo tổng hợp trong `%DARKSHOT_DEMO_DIR%\Local\darkshot\history` (bố cục của
+    /// `DARKSHOT_PROFILE_DIR`). Không đặt biến thì bỏ qua.
+    /// Chạy tay: `set DARKSHOT_DEMO_DIR=...` rồi `cargo test -p darkshot-windows -- --ignored make_demo_store`.
+    #[test]
+    #[ignore]
+    fn make_demo_store() {
+        let Some(base) = std::env::var_os("DARKSHOT_DEMO_DIR") else {
+            return;
+        };
+        let base = std::path::PathBuf::from(base);
+        let local = base.join("Local").join("darkshot");
+        let n: usize = std::env::var("DARKSHOT_DEMO_COUNT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(16);
+        let root = synthetic_store(&local, n);
+        assert!(root.join("index.json").exists());
+    }
 }
