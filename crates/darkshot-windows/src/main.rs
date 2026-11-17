@@ -214,6 +214,12 @@ pub fn info_windows_stale(old: &Config, new: &Config) -> bool {
     old.language != new.language || old.hotkeys != new.hotkeys
 }
 
+/// Chữ trong cửa sổ Lịch sử đã cũ sau khi lưu cấu hình mới: chỉ khi đổi ngôn ngữ (cửa sổ này không
+/// hiện phím tắt nên đổi phím không cần đóng).
+pub fn history_window_stale(old: &Config, new: &Config) -> bool {
+    old.language != new.language
+}
+
 /// Sự kiện chuột `ev` (từ `WM_TRAY`) có mở menu khay không. Menu đang mở thì không mở lồng.
 pub fn tray_click_opens_menu(ev: u32, menu_open: bool) -> bool {
     !menu_open && (ev == WM_RBUTTONUP || ev == WM_LBUTTONUP)
@@ -842,6 +848,9 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 about::close();
                 help::close();
             }
+            if history_window_stale(&config, &new) {
+                history_window::close_if_open();
+            }
             let check_after = new.check_updates;
             with_app(|a| a.config = new);
             if check_after && !config.check_updates {
@@ -1034,7 +1043,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                         note_open_reason(OpenReason::User);
                         handle_event(hwnd, AppEvent::OpenSettings);
                     }
-                    // Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
+                    // Lịch sử, Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
+                    Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
                         if let Some(keys) = with_app(|a| hotkey::help_keys(&a.config.hotkeys)) {
@@ -1110,9 +1120,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_DESTROY => {
-            // Cửa sổ Thông tin và Trợ giúp thuộc cửa sổ ẩn này: hủy cả hai, trả phông của chúng.
+            // Cửa sổ Thông tin, Trợ giúp và Lịch sử thuộc cửa sổ ẩn này: hủy cả ba, trả tài nguyên.
             about::close();
             help::close();
+            history_window::close_if_open();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -1242,7 +1253,10 @@ fn main() {
     // SAFETY: vòng lặp thông điệp chuẩn; GetMessageW trả về 0 (WM_QUIT) hoặc -1 (lỗi) thì dừng.
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            if about::pre_translate(&msg) || help::pre_translate(&msg) {
+            if about::pre_translate(&msg)
+                || help::pre_translate(&msg)
+                || history_window::pre_translate(&msg)
+            {
                 continue;
             }
             let _ = TranslateMessage(&msg);

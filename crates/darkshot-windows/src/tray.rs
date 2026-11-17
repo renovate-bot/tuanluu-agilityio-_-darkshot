@@ -32,11 +32,13 @@ const ID_ABOUT: usize = 3;
 const ID_HELP: usize = 4;
 const ID_QUIT: usize = 5;
 const ID_UPDATE: usize = 6;
+const ID_HISTORY: usize = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
     OpenUpdate,
     Capture,
+    History,
     Options,
     About,
     Help,
@@ -153,6 +155,7 @@ impl Tray {
         unsafe {
             let menu = CreatePopupMenu().ok()?;
             let capture = HSTRING::from(lang::tr(Msg::TrayCapture));
+            let history = HSTRING::from(lang::tr(Msg::TrayHistory));
             let options = HSTRING::from(lang::tr(Msg::TrayOptions));
             let about = HSTRING::from(lang::tr(Msg::TrayAbout));
             let help = HSTRING::from(lang::tr(Msg::TrayHelp));
@@ -168,6 +171,9 @@ impl Tray {
                     }
                     MenuEntry::Item(MenuCommand::Capture) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
+                    }
+                    MenuEntry::Item(MenuCommand::History) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_HISTORY, &history);
                     }
                     MenuEntry::Item(MenuCommand::Options) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_OPTIONS, &options);
@@ -201,6 +207,7 @@ impl Tray {
             match cmd.0 as usize {
                 ID_UPDATE => Some(MenuCommand::OpenUpdate),
                 ID_CAPTURE => Some(MenuCommand::Capture),
+                ID_HISTORY => Some(MenuCommand::History),
                 ID_OPTIONS => Some(MenuCommand::Options),
                 ID_ABOUT => Some(MenuCommand::About),
                 ID_HELP => Some(MenuCommand::Help),
@@ -324,6 +331,7 @@ pub fn menu_layout(has_update: bool) -> Vec<MenuEntry> {
     v.extend(
         [
             MenuCommand::Capture,
+            MenuCommand::History,
             MenuCommand::Options,
             MenuCommand::About,
             MenuCommand::Help,
