@@ -34,6 +34,7 @@ const ID_QUIT: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
+    OpenUpdate,
     Capture,
     Options,
     About,
@@ -263,6 +264,18 @@ impl Notifier for TrayNotifier {
     }
 }
 
+/// Một dòng của menu khay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuEntry {
+    Item(MenuCommand),
+    Separator,
+}
+
+/// Các dòng của menu khay theo thứ tự; có bản mới thì mục cập nhật và vạch ngăn đứng đầu.
+pub fn menu_layout(has_update: bool) -> Vec<MenuEntry> {
+    todo!()
+}
+
 /// Số thông báo giữ lại tối đa trong lúc biểu tượng khay chưa có.
 pub const MAX_QUEUED_NOTICES: usize = 8;
 
@@ -346,6 +359,34 @@ mod tests {
         assert!(blue(16, m) < 0x60, "giữa cạnh trên bị tô màu nhấn");
         assert!(blue(m, 16) < 0x60, "giữa cạnh trái bị tô màu nhấn");
         assert!(blue(m, m) > 200, "góc trên trái phải là nét màu nhấn");
+    }
+
+    #[test]
+    fn menu_layout_puts_update_first_with_separator() {
+        use MenuCommand::*;
+        use MenuEntry::*;
+        assert_eq!(
+            menu_layout(true),
+            vec![
+                Item(OpenUpdate),
+                Separator,
+                Item(Capture),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        assert_eq!(
+            menu_layout(false),
+            vec![
+                Item(Capture),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
     }
 
     #[test]

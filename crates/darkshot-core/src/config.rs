@@ -2,6 +2,7 @@
 
 use crate::color::{parse_hex, to_hex, CustomColors, CUSTOM_SLOTS};
 use crate::i18n::{t, Lang, Msg};
+use crate::update::Version;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -249,6 +250,8 @@ pub struct Config {
     pub upload_format: UploadFormat,
     pub jpeg_quality: u8,
     pub custom_colors: CustomColors,
+    pub check_updates: bool,
+    pub update_notified: Option<Version>,
 }
 
 impl Config {
@@ -266,6 +269,8 @@ impl Config {
             upload_format: UploadFormat::Png,
             jpeg_quality: JPEG_QUALITY_DEFAULT,
             custom_colors: CustomColors::default(),
+            check_updates: true,
+            update_notified: None,
         }
     }
 }
@@ -498,6 +503,8 @@ pub fn load(
         upload_format: UploadFormat::from_code(&f.upload_format).unwrap_or_default(),
         jpeg_quality: clamp_jpeg_quality(f.jpeg_quality),
         custom_colors: custom_from_json(&f.custom_colors),
+        check_updates: true,
+        update_notified: None,
     };
     Ok(Loaded {
         config,
@@ -1159,5 +1166,61 @@ mod tests {
         assert_eq!(l.config.custom_colors.slots[1], None);
         let l = load_text(r#"{"custom_colors":"oops"}"#);
         assert_eq!(l.config.custom_colors, CustomColors::default());
+    }
+
+    #[test]
+    fn check_updates_round_trip() {
+        let d = Config::defaults(Path::new("C:/pics"), Lang::Vi);
+        assert!(d.check_updates);
+        assert_eq!(d.update_notified, None);
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.check_updates = false;
+        c.update_notified = Some(Version {
+            major: 0,
+            minor: 3,
+            patch: 1,
+        });
+        save(&path, &c, &XorStore).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["check_updates"], false);
+        assert_eq!(v["update_notified"], "0.3.1");
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+        // None lưu thành null.
+        c.update_notified = None;
+        save(&path, &c, &XorStore).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(v["update_notified"].is_null());
+        // File cũ không có hai trường: mặc định.
+        let l = load_text(r#"{"language":"vi"}"#);
+        assert!(l.config.check_updates);
+        assert_eq!(l.config.update_notified, None);
+        // Giá trị lạ: mặc định.
+        for text in [
+            r#"{"update_notified":"abc"}"#,
+            r#"{"update_notified":"1.2"}"#,
+            r#"{"update_notified":5}"#,
+            r#"{"update_notified":null}"#,
+        ] {
+            assert_eq!(load_text(text).config.update_notified, None, "{text}");
+        }
+        let l = load_text(r#"{"check_updates":"yes"}"#);
+        assert!(l.config.check_updates);
+        let l = load_text(r#"{"update_notified":"v0.2.0"}"#);
+        assert_eq!(
+            l.config.update_notified,
+            Some(Version {
+                major: 0,
+                minor: 2,
+                patch: 0
+            })
+        );
     }
 }

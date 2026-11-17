@@ -300,7 +300,7 @@ impl Uploader for R2Uploader {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::sigv4::sha256_hex;
     use std::io::{Read, Write};
@@ -380,7 +380,7 @@ mod tests {
         })
     }
 
-    static PORT_LOCK: Mutex<()> = Mutex::new(());
+    pub(crate) static PORT_LOCK: Mutex<()> = Mutex::new(());
 
     /// Mock server: replies with `responses` in order (200 empty when exhausted).
     /// If `stall` is set it accepts connections and never answers.

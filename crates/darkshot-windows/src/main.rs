@@ -28,6 +28,7 @@ use darkshot_core::color::CustomColors;
 use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
+use darkshot_core::update::{Release, Version};
 use darkshot_core::upload::{R2Uploader, Uploader};
 use secret::DpapiStore;
 use settings::OpenReason;
@@ -227,6 +228,12 @@ thread_local! {
     static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
     /// Sổ các lượt tải lên đang chạy; luồng tải lên giữ bản sao `Arc`.
     static PENDING: Arc<app::PendingUploads> = Arc::new(app::PendingUploads::new());
+}
+
+/// Luật hiển thị khi kiểm tra bản mới xong: (hiện mục menu, hiện thông báo).
+/// Có bản mới thì luôn hiện mục menu; chỉ thông báo khi chưa báo đúng bản đó.
+pub fn update_outcome(found: Option<&Release>, notified: Option<Version>) -> (bool, bool) {
+    todo!()
 }
 
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
@@ -750,6 +757,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let cmd = current_tray().and_then(|t| t.show_menu());
                 MENU_OPEN.with(|m| m.set(false));
                 match cmd {
+                    Some(MenuCommand::OpenUpdate) => {}
                     Some(MenuCommand::Capture) => {
                         request(hwnd, GateEvent::MenuCapture, CaptureKind::Region);
                     }
@@ -951,6 +959,24 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn update_outcome_rules() {
+        let v = |m, n, p| Version {
+            major: m,
+            minor: n,
+            patch: p,
+        };
+        let rel = Release {
+            version: v(0, 3, 0),
+            url: String::new(),
+        };
+        assert_eq!(update_outcome(None, None), (false, false));
+        assert_eq!(update_outcome(None, Some(v(0, 3, 0))), (false, false));
+        assert_eq!(update_outcome(Some(&rel), None), (true, true));
+        assert_eq!(update_outcome(Some(&rel), Some(v(0, 3, 0))), (true, false));
+        assert_eq!(update_outcome(Some(&rel), Some(v(0, 2, 0))), (true, true));
+    }
 
     #[test]
     fn custom_colors_saved_only_when_changed() {
