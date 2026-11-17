@@ -72,13 +72,15 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 57 Lịch sử: tìm, lọc, hành động, xác nhận | task/57-history-actions | specialist | opus | xong | 397.112 | 169.162 | 22.987 | 589.261 |
 | Rà soát toàn đợt 7 | feature/screenshot-history | specialist | opus | xong (DUYỆT) | | 137.492 | | 137.492 |
 | 58 Tài liệu, demo đợt 7 | task/58-history-docs | phiên chính | opus | xong | không đo | | | |
-| 59 Gia cố Lịch sử: hàng đợi ghi, flush, trao lượt một lần, thanh cuộn | task/59-history-hardening | specialist | opus | chờ | | | | |
-| 60 Bắt cửa sổ: lõi snap, cấu hình, i18n | task/60-snap-core | builder | sonnet | chờ | | | | |
-| 61 Bắt cửa sổ: liệt kê cửa sổ, nối luồng chụp | task/61-snap-enumerate | specialist | opus | chờ | | | | |
-| 62 Bắt cửa sổ: lớp phủ, xem trước, lời nhắc | task/62-snap-overlay | specialist | opus | chờ | | | | |
-| 63 Bắt cửa sổ: ô tích trong Tùy chọn | task/63-snap-options | builder | sonnet | chờ | | | | |
-| Rà soát toàn đợt 8 | feature/window-snap | specialist | fable | chờ | | | | |
-| 64 Tài liệu, demo đợt 8 | feature/window-snap | phiên chính | opus | chờ | không đo | | | |
+| 59 Gia cố Lịch sử: hàng đợi ghi, flush, trao lượt một lần, thanh cuộn | task/59-history-hardening | specialist | opus | xong | 134.405 | 84.681 (specialist opus) | 0 | 219.086 |
+| 60 Bắt cửa sổ: lõi snap, cấu hình, i18n | task/60-snap-core | builder | sonnet | xong | 68.559 | 32.680 (reviewer sonnet) | 0 | 101.239 |
+| 61 Bắt cửa sổ: liệt kê cửa sổ, nối luồng chụp | task/61-snap-enumerate | specialist | opus | xong | 80.775 | 68.701 (specialist opus) | 0 | 149.476 |
+| 62 Bắt cửa sổ: lớp phủ, xem trước, lời nhắc | task/62-snap-overlay | specialist | opus | xong | 184.115 | 134.834 (specialist opus, hai lượt) | 26.144 | 345.093 |
+| 63 Bắt cửa sổ: ô tích trong Tùy chọn | task/63-snap-options | builder | sonnet | xong | 80.213 | 25.289 (reviewer sonnet) | 0 | 105.502 |
+| 63b Sửa sau rà soát toàn đợt 8 | task/63b-batch8-review-fixes | specialist | opus | xong | 123.373 | 72.283 (specialist opus) | 0 | 195.656 |
+| 63c Viên nhắc sau khi bấm chọn (chỉ thêm kiểm thử, không tái hiện) | task/63c-snap-hint-repaint | builder | sonnet | xong | 67.733 | phiên điều phối đọc diff | 0 | 67.733 |
+| Rà soát toàn đợt 8 | feature/window-snap | specialist | fable | xong (DUYỆT, 5 điểm nên sửa → 63b) | | 164.294 | | 164.294 |
+| 64 Tài liệu, demo, QA giao diện đợt 8 | feature/window-snap | phiên chính | opus | xong | không đo | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -87,6 +89,8 @@ Task 20–23 là đợt 2 (kế hoạch `docs/superpowers/plans/2026-11-16-captu
 Task 24–26 là đợt 3 (kế hoạch `docs/superpowers/plans/2026-11-16-upload-format.md`). Trước khi xây: đọc soát thiết kế đợt 3 (general-purpose) 129.579. Cộng Task 24–26: 685.912 (làm 468.503; rà soát 209.688; sửa 7.721); kể cả đọc soát thiết kế: 815.491. Theo model: opus (Task 25) 307.399; sonnet (Task 24 và rà soát 26) 237.934; haiku (Task 26) 140.579. Chủ dự án báo "đã duyệt. Đúng yêu cầu" (2026-11-16).
 
 Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075. Cộng Task 27–31: 1.162.436 (làm 781.735; rà soát 367.839; sửa 12.862); kể cả đọc soát thiết kế: 1.227.511. Theo model: opus (Task 28, 30) 688.408; sonnet (Task 27, 29 và rà soát 31) 302.199; haiku (Task 31) 171.829. Sửa sau đợt 4: Task 30b (chủ dự án báo ô tích và nút chọn không như mong đợi: răng cưa) 213.843; Task 30c (chủ dự án báo ô nhập trộn góc vuông và bo tròn) 249.285. Chưa thử tay, chưa nghiệm thu.
+
+Task 59–64 là đợt 8 (kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`; model chọn theo từng task, quyết định 95). Cộng agent con: 1.348.079 (làm 739.173; rà soát 582.762; sửa 26.144). Theo model: opus 909.311 (Task 59, 61, 62, 63b, kể cả rà soát); sonnet 274.474 (Task 60, 63, 63c, kể cả rà soát); fable 164.294 (rà soát toàn đợt). Chưa gộp `main`.
 
 Rà soát Task 4, 8, 9, 17, 21, 22, 25, 28, 30 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 

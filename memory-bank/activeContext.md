@@ -4,14 +4,16 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
-- **Đợt 8 (gia cố Lịch sử, bắt cửa sổ khi chọn vùng): ĐANG LÀM.** Nhánh phát triển `feature/window-snap` (từ `origin/main` `2797bb9`). Thiết kế `docs/superpowers/specs/2026-11-18-window-snap-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md` (bảng agent/model và lý do), gói `docs/tasks/59-…` đến `63-…`. Chủ dự án giao toàn quyền (2026-11-18): chạy đến hết không hỏi, chỉ dừng ở demo cuối. Không gộp vào `main`, không tag.
-- Đợt 1–7 đã xong và đã được chủ dự án duyệt (đợt 7 gộp vào `main` tại `4e53cf4`).
-- Task đang làm: Task 59 (gia cố Lịch sử).
-- Quy trình mới từ đợt 8: model chọn theo từng task (CLAUDE.md "Agent và model", quyết định 95).
+- **Đợt 8 (gia cố Lịch sử, gợi ý cửa sổ khi chọn vùng): XONG theo mã, ĐANG CHỜ chủ dự án duyệt demo.** Nhánh `feature/window-snap` (từ `origin/main` `2797bb9`), Task 59–63, 63b, 63c đã gộp vào đó; rà soát toàn đợt (`specialist`, model fable) DUYỆT, các điểm nên sửa đã làm ở 63b. `scripts/check.ps1`: ALL CHECKS PASSED. KHÔNG gộp `main`, không tag, không phát hành cho tới khi chủ dự án duyệt.
+- Bản demo: `target/demo8/release/darkshot.exe` (2.016.256 byte). Chạy cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\demo8elease\darkshot.exe` (`-Lang en`, `-Snap off`); phím chụp vùng của demo Ctrl+Alt+Shift+F9. Ảnh QA: `target/demo8/screens/` (chỉ cắt vùng dữ liệu tổng hợp).
+- Thiết kế `docs/superpowers/specs/2026-11-18-window-snap-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`, quyết định 95–100. Mục "Đợt 8" của checklist: [x] là phiên điều phối đã thấy trên demo, [ ] còn chờ thử tay.
+- Còn mở: viên nhắc còn đọng sau khi BẤM chọn tới lần di chuột kế (chưa tái hiện ở tầng trạng thái, quyết định 100); thử Lưu/Chép/Tải lên sau khi chọn cửa sổ bằng chuột thật; DPI 100/150%, màn hình tọa độ âm, Windows 10.
+- Quy trình từ đợt 8: model chọn theo từng task (CLAUDE.md "Agent và model", quyết định 95).
+- Task đang làm: không.
 
 ## Bước kế tiếp
 
-Chạy Task 59 → 63 theo `/next-task` (nhánh gốc `feature/window-snap`), rồi rà soát toàn đợt (`specialist`, model `fable`), rồi Task 64 (tài liệu, demo, ảnh chụp) và dừng chờ chủ dự án duyệt demo.
+Chờ chủ dự án xem demo. Duyệt thì: `git switch main`, `git merge --no-ff feature/window-snap`, chạy `scripts/check.ps1`, đẩy `main`. Có lỗi thì mở `task/64b-…` trên `feature/window-snap` (agent/model theo độ khó).
 
 ## Lưu trữ: ghi chép các đợt trước (giữ nguyên, không còn là bước kế tiếp)
 
