@@ -1,6 +1,6 @@
 //! Gợi ý khung cửa sổ/màn hình khi chọn vùng (logic thuần, không phụ thuộc hệ điều hành).
 
-use crate::geometry::{Point, Rect};
+use crate::geometry::{Point, Rect, MIN_SIZE};
 
 pub const MIN_SNAP: i32 = 16;
 pub const MAX_WINDOWS: usize = 512;
@@ -71,8 +71,8 @@ pub fn dip(v: i32, dpi: u32) -> i32 {
 /// Bấm rồi nhả (`down` → `up`) là một cú bấm, không phải kéo: dịch dưới `geometry::MIN_SIZE`
 /// theo cả hai trục.
 pub fn is_click(down: Point, up: Point) -> bool {
-    let _ = (down, up);
-    false
+    let near = |a: i32, b: i32| (i64::from(a) - i64::from(b)).abs() < i64::from(MIN_SIZE);
+    near(down.x, up.x) && near(down.y, up.y)
 }
 
 /// Gợi ý cửa sổ chạy khi có ứng viên, chưa có vùng chọn, không đang kéo, không bảng nổi nào mở.

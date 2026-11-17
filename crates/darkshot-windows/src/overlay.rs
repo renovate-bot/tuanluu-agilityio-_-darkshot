@@ -1439,10 +1439,12 @@ struct State {
     cands: Vec<Rect>,
     /// Ô gợi ý cửa sổ bật (`Screenshot::windows` là `Some`): chọn chữ của viên nhắc.
     snap_windows: bool,
-    /// Ứng viên đang xem trước dưới con trỏ (chỉ khi `snap_active`).
+    /// Ứng viên đang xem trước dưới con trỏ (chỉ khi `snap_active`, hoặc trong lúc bấm còn giữ
+    /// `snap_press` và chuột chưa rời điểm bấm).
     snap_hover: Option<Rect>,
-    /// Lần bấm hiện tại bắt đầu khi gợi ý đang chạy: nhả không kéo thì chọn ứng viên.
-    snap_armed: bool,
+    /// Điểm bấm của lần bấm hiện tại khi gợi ý đang chạy; bỏ khi chuột rời điểm bấm từ
+    /// `MIN_SIZE` (thành kéo vùng). Nhả khi còn giữ thì chọn ứng viên tại điểm bấm.
+    snap_press: Option<Point>,
     /// Vị trí chuột cuối cùng (tọa độ ảnh); lúc mở là vị trí con trỏ lúc chụp.
     mouse: Point,
 }
@@ -1738,9 +1740,10 @@ impl State {
         (sz.cx, sz.cy)
     }
 
-    /// Khung đang hiển thị: vùng chọn, hoặc ứng viên xem trước khi chưa có vùng chọn.
+    /// Khung đang hiển thị: ứng viên xem trước (chỉ có khi chưa có vùng chọn thật, hoặc khi vừa
+    /// bấm mà chuột chưa rời điểm bấm: vùng tạm < MIN_SIZE không được vẽ), nếu không thì vùng chọn.
     fn shown_rect(&self) -> Option<Rect> {
-        self.sel.rect().or(self.snap_hover)
+        self.snap_hover.or(self.sel.rect())
     }
 
     /// Gợi ý cửa sổ đang chạy (thiết kế 3.1). Có hình đánh dấu thì coi như đã có vùng chọn; ô chữ
@@ -2945,7 +2948,7 @@ impl State {
         if self.gesture.is_some() {
             self.commit_gesture();
         }
-        self.snap_armed = false;
+        self.snap_press = None;
         if self.sel.is_dragging() {
             self.update(|s| {
                 s.sel.release();
@@ -3069,14 +3072,15 @@ impl State {
                 }
             }
             PressMode::Selection => {
-                // Gợi ý đang chạy lúc bấm: nhả không kéo thì chọn ứng viên (on_up).
-                let armed = self.snap_active();
+                // Gợi ý đang chạy lúc bấm: giữ xem trước tới khi chuột rời điểm bấm; nhả không kéo
+                // thì chọn ứng viên tại điểm bấm (on_up).
+                let press = self.snap_active().then_some(p);
                 if hit == Hit::Outside {
                     self.deselect();
                 }
                 self.update(|s| {
-                    s.snap_armed = armed;
-                    s.snap_hover = None;
+                    s.snap_press = press;
+                    s.snap_hover = press.and_then(|a| snap::candidate_at(&s.cands, a));
                     s.new_drag = hit == Hit::Outside;
                     s.drag_cursor = cursor_for_hit(hit);
                     s.hover = None;
@@ -3116,7 +3120,14 @@ impl State {
                 self.invalidate(&[r]);
             }
         } else if self.sel.is_dragging() {
-            self.update(|s| s.sel.drag_to(p));
+            self.update(|s| {
+                s.sel.drag_to(p);
+                // Chuột rời điểm bấm từ MIN_SIZE: thành kéo vùng, bỏ xem trước.
+                if s.snap_press.is_some_and(|a| !snap::is_click(a, p)) {
+                    s.snap_press = None;
+                    s.snap_hover = None;
+                }
+            });
         } else {
             let size_hover = self.size_cell_at(p);
             if size_hover != self.size_hover {
@@ -3191,13 +3202,14 @@ impl State {
             };
         }
         if self.sel.is_dragging() {
-            let armed = std::mem::take(&mut self.snap_armed);
+            let press = self.snap_press.take();
             self.update(|s| {
                 s.sel.drag_to(p);
                 s.sel.release();
-                // Bấm không kéo (vùng < MIN_SIZE bị bỏ) khi gợi ý đang chạy: chọn ứng viên.
-                if armed && s.sel.rect().is_none() {
-                    if let Some(c) = snap::candidate_at(&s.cands, p) {
+                // Bấm không kéo (dịch < MIN_SIZE theo cả hai trục) khi gợi ý đang chạy: chọn ứng
+                // viên tại điểm bấm. Kéo dẹt (một trục >= MIN_SIZE) không chọn gì, như đợt 7.
+                if let Some(a) = press.filter(|a| snap::is_click(*a, p)) {
+                    if let Some(c) = snap::candidate_at(&s.cands, a) {
                         s.select_candidate(c);
                     }
                 }
@@ -3507,7 +3519,7 @@ impl State {
         };
         p.border(r);
         // Xem trước ứng viên: không tay nắm (và không thanh công cụ: `bars` cần vùng chọn).
-        if self.sel.rect().is_some() {
+        if self.snap_hover.is_none() && self.sel.rect().is_some() {
             for (hx, hy) in [
                 (r.x, r.y),
                 (r.x + r.w / 2, r.y),
@@ -5098,7 +5110,7 @@ impl State {
             cands,
             snap_windows: shot.windows.is_some(),
             snap_hover: None,
-            snap_armed: false,
+            snap_press: None,
             mouse: Point {
                 x: shot.cursor.x.saturating_sub(shot.origin.x),
                 y: shot.cursor.y.saturating_sub(shot.origin.y),
@@ -5601,11 +5613,12 @@ mod tests {
                 live::Step::Move(in_win),
                 live::Step::Move(background),
             ];
+            // Con trỏ thật đứng tại `at`: lần di chuột hệ thống tự sinh (khi giữ chuột, khi hiện
+            // cửa sổ) không đổi ứng viên đang xem trước, không biến cú bấm thành kéo.
+            steps.push(live::Step::Cursor(at));
             if i % 4 < 2 {
                 steps.extend(live::click(at));
             } else {
-                // Con trỏ thật đứng tại `at`: chuột thật không đổi ứng viên đang xem trước.
-                steps.push(live::Step::Cursor(at));
                 steps.push(live::Step::Move(at));
                 steps.push(live::Step::Key(VK_RETURN.0));
             }
