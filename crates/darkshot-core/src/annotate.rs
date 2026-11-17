@@ -494,13 +494,20 @@ mod tests {
     #[test]
     fn palette_and_constants_match_plan() {
         let want = [
-            0xFF3B30, 0xFF9500, 0xFFCC00, 0x34C759, 0x0A84FF, 0xAF52DE, 0xFFFFFF, 0x000000,
+            0xFF8080, 0xFFFF80, 0x80FF80, 0x00FF80, 0x80FFFF, 0x0080FF, 0xFF80C0, 0xFF80FF,
+            0xFF0000, 0xFFFF00, 0x80FF00, 0x00FF40, 0x00FFFF, 0x0080C0, 0x8080C0, 0xFF00FF,
+            0x804040, 0xFF8040, 0x00FF00, 0x008080, 0x004080, 0x8080FF, 0x800040, 0xFF0080,
+            0x800000, 0xFF8000, 0x008000, 0x008040, 0x0000FF, 0x0000A0, 0x800080, 0x8000FF,
+            0x400000, 0x804000, 0x004000, 0x004040, 0x000080, 0x000040, 0x400040, 0x400080,
+            0x000000, 0x808000, 0x808040, 0x808080, 0x408080, 0xC0C0C0, 0x400040, 0xFFFFFF,
         ];
         for (c, w) in PALETTE.iter().zip(want) {
             assert_eq!(*c, Rgb::hex(w));
         }
-        assert_eq!(PALETTE.len(), 8);
-        assert_eq!(DEFAULT_COLOR, PALETTE[0]);
+        assert_eq!(PALETTE.len(), 48);
+        assert_eq!(PALETTE_COLS, 8);
+        assert_eq!(DEFAULT_COLOR, PALETTE[8]);
+        assert_eq!(DEFAULT_COLOR, Rgb::hex(0xFF0000));
         assert_eq!(STROKE_DIP, 3.0);
         assert_eq!(MARKER_DIP, 16.0);
         assert_eq!(MARKER_ALPHA, 102);

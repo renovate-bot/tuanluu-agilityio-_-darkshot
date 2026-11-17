@@ -3052,40 +3052,44 @@ mod tests {
 
     #[test]
     fn palette_hit_testing() {
-        let (cell, gap) = (24, 6);
+        let (cell, gap) = (20, 4);
         let (w, h) = palette_size(cell, gap);
-        assert_eq!((w, h), (4 * 24 + 5 * 6, 2 * 24 + 3 * 6));
+        assert_eq!((w, h), (196, 148));
         let pal = Rect {
             x: 200,
             y: 300,
             w,
             h,
         };
-        for i in 0..8usize {
-            let (col, row) = ((i % 4) as i32, (i / 4) as i32);
+        for i in 0..48usize {
+            let (col, row) = ((i % 8) as i32, (i / 8) as i32);
             let c = Point {
-                x: 200 + 6 + col * 30 + 12,
-                y: 300 + 6 + row * 30 + 12,
+                x: 200 + 4 + col * 24 + 10,
+                y: 300 + 4 + row * 24 + 10,
             };
             assert_eq!(palette_cell_at(pal, cell, gap, c), Some(i), "ô {i}");
             let r = palette_cell_rect(pal, cell, gap, i);
             assert_eq!(
                 r,
                 Rect {
-                    x: c.x - 12,
-                    y: c.y - 12,
-                    w: 24,
-                    h: 24
+                    x: c.x - 10,
+                    y: c.y - 10,
+                    w: 20,
+                    h: 20
                 }
             );
         }
         let at = |x, y| palette_cell_at(pal, cell, gap, Point { x, y });
+        // Ô 7 góc trên phải, ô 40 góc dưới trái, ô 47 góc dưới phải.
+        assert_eq!(at(200 + w - 4 - 10, 300 + 14), Some(7));
+        assert_eq!(at(200 + 14, 300 + h - 4 - 10), Some(40));
+        assert_eq!(at(200 + w - 14, 300 + h - 14), Some(47));
         // Khe ngang, khe dọc, lề, ngoài bảng.
-        assert_eq!(at(200 + 6 + 24 + 3, 300 + 18), None);
-        assert_eq!(at(200 + 18, 300 + 6 + 24 + 3), None);
-        assert_eq!(at(202, 302), None);
-        assert_eq!(at(200 + w - 2, 300 + 18), None);
-        assert_eq!(at(199, 318), None);
+        assert_eq!(at(200 + 4 + 20 + 2, 300 + 14), None);
+        assert_eq!(at(200 + 14, 300 + 4 + 20 + 2), None);
+        assert_eq!(at(201, 301), None);
+        assert_eq!(at(200 + w - 2, 300 + 14), None);
+        assert_eq!(at(199, 314), None);
     }
 
     #[test]
@@ -3409,9 +3413,9 @@ mod tests {
             width,
             color,
         };
-        // Chọn màu xanh lam qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
+        // Chọn màu xanh lam (ô 5, #0080FF) qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
         let mut steps = live::click(l.item(6));
-        steps.extend(live::click(l.cell(4)));
+        steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Key(u16::from(b'L')));
         steps.extend(live::drag(a, b));
         steps.push(live::Step::Ctrl(u16::from(b'S')));
@@ -3419,14 +3423,14 @@ mod tests {
         assert!(ok);
         let p = r.unwrap().unwrap();
         assert_eq!((p.action, p.rect), (Action::Save, sel));
-        assert_eq!(p.shapes, vec![line(PALETTE[4])]);
+        assert_eq!(p.shapes, vec![line(PALETTE[5])]);
         // Lần mở sau nhớ màu; công cụ thì không (L chọn lại).
         let mut steps = vec![live::Step::Key(u16::from(b'L'))];
         steps.extend(live::drag(a, b));
         steps.push(live::Step::Ctrl(u16::from(b'S')));
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
-        assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[4])]);
+        assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[5])]);
     }
 
     #[test]
