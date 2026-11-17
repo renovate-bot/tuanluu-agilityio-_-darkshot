@@ -59,33 +59,62 @@ fn io_err(e: std::io::Error) -> StoreError {
     StoreError::Io(e.to_string())
 }
 
-/// Đọc chỉ mục từ đĩa (gọi khi đã giữ khóa).
+/// Giữ lại bản chỉ mục hỏng: đổi tên `index.corrupt.json` (đè bản hỏng cũ); không được thì
+/// chép sang `index.corrupt.<unix>.json`. Trả `true` khi bản hỏng đã được giữ ở đâu đó.
+fn preserve_corrupt(root: &Path, bytes: &[u8]) -> bool {
+    if std::fs::rename(root.join(INDEX), root.join(INDEX_CORRUPT)).is_ok() {
+        return true;
+    }
+    let unix = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    std::fs::write(root.join(format!("index.corrupt.{unix}.json")), bytes).is_ok()
+}
+
+/// Đọc chỉ mục từ đĩa (gọi khi đã giữ khóa). Trả kèm cờ "được phép ghi đè `index.json`":
+/// sai khi chỉ mục hỏng mà chưa giữ được bản hỏng.
 /// `Err` chỉ khi lỗi I/O khác "không có tệp": bên ghi không được đè chỉ mục đọc không được.
-fn read_index(root: &Path) -> Result<Loaded, StoreError> {
+fn read_index(root: &Path) -> Result<(Loaded, bool), StoreError> {
     let path = root.join(INDEX);
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Loaded::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Loaded::default(), true)),
         Err(e) => return Err(io_err(e)),
     };
     let parsed = std::str::from_utf8(&bytes)
         .ok()
         .and_then(|text| parse_index(text).ok());
     match parsed {
-        Some((entries, skipped)) => Ok(Loaded {
-            entries,
-            skipped,
-            recovered: false,
-        }),
+        Some((entries, skipped)) => Ok((
+            Loaded {
+                entries,
+                skipped,
+                recovered: false,
+            },
+            true,
+        )),
         None => {
-            // Giữ bản hỏng để chủ máy xem lại; đè bản hỏng cũ.
-            let _ = std::fs::rename(&path, root.join(INDEX_CORRUPT));
-            Ok(Loaded {
-                entries: Vec::new(),
-                skipped: 0,
-                recovered: true,
-            })
+            let kept = preserve_corrupt(root, &bytes);
+            Ok((
+                Loaded {
+                    entries: Vec::new(),
+                    skipped: 0,
+                    recovered: true,
+                },
+                kept,
+            ))
         }
+    }
+}
+
+/// Đọc chỉ mục cho bên ghi: lỗi nếu ghi đè sẽ làm mất bản hỏng chưa được giữ.
+fn read_for_write(root: &Path) -> Result<Vec<Entry>, StoreError> {
+    match read_index(root)? {
+        (l, true) => Ok(l.entries),
+        (_, false) => Err(StoreError::Io(String::from(
+            "corrupt history index could not be preserved",
+        ))),
     }
 }
 
@@ -139,6 +168,13 @@ fn try_new_id(unix_millis: u64) -> Result<String, StoreError> {
 }
 
 /// `<id>` nếu `name` có dạng `<id>.png` với id hợp lệ.
+/// `(id, hex)` nếu `name` có dạng `<id>.png.<8 hex thường>.tmp` (tệp tạm của `write_atomic`).
+fn tmp_parts(name: &str) -> Option<(&str, &str)> {
+    let (id, hex) = name.strip_suffix(".tmp")?.split_once(".png.")?;
+    let ok_hex = hex.len() == 8 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    (is_valid_id(id) && ok_hex).then_some((id, hex))
+}
+
 fn id_of_file_name(name: &str) -> Option<&str> {
     let id = name.strip_suffix(".png")?;
     is_valid_id(id).then_some(id)
@@ -180,7 +216,7 @@ impl Store {
     /// (đè bản hỏng cũ), trả rỗng, `Loaded.recovered = true`. Không bao giờ panic.
     pub fn load(&self) -> Loaded {
         let _g = lock();
-        read_index(&self.root).unwrap_or_default()
+        read_index(&self.root).map(|(l, _)| l).unwrap_or_default()
     }
 
     /// Ghi một mục mới (đồng bộ): mã hóa trước, ghi tệp ảnh, rồi cập nhật chỉ mục dưới khóa.
@@ -255,8 +291,8 @@ impl Store {
 
         let (evicted, live_ids) = {
             let _g = lock();
-            let mut cur = match read_index(&self.root) {
-                Ok(l) => l.entries,
+            let mut cur = match read_for_write(&self.root) {
+                Ok(v) => v,
                 Err(e) => {
                     cleanup();
                     return Err(e);
@@ -283,22 +319,34 @@ impl Store {
         Ok(entry)
     }
 
-    /// Xóa `<id>.png` hợp lệ trong `images/`, `thumbs/` không có trong `live` và cũ hơn `ORPHAN_MIN_AGE`.
-    /// Tệp lạ (tên không khớp mẫu) giữ nguyên.
+    /// Xóa, khi cũ hơn `ORPHAN_MIN_AGE`: `<id>.png` hợp lệ trong `images/`, `thumbs/` không có trong
+    /// `live`, và tệp tạm `<id>.png.<8 hex>.tmp` sót lại. Tệp lạ (tên không khớp mẫu) giữ nguyên.
     fn sweep_orphans(&self, live: &[String]) {
         let now = SystemTime::now();
         for sub in [IMAGES, THUMBS] {
-            let Ok(rd) = std::fs::read_dir(self.root.join(sub)) else {
+            let dir = self.root.join(sub);
+            let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
             };
             for de in rd.flatten() {
                 let name = de.file_name();
-                let Some(id) = name.to_str().and_then(id_of_file_name) else {
+                let Some(name) = name.to_str() else {
                     continue;
                 };
-                if live.iter().any(|l| l == id) {
+                // Đường dẫn dựng lại từ các phần đã kiểm, luôn nằm trong `dir`.
+                let target = if let Some(id) = id_of_file_name(name) {
+                    if live.iter().any(|l| l == id) {
+                        continue;
+                    }
+                    self.owned_file(sub, id)
+                } else if let Some((id, hex)) = tmp_parts(name) {
+                    Some(dir.join(format!("{id}.png.{hex}.tmp")))
+                } else {
+                    None
+                };
+                let Some(target) = target else {
                     continue;
-                }
+                };
                 let old = de
                     .metadata()
                     .ok()
@@ -307,15 +355,9 @@ impl Store {
                     .and_then(|t| now.duration_since(t).ok())
                     .is_some_and(|age| age > ORPHAN_MIN_AGE);
                 if old {
-                    self.delete_owned_one(sub, id);
+                    let _ = std::fs::remove_file(target);
                 }
             }
-        }
-    }
-
-    fn delete_owned_one(&self, sub: &str, id: &str) {
-        if let Some(p) = self.owned_file(sub, id) {
-            let _ = std::fs::remove_file(p);
         }
     }
 
@@ -326,7 +368,7 @@ impl Store {
         }
         {
             let _g = lock();
-            let mut cur = read_index(&self.root)?.entries;
+            let mut cur = read_for_write(&self.root)?;
             let before = cur.len();
             cur.retain(|e| e.id != id);
             if cur.len() == before {
@@ -338,27 +380,28 @@ impl Store {
         Ok(true)
     }
 
-    /// Xóa mọi mục; trả số mục đã xóa. Xóa mọi `<id>.png` hợp lệ trong `images/`, `thumbs/`;
-    /// không xóa tệp lạ, `index.corrupt.json` hay tệp của người dùng.
+    /// Xóa mọi mục; trả số mục đã xóa. Xóa tệp `images/`, `thumbs/` của các mục đó, rồi quét
+    /// mồ côi (ngưỡng 60 giây) để không đụng tệp của một `record` đang chờ khóa.
+    /// Không xóa tệp lạ, `index.corrupt.json` hay tệp của người dùng.
     pub fn clear(&self) -> Result<usize, StoreError> {
-        let n = {
+        let (removed, live) = {
             let _g = lock();
-            let n = read_index(&self.root)?.entries.len();
+            let removed: Vec<String> = read_for_write(&self.root)?
+                .into_iter()
+                .map(|e| e.id)
+                .collect();
             write_index(&self.root, &[])?;
-            n
+            let live: Vec<String> = read_for_write(&self.root)?
+                .into_iter()
+                .map(|e| e.id)
+                .collect();
+            (removed, live)
         };
-        for sub in [IMAGES, THUMBS] {
-            let Ok(rd) = std::fs::read_dir(self.root.join(sub)) else {
-                continue;
-            };
-            for de in rd.flatten() {
-                let name = de.file_name();
-                if let Some(id) = name.to_str().and_then(id_of_file_name) {
-                    self.delete_owned_one(sub, id);
-                }
-            }
+        for id in &removed {
+            self.delete_owned(id);
         }
-        Ok(n)
+        self.sweep_orphans(&live);
+        Ok(removed.len())
     }
 
     /// Ảnh nhỏ của mục: đọc `thumbs/<id>.png`; thiếu/hỏng thì sinh lại từ `image_path` rồi ghi.
@@ -928,7 +971,7 @@ mod tests {
             gone.push(p);
             for (name, age) in [
                 (format!("{id}.png.89abcdef.tmp"), 0),
-                (format!("{id}.png.0123ABCD.tmp"), 120),
+                (format!("{id}.png.4567CDEF.tmp"), 120),
                 (format!("{id}.png.0123abc.tmp"), 120),
                 (format!("{id}.png.tmp"), 120),
                 (format!("{id}.png.0123abcd.tmp.bak"), 120),
