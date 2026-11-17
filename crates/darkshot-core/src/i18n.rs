@@ -274,6 +274,7 @@ messages! {
     ToolStep => ("Đánh số (N)", "Numbered steps (N)"),
     ToolSize => ("Cỡ ([ ])", "Size ([ ])"),
     ToolRedo => ("Làm lại (Ctrl+Y)", "Redo (Ctrl+Y)"),
+    ToolShapes => ("Hình (L, A, R, E)", "Shapes (L, A, R, E)"),
     SizeSmall => ("Nhỏ", "Small"),
     SizeMedium => ("Vừa", "Medium"),
     SizeLarge => ("Lớn", "Large"),
