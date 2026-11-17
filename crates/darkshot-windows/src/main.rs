@@ -362,11 +362,11 @@ fn capture_flow(hwnd: HWND) {
             let picked = overlay::pick_region(&shot, initial);
             with_app(|a| a.overlay_open = false);
             match picked {
-                Ok(Some((action, rect))) => {
+                Ok(Some(p)) => {
                     // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
-                    let screen = capture::to_screen_coords(rect, shot.origin);
-                    LAST_SELECTION.with(|s| s.set(remember_after(prev, action, screen)));
-                    (action, rect)
+                    let screen = capture::to_screen_coords(p.rect, shot.origin);
+                    LAST_SELECTION.with(|s| s.set(remember_after(prev, p.action, screen)));
+                    (p.action, p.rect)
                 }
                 Ok(None) => return,
                 Err(e) => {
@@ -396,6 +396,16 @@ fn capture_flow(hwnd: HWND) {
         return;
     };
     run_on_image(hwnd, action, image, notifier);
+}
+
+/// Ảnh cắt theo `rect` (tọa độ ảnh chụp) có in các hình `shapes`; không hình thì đúng `crop`.
+pub fn picked_image(
+    image: &darkshot_core::image::Image,
+    rect: Rect,
+    shapes: &[darkshot_core::annotate::Shape],
+) -> Result<darkshot_core::image::Image, String> {
+    let _ = (image, rect, shapes);
+    todo!()
 }
 
 /// Thực hiện `action` trên ảnh đã cắt; chung cho cả ba loại chụp. Tải lên dùng sổ `PENDING`,
@@ -874,6 +884,58 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn annotated_capture_writes_marked_image() {
+        use darkshot_core::annotate::{Pt, Shape};
+        use darkshot_core::image::Image;
+        use darkshot_core::theme::Rgb;
+        let (w, h) = (200u32, 100u32);
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for i in 0..w * h {
+            bgra.extend_from_slice(&[(i % 251) as u8, 50, (i % 13) as u8, 255]);
+        }
+        let shot = Image {
+            width: w,
+            height: h,
+            bgra,
+        };
+        let rect = Rect {
+            x: 40,
+            y: 20,
+            w: 100,
+            h: 60,
+        };
+        // Không hình: đúng từng byte như crop.
+        assert_eq!(picked_image(&shot, rect, &[]), Ok(shot.crop(rect)));
+        let line = Shape::Line {
+            a: Pt { x: 60.0, y: 50.0 },
+            b: Pt { x: 120.0, y: 50.0 },
+            width: 3.0,
+            color: Rgb(255, 0, 0),
+        };
+        let out = picked_image(&shot, rect, &[line]).unwrap();
+        let plain = shot.crop(rect);
+        assert_eq!((out.width, out.height), (100, 60));
+        let px = |img: &Image, x: u32, y: u32| {
+            let i = ((y * img.width + x) * 4) as usize;
+            [
+                img.bgra[i],
+                img.bgra[i + 1],
+                img.bgra[i + 2],
+                img.bgra[i + 3],
+            ]
+        };
+        // Điểm ảnh chụp (90, 50) nằm ở (50, 30) của ảnh cắt: màu nét.
+        let p = px(&out, 50, 30);
+        assert!(
+            p[0] <= 2 && p[1] <= 2 && p[2] >= 253 && p[3] == 255,
+            "{p:?}"
+        );
+        // Xa nét: không đổi.
+        assert_eq!(px(&out, 50, 10), px(&plain, 50, 10));
+        assert_eq!(px(&out, 5, 30), px(&plain, 5, 30));
+    }
 
     #[test]
     fn capture_gate_transitions() {

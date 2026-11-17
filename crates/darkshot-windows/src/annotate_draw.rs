@@ -920,6 +920,40 @@ mod tests {
         assert!(all_opaque(&img));
     }
 
+    /// Pen và Marker có hai điểm trở lên trùng nhau vẽ như nét một điểm (chấm tròn, ô vuông),
+    /// không làm `burn` lỗi.
+    #[test]
+    fn coincident_points_draw_a_dot() {
+        let mut img = solid(50, 40, 0);
+        let pen = Shape::Pen {
+            points: vec![pt(10.0, 20.0); 3],
+            width: 6.0,
+            color: RED,
+        };
+        let marker = Shape::Marker {
+            points: vec![pt(30.0, 20.0), pt(30.0, 20.0)],
+            width: 8.0,
+            color: Rgb(255, 255, 255),
+        };
+        let crop = full(&img);
+        assert_eq!(burn(&mut img, &[pen, marker], crop), Ok(()));
+        // Chấm tròn bán kính 3 ở (10, 20).
+        assert!(
+            near(px(&img, 10, 20), [0, 0, 255, 255], 2),
+            "{:?}",
+            px(&img, 10, 20)
+        );
+        assert_eq!(px(&img, 15, 20), [0, 0, 0, 255]);
+        assert_eq!(px(&img, 10, 25), [0, 0, 0, 255]);
+        // Ô vuông cạnh 8 quanh (30, 20): phủ 40% cả ở góc (ngoài hình tròn bán kính 4).
+        let mid = px(&img, 30, 20);
+        assert!(mid[2].abs_diff(102) <= 6, "{mid:?}");
+        let corner = px(&img, 26, 16);
+        assert!(corner[2].abs_diff(102) <= 6, "{corner:?}");
+        assert_eq!(px(&img, 35, 20), [0, 0, 0, 255]);
+        assert!(all_opaque(&img));
+    }
+
     #[test]
     fn marker_self_overlap_not_darker() {
         let mut img = solid(80, 80, 255);

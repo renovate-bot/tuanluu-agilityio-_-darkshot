@@ -7,6 +7,7 @@ use crate::capture::Screenshot;
 use crate::gdiplus::{GdiPlus, Gp};
 use crate::lang;
 use darkshot_core::actions::Action;
+use darkshot_core::annotate::{Pt, Shape, Tool};
 use darkshot_core::geometry::{
     monitor_containing, place_toolbar, Handle, Hit, Point, Rect, Selection,
 };
@@ -68,6 +69,10 @@ const GAP: i32 = 6;
 const HANDLE_SIZE: i32 = 9;
 const HANDLE_HIT: i32 = 6;
 const ICON: i32 = 20;
+/// Ô vạch ngăn của thanh dọc (vạch 1 px ở giữa, phần còn lại là lề).
+const SIDE_SEP: i32 = 9;
+/// Ô màu của bảng màu.
+const CELL: i32 = 24;
 
 /// ID phím tắt Esc tạm (khác ID phím chụp của cửa sổ chính).
 const ESC_HOTKEY_ID: i32 = 0x0E5C;
@@ -85,6 +90,107 @@ const fn argb(c: Rgb) -> u32 {
 
 fn cr(c: Rgb) -> COLORREF {
     crate::theme::colorref(c)
+}
+
+/// Kết quả chọn vùng: hành động, vùng (tọa độ ảnh chụp) và các hình đã vẽ (tọa độ ảnh chụp).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Picked {
+    pub action: Action,
+    pub rect: Rect,
+    pub shapes: Vec<Shape>,
+}
+
+/// Mục của thanh công cụ vẽ (thanh dọc).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SideItem {
+    Tool(Tool),
+    Color,
+    Undo,
+}
+
+/// Thứ tự trên thanh dọc; vạch ngăn nằm trước Màu và trước Hoàn tác.
+const SIDE_ITEMS: [SideItem; 8] = [
+    SideItem::Tool(Tool::Pen),
+    SideItem::Tool(Tool::Line),
+    SideItem::Tool(Tool::Arrow),
+    SideItem::Tool(Tool::Rect),
+    SideItem::Tool(Tool::Marker),
+    SideItem::Tool(Tool::Text),
+    SideItem::Color,
+    SideItem::Undo,
+];
+
+/// Cỡ thanh dọc với nút `b` và ô vạch ngăn cao `sep` (gồm lề).
+fn side_bar_size(b: i32, sep: i32) -> (i32, i32) {
+    let _ = (b, sep);
+    todo!()
+}
+
+/// Ô của mục thứ `i` trên thanh dọc `bar` (nút vuông cạnh `bar.w`).
+fn side_item_rect(bar: Rect, sep: i32, i: usize) -> Rect {
+    let _ = (bar, sep, i);
+    todo!()
+}
+
+/// Mục của thanh dọc dưới điểm `p`; vạch ngăn và lề của nó trả `None`.
+fn side_item_at(bar: Rect, sep: i32, p: Point) -> Option<SideItem> {
+    let _ = (bar, sep, p);
+    todo!()
+}
+
+/// Cỡ bảng màu 2×4 ô cạnh `cell`, khe và lề `gap`.
+fn palette_size(cell: i32, gap: i32) -> (i32, i32) {
+    let _ = (cell, gap);
+    todo!()
+}
+
+/// Ô màu thứ `i` (hàng trên 0..4, hàng dưới 4..8) của bảng `pal`.
+fn palette_cell_rect(pal: Rect, cell: i32, gap: i32, i: usize) -> Rect {
+    let _ = (pal, cell, gap, i);
+    todo!()
+}
+
+/// Ô màu dưới điểm `p`; khe và lề trả `None`.
+fn palette_cell_at(pal: Rect, cell: i32, gap: i32, p: Point) -> Option<usize> {
+    let _ = (pal, cell, gap, p);
+    todo!()
+}
+
+/// Thanh bốn nút và thanh dọc cho vùng chọn `sel`, màn hình chứa góc dưới phải `mon` ở `dpi`.
+fn bars_for(sel: Rect, mon: Rect, dpi: u32) -> (Rect, Rect) {
+    let _ = (sel, mon, dpi);
+    todo!()
+}
+
+/// Bảng màu cạnh nút Màu của thanh dọc `side`: bên trái thanh nếu thanh nằm nửa phải vùng chọn,
+/// ngược lại bên phải; kẹp vào màn hình `mon`.
+fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32) -> Rect {
+    let _ = (side, sel, mon, dpi);
+    todo!()
+}
+
+/// Phím bổ trợ giả cho kiểm thử gửi thông điệp (bit 0: Ctrl, bit 1: Shift).
+#[cfg(test)]
+static TEST_MODS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Nét đang vẽ: công cụ, điểm đầu (tọa độ ảnh chụp) và hình hiện tại.
+#[derive(Clone, Debug, PartialEq)]
+struct Stroke {
+    tool: Tool,
+    start: Pt,
+    shape: Shape,
+}
+
+/// Bắt đầu nét tại `p` với độ dày theo `dpi` của màn hình chứa `p`; `None` với Chữ.
+fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb) -> Option<Stroke> {
+    let _ = (tool, p, dpi, color);
+    todo!()
+}
+
+/// Kéo nét tới `p` (`shift`: khóa góc 45° hoặc hình vuông). Trả vùng cần vẽ lại, `None` khi không đổi.
+fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool) -> Option<Rect> {
+    let _ = (s, p, shift);
+    todo!()
 }
 
 /// Nút của thanh công cụ dưới điểm `p`; bốn nút vuông xếp ngang theo thứ tự tải lên, lưu, chép, hủy.
@@ -1299,10 +1405,7 @@ impl Drop for EscHotkey {
 /// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh.
 /// `initial` (tọa độ ảnh): khung chọn sẵn, lớp phủ mở ở trạng thái đã chọn xong; khung không
 /// nằm trọn trong ảnh thì như `None`. `Ok(None)` khi người dùng hủy; `Err` khi không mở được.
-pub fn pick_region(
-    shot: &Screenshot,
-    initial: Option<Rect>,
-) -> Result<Option<(Action, Rect)>, String> {
+pub fn pick_region(shot: &Screenshot, initial: Option<Rect>) -> Result<Option<Picked>, String> {
     let img = &shot.image;
     let size = (i32::try_from(img.width), i32::try_from(img.height));
     let (Ok(w), Ok(h)) = size else {
@@ -1405,7 +1508,11 @@ pub fn pick_region(
     let mut msg = MSG::default();
     loop {
         if let Some(Some(r)) = with_state(|s| s.result) {
-            return Ok(r);
+            return Ok(r.map(|(action, rect)| Picked {
+                action,
+                rect,
+                shapes: Vec::new(),
+            }));
         }
         // SAFETY: vòng lặp thông điệp chuẩn của luồng này.
         let got = unsafe { GetMessageW(&mut msg, None, 0, 0) }.0;
@@ -1559,15 +1666,508 @@ mod tests {
         // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
         let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
 
-        assert_eq!(run(0), Ok(Some((Action::Save, sel))));
+        let saved = Ok(Some(Picked {
+            action: Action::Save,
+            rect: sel,
+            shapes: Vec::new(),
+        }));
+        assert_eq!(run(0), saved);
         let after_first = gdi();
         assert_eq!(run(1), Ok(None));
         assert_eq!(run(2), Ok(None));
-        assert_eq!(run(0), Ok(Some((Action::Save, sel))));
+        // Vòng có vẽ: bút, hình chữ nhật, hoàn tác, mở bảng màu, đóng bằng Esc, rồi Lưu.
+        let l = live::layout(&shot, sel);
+        let inside = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+        steps.extend(live::drag(inside(20, 20), inside(120, 80)));
+        steps.push(live::Step::Key(u16::from(b'R')));
+        steps.extend(live::drag(inside(30, 30), inside(150, 120)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.extend(live::click(l.item(6)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 1));
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+        assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
             after_third <= after_first,
             "GDI tăng từ {after_first} lên {after_third}"
         );
+    }
+
+    #[test]
+    fn side_bar_button_hit_testing() {
+        let (b, sep) = (36, 9);
+        let (w, h) = side_bar_size(b, sep);
+        assert_eq!((w, h), (36, 8 * 36 + 2 * 9));
+        let bar = Rect {
+            x: 500,
+            y: 100,
+            w,
+            h,
+        };
+        for (i, item) in SIDE_ITEMS.iter().enumerate() {
+            let r = side_item_rect(bar, sep, i);
+            assert_eq!((r.x, r.w, r.h), (500, 36, 36));
+            let c = Point {
+                x: r.x + r.w / 2,
+                y: r.y + r.h / 2,
+            };
+            assert_eq!(side_item_at(bar, sep, c), Some(*item), "mục {i}");
+        }
+        let at = |y| side_item_at(bar, sep, Point { x: 518, y });
+        assert_eq!(at(100 + 18), Some(SideItem::Tool(Tool::Pen)));
+        assert_eq!(at(100 + 36 + 18), Some(SideItem::Tool(Tool::Line)));
+        assert_eq!(at(100 + 2 * 36 + 18), Some(SideItem::Tool(Tool::Arrow)));
+        assert_eq!(at(100 + 3 * 36 + 18), Some(SideItem::Tool(Tool::Rect)));
+        assert_eq!(at(100 + 4 * 36 + 18), Some(SideItem::Tool(Tool::Marker)));
+        assert_eq!(at(100 + 5 * 36 + 18), Some(SideItem::Tool(Tool::Text)));
+        // Vạch ngăn thứ nhất cùng lề của nó.
+        for y in 100 + 6 * 36..100 + 6 * 36 + 9 {
+            assert_eq!(at(y), None, "y = {y}");
+        }
+        assert_eq!(at(100 + 6 * 36 + 9), Some(SideItem::Color));
+        assert_eq!(at(100 + 6 * 36 + 9 + 18), Some(SideItem::Color));
+        // Vạch ngăn thứ hai.
+        for y in 100 + 7 * 36 + 9..100 + 7 * 36 + 18 {
+            assert_eq!(at(y), None, "y = {y}");
+        }
+        assert_eq!(at(100 + 7 * 36 + 18 + 18), Some(SideItem::Undo));
+        assert_eq!(at(100 + h - 1), Some(SideItem::Undo));
+        // Ngoài thanh.
+        assert_eq!(at(99), None);
+        assert_eq!(at(100 + h), None);
+        assert_eq!(side_item_at(bar, sep, Point { x: 499, y: 118 }), None);
+        assert_eq!(side_item_at(bar, sep, Point { x: 536, y: 118 }), None);
+    }
+
+    #[test]
+    fn palette_hit_testing() {
+        let (cell, gap) = (24, 6);
+        let (w, h) = palette_size(cell, gap);
+        assert_eq!((w, h), (4 * 24 + 5 * 6, 2 * 24 + 3 * 6));
+        let pal = Rect {
+            x: 200,
+            y: 300,
+            w,
+            h,
+        };
+        for i in 0..8usize {
+            let (col, row) = ((i % 4) as i32, (i / 4) as i32);
+            let c = Point {
+                x: 200 + 6 + col * 30 + 12,
+                y: 300 + 6 + row * 30 + 12,
+            };
+            assert_eq!(palette_cell_at(pal, cell, gap, c), Some(i), "ô {i}");
+            let r = palette_cell_rect(pal, cell, gap, i);
+            assert_eq!(
+                r,
+                Rect {
+                    x: c.x - 12,
+                    y: c.y - 12,
+                    w: 24,
+                    h: 24
+                }
+            );
+        }
+        let at = |x, y| palette_cell_at(pal, cell, gap, Point { x, y });
+        // Khe ngang, khe dọc, lề, ngoài bảng.
+        assert_eq!(at(200 + 6 + 24 + 3, 300 + 18), None);
+        assert_eq!(at(200 + 18, 300 + 6 + 24 + 3), None);
+        assert_eq!(at(202, 302), None);
+        assert_eq!(at(200 + w - 2, 300 + 18), None);
+        assert_eq!(at(199, 318), None);
+    }
+
+    #[test]
+    fn segment_invalidation_is_local() {
+        use darkshot_core::annotate::{dip_to_px, DEFAULT_COLOR, STROKE_DIP};
+        let dpi = 144;
+        let width = dip_to_px(STROKE_DIP, dpi);
+        let mut s = begin_stroke(Tool::Pen, Pt { x: 100.0, y: 100.0 }, dpi, DEFAULT_COLOR).unwrap();
+        // Nét dài trước đó: hộp làm mới không phụ thuộc độ dài nét.
+        for i in 1..=2000 {
+            let p = Pt {
+                x: 100.0 + i as f32 * 1.5,
+                y: 100.0 + (i % 7) as f32,
+            };
+            assert!(extend_stroke(&mut s, p, false).is_some());
+        }
+        let Shape::Pen { points, .. } = &s.shape else {
+            panic!("không phải Pen");
+        };
+        let p = *points.last().unwrap();
+        let q = Pt {
+            x: p.x + 5.0,
+            y: p.y - 3.0,
+        };
+        let r = extend_stroke(&mut s, q, false).unwrap();
+        let pad = width / 2.0 + 2.0;
+        let (x0, x1) = (p.x.min(q.x) - pad, p.x.max(q.x) + pad);
+        let (y0, y1) = (p.y.min(q.y) - pad, p.y.max(q.y) + pad);
+        // Chứa hộp bao đoạn pq nới nửa độ dày + 2 px...
+        assert!(r.x as f32 <= x0 && r.y as f32 <= y0, "{r:?}");
+        assert!(r.right() as f32 >= x1 && r.bottom() as f32 >= y1, "{r:?}");
+        // ...và không lớn hơn (chỉ làm tròn ra ngoài, dưới 1 px mỗi phía).
+        assert!(r.x as f32 > x0 - 1.0 && r.y as f32 > y0 - 1.0, "{r:?}");
+        assert!(
+            (r.right() as f32) < x1 + 1.0 && (r.bottom() as f32) < y1 + 1.0,
+            "{r:?}"
+        );
+        // Dịch dưới 1 px: không thêm điểm, không làm mới.
+        let tiny = Pt {
+            x: q.x + 0.4,
+            y: q.y,
+        };
+        assert_eq!(extend_stroke(&mut s, tiny, false), None);
+    }
+
+    /// Lớp phủ thật được điều khiển bằng thông điệp giả từ một luồng phụ.
+    mod live {
+        use super::*;
+        use crate::capture::Screenshot;
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindow, PostMessageW};
+
+        pub enum Step {
+            Down(Point),
+            Move(Point),
+            Up(Point),
+            /// WM_KEYDOWN không phím bổ trợ.
+            Key(u16),
+            /// WM_KEYDOWN khi Ctrl đang giữ.
+            Ctrl(u16),
+            /// Phím tắt Esc toàn cục.
+            Hotkey,
+            /// Lớp phủ vẫn mở sau bước này.
+            Alive,
+        }
+
+        pub fn drag(a: Point, b: Point) -> Vec<Step> {
+            let mid = Point {
+                x: (a.x + b.x) / 2,
+                y: (a.y + b.y) / 2,
+            };
+            vec![Step::Down(a), Step::Move(mid), Step::Move(b), Step::Up(b)]
+        }
+
+        pub fn click(p: Point) -> Vec<Step> {
+            vec![Step::Move(p), Step::Down(p), Step::Up(p)]
+        }
+
+        pub struct Layout {
+            pub bar: Rect,
+            pub side: Rect,
+            pub palette: Rect,
+            pub dpi: u32,
+        }
+
+        impl Layout {
+            fn center(r: Rect) -> Point {
+                Point {
+                    x: r.x + r.w / 2,
+                    y: r.y + r.h / 2,
+                }
+            }
+
+            /// Giữa mục thứ `i` của thanh dọc.
+            pub fn item(&self, i: usize) -> Point {
+                Self::center(side_item_rect(self.side, scaled(SIDE_SEP, self.dpi), i))
+            }
+
+            /// Giữa ô màu thứ `i`.
+            pub fn cell(&self, i: usize) -> Point {
+                let (cell, gap) = (scaled(CELL, self.dpi), scaled(GAP, self.dpi));
+                Self::center(palette_cell_rect(self.palette, cell, gap, i))
+            }
+
+            /// Giữa nút Lưu của thanh bốn nút.
+            pub fn save(&self) -> Point {
+                let b = self.bar.h;
+                Point {
+                    x: self.bar.x + b + b / 2,
+                    y: self.bar.y + b / 2,
+                }
+            }
+        }
+
+        fn dpi_of(shot: &Screenshot, mon: Rect) -> u32 {
+            monitor_dpi_at(POINT {
+                x: shot.origin.x + mon.x + mon.w / 2,
+                y: shot.origin.y + mon.y + mon.h / 2,
+            })
+        }
+
+        /// Vị trí các thanh, tính như `State`.
+        pub fn layout(shot: &Screenshot, sel: Rect) -> Layout {
+            let corner = Point {
+                x: sel.right() - 1,
+                y: sel.bottom() - 1,
+            };
+            let mon = monitor_containing(corner, &shot.monitors);
+            let dpi = dpi_of(shot, mon);
+            let (bar, side) = bars_for(sel, mon, dpi);
+            let palette = palette_rect_for(side, sel, mon, dpi);
+            Layout {
+                bar,
+                side,
+                palette,
+                dpi,
+            }
+        }
+
+        /// DPI của màn hình chứa điểm `p` (tọa độ ảnh chụp).
+        pub fn dpi_at(shot: &Screenshot, p: Point) -> u32 {
+            dpi_of(shot, monitor_containing(p, &shot.monitors))
+        }
+
+        /// Vùng chọn thử trên màn hình đầu tiên.
+        pub fn test_sel(shot: &Screenshot) -> Rect {
+            let m0 = shot.monitors[0];
+            Rect {
+                x: m0.x + 100,
+                y: m0.y + 100,
+                w: 300,
+                h: 200,
+            }
+        }
+
+        /// Mở lớp phủ, chạy `steps` từ luồng phụ. Trả kết quả và `false` nếu một bước `Alive`
+        /// thấy lớp phủ đã đóng, hoặc lớp phủ không tự đóng sau bước cuối (khi đó gửi WM_CLOSE).
+        pub fn drive(
+            shot: &Screenshot,
+            initial: Option<Rect>,
+            steps: Vec<Step>,
+        ) -> (Result<Option<Picked>, String>, bool) {
+            let driver = std::thread::spawn(move || {
+                let lp =
+                    |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
+                let mut found = None;
+                for _ in 0..50 {
+                    std::thread::sleep(Duration::from_millis(100));
+                    // SAFETY: tìm cửa sổ lớp phủ theo tên lớp.
+                    if let Ok(h) = unsafe { FindWindowW(CLASS, None) } {
+                        found = Some(h);
+                        break;
+                    }
+                }
+                let Some(h) = found else { return false };
+                std::thread::sleep(Duration::from_millis(300));
+                let post = |m: u32, wp: usize, l: LPARAM| {
+                    // SAFETY: đăng thông điệp vào hàng đợi của cửa sổ lớp phủ.
+                    let _ = unsafe { PostMessageW(Some(h), m, WPARAM(wp), l) };
+                };
+                // SAFETY: chỉ hỏi cửa sổ còn sống không.
+                let alive = || unsafe { IsWindow(Some(h)) }.as_bool();
+                let mut ok = true;
+                for step in steps {
+                    match step {
+                        Step::Down(p) => post(WM_LBUTTONDOWN, 1, lp(p)),
+                        Step::Move(p) => post(WM_MOUSEMOVE, 1, lp(p)),
+                        Step::Up(p) => post(WM_LBUTTONUP, 0, lp(p)),
+                        Step::Key(vk) => post(WM_KEYDOWN, usize::from(vk), LPARAM(0)),
+                        Step::Ctrl(vk) => {
+                            TEST_MODS.store(1, Ordering::SeqCst);
+                            post(WM_KEYDOWN, usize::from(vk), LPARAM(0));
+                            std::thread::sleep(Duration::from_millis(200));
+                            TEST_MODS.store(0, Ordering::SeqCst);
+                        }
+                        Step::Hotkey => post(WM_HOTKEY, ESC_HOTKEY_ID as usize, LPARAM(0)),
+                        Step::Alive => {
+                            std::thread::sleep(Duration::from_millis(300));
+                            ok &= alive();
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+                for _ in 0..30 {
+                    if !alive() {
+                        return ok;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                post(WM_CLOSE, 0, LPARAM(0));
+                false
+            });
+            let r = pick_region(shot, initial);
+            let ok = driver.join().unwrap();
+            (r, ok)
+        }
+
+        pub fn pt(p: Point) -> Pt {
+            Pt {
+                x: p.x as f32,
+                y: p.y as f32,
+            }
+        }
+    }
+
+    fn live_setup() -> crate::capture::Screenshot {
+        use crate::capture::capture_virtual_screen;
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        // SAFETY: như ứng dụng thật (manifest PerMonitorV2), áp cho luồng kiểm thử.
+        unsafe {
+            SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        capture_virtual_screen(false).unwrap()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored drag_outside_with_shapes_keeps_everything --test-threads=1"]
+    fn drag_outside_with_shapes_keeps_everything() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+        steps.extend(live::drag(at(30, 40), at(150, 90)));
+        steps.push(live::Step::Key(u16::from(b'P')));
+        // Kéo ngoài vùng (trên trái vùng chọn) khi đã có hình, không công cụ.
+        steps.extend(live::drag(at(-80, -80), at(-20, -30)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Pen { .. }));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored draw_line_and_save_returns_shape --test-threads=1"]
+    fn draw_line_and_save_returns_shape() {
+        use darkshot_core::annotate::{dip_to_px, PALETTE};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = (
+            Point {
+                x: sel.x + 40,
+                y: sel.y + 50,
+            },
+            Point {
+                x: sel.x + 210,
+                y: sel.y + 130,
+            },
+        );
+        let width = dip_to_px(3.0, live::dpi_at(&shot, a));
+        let line = |color| Shape::Line {
+            a: live::pt(a),
+            b: live::pt(b),
+            width,
+            color,
+        };
+        // Chọn màu xanh lam qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
+        let mut steps = live::click(l.item(6));
+        steps.extend(live::click(l.cell(4)));
+        steps.push(live::Step::Key(u16::from(b'L')));
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        assert_eq!(p.shapes, vec![line(PALETTE[4])]);
+        // Lần mở sau nhớ màu; công cụ thì không (L chọn lại).
+        let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(r.unwrap().unwrap().shapes, vec![line(PALETTE[4])]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored undo_removes_last_shape --test-threads=1"]
+    fn undo_removes_last_shape() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(20, 20), at(120, 90)));
+        steps.push(live::Step::Key(u16::from(b'H')));
+        steps.extend(live::drag(at(30, 150), at(250, 160)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        assert!(matches!(p.shapes[0], Shape::Rect { .. }));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored no_tool_flow_unchanged --test-threads=1"]
+    fn no_tool_flow_unchanged() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let mut steps = live::drag(
+            Point { x: sel.x, y: sel.y },
+            Point {
+                x: sel.right(),
+                y: sel.bottom(),
+            },
+        );
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, None, steps);
+        assert!(ok);
+        assert_eq!(
+            r,
+            Ok(Some(Picked {
+                action: Action::Save,
+                rect: sel,
+                shapes: Vec::new(),
+            }))
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored esc_closes_palette_not_overlay --test-threads=1"]
+    fn esc_closes_palette_not_overlay() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        // Esc bằng WM_KEYDOWN.
+        let mut steps = live::click(l.item(6));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(
+            ok,
+            "Esc thứ nhất phải chỉ đóng bảng màu, Esc thứ hai đóng lớp phủ"
+        );
+        assert_eq!(r, Ok(None));
+        // Esc qua phím tắt toàn cục.
+        let mut steps = live::click(l.item(6));
+        steps.push(live::Step::Hotkey);
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Hotkey);
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok, "phím tắt Esc thứ nhất phải chỉ đóng bảng màu");
+        assert_eq!(r, Ok(None));
     }
 }
