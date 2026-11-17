@@ -21,7 +21,7 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Task 42 (2026-11-17): công cụ Làm mờ (che thông tin nhạy cảm).** Thiết kế `docs/superpowers/specs/2026-11-17-redact-blur-design.md` đã duyệt (kính mờ giả: một màu trung bình); gói `docs/tasks/42-blur-redact.md`; nhánh `task/42-blur-redact`; trạng thái: đang làm. Chủ dự án bảo chạy đến hết không hỏi lại, ghi vấn đề và báo sau; họ xem bản demo.
+**Task 42 (2026-11-17): công cụ Làm mờ — đã gộp vào `main`, chưa thử tay.** Thiết kế `docs/superpowers/specs/2026-11-17-redact-blur-design.md`; gói `docs/tasks/42-blur-redact.md`; quyết định 73. `Tool::Blur` (phím B, giữa Bút dạ quang và Chữ), `Shape::Blur{a,b,color}`, `annotate::{blur_pixel_rect, redact_step, redact_color, REDACT_MAX_SAMPLES}`; tô đặc không khử răng cưa (`draw_blur`); `State.image` là con trỏ thô tới ảnh chụp như `bright`. Rà soát `specialist` DUYỆT; kèm sửa lỗi có từ trước: thanh dọc chồng thanh bốn nút khi vùng chọn hẹp sát góc trên trái (`geometry::place_side_toolbar` + `clear_of`). Bản demo `target/demo42/release/darkshot.exe`. Chờ chủ dự án xem demo và thử các dòng mới trong mục Đợt 5 của checklist. Không task nào đang làm.
 
 **Đợt 5 (2026-11-17): công cụ đánh dấu trên ảnh chụp.** Thiết kế `docs/superpowers/specs/2026-11-17-annotate-design.md` đã duyệt; kế hoạch `docs/superpowers/plans/2026-11-17-annotate.md` (bảng phân bổ agent/model); gói task 34–38. Chủ dự án bảo chạy đến hết không hỏi lại, họ xem bản demo cuối. Đọc soát thiết kế (general-purpose) 68.315 token. Task 34–37 đã gộp (rà soát đều DUYỆT). Báo cáo cho Task 38:
 - Task 34: `arrow_min_head(width)` thêm ngoài kế hoạch; chuỗi Unikey trong gói gốc thiếu một Backspace (đã sửa ở gói 37). `bounds` của Rect/Marker nới nửa độ dày × √2 + 1.
