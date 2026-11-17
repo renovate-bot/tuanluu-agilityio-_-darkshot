@@ -15,7 +15,7 @@ Chạy task kế tiếp của dự án darkshot. Bạn là phiên điều phối
 9. Chạy `powershell -File scripts/check.ps1`. Phải thấy `ALL CHECKS PASSED`.
 10. `git switch main` rồi `git merge --no-ff task/NN-ten-ngan`.
 11. Cập nhật `memory-bank/progress.md` (trạng thái `xong`, các cột token, cột Tổng) và `memory-bank/activeContext.md` (task kế tiếp, việc chờ chủ dự án). Nếu task sinh quyết định, mẫu hoặc phụ thuộc mới: cập nhật `decisions.md`, `systemPatterns.md`, `techContext.md`. Commit trên `main`.
-12. Đẩy lên GitHub: `git push origin main task/NN-ten-ngan`. Trước khi đẩy, xác nhận repo vẫn riêng tư (`gh repo view --json visibility`); nếu không còn riêng tư thì dừng và hỏi chủ dự án. Chạy lệnh đẩy một mình, đúng dạng `git push origin ...`, không ghép với `cd` hay lệnh khác bằng `&&`: quy tắc quyền `Bash(git push origin:*)` chỉ khớp khi lệnh bắt đầu bằng `git push origin`. Nếu vẫn bị chặn quyền, nhờ chủ dự án tự chạy.
+12. Đẩy lên GitHub: `git push origin main task/NN-ten-ngan`. Trước khi đẩy, nhớ repo đang CÔNG KHAI (chủ dự án xác nhận 2026-11-18): kiểm tra diff không chứa khóa R2, cấu hình thật hay dữ liệu cá nhân; nếu `gh repo view --json visibility` báo khác `PUBLIC` thì dừng và hỏi chủ dự án. Chạy lệnh đẩy một mình, đúng dạng `git push origin ...`, không ghép với `cd` hay lệnh khác bằng `&&`: quy tắc quyền `Bash(git push origin:*)` chỉ khớp khi lệnh bắt đầu bằng `git push origin`. Nếu vẫn bị chặn quyền, nhờ chủ dự án tự chạy.
 13. Báo chủ dự án bằng tiếng Việt, ngắn gọn: task nào xong, kết quả kiểm tra, token đã dùng, việc cần họ thử bằng tay nếu có, task kế tiếp là gì.
 
 Sau Task 8, Task 12, Task 18 và Task 22, dừng lại để chủ dự án thử theo `docs/testing/manual-checklist.md` trước khi chạy task tiếp theo.

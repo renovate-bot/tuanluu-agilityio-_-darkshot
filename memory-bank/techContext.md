@@ -7,7 +7,7 @@ Cập nhật: 2026-11-16
 - Windows 11, 64-bit. Thư mục dự án: `D:\2026 - Tuan\shotme` (đường dẫn có dấu cách, luôn đặt trong dấu nháy).
 - Rust 1.100.0 stable, target `x86_64-pc-windows-msvc`, cài qua rustup. Có sẵn `clippy` và `rustfmt`.
 - Visual Studio 2022 Build Tools, workload C++ (cung cấp linker MSVC).
-- Git 2.47. Nhánh chính `main`. Remote `origin`: repo GitHub riêng tư `tuanluu-agilityio/darkshot` (đã đổi tên, xem quyết định 53 về địa chỉ cục bộ).
+- Git 2.47. Nhánh chính `main`. Remote `origin`: repo GitHub công khai `tuanluu-agilityio/darkshot` (đã đổi tên, xem quyết định 53 về địa chỉ cục bộ).
 - `cargo` nằm ở `%USERPROFILE%\.cargo\bin`. Nếu shell chưa thấy `cargo`, thêm thư mục đó vào `PATH` của phiên.
 
 ## Lệnh

@@ -27,7 +27,7 @@ Không đọc lại toàn bộ kế hoạch hay spec khi không cần.
 - Đợt 7 (Lịch sử ảnh chụp cục bộ: 50 mục, tìm/lọc, xem trước, hành động, tắt mặc định): thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`, gói `docs/tasks/52-…` đến `57-…`. Chủ dự án đã duyệt trên bản demo (2026-11-18). Chạy thử cách ly: `scripts/demo-history.ps1`.
 - Mọi chữ người dùng nhìn thấy lấy từ bảng `darkshot_core::i18n` (Tiếng Việt và English), không viết cứng trong mã.
 - Không bàn lại quyết định đã có trong `memory-bank/decisions.md` nếu chủ dự án không yêu cầu.
-- Chỉ đẩy mã lên remote `origin` (repo GitHub riêng tư của chủ dự án). Không gửi dữ liệu dự án ra dịch vụ nào khác.
+- Chỉ đẩy mã lên remote `origin` (repo GitHub CÔNG KHAI `tuanluu-agilityio/darkshot` của chủ dự án; chủ dự án xác nhận 2026-11-18). Vì repo công khai, mọi thứ đẩy lên ai cũng đọc được: không đẩy khóa, cấu hình thật hay dữ liệu cá nhân. Không gửi dữ liệu dự án ra dịch vụ nào khác.
 - Không bao giờ yêu cầu, đọc hay ghi lại khóa R2 của chủ dự án.
 - `prototype/` là bản giao diện dùng thử; không dùng lại mã của nó trong ứng dụng.
 - Trao đổi với chủ dự án bằng tiếng Việt.

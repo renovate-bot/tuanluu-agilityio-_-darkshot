@@ -27,7 +27,7 @@ Thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, k
 
 **Đợt 6 – Annotation Pro và Task 50 (2026-11-17): XONG, chủ dự án đã duyệt trên bản demo.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md` và `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `51-…`, quyết định 75–85. Task đang làm: không.
 - Bản demo: `target/demo50/release/darkshot.exe` (1.806.336 byte; demo đợt 5 1.717.248). `target/demo6/` là bản trước Task 50 (thanh 14 mục), có thể bị khóa vì đang chạy.
-- Đã đẩy `main` và nhánh `task/44…50` lên `origin`. Repo GitHub đang ở chế độ PUBLIC, khác dòng "riêng tư" trong CLAUDE.md: chờ chủ dự án xem lại.
+- Đã đẩy `main` và nhánh `task/44…50` lên `origin`. Repo GitHub ở chế độ PUBLIC; chủ dự án xác nhận 2026-11-18 và CLAUDE.md đã sửa theo (quyết định 94).
 - Chưa thử tay: mục "Đợt 6" và "Thanh gọn (Task 50)" của `docs/testing/manual-checklist.md` còn `[ ]` (DPI 100/150/200%, hai cột ở 1366×768@250%, Unikey, màn hình tọa độ âm).
 - Việc còn để lại (nhỏ): `help_text` trong `i18n.rs` chưa nói về công cụ đánh dấu và câu Esc đã cũ; `Annotations::undo/redo` chuyển mục sổ khi `apply` trả None; `ellipse_circle_symmetric` đếm lệch một cột; hình rất nhỏ đang chọn thì kéo ở viền chỉ đổi cỡ; nhánh `SideItem::Shapes if shapes_open` trong `activate` không tới được bằng chuột; kiểm thử chạy tay nhạy với chuột thật và focus.
 - Task 51: cập nhật tài liệu cuối đợt (phiên điều phối tự làm vì chỉ là tài liệu).
