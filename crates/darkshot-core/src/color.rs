@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn picker_layout_fits_and_disjoint() {
-        for dpi in [96u32, 144] {
+        for dpi in [96u32, 120, 144, 192, 288] {
             let compact = picker_layout(dpi, false);
             let full = picker_layout(dpi, true);
             for (l, ex) in [(&compact, false), (&full, true)] {

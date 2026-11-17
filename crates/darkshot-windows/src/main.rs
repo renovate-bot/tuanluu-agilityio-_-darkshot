@@ -24,6 +24,7 @@ use app::{AppState, UploadJob};
 use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
+use darkshot_core::color::CustomColors;
 use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
@@ -359,8 +360,13 @@ fn capture_flow(hwnd: HWND) {
                 None
             };
             with_app(|a| a.overlay_open = true);
-            let picked = overlay::pick_region(&shot, initial);
+            let before = with_app(|a| a.config.custom_colors).unwrap_or_default();
+            let mut custom = before;
+            let picked = overlay::pick_region(&shot, initial, &mut custom);
             with_app(|a| a.overlay_open = false);
+            if custom_colors_need_save(&before, &custom) {
+                store_custom_colors(custom);
+            }
             match picked {
                 Ok(Some(p)) => {
                     // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
@@ -407,6 +413,23 @@ fn capture_flow(hwnd: HWND) {
         return;
     };
     run_on_image(hwnd, action, image, notifier);
+}
+
+/// Có ghi cấu hình sau khi lớp phủ đóng không: chỉ khi màu tự chọn đã đổi.
+pub fn custom_colors_need_save(before: &CustomColors, after: &CustomColors) -> bool {
+    todo!()
+}
+
+/// Cập nhật màu tự chọn trong cấu hình đang dùng rồi ghi file bằng đúng đường lưu cấu hình của
+/// cửa sổ Tùy chọn (khóa R2 được mã hóa lại như khi lưu Tùy chọn). Ghi lỗi thì bỏ qua.
+fn store_custom_colors(custom: CustomColors) {
+    let Some(cfg) = with_app(|a| {
+        a.config.custom_colors = custom;
+        a.config.clone()
+    }) else {
+        return;
+    };
+    let _ = darkshot_core::config::save(&paths::config_path(), &cfg, &DpapiStore);
 }
 
 /// Ảnh cắt theo `rect` (tọa độ ảnh chụp) có in các hình `shapes`; không hình thì đúng `crop`.
@@ -905,6 +928,24 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn custom_colors_saved_only_when_changed() {
+        use darkshot_core::theme::Rgb;
+        let empty = CustomColors::default();
+        assert!(!custom_colors_need_save(&empty, &CustomColors::default()));
+        let mut added = CustomColors::default();
+        added.add(Rgb(1, 2, 3), None);
+        assert!(custom_colors_need_save(&empty, &added));
+        assert!(!custom_colors_need_save(&added, &added.clone()));
+        let mut other = added;
+        other.add(Rgb(4, 5, 6), Some(0));
+        assert!(custom_colors_need_save(&added, &other));
+        // Ghi lại đúng màu đang có ở cùng ô: không đổi, không ghi.
+        let mut same = added;
+        same.add(Rgb(1, 2, 3), Some(0));
+        assert!(!custom_colors_need_save(&added, &same));
+    }
 
     #[test]
     fn annotated_capture_writes_marked_image() {
