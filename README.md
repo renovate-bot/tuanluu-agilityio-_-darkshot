@@ -52,9 +52,9 @@ Thanh có bốn nút chỉ có biểu tượng. Rê chuột vào nút để xem 
 
 ### Đánh dấu ảnh
 
-Khi đã có vùng chọn và không đang kéo, một thanh công cụ dọc hiện cạnh vùng. Thanh nằm bên phải vùng, mép dưới thẳng mép dưới vùng. Không đủ chỗ bên phải thì sang bên trái; không đủ cả hai thì nằm trong vùng, sát mép phải. Thanh không chồng lên thanh bốn nút.
+Khi đã có vùng chọn và không đang kéo, một thanh công cụ dọc hiện cạnh vùng. Thanh nằm bên phải vùng, mép dưới thẳng mép dưới vùng. Không đủ chỗ bên phải thì sang bên trái; không đủ cả hai thì nằm trong vùng, sát mép phải. Thanh không chồng lên thanh bốn nút: nếu đẩy lên trên thanh bốn nút vẫn chồng thì thanh sang chỗ trống gần vùng nhất (dưới, phải hoặc trái thanh bốn nút, hoặc bên trái vùng).
 
-Tám nút từ trên xuống. Chú thích hiện khi rê chuột vào nút.
+Chín nút từ trên xuống. Chú thích hiện khi rê chuột vào nút.
 
 | Nút | Phím | Việc làm |
 |---|---|---|

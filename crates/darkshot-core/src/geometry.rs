@@ -282,7 +282,7 @@ pub fn place_toolbar(sel: Rect, size: (i32, i32), gap: i32, monitor: Rect) -> Re
 
 /// Thanh dọc cạnh vùng chọn: phải (cách gap, mép dưới thẳng sel.bottom()), không đủ thì trái,
 /// không đủ cả hai thì trong vùng sát mép phải; kẹp vào monitor; nếu giao `avoid` thì đặt mép
-/// dưới cách avoid.y một gap (kẹp lại vào monitor).
+/// dưới cách avoid.y một gap (kẹp lại vào monitor); vẫn giao thì theo `clear_of`.
 pub fn place_side_toolbar(
     sel: Rect,
     size: (i32, i32),
@@ -308,9 +308,59 @@ pub fn place_side_toolbar(
         let overlaps = x < a.right() && a.x < x + w && y < a.bottom() && a.y < y + h;
         if overlaps {
             y = clamp_y(a.y - gap - h);
+            let pushed = Rect { x, y, w, h };
+            if intersects(pushed, a) {
+                return clear_of(sel, (w, h), gap, monitor, a, x, clamp_y(sel.bottom() - h))
+                    .unwrap_or(pushed);
+            }
         }
     }
     Rect { x, y, w, h }
+}
+
+fn intersects(a: Rect, b: Rect) -> bool {
+    a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
+}
+
+/// Bình phương khoảng cách giữa hai hình chữ nhật (0 khi chạm hoặc giao).
+fn rect_gap2(a: Rect, b: Rect) -> i64 {
+    let dx = i64::from((a.x - b.right()).max(b.x - a.right()).max(0));
+    let dy = i64::from((a.y - b.bottom()).max(b.y - a.bottom()).max(0));
+    dx * dx + dy * dy
+}
+
+/// Chỗ cho thanh dọc khi đẩy lên trên `avoid` vẫn giao: trong các ứng viên nằm trọn trong
+/// `monitor` và không giao `avoid`, chọn cái gần `sel` nhất (bằng nhau thì theo thứ tự): dưới
+/// `avoid` (giữ `x`), bên phải `avoid`, bên trái `avoid`, bên trái `sel` (ba cái sau giữ `y`).
+/// Mọi ứng viên cách `avoid` một `gap`. `None` khi không ứng viên nào hợp lệ.
+fn clear_of(
+    sel: Rect,
+    size: (i32, i32),
+    gap: i32,
+    monitor: Rect,
+    avoid: Rect,
+    x: i32,
+    y: i32,
+) -> Option<Rect> {
+    let (w, h) = size;
+    let a = avoid;
+    let candidates = [
+        (x, a.bottom().saturating_add(gap)),
+        (a.right().saturating_add(gap), y),
+        (a.x.saturating_sub(gap).saturating_sub(w), y),
+        (sel.x.saturating_sub(gap).saturating_sub(w), y),
+    ];
+    candidates
+        .into_iter()
+        .map(|(x, y)| Rect { x, y, w, h })
+        .filter(|r| {
+            r.x >= monitor.x
+                && r.y >= monitor.y
+                && r.right() <= monitor.right()
+                && r.bottom() <= monitor.bottom()
+                && !intersects(*r, a)
+        })
+        .min_by_key(|r| rect_gap2(*r, sel))
 }
 
 #[cfg(test)]

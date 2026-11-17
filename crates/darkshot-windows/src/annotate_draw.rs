@@ -446,14 +446,22 @@ fn draw_blur(g: *mut GpGraphics, a: Pt, b: Pt, color: Rgb) -> bool {
     let mut offset = PixelOffsetModeHalf;
     // SAFETY: g và chổi hợp lệ; hai con trỏ ra trỏ tới biến cục bộ.
     unsafe {
-        let saved =
-            ok(GdipGetSmoothingMode(g, &mut smooth)) && ok(GdipGetPixelOffsetMode(g, &mut offset));
-        let drawn = saved
+        let smooth_saved = ok(GdipGetSmoothingMode(g, &mut smooth));
+        let offset_saved = ok(GdipGetPixelOffsetMode(g, &mut offset));
+        let drawn = smooth_saved
+            && offset_saved
             && ok(GdipSetSmoothingMode(g, SmoothingModeNone))
             && ok(GdipSetPixelOffsetMode(g, PixelOffsetModeHalf))
             && ok(GdipFillRectangleI(g, brush.raw(), r.x, r.y, r.w, r.h));
-        // Trả chế độ cũ trên mọi đường đi để các hình sau không bị ảnh hưởng.
-        let restored = ok(GdipSetSmoothingMode(g, smooth)) && ok(GdipSetPixelOffsetMode(g, offset));
+        // Trả chế độ cũ trên mọi đường đi để các hình sau không bị ảnh hưởng; chế độ nào không đọc
+        // được thì không trả (không ghi đè bằng giá trị khởi tạo).
+        let mut restored = true;
+        if smooth_saved {
+            restored &= ok(GdipSetSmoothingMode(g, smooth));
+        }
+        if offset_saved {
+            restored &= ok(GdipSetPixelOffsetMode(g, offset));
+        }
         drawn && restored
     }
 }
