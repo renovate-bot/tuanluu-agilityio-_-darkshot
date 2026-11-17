@@ -87,6 +87,8 @@ Task 38 đã gộp (rà soát DUYỆT). **Đợt 5 đã xong theo mã (2026-11-1
 
 ## Ghi chú cho phiên sau
 
+- Remote `origin` đã đổi sang `https://github.com/tuanluu-agilityio/darkshot.git` (2026-11-17, chủ dự án yêu cầu); phần "remote cục bộ còn địa chỉ cũ" của quyết định 53 không còn đúng. Repo đang công khai (PUBLIC); chủ dự án đã bảo đẩy sau khi được báo.
+
 - Agent trong `.claude/agents/` được nạp khi khởi động phiên. Nếu phiên hiện tại chưa thấy chúng, giao việc bằng agent `general-purpose` với model tương ứng và dán nội dung file agent vào lời giao.
 - Luôn kiểm tra `git branch --show-current` trước khi commit: một agent con từng để kho ở nhánh task sau khi phiên chính đã về `main`. Trong lời giao, ghi rõ "không chuyển nhánh".
 - Agent `builder` ở Task 2 viết mã và kiểm thử cùng lúc, bỏ bước thấy kiểm thử thất bại. Từ Task 3, lời giao yêu cầu commit kiểm thử trước (commit `test:` riêng, thân hàm `todo!()`), rồi mới commit mã (`feat:`). Task 3 đã làm đúng như vậy.
