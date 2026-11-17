@@ -5,12 +5,14 @@ pub mod config;
 pub mod edit;
 pub mod geometry;
 pub mod history;
+pub mod history_store;
 pub mod i18n;
 pub mod image;
 pub mod migrate;
 pub mod naming;
 pub mod sigv4;
 pub mod theme;
+pub mod thumb;
 pub mod update;
 pub mod upload;
 
