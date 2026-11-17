@@ -56,9 +56,9 @@ use windows::Win32::UI::Input::Ime::{
     CPS_CANCEL, GCS_COMPSTR, NI_COMPOSITIONSTR,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus, UnregisterHotKey,
-    MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME,
-    VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
+    GetCapture, GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus,
+    UnregisterHotKey, MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
+    VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -921,6 +921,12 @@ fn set_cursor(id: PCWSTR) {
             SetCursor(Some(c));
         }
     }
+}
+
+/// Trả chuột khi nhả nút: lần kéo vừa xong (`release`), hoặc lớp phủ còn giữ chuột mà không còn
+/// kéo gì (bảng màu bị đóng bằng Esc/Enter giữa lúc kéo ô sắc độ hay thanh độ sáng).
+fn should_release(release: bool, has_capture: bool, dragging: bool) -> bool {
+    release || (has_capture && !dragging)
 }
 
 /// Việc phải làm sau khi đã trả mượn trạng thái (các API này có thể gửi thông điệp đồng bộ).
@@ -3283,8 +3289,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_LBUTTONUP => {
             let p = point_from_lparam(lp);
-            if let Some(fx) = with_state(|s| s.on_up(p)) {
-                if fx.release {
+            if let Some((fx, dragging)) = with_state(|s| (s.on_up(p), s.dragging())) {
+                // SAFETY: chỉ hỏi cửa sổ đang giữ chuột của luồng này.
+                let has_capture = unsafe { GetCapture() } == hwnd;
+                if should_release(fx.release, has_capture, dragging) {
                     // SAFETY: trả chuột sau khi kéo xong; WM_CAPTURECHANGED đến khi đã trả mượn.
                     unsafe {
                         let _ = ReleaseCapture();
@@ -3951,6 +3959,17 @@ mod tests {
     }
 
     #[test]
+    fn capture_released_when_nothing_drags() {
+        assert!(should_release(true, true, false));
+        assert!(should_release(true, false, false));
+        // Bảng đóng giữa lúc kéo: còn giữ chuột, không kéo gì -> trả.
+        assert!(should_release(false, true, false));
+        // Còn đang kéo (nét, vùng) -> giữ.
+        assert!(!should_release(false, true, true));
+        assert!(!should_release(false, false, false));
+    }
+
+    #[test]
     fn field_edit_rules() {
         let c = PickColor::from_rgb(Rgb(10, 20, 30));
         assert_eq!(c.hls, rgb_to_hls(Rgb(10, 20, 30)));
@@ -4168,6 +4187,8 @@ mod tests {
             Hotkey,
             /// Lớp phủ vẫn mở sau bước này.
             Alive,
+            /// Lớp phủ đang giữ chuột (`true`) hay không (đọc qua `GetGUIThreadInfo`).
+            Captured(bool),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -4347,6 +4368,10 @@ mod tests {
                             std::thread::sleep(Duration::from_millis(300));
                             ok &= alive();
                         }
+                        Step::Captured(want) => {
+                            std::thread::sleep(Duration::from_millis(300));
+                            ok &= captured(h) == want;
+                        }
                     }
                     std::thread::sleep(Duration::from_millis(40));
                 }
@@ -4362,6 +4387,20 @@ mod tests {
             let r = pick_region(shot, initial, custom);
             let ok = driver.join().unwrap();
             (r, ok)
+        }
+
+        /// Cửa sổ `h` đang giữ chuột của luồng của nó.
+        fn captured(h: HWND) -> bool {
+            use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO};
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            // SAFETY: chỉ đọc; info có cbSize đúng.
+            unsafe {
+                let tid = GetWindowThreadProcessId(h, None);
+                GetGUIThreadInfo(tid, &mut info).is_ok() && info.hwndCapture == h
+            }
         }
 
         /// Thử đăng ký Esc toàn cục ở luồng này; được thì gỡ ngay và trả `true`.
@@ -5023,5 +5062,33 @@ mod tests {
             line_color(&r.unwrap().unwrap().shapes),
             Rgb(12, before.1, before.2)
         );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored picker_close_while_dragging_releases_capture --test-threads=1"]
+    fn picker_close_while_dragging_releases_capture() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let from = l.full_center(|p| p.spectrum);
+        let to = l.full_center(|p| p.lum_bar);
+        for close in [VK_ESCAPE.0, VK_RETURN.0] {
+            let mut steps = live::click(l.item(6));
+            steps.extend(live::click(l.define()));
+            // Kéo trong ô sắc độ, đóng bảng giữa chừng, rồi nhả.
+            steps.push(live::Step::Down(from));
+            steps.push(live::Step::Move(to));
+            steps.push(live::Step::Captured(true));
+            steps.push(live::Step::Key(close));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Up(to));
+            steps.push(live::Step::Captured(false));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Key(VK_ESCAPE.0));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok, "phím {close:#x}: lớp phủ phải trả chuột sau khi nhả");
+            assert_eq!(r, Ok(None));
+        }
     }
 }

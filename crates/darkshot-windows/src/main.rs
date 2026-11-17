@@ -430,10 +430,11 @@ pub fn custom_colors_need_save(
     config_ok && before != after
 }
 
-/// Cấu hình đọc lúc khởi động có khớp file không: chỉ khi đọc bình thường, không thông báo nào
-/// (hỏng, không đọc được, hay mất khóa bí mật).
-pub fn config_ok_at_start(notice: Option<app::ConfigNotice>) -> bool {
-    notice.is_none()
+/// Cấu hình đọc lúc khởi động có khớp file không: chỉ khi file đã có (`file_existed`) và đọc
+/// bình thường, không thông báo nào (hỏng, không đọc được, hay mất khóa bí mật). Chưa có file
+/// thì không ghi, để lần chạy đầu không tạo file với R2 rỗng (mất việc tự mở Tùy chọn).
+pub fn config_ok_at_start(notice: Option<app::ConfigNotice>, file_existed: bool) -> bool {
+    file_existed && notice.is_none()
 }
 
 /// Cập nhật màu tự chọn trong cấu hình đang dùng; `write` thì ghi file bằng đúng đường lưu cấu
@@ -906,14 +907,15 @@ fn main() {
         lang::os_default(),
     );
     lang::set(state.config.language);
-    let open_settings_now = app::needs_settings_on_start(&state, config_path.exists());
+    let config_existed = config_path.exists();
+    let open_settings_now = app::needs_settings_on_start(&state, config_existed);
     let keys = state.config.hotkeys;
     // Khóa Run theo đúng cấu hình darkshot: bỏ giá trị cũ, ghi lại đường dẫn exe hiện tại.
     // Cấu hình hỏng hoặc không đọc được thì không đụng khóa Run.
     if app::should_sync_autostart(state.config_notice) {
         migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
-    CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice)));
+    CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     APP.with(|a| *a.borrow_mut() = Some(state));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
 
@@ -968,11 +970,18 @@ mod tests {
             ConfigNotice::Unreadable,
             ConfigNotice::SecretLost,
         ] {
-            let ok = config_ok_at_start(Some(n));
+            let ok = config_ok_at_start(Some(n), true);
             assert!(!ok, "{n:?}");
             assert!(!custom_colors_need_save(&empty, &added, ok));
         }
-        assert!(config_ok_at_start(None));
+        assert!(config_ok_at_start(None, true));
+        // Chưa có file lúc khởi động -> không ghi.
+        assert!(!config_ok_at_start(None, false));
+        assert!(!custom_colors_need_save(
+            &empty,
+            &added,
+            config_ok_at_start(None, false)
+        ));
         // Không đổi -> không ghi.
         assert!(!custom_colors_need_save(
             &empty,
