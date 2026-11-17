@@ -4397,6 +4397,29 @@ mod tests {
         assert!(ok);
         assert_eq!(r.unwrap().unwrap().action, Action::Save);
         assert_eq!(custom.slots.iter().flatten().count(), 1);
+        // Vòng công cụ Chọn: hình chữ nhật, chọn, dời, đổi cỡ (tay nắm SE), xóa, hoàn tác, Lưu.
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(inside(40, 40), inside(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(inside(40, 70)));
+        steps.extend(live::drag(inside(40, 70), inside(60, 80)));
+        steps.extend(live::drag(inside(160, 120), inside(220, 160)));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        match &p.shapes[0] {
+            Shape::Rect { a, b, .. } => {
+                assert_eq!(
+                    (*a, *b),
+                    (live::pt(inside(60, 50)), live::pt(inside(220, 160)))
+                );
+            }
+            other => panic!("không phải Rect: {other:?}"),
+        }
         assert_eq!(run(0), saved);
         let after_third = gdi();
         assert!(
@@ -5333,6 +5356,8 @@ mod tests {
             Alive,
             /// Lớp phủ đang giữ chuột (`true`) hay không (đọc qua `GetGUIThreadInfo`).
             Captured(bool),
+            /// Giữ (`true`) hoặc nhả Shift giả cho các bước sau (`key_held(VK_SHIFT)`).
+            Shift(bool),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -5534,6 +5559,10 @@ mod tests {
                         Step::Captured(want) => {
                             std::thread::sleep(Duration::from_millis(300));
                             ok &= captured(h) == want;
+                        }
+                        Step::Shift(on) => {
+                            TEST_MODS.store(if on { 2 } else { 0 }, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(100));
                         }
                     }
                     std::thread::sleep(Duration::from_millis(40));
@@ -6536,5 +6565,444 @@ mod tests {
             Shape::Pen { points, .. } => assert_eq!(points[0], live::pt(at(20, 20))),
             other => panic!("không phải Pen: {other:?}"),
         }
+    }
+
+    /// Kéo `a`→`b` qua `n` bước di chuột đều nhau.
+    fn drag_n(a: Point, b: Point, n: i32) -> Vec<live::Step> {
+        let mut v = vec![live::Step::Down(a)];
+        for i in 1..=n {
+            v.push(live::Step::Move(Point {
+                x: a.x + (b.x - a.x) * i / n,
+                y: a.y + (b.y - a.y) * i / n,
+            }));
+        }
+        v.push(live::Step::Up(b));
+        v
+    }
+
+    /// (a, b) của hình Rect duy nhất trong `shapes`.
+    fn rect_ab(shapes: &[Shape]) -> (Pt, Pt) {
+        match shapes {
+            [Shape::Rect { a, b, .. }] => (*a, *b),
+            other => panic!("không phải một Rect: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored select_move_one_undo --test-threads=1"]
+    fn select_move_one_undo() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let new = (live::pt(at(80, 60)), live::pt(at(180, 130)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            // Bấm trên cạnh trái, kéo +40,+20 qua 5 bước.
+            steps.extend(drag_n(at(40, 70), at(80, 90), 5));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(rect_ab(&run(vec![])), new);
+        assert_eq!(rect_ab(&run(vec![live::Step::Ctrl(u16::from(b'Z'))])), old);
+        assert_eq!(
+            rect_ab(&run(vec![
+                live::Step::Ctrl(u16::from(b'Z')),
+                live::Step::Ctrl(u16::from(b'Y')),
+            ])),
+            new
+        );
+        let none = run(vec![
+            live::Step::Ctrl(u16::from(b'Z')),
+            live::Step::Ctrl(u16::from(b'Z')),
+        ]);
+        assert!(none.is_empty(), "{none:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_select_records_nothing --test-threads=1"]
+    fn click_select_records_nothing() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+        steps.extend(live::drag(at(20, 20), at(120, 80)));
+        steps.extend(live::drag(at(20, 100), at(120, 160)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(20, 20)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        match p.shapes.as_slice() {
+            [Shape::Pen { points, .. }] => assert_eq!(points[0], live::pt(at(20, 20))),
+            other => panic!("phải còn đúng nét thứ nhất: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored esc_cancels_drag --test-threads=1"]
+    fn esc_cancels_drag() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.push(live::Step::Move(at(40, 70)));
+            steps.push(live::Step::Down(at(40, 70)));
+            steps.push(live::Step::Move(at(60, 80)));
+            steps.push(live::Step::Move(at(90, 100)));
+            steps.push(live::Step::Captured(true));
+            steps.push(live::Step::Key(VK_ESCAPE.0));
+            steps.push(live::Step::Alive);
+            steps.push(live::Step::Captured(false));
+            steps.push(live::Step::Up(at(90, 100)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok, "Esc phải hủy kéo, nhả chuột, giữ lớp phủ mở");
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(rect_ab(&run(vec![])), old);
+        let none = run(vec![live::Step::Ctrl(u16::from(b'Z'))]);
+        assert!(none.is_empty(), "Esc khi kéo không được ghi sổ: {none:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored topmost_selected --test-threads=1"]
+    fn topmost_selected() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+        steps.extend(live::drag(at(20, 20), at(140, 120)));
+        steps.extend(live::drag(at(80, 60), at(220, 170)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(drag_n(at(100, 90), at(130, 100), 3));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        let ab: Vec<(Pt, Pt)> = p
+            .shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Blur { a, b, .. } => (*a, *b),
+                other => panic!("không phải Blur: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            ab,
+            vec![
+                (live::pt(at(20, 20)), live::pt(at(140, 120))),
+                (live::pt(at(110, 70)), live::pt(at(250, 180))),
+            ]
+        );
+    }
+
+    /// a.y của các hình Line trong `shapes`.
+    fn line_ys(shapes: &[Shape]) -> Vec<f32> {
+        shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Line { a, .. } => a.y,
+                other => panic!("không phải Line: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored delete_and_undo --test-threads=1"]
+    fn delete_and_undo() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let y0 = sel.y as f32;
+        let run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+            for i in 0..3 {
+                steps.extend(live::drag(at(20, 20 + 40 * i), at(200, 30 + 40 * i)));
+            }
+            steps.push(live::Step::Key(u16::from(b'V')));
+            // Giữa đường thứ hai (20,60)–(200,70).
+            steps.extend(live::click(at(110, 65)));
+            steps.push(live::Step::Key(VK_DELETE.0));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        assert_eq!(line_ys(&run(vec![])), vec![y0 + 20.0, y0 + 100.0]);
+        assert_eq!(
+            line_ys(&run(vec![live::Step::Ctrl(u16::from(b'Z'))])),
+            vec![y0 + 20.0, y0 + 60.0, y0 + 100.0]
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored resize_rect_handle --test-threads=1"]
+    fn resize_rect_handle() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let run = |to: Point, shift: bool| {
+            let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+            steps.extend(live::drag(at(40, 40), at(140, 110)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(40, 70)));
+            steps.push(live::Step::Shift(shift));
+            steps.extend(drag_n(at(140, 110), to, 4));
+            steps.push(live::Step::Shift(false));
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            rect_ab(&r.unwrap().unwrap().shapes)
+        };
+        assert_eq!(
+            run(at(200, 150), false),
+            (live::pt(at(40, 40)), live::pt(at(200, 150)))
+        );
+        // Shift: giữ tỉ lệ 100:70, hệ số lớn hơn (x: 200/100 = 2) thắng.
+        assert_eq!(
+            run(at(240, 130), true),
+            (live::pt(at(40, 40)), live::pt(at(240, 180)))
+        );
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored blur_move_save_covered --test-threads=1"]
+    fn blur_move_save_covered() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+        steps.extend(live::drag(at(20, 20), at(100, 80)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        // Dời +160,+100 (hình vẫn được chọn, khung đang hiện khi Lưu).
+        steps.extend(drag_n(at(60, 50), at(220, 150), 5));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        let (a, b) = (live::pt(at(180, 120)), live::pt(at(260, 180)));
+        let rect = blur_pixel_rect(a, b);
+        let want = redact_color(&shot.image, rect).unwrap();
+        assert_eq!(p.shapes, vec![Shape::Blur { a, b, color: want }]);
+        let out = crate::picked_image(&shot.image, p.rect, &p.shapes).unwrap();
+        let px = |x: i32, y: i32| {
+            let i = (((y - sel.y) as u32 * out.width + (x - sel.x) as u32) * 4) as usize;
+            Rgb(out.bgra[i + 2], out.bgra[i + 1], out.bgra[i])
+        };
+        let src = |x: i32, y: i32| {
+            let i = ((y as u32 * shot.image.width + x as u32) * 4) as usize;
+            Rgb(
+                shot.image.bgra[i + 2],
+                shot.image.bgra[i + 1],
+                shot.image.bgra[i],
+            )
+        };
+        for y in rect.y..rect.bottom() {
+            for x in rect.x..rect.right() {
+                assert_eq!(px(x, y), want, "({x},{y})");
+            }
+        }
+        // Khung chọn (ACCENT) không vào ảnh ra: điểm ảnh ACCENT chỉ có ở chỗ ảnh gốc đã ACCENT.
+        for y in sel.y..sel.bottom() {
+            for x in sel.x..sel.right() {
+                if px(x, y) == ACCENT {
+                    assert_eq!(src(x, y), ACCENT, "({x},{y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored restyle_selected --test-threads=1"]
+    fn restyle_selected() {
+        use darkshot_core::annotate::{blur_pixel_rect, redact_color};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let dpi = live::dpi_at(&shot, at(20, 20));
+        let run = |tail: Vec<live::Step>| {
+            // Màu mặc định đặt rõ (ô 0), vẽ Bút vẽ, chọn nét, đổi mức Rất lớn rồi màu ô 5.
+            let mut steps = live::click(l.item(SideItem::Color));
+            steps.extend(live::click(l.cell(0)));
+            steps.push(live::Step::Key(u16::from(b'P')));
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(20, 20)));
+            steps.extend(live::click(l.item(SideItem::Size)));
+            steps.extend(live::click(l.size_cell(SizeLevel::Huge)));
+            steps.extend(live::click(l.item(SideItem::Color)));
+            steps.extend(live::click(l.cell(5)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            LAST_SIZE.with(|s| s.set(SizeLevel::Medium));
+            assert!(ok);
+            match r.unwrap().unwrap().shapes.as_slice() {
+                [Shape::Pen { width, color, .. }] => (*width, *color),
+                other => panic!("không phải một Pen: {other:?}"),
+            }
+        };
+        assert_eq!(run(vec![]), (8.0 * dpi as f32 / 96.0, PALETTE[5]));
+        assert_eq!(
+            run(vec![
+                live::Step::Ctrl(u16::from(b'Z')),
+                live::Step::Ctrl(u16::from(b'Z')),
+            ]),
+            (dip_to_px(STROKE_DIP, dpi), PALETTE[0])
+        );
+        // Làm mờ được chọn: đổi màu không đổi hình, không ghi sổ (Ctrl+Z bỏ chính vùng che).
+        let blur_run = |tail: Vec<live::Step>| {
+            let mut steps = vec![live::Step::Key(u16::from(b'B'))];
+            steps.extend(live::drag(at(20, 20), at(120, 80)));
+            steps.push(live::Step::Key(u16::from(b'V')));
+            steps.extend(live::click(at(60, 50)));
+            steps.extend(live::click(l.item(SideItem::Color)));
+            steps.extend(live::click(l.cell(9)));
+            steps.extend(tail);
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            r.unwrap().unwrap().shapes
+        };
+        let want = Shape::Blur {
+            a: live::pt(at(20, 20)),
+            b: live::pt(at(120, 80)),
+            color: redact_color(
+                &shot.image,
+                blur_pixel_rect(live::pt(at(20, 20)), live::pt(at(120, 80))),
+            )
+            .unwrap(),
+        };
+        assert_eq!(blur_run(vec![]), vec![want]);
+        assert!(blur_run(vec![live::Step::Ctrl(u16::from(b'Z'))]).is_empty());
+        LAST_COLOR.with(|c| c.set(DEFAULT_COLOR));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored no_tool_behaves_as_before --test-threads=1"]
+    fn no_tool_behaves_as_before() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let fresh = Rect::from_points(at(-80, -80), at(70, 40));
+        // Không công cụ (cả khi bật rồi tắt Chọn), không hình: kéo ngoài vùng tạo vùng mới.
+        for prefix in [vec![], vec![u16::from(b'V'), u16::from(b'V')]] {
+            let mut steps: Vec<live::Step> = prefix.into_iter().map(live::Step::Key).collect();
+            steps.extend(live::drag(at(-80, -80), at(70, 40)));
+            steps.push(live::Step::Ctrl(u16::from(b'S')));
+            let (r, ok) = live::drive(&shot, Some(sel), steps);
+            assert!(ok);
+            assert_eq!(
+                r,
+                Ok(Some(Picked {
+                    action: Action::Save,
+                    rect: fresh,
+                    shapes: Vec::new(),
+                }))
+            );
+        }
+        // Esc đóng lớp phủ.
+        let (r, ok) = live::drive(&shot, Some(sel), vec![live::Step::Key(VK_ESCAPE.0)]);
+        assert!(ok);
+        assert_eq!(r, Ok(None));
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored tool_switch_deselects --test-threads=1"]
+    fn tool_switch_deselects() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let old = (live::pt(at(40, 40)), live::pt(at(140, 110)));
+        // Chọn hình, đổi sang P rồi về V: không còn hình chọn, Delete không xóa gì.
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(u16::from(b'P')));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(rect_ab(&r.unwrap().unwrap().shapes), old);
+        // Đối chứng: không đổi công cụ thì Delete xóa; Esc lần đầu chỉ bỏ chọn (lớp phủ còn mở,
+        // Delete sau đó không xóa gì).
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert_eq!(rect_ab(&r.unwrap().unwrap().shapes), old);
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(at(40, 40), at(140, 110)));
+        steps.push(live::Step::Key(u16::from(b'V')));
+        steps.extend(live::click(at(40, 70)));
+        steps.push(live::Step::Key(VK_DELETE.0));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        assert!(r.unwrap().unwrap().shapes.is_empty());
     }
 }

@@ -807,6 +807,35 @@ mod tests {
     }
 
     #[test]
+    fn arrow_degenerate_head_no_hit() {
+        // a == b: tam giác đầu suy biến (diện tích 0) không được trúng mọi điểm.
+        let arrow = Shape::Arrow {
+            a: p(10.0, 10.0),
+            b: p(10.0, 10.0),
+            width: 3.0,
+            color: RED,
+        };
+        assert!(!hit_shape(&arrow, Z, p(100.0, 100.0), 4.0));
+        assert!(!hit_shape(&arrow, Z, p(-50.0, 30.0), 0.0));
+        assert!(hit_shape(&arrow, Z, p(11.0, 10.0), 4.0));
+        let t = [p(0.0, 0.0), p(5.0, 5.0), p(10.0, 10.0)];
+        assert!(!tri_contains(p(5.0, 5.0), t));
+        assert!(!tri_contains(p(100.0, 0.0), t));
+        // Điểm không hữu hạn không trúng.
+        let ok = [p(0.0, 0.0), p(10.0, 0.0), p(0.0, 10.0)];
+        assert!(tri_contains(p(2.0, 2.0), ok));
+        assert!(!tri_contains(p(f32::NAN, 2.0), ok));
+        assert!(!tri_contains(p(2.0, f32::INFINITY), ok));
+        let normal = Shape::Arrow {
+            a: p(0.0, 0.0),
+            b: p(60.0, 0.0),
+            width: 3.0,
+            color: RED,
+        };
+        assert!(!hit_shape(&normal, Z, p(f32::NAN, f32::NAN), 4.0));
+    }
+
+    #[test]
     fn topmost_wins() {
         let shapes = vec![
             blur(p(0.0, 0.0), p(40.0, 40.0), RED),
