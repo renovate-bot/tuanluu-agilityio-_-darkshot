@@ -1,6 +1,6 @@
 # Tiến độ và sổ token
 
-Cập nhật: 2026-11-16
+Cập nhật: 2026-11-18
 
 Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do agent con báo khi kết thúc. Token của phiên điều phối không đo được theo task.
 
@@ -72,6 +72,13 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 57 Lịch sử: tìm, lọc, hành động, xác nhận | task/57-history-actions | specialist | opus | xong | 397.112 | 169.162 | 22.987 | 589.261 |
 | Rà soát toàn đợt 7 | feature/screenshot-history | specialist | opus | xong (DUYỆT) | | 137.492 | | 137.492 |
 | 58 Tài liệu, demo đợt 7 | task/58-history-docs | phiên chính | opus | xong | không đo | | | |
+| 59 Gia cố Lịch sử: hàng đợi ghi, flush, trao lượt một lần, thanh cuộn | task/59-history-hardening | specialist | opus | chờ | | | | |
+| 60 Bắt cửa sổ: lõi snap, cấu hình, i18n | task/60-snap-core | builder | sonnet | chờ | | | | |
+| 61 Bắt cửa sổ: liệt kê cửa sổ, nối luồng chụp | task/61-snap-enumerate | specialist | opus | chờ | | | | |
+| 62 Bắt cửa sổ: lớp phủ, xem trước, lời nhắc | task/62-snap-overlay | specialist | opus | chờ | | | | |
+| 63 Bắt cửa sổ: ô tích trong Tùy chọn | task/63-snap-options | builder | sonnet | chờ | | | | |
+| Rà soát toàn đợt 8 | feature/window-snap | specialist | fable | chờ | | | | |
+| 64 Tài liệu, demo đợt 8 | feature/window-snap | phiên chính | opus | chờ | không đo | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

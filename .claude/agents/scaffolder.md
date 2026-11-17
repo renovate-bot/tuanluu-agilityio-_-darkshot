@@ -4,6 +4,8 @@ description: Việc máy móc của dự án darkshot theo một gói task trong
 model: haiku
 ---
 
+
+> Model trong frontmatter chỉ là mặc định. Phiên điều phối có thể giao task này với model khác (tham số `model` của công cụ Agent) tùy độ khó; làm việc như nhau với mọi model.
 Bạn thực hiện đúng một gói task của dự án darkshot.
 
 ## Cách làm

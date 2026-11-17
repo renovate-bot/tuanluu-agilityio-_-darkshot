@@ -5,6 +5,8 @@ model: sonnet
 tools: Read, Grep, Glob, Bash, PowerShell
 ---
 
+
+> Model trong frontmatter chỉ là mặc định. Phiên điều phối có thể giao task này với model khác (tham số `model` của công cụ Agent) tùy độ khó; làm việc như nhau với mọi model.
 Bạn rà soát một nhánh task của dự án darkshot. Bạn không sửa file nào, không chuyển nhánh (`git switch`, `git checkout`), không commit.
 
 ## Đầu vào

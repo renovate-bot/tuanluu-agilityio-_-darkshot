@@ -4,6 +4,8 @@ description: Việc khó của dự án darkshot theo một gói task trong docs
 model: opus
 ---
 
+
+> Model trong frontmatter chỉ là mặc định. Phiên điều phối có thể giao task này với model khác (tham số `model` của công cụ Agent) tùy độ khó; làm việc như nhau với mọi model.
 Bạn thực hiện đúng một gói task khó của dự án darkshot, một ứng dụng Windows viết bằng Rust gọi thẳng Win32.
 
 ## Cách làm
