@@ -1254,7 +1254,8 @@ mod tests {
                     assert_eq!(l.thumb, (scale(88, dpi), scale(56, dpi)));
                     // Ô tìm co từ 220 xuống 160 DIP.
                     let sw = l.search.right - l.search.left;
-                    assert!(sw >= scale(160, dpi) - 1 && sw <= scale(220, dpi) + 1);
+                    // Rộng tối đa 260 DIP (nới từ 220 để chữ gợi ý tiếng Việt hiện đủ).
+                    assert!(sw >= scale(160, dpi) - 1 && sw <= scale(260, dpi) + 1);
                     // Ô ảnh vừa trong dòng, chữ còn chỗ.
                     assert!(l.thumb.1 < l.row_h);
                     assert!(l.list_client_w > l.thumb.0 + scale(150, dpi));
@@ -1858,13 +1859,78 @@ mod tests {
     fn explorer_select_args_quote_paths() {
         use std::path::Path;
         assert_eq!(
-            explorer_select_args(Path::new("C:\\Users\\Tuấn\\Ảnh chụp\\a b.png")),
-            "/select,\"C:\\Users\\Tuấn\\Ảnh chụp\\a b.png\""
+            explorer_select_args(Path::new("C:\\Users\\Tuấn\\Ảnh chụp\\a b.png")).as_deref(),
+            Some("/select,\"C:\\Users\\Tuấn\\Ảnh chụp\\a b.png\"")
         );
         assert_eq!(
-            explorer_select_args(Path::new("D:\\x,y\\日本.png")),
-            "/select,\"D:\\x,y\\日本.png\""
+            explorer_select_args(Path::new("D:\\x,y\\日本.png")).as_deref(),
+            Some("/select,\"D:\\x,y\\日本.png\"")
         );
+        assert_eq!(
+            explorer_select_args(Path::new("\\\\server\\share\\a.png")).as_deref(),
+            Some("/select,\"\\\\server\\share\\a.png\"")
+        );
+        // Từ chối: có dấu ngoặc kép, ký tự điều khiển, đường dẫn tương đối hoặc rỗng.
+        for bad in [
+            "C:\\a\"b.png",
+            "C:\\a\nb.png",
+            "C:\\a\u{1}b.png",
+            "a\\b.png",
+            "\\a.png",
+            "C:a.png",
+            "",
+        ] {
+            assert_eq!(explorer_select_args(Path::new(bad)), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn explorer_runs_from_windows_directory() {
+        assert_eq!(
+            explorer_exe(Some("C:\\Windows")),
+            "C:\\Windows\\explorer.exe"
+        );
+        assert_eq!(explorer_exe(Some("D:\\WIN\\")), "D:\\WIN\\explorer.exe");
+        // Không biết thư mục Windows (hoặc giá trị lạ): dự phòng tên trần.
+        assert_eq!(explorer_exe(None), "explorer.exe");
+        assert_eq!(explorer_exe(Some("")), "explorer.exe");
+        assert_eq!(explorer_exe(Some("Windows")), "explorer.exe");
+        assert_eq!(explorer_exe(Some("C:\\W\"in")), "explorer.exe");
+    }
+
+    #[test]
+    fn chips_treat_up_down_like_left_right() {
+        // Lên = trái, Xuống = phải (như nhóm nút radio).
+        assert_eq!(chip_key_dir(ChipKey::Up), -1);
+        assert_eq!(chip_key_dir(ChipKey::Left), -1);
+        assert_eq!(chip_key_dir(ChipKey::Down), 1);
+        assert_eq!(chip_key_dir(ChipKey::Right), 1);
+    }
+
+    #[test]
+    fn vietnamese_search_hint_fits_at_default_size() {
+        let hint =
+            darkshot_core::i18n::t(Lang::Vi, darkshot_core::i18n::Msg::HistorySearchPlaceholder);
+        for dpi in DPIS {
+            let (w, h) = crate::history_window::default_client_size(dpi);
+            let l = layout(w, h, dpi, false);
+            let font = crate::winutil::system_font(dpi);
+            let (tw, th) = crate::history_paint::with_screen_dc(|dc| {
+                crate::history_paint::measure(dc, font, hint)
+            });
+            if let Some(f) = font {
+                // SAFETY: phông vừa tạo cho kiểm thử, không còn dùng.
+                unsafe {
+                    let _ = windows::Win32::Graphics::Gdi::DeleteObject(
+                        windows::Win32::Graphics::Gdi::HGDIOBJ(f.0),
+                    );
+                }
+            }
+            let p = search_parts(&l.search, dpi, th);
+            // Ô trống: ô EDIT kéo tới gần nút `×` (đang ẩn), trừ 4 DIP.
+            let room = p.clear.right - scale(4, dpi) - p.edit.left;
+            assert!(tw <= room, "hint {tw} > {room} @{dpi}");
+        }
     }
 
     #[test]
