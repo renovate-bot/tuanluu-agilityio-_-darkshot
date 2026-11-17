@@ -1341,6 +1341,9 @@ struct Effects {
 
 struct State {
     hwnd: HWND,
+    /// Vùng đã yêu cầu vẽ lại (chỉ kiểm thử, vì không có cửa sổ thật).
+    #[cfg(test)]
+    inval_log: std::cell::RefCell<Vec<Rect>>,
     w: i32,
     h: i32,
     /// Ảnh gốc (`Screenshot::image.bgra`), sống suốt `pick_region`; chỉ đọc.
@@ -1990,6 +1993,8 @@ impl State {
     }
 
     fn invalidate(&self, rects: &[Rect]) {
+        #[cfg(test)]
+        self.inval_log.borrow_mut().extend_from_slice(rects);
         // Chưa có cửa sổ (trạng thái dựng trong kiểm thử): InvalidateRect(NULL) sẽ vẽ lại mọi cửa sổ.
         if self.hwnd.is_invalid() {
             return;
@@ -5111,6 +5116,8 @@ impl State {
             snap_windows: shot.windows.is_some(),
             snap_hover: None,
             snap_press: None,
+            #[cfg(test)]
+            inval_log: Default::default(),
             mouse: Point {
                 x: shot.cursor.x.saturating_sub(shot.origin.x),
                 y: shot.cursor.y.saturating_sub(shot.origin.y),
@@ -8892,6 +8899,42 @@ mod tests {
             // Có vùng chọn: ẩn.
             assert!(s.sel.rect().is_some());
             assert!(s.hint().is_none());
+        }
+
+        fn covered(log: &[Rect], r: Rect) -> bool {
+            log.iter().any(|c| {
+                c.x <= r.x && c.y <= r.y && c.right() >= r.right() && c.bottom() >= r.bottom()
+            })
+        }
+
+        #[test]
+        fn click_select_repaints_old_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            let (hint, _, _) = s.hint().unwrap();
+            s.inval_log.borrow_mut().clear();
+            let at = p(200, 150);
+            s.on_down(at);
+            s.on_up(at);
+            assert!(s.sel.rect().is_some());
+            let log = s.inval_log.borrow().clone();
+            assert!(covered(&log, hint), "{log:?}");
+        }
+
+        #[test]
+        fn enter_select_repaints_old_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            let (hint, _, _) = s.hint().unwrap();
+            s.inval_log.borrow_mut().clear();
+            s.on_key(VK_RETURN.0, false);
+            assert!(s.sel.rect().is_some());
+            let log = s.inval_log.borrow().clone();
+            assert!(covered(&log, hint), "{log:?}");
         }
 
         #[test]
