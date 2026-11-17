@@ -46,11 +46,11 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 30c Ô nhập một viền bo mịn | task/30c-edit-frame | specialist | opus | xong | 171.111 | 78.174 | 0 | 249.285 |
 | 32 Biểu tượng tối (phương án B) | task/32-dark-icon | builder | sonnet | xong | 58.938 | 27.339 | 0 | 86.277 |
 | 33 README (cỡ build, biểu tượng) | task/33-readme-refresh | phiên điều phối | opus | xong | 0 | 0 | 0 | 0 |
-| 34 Mô hình đánh dấu ở core | task/34-annotate-core | builder | sonnet | chờ | | | | |
-| 35 Vẽ hình đánh dấu, in vào ảnh | task/35-annotate-render | specialist | opus | chờ | | | | |
-| 36 Thanh công cụ vẽ trong lớp phủ | task/36-annotate-overlay | specialist | opus | chờ | | | | |
-| 37 Công cụ Chữ | task/37-annotate-text | specialist | opus | chờ | | | | |
-| 38 Tài liệu đợt 5 | task/38-docs-batch5 | scaffolder | haiku | chờ | | | | |
+| 34 Mô hình đánh dấu ở core | task/34-annotate-core | builder | sonnet | xong | 99.922 | 47.328 | 0 | 147.250 |
+| 35 Vẽ hình đánh dấu, in vào ảnh | task/35-annotate-render | specialist | opus | xong | 133.795 | 95.127 | 0 | 228.922 |
+| 36 Thanh công cụ vẽ trong lớp phủ | task/36-annotate-overlay | specialist | opus | xong | 247.332 | 142.586 | 0 | 389.918 |
+| 37 Công cụ Chữ | task/37-annotate-text | specialist | opus | xong | 250.948 | 107.379 | 9.966 | 368.293 |
+| 38 Tài liệu đợt 5 | task/38-docs-batch5 | scaffolder | haiku | xong | 168.623 | 61.934 | 0 | 230.557 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
@@ -118,3 +118,5 @@ Lập ngày 2026-11-16, sau Task 13. Số là `subagent_tokens` do công cụ b�
 | Trước giai đoạn xây dựng | 105.307 | 4% |
 
 Nhận xét: Task 8 (lớp phủ) một mình chiếm 17%; rà soát chiếm gần hai phần năm và lượt nào cũng tìm ra điểm đáng sửa, không lượt nào tìm ra lỗi chặn.
+
+Task 34–38 là đợt 5 (kế hoạch `docs/superpowers/plans/2026-11-17-annotate.md`). Trước khi xây: đọc soát thiết kế đợt 5 (general-purpose) 68.315. Cộng Task 34–38: 1.364.940 (làm 900.620; rà soát 454.354; sửa 9.966); kể cả đọc soát thiết kế: 1.433.255. Theo model: opus (Task 35, 36, 37) 987.133; sonnet (Task 34 và rà soát 34, 38) 209.184; haiku (Task 38) 168.623. Chưa thử tay, chưa nghiệm thu.
