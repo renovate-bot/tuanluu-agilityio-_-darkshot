@@ -21,7 +21,8 @@ Cập nhật: 2026-11-16
 
 ## Bước kế tiếp
 
-**Đợt 6 – Annotation Pro (2026-11-17), đang chạy.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `49-…`, quyết định 75. Chạy 44 → 49 không dừng. Task đang làm: 49 (nhánh theo `progress.md`).
+**Đợt 6 – Annotation Pro (2026-11-17), đang chạy.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `49-…`, quyết định 75. Chạy 44 → 49 không dừng. Task đang làm: không.
+- Task 49: tài liệu đợt 6: README, checklist, CLAUDE.md, next-task, decisions 76–83, systemPatterns, techContext. Rà soát DUYỆT; ghi chú: help_text trong i18n chưa nói về công cụ đánh dấu.
 - Task 48: công cụ Chọn: chọn, dời, đổi cỡ, xóa (Delete), Esc hủy kéo; sửa tri_contains. Rà soát lần 1 CẦN SỬA (tay nắm lệch tâm làm giật hình và ghi sổ khi chỉ bấm), đã sửa bằng độ lệch tay nắm + không ghi khi chuột không dịch; rà lại DUYỆT.
 - Task 47: lớp phủ: Ellipse (E), Bước (N), cỡ nét/chữ 4 mức với flyout và phím [ ], Redo Ctrl+Y/Ctrl+Shift+Z, sửa phím E 0x45. Rà soát DUYỆT.
 - Task 46: đã gộp (rà soát `specialist` DUYỆT; lớp Windows 150 kiểm thử, `render_no_gdi_leak` qua). Viền vòng số nằm trong [r − r·STEP_RING, r], lòng tô tới giữa viền; hộp bao lõi thừa r·STEP_RING/2. Nên sửa (tùy chọn): `ellipse_circle_symmetric` đếm lệch một cột (PixelOffsetModeHalf). Cần nhìn bằng mắt: số 1–3 chữ số ở DPI 150/200%.
