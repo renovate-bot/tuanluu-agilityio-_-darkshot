@@ -1,6 +1,6 @@
 //! Gợi ý khung cửa sổ/màn hình khi chọn vùng (logic thuần, không phụ thuộc hệ điều hành).
 
-use crate::geometry::{Point, Rect};
+use crate::geometry::{Point, Rect, MIN_SIZE};
 
 pub const MIN_SNAP: i32 = 16;
 pub const MAX_WINDOWS: usize = 512;
@@ -49,6 +49,72 @@ pub fn clip(r: Rect, bounds: Rect) -> Option<Rect> {
         w: i32::try_from(x1 - x0).ok()?,
         h: i32::try_from(y1 - y0).ok()?,
     })
+}
+
+/// Lề trên của viên nhắc so với mép trên màn hình (DIP).
+pub const HINT_TOP_DIP: i32 = 16;
+/// Đệm ngang của viên nhắc (DIP).
+pub const HINT_PAD_X_DIP: i32 = 12;
+/// Đệm dọc của viên nhắc (DIP).
+pub const HINT_PAD_Y_DIP: i32 = 6;
+/// Bán kính bo góc của viên nhắc (DIP).
+pub const HINT_RADIUS_DIP: i32 = 6;
+/// Con trỏ cách viên nhắc dưới khoảng này (DIP) thì viên nhắc ẩn.
+pub const HINT_CLEAR_DIP: i32 = 48;
+
+/// Đổi `v` DIP sang pixel ở `dpi` (làm tròn, tối thiểu 1; cùng công thức với lớp phủ).
+pub fn dip(v: i32, dpi: u32) -> i32 {
+    let dpi = i64::from(dpi.max(1));
+    ((i64::from(v) * dpi + 48) / 96).clamp(1, i64::from(i32::MAX)) as i32
+}
+
+/// Bấm rồi nhả (`down` → `up`) là một cú bấm, không phải kéo: dịch dưới `geometry::MIN_SIZE`
+/// theo cả hai trục.
+pub fn is_click(down: Point, up: Point) -> bool {
+    let near = |a: i32, b: i32| (i64::from(a) - i64::from(b)).abs() < i64::from(MIN_SIZE);
+    near(down.x, up.x) && near(down.y, up.y)
+}
+
+/// Gợi ý cửa sổ chạy khi có ứng viên, chưa có vùng chọn, không đang kéo, không bảng nổi nào mở.
+pub fn snap_active(has_cands: bool, has_selection: bool, dragging: bool, panel_open: bool) -> bool {
+    has_cands && !has_selection && !dragging && !panel_open
+}
+
+/// Viên nhắc: giữa mép trên của `monitor`, cách mép trên `HINT_TOP_DIP`; cỡ = chữ `text_size` cộng
+/// đệm. Chữ rộng hơn màn hình thì dán mép trái màn hình.
+pub fn hint_rect(monitor: Rect, text_size: (i32, i32), dpi: u32) -> Rect {
+    let w = text_size
+        .0
+        .max(0)
+        .saturating_add(2 * dip(HINT_PAD_X_DIP, dpi));
+    let h = text_size
+        .1
+        .max(0)
+        .saturating_add(2 * dip(HINT_PAD_Y_DIP, dpi));
+    let x = monitor
+        .x
+        .saturating_add((monitor.w.saturating_sub(w) / 2).max(0));
+    let y = monitor.y.saturating_add(dip(HINT_TOP_DIP, dpi));
+    Rect { x, y, w, h }
+}
+
+/// Viên nhắc hiện khi chưa có vùng chọn, không đang kéo và con trỏ không nằm trong viên nhắc mở
+/// rộng `HINT_CLEAR_DIP`.
+pub fn hint_visible(
+    hint: Rect,
+    cursor: Point,
+    dpi: u32,
+    has_selection: bool,
+    dragging: bool,
+) -> bool {
+    if has_selection || dragging {
+        return false;
+    }
+    let m = i64::from(dip(HINT_CLEAR_DIP, dpi));
+    let (cx, cy) = (i64::from(cursor.x), i64::from(cursor.y));
+    let near_x = cx >= i64::from(hint.x) - m && cx < i64::from(hint.x) + i64::from(hint.w) + m;
+    let near_y = cy >= i64::from(hint.y) - m && cy < i64::from(hint.y) + i64::from(hint.h) + m;
+    !(near_x && near_y)
 }
 
 #[cfg(test)]
@@ -173,5 +239,86 @@ mod tests {
         assert_eq!(candidate_at(&[w, m], p(500, 500)), Some(m));
         assert_eq!(candidate_at(&[w, m], p(2000, 2000)), None);
         assert_eq!(candidate_at(&[], p(1, 1)), None);
+    }
+    #[test]
+    fn dip_scales_and_rounds() {
+        assert_eq!(dip(16, 96), 16);
+        assert_eq!(dip(16, 144), 24);
+        assert_eq!(dip(16, 192), 32);
+        assert_eq!(dip(6, 120), 8);
+        assert_eq!(dip(1, 96), 1);
+    }
+
+    #[test]
+    fn snap_active_only_when_all_four_hold() {
+        for bits in 0..16u8 {
+            let (c, s, d, o) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0);
+            let want = c && !s && !d && !o;
+            assert_eq!(snap_active(c, s, d, o), want, "{c} {s} {d} {o}");
+        }
+        assert!(snap_active(true, false, false, false));
+        assert!(!snap_active(false, false, false, false));
+        assert!(!snap_active(true, true, false, false));
+        assert!(!snap_active(true, false, true, false));
+        assert!(!snap_active(true, false, false, true));
+    }
+
+    #[test]
+    fn hint_rect_centered_at_top_per_dpi() {
+        let m = r(0, 0, 1920, 1080);
+        assert_eq!(hint_rect(m, (200, 20), 96), r(848, 16, 224, 32));
+        assert_eq!(hint_rect(m, (200, 20), 144), r(842, 24, 236, 38));
+        assert_eq!(hint_rect(m, (200, 20), 192), r(836, 32, 248, 44));
+    }
+
+    #[test]
+    fn hint_rect_second_monitor_and_negative_coordinates() {
+        assert_eq!(
+            hint_rect(r(1920, 300, 1280, 1024), (200, 20), 96),
+            r(1920 + 528, 316, 224, 32)
+        );
+        assert_eq!(
+            hint_rect(r(-1920, -300, 1920, 1080), (200, 20), 96),
+            r(-1920 + 848, -284, 224, 32)
+        );
+    }
+
+    #[test]
+    fn hint_rect_wider_than_monitor_sticks_left() {
+        let m = r(100, 0, 200, 600);
+        assert_eq!(hint_rect(m, (300, 20), 96), r(100, 16, 324, 32));
+    }
+
+    #[test]
+    fn hint_visible_near_far_selection_dragging() {
+        let h = r(848, 16, 224, 32);
+        // xa
+        assert!(hint_visible(h, p(100, 500), 96, false, false));
+        // trong viên nhắc
+        assert!(!hint_visible(h, p(900, 30), 96, false, false));
+        // dưới viên nhắc 47 px: còn trong vùng 48 DIP
+        assert!(!hint_visible(h, p(900, 48 + 47), 96, false, false));
+        assert!(hint_visible(h, p(900, 48 + 48), 96, false, false));
+        // trái viên nhắc
+        assert!(!hint_visible(h, p(848 - 48, 30), 96, false, false));
+        assert!(hint_visible(h, p(848 - 49, 30), 96, false, false));
+        // DPI 192: vùng 96 px
+        assert!(!hint_visible(h, p(900, 48 + 95), 192, false, false));
+        assert!(hint_visible(h, p(900, 48 + 96), 192, false, false));
+        // có vùng chọn, đang kéo
+        assert!(!hint_visible(h, p(100, 500), 96, true, false));
+        assert!(!hint_visible(h, p(100, 500), 96, false, true));
+    }
+    #[test]
+    fn is_click_both_axes_below_min_size() {
+        assert!(is_click(p(10, 10), p(10, 10)));
+        assert!(is_click(p(10, 10), p(12, 8)));
+        assert!(is_click(p(10, 10), p(8, 12)));
+        // một trục đủ MIN_SIZE là kéo (kể cả kéo dẹt)
+        assert!(!is_click(p(10, 10), p(13, 10)));
+        assert!(!is_click(p(10, 10), p(10, 7)));
+        assert!(!is_click(p(0, 0), p(200, 2)));
+        // không tràn số
+        assert!(!is_click(p(i32::MIN, 0), p(i32::MAX, 0)));
     }
 }
