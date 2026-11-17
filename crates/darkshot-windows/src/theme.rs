@@ -1147,9 +1147,6 @@ mod tests {
         assert_eq!(edit_border(false, false).1, 1);
     }
 
-    /// Mọi cặp (chữ, nền dưới chữ) có thể vẽ khi điều khiển bật đều nằm trong `TEXT_PAIRS`, nên kiểm thử
-    /// tương phản của core bao luôn chúng. Chữ của ô tích và nút chọn nằm trên nền khung (`SURFACE`),
-    /// không nằm trên hộp, nên cặp của chúng là (text, SURFACE).
     /// Pixel BGRA nhân trước alpha (`0xAARRGGBB`) thành (r, g, b, a).
     fn unpack(p: u32) -> (u8, u8, u8, u8) {
         ((p >> 16) as u8, (p >> 8) as u8, p as u8, (p >> 24) as u8)
@@ -1300,6 +1297,9 @@ mod tests {
         assert_symmetric(&px, n);
     }
 
+    /// Mọi cặp (chữ, nền dưới chữ) có thể vẽ khi điều khiển bật đều nằm trong `TEXT_PAIRS`, nên kiểm thử
+    /// tương phản của core bao luôn chúng. Chữ của ô tích và nút chọn nằm trên nền khung (`SURFACE`),
+    /// không nằm trên hộp, nên cặp của chúng là (text, SURFACE).
     #[test]
     fn every_drawn_text_pair_is_listed() {
         let listed = |fg: Rgb, bg: Rgb| TEXT_PAIRS.contains(&(fg, bg));
