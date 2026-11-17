@@ -991,7 +991,7 @@ mod tests {
 
     use darkshot_core::theme::{
         ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_HOVER, ACCENT_BUTTON_PRESSED, BUTTON, BUTTON_BORDER,
-        BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT_BORDER, SURFACE, TAB_HOVER,
+        BUTTON_HOVER, BUTTON_PRESSED, CHECK_BORDER, INPUT, INPUT_BORDER, SURFACE, TAB_HOVER,
         TEXT_DISABLED, TEXT_MUTED, TEXT_PAIRS, WHITE,
     };
 
@@ -1295,6 +1295,96 @@ mod tests {
         assert_eq!(at(&px, n, 0, 0).3, 0);
         assert_premultiplied_and_smooth(&px);
         assert_symmetric(&px, n);
+    }
+
+    #[test]
+    fn signed_distance_round_box() {
+        // Hộp 40×20 tâm (20, 10), bo 4: cạnh trên, cạnh trái, tâm, góc.
+        assert!(close(
+            sd_round_box(20.0, 0.0, 20.0, 10.0, 20.0, 10.0, 4.0),
+            0.0
+        ));
+        assert!(close(
+            sd_round_box(0.0, 10.0, 20.0, 10.0, 20.0, 10.0, 4.0),
+            0.0
+        ));
+        assert!(close(
+            sd_round_box(20.0, 10.0, 20.0, 10.0, 20.0, 10.0, 4.0),
+            -10.0
+        ));
+        assert!(close(
+            sd_round_box(0.0, 0.0, 20.0, 10.0, 20.0, 10.0, 4.0),
+            32f32.sqrt() - 4.0
+        ));
+        // Hình vuông là trường hợp riêng.
+        assert!(close(
+            sd_round_box(3.0, 5.0, 9.0, 9.0, 9.0, 9.0, 4.0),
+            sd_round_rect(3.0, 5.0, 9.0, 9.0, 9.0, 4.0)
+        ));
+    }
+
+    /// Mỗi pixel bằng pixel đối xứng qua trục dọc (và trục ngang nếu `vertical`) của bộ đệm `w`×`h`.
+    fn assert_mirror(px: &[u32], w: usize, h: usize, vertical: bool) {
+        for y in 0..h {
+            for x in 0..w {
+                assert_eq!(px[y * w + x], px[y * w + (w - 1 - x)], "({x},{y})");
+                if vertical {
+                    assert_eq!(px[y * w + x], px[(h - 1 - y) * w + x], "({x},{y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn field_mark_pixels() {
+        let (w, h) = (60, 24);
+        let at = |px: &[u32], x: usize, y: usize| unpack(px[y * w + x]);
+        let plain = field_mark(w, h, 1.0, INPUT, INPUT_BORDER, None);
+        assert_eq!(plain.len(), w * h);
+        // Một viền 1 px duy nhất, lòng INPUT ngay sát viền (không khung thứ hai bên trong).
+        assert_eq!(at(&plain, 30, 12), opaque(INPUT));
+        assert_eq!(at(&plain, 0, 12), opaque(INPUT_BORDER));
+        assert_eq!(at(&plain, 1, 12), opaque(INPUT));
+        assert_eq!(at(&plain, w - 1, 12), opaque(INPUT_BORDER));
+        assert_eq!(at(&plain, w - 2, 12), opaque(INPUT));
+        assert_eq!(at(&plain, 30, 0), opaque(INPUT_BORDER));
+        assert_eq!(at(&plain, 30, 1), opaque(INPUT));
+        assert_eq!(at(&plain, 30, h - 1), opaque(INPUT_BORDER));
+        // Góc bo: ngoài hình trong suốt, cạnh cong phủ một phần.
+        assert_eq!(at(&plain, 0, 0).3, 0);
+        assert_premultiplied_and_smooth(&plain);
+        assert_mirror(&plain, w, h, true);
+
+        // Có tiêu điểm: gạch dưới 2 px ACCENT, phía trên vẫn là lòng INPUT.
+        let focus = field_mark(w, h, 1.0, INPUT, INPUT_BORDER, Some((ACCENT, 2)));
+        assert_eq!(at(&focus, 30, h - 1), opaque(ACCENT));
+        assert_eq!(at(&focus, 30, h - 2), opaque(ACCENT));
+        assert_eq!(at(&focus, 30, h - 3), opaque(INPUT));
+        assert_eq!(at(&focus, 30, 0), opaque(INPUT_BORDER));
+        // Gạch dưới không lòi ra ngoài góc bo: độ phủ y hệt khi không có tiêu điểm.
+        for (i, (f, p)) in focus.iter().zip(&plain).enumerate() {
+            assert_eq!(f >> 24, p >> 24, "pixel {i}");
+        }
+        assert_premultiplied_and_smooth(&focus);
+        assert_mirror(&focus, w, h, false);
+
+        // 200%: viền 2 px, gạch dưới 4 px, góc bo 8 px.
+        let (w2, h2) = (120, 48);
+        let big = field_mark(w2, h2, 2.0, INPUT, INPUT_BORDER, Some((ACCENT, 2)));
+        let at2 = |x: usize, y: usize| unpack(big[y * w2 + x]);
+        assert_eq!(at2(1, 24), opaque(INPUT_BORDER));
+        assert_eq!(at2(2, 24), opaque(INPUT));
+        assert_eq!(at2(60, h2 - 4), opaque(ACCENT));
+        assert_eq!(at2(60, h2 - 5), opaque(INPUT));
+        assert_eq!(at2(0, 0).3, 0);
+        assert_eq!(at2(1, 1).3, 0);
+        assert_premultiplied_and_smooth(&big);
+
+        // 150%: viền làm tròn thành 2 px nét đều (cạnh thẳng không bị mờ nửa pixel).
+        let (w3, h3) = (90, 36);
+        let mid = field_mark(w3, h3, 1.5, INPUT, INPUT_BORDER, None);
+        assert_eq!(unpack(mid[18 * w3 + 1]), opaque(INPUT_BORDER));
+        assert_eq!(unpack(mid[18 * w3 + 2]), opaque(INPUT));
     }
 
     /// Mọi cặp (chữ, nền dưới chữ) có thể vẽ khi điều khiển bật đều nằm trong `TEXT_PAIRS`, nên kiểm thử
