@@ -8,6 +8,7 @@ mod capture;
 mod clipboard;
 mod gdiplus;
 mod help;
+mod history_service;
 mod hotkey;
 mod lang;
 mod legacy;
@@ -1144,6 +1145,52 @@ mod tests {
     use super::*;
     use CaptureGate::*;
     use GateEvent::*;
+
+    #[test]
+    fn parse_args_history_flag() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert!(!parse_args(&s(&[])).open_history);
+        assert!(parse_args(&s(&["--history"])).open_history);
+        assert!(parse_args(&s(&["--foo", "--history"])).open_history);
+        assert!(!parse_args(&s(&["--histories", "history", "-history"])).open_history);
+    }
+
+    #[test]
+    fn normal_mode_keeps_everything() {
+        let m = startup_mode(None);
+        assert_eq!(m.mutex_name, "Local\\darkshot-single-instance");
+        assert!(m.run_legacy && m.sync_autostart && m.exclude_wer && m.update_timer);
+        assert!(!m.sandbox);
+    }
+
+    #[test]
+    fn sandbox_mode_skips_side_effects() {
+        let m = startup_mode(Some(std::path::Path::new("D:\\sb\\one")));
+        assert!(m.sandbox);
+        assert!(m
+            .mutex_name
+            .starts_with("Local\\darkshot-single-instance-sandbox-"));
+        let suffix = &m.mutex_name["Local\\darkshot-single-instance-sandbox-".len()..];
+        assert!(!suffix.is_empty() && suffix.len() <= 16);
+        assert!(suffix.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert!(!m.run_legacy && !m.sync_autostart && !m.exclude_wer && !m.update_timer);
+        // Đường dẫn khác → tên khác; cùng đường dẫn → cùng tên.
+        let other = startup_mode(Some(std::path::Path::new("D:\\sb\\two")));
+        assert_ne!(m.mutex_name, other.mutex_name);
+        assert_eq!(
+            m.mutex_name,
+            startup_mode(Some(std::path::Path::new("D:\\sb\\one"))).mutex_name
+        );
+        assert_ne!(m.mutex_name, startup_mode(None).mutex_name);
+    }
+
+    #[test]
+    fn history_message_ids() {
+        assert_eq!(WM_OPEN_HISTORY, WM_APP + 5);
+        assert_ne!(WM_OPEN_HISTORY, WM_OPEN_SETTINGS);
+        assert_ne!(WM_OPEN_HISTORY, WM_UPDATE_RESULT);
+        assert_ne!(WM_OPEN_HISTORY, history_service::WM_HISTORY_CHANGED);
+    }
 
     #[test]
     fn update_after_check_keeps_item_on_none() {

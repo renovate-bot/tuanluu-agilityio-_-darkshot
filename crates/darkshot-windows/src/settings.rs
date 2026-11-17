@@ -3106,6 +3106,18 @@ mod tests {
             include_cursor: c.include_cursor,
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
+            history_enabled: c.history_enabled,
+        }
+    }
+
+    #[test]
+    fn history_enabled_is_kept_when_saving() {
+        for on in [false, true] {
+            let mut c = base();
+            c.history_enabled = on;
+            let n = apply_form(&c, &form_of(&c), Lang::Vi).unwrap();
+            assert_eq!(n.history_enabled, on);
+            assert_eq!(n, c);
         }
     }
 

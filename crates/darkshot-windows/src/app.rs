@@ -433,6 +433,7 @@ mod tests {
             lang: Lang::Vi,
             upload_format: UploadFormat::Png,
             jpeg_quality: JPEG_QUALITY_DEFAULT,
+            on_outcome: None,
         }
     }
 
@@ -505,7 +506,7 @@ mod tests {
                 save_dir: d1.clone(),
             },
         ];
-        assert_eq!(save_pending(items, fixed_now()), 3);
+        assert_eq!(save_pending(items, fixed_now(), &|_, _| {}), 3);
         assert!(d1.join("darkshot_2026-11-16_01-02-03.png").exists());
         assert!(d1.join("darkshot_2026-11-16_01-02-03_2.png").exists());
         assert!(d2.join("darkshot_2026-11-16_01-02-03.png").exists());
@@ -584,5 +585,132 @@ mod tests {
         .unwrap();
         h.join().unwrap();
         assert!(!called.load(Ordering::SeqCst));
+    }
+
+    type Seen = Arc<Mutex<Vec<(String, u32)>>>;
+
+    fn outcome_tag(o: &Outcome) -> String {
+        match o {
+            Outcome::Uploaded(link) => format!("uploaded:{link}"),
+            Outcome::UploadFailedSaved { .. } => "fallback".into(),
+            Outcome::Saved(_) => "saved".into(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    fn recording_hook(seen: Seen) -> Box<dyn Fn(&Outcome, &Image) + Send> {
+        Box::new(move |o: &Outcome, img: &Image| {
+            seen.lock().unwrap().push((outcome_tag(o), img.width));
+        })
+    }
+
+    #[test]
+    fn on_outcome_called_once_with_uploaded() {
+        let seen: Seen = Arc::default();
+        let up: Arc<dyn Uploader> = Arc::new(SlowUploader("https://x/a".into()));
+        let reg = Arc::new(PendingUploads::new());
+        let mut j = job(
+            temp_dir(),
+            Some(up),
+            Arc::new(FakeNotifier::default()),
+            Box::new(|| {}),
+        );
+        let id = reg.add(j.image.clone(), j.save_dir.clone());
+        j.pending = Some((reg.clone(), id));
+        let reg2 = reg.clone();
+        let seen2 = seen.clone();
+        // Móc chạy sau khi lượt đã rút khỏi sổ.
+        j.on_outcome = Some(Box::new(move |o: &Outcome, img: &Image| {
+            assert!(!reg2.remove(id), "phải rút khỏi sổ trước khi gọi móc");
+            seen2.lock().unwrap().push((outcome_tag(o), img.width));
+        }));
+        spawn_upload(j).unwrap().join().unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![("uploaded:https://x/a".to_string(), 2)]
+        );
+    }
+
+    #[test]
+    fn on_outcome_called_once_with_upload_fallback() {
+        let seen: Seen = Arc::default();
+        let dir = temp_dir();
+        let mut j = job(
+            dir.clone(),
+            None,
+            Arc::new(FakeNotifier::default()),
+            Box::new(|| {}),
+        );
+        j.on_outcome = Some(recording_hook(seen.clone()));
+        spawn_upload(j).unwrap().join().unwrap();
+        assert_eq!(*seen.lock().unwrap(), vec![("fallback".to_string(), 2)]);
+        assert!(dir.join("darkshot_2026-11-16_01-02-03.png").exists());
+    }
+
+    #[test]
+    fn save_pending_calls_hook_for_each_saved_image() {
+        let d = temp_dir();
+        let items = vec![
+            PendingUpload {
+                image: pixel(1),
+                save_dir: d.clone(),
+            },
+            PendingUpload {
+                image: pixel(2),
+                save_dir: d.clone(),
+            },
+        ];
+        let seen: Mutex<Vec<(Outcome, u8)>> = Mutex::default();
+        let hook = |o: &Outcome, img: &Image| {
+            let o = match o {
+                Outcome::UploadFailedSaved {
+                    path,
+                    needs_settings,
+                } => Outcome::UploadFailedSaved {
+                    path: path.clone(),
+                    needs_settings: *needs_settings,
+                },
+                _ => Outcome::Failed,
+            };
+            seen.lock().unwrap().push((o, img.bgra[0]));
+        };
+        assert_eq!(save_pending(items, fixed_now(), &hook), 2);
+        let seen = seen.into_inner().unwrap();
+        assert_eq!(
+            seen,
+            vec![
+                (
+                    Outcome::UploadFailedSaved {
+                        path: d.join("darkshot_2026-11-16_01-02-03.png"),
+                        needs_settings: false
+                    },
+                    1
+                ),
+                (
+                    Outcome::UploadFailedSaved {
+                        path: d.join("darkshot_2026-11-16_01-02-03_2.png"),
+                        needs_settings: false
+                    },
+                    2
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn save_pending_skips_hook_when_save_fails() {
+        // Thư mục lưu là một TỆP: lưu thất bại, móc không được gọi.
+        let f = temp_dir().join("file");
+        std::fs::write(&f, b"x").unwrap();
+        let items = vec![PendingUpload {
+            image: pixel(1),
+            save_dir: f,
+        }];
+        let calls = AtomicU32::new(0);
+        let hook = |_: &Outcome, _: &Image| {
+            calls.fetch_add(1, Ordering::SeqCst);
+        };
+        assert_eq!(save_pending(items, fixed_now(), &hook), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }

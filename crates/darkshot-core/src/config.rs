@@ -1232,4 +1232,95 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn history_enabled_round_trip() {
+        let d = Config::defaults(Path::new("C:/pics"), Lang::Vi);
+        assert!(!d.history_enabled);
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.history_enabled = true;
+        save(&path, &c, &XorStore).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["history_enabled"], true);
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+        // Tắt vẫn ghi trường ra file.
+        c.history_enabled = false;
+        save(&path, &c, &XorStore).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["history_enabled"], false);
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+    }
+
+    #[test]
+    fn history_enabled_missing_or_wrong_type_is_false() {
+        assert!(!load_text(r#"{"language":"vi"}"#).config.history_enabled);
+        for text in [
+            r#"{"history_enabled":"yes"}"#,
+            r#"{"history_enabled":1}"#,
+            r#"{"history_enabled":null}"#,
+            r#"{"history_enabled":[true]}"#,
+        ] {
+            assert!(!load_text(text).config.history_enabled, "{text}");
+        }
+        assert!(
+            load_text(r#"{"history_enabled":true}"#)
+                .config
+                .history_enabled
+        );
+    }
+
+    #[test]
+    fn old_config_without_history_field_keeps_other_fields() {
+        // Tệp do bản trước ghi (nguyên văn, không có `history_enabled`).
+        let old = r##"{
+  "r2": {
+    "account_id": "acc",
+    "access_key_id": "kid",
+    "secret_access_key_protected": "",
+    "bucket": "b",
+    "public_base_url": "https://img.example.com"
+  },
+  "expiry": "d7",
+  "hotkey": { "ctrl": true, "alt": false, "shift": true, "win": false, "vk": 65 },
+  "hotkey_enabled": true,
+  "hotkey_save_full": { "enabled": true, "ctrl": true, "alt": true, "shift": false, "win": false, "vk": 83 },
+  "hotkey_upload_full": { "enabled": false, "ctrl": true, "alt": true, "shift": false, "win": false, "vk": 85 },
+  "notify_success": false,
+  "keep_selection": true,
+  "include_cursor": true,
+  "upload_format": "jpeg",
+  "jpeg_quality": 77,
+  "custom_colors": ["#FF3B30", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
+  "check_updates": false,
+  "update_notified": "0.3.1",
+  "save_dir": "D:/shots",
+  "autostart": true,
+  "language": "en"
+}"##;
+        let dir = temp_dir();
+        let path = dir.join("config.json");
+        std::fs::write(&path, old).unwrap();
+        let l = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap();
+        assert!(!l.config.history_enabled);
+        save(&path, &l.config, &XorStore).unwrap();
+        let before: serde_json::Value = serde_json::from_str(old).unwrap();
+        let mut after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after["history_enabled"], false);
+        after.as_object_mut().unwrap().remove("history_enabled");
+        assert_eq!(after, before);
+    }
 }

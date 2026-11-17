@@ -72,6 +72,58 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_resolves_under_profile_dir() {
+        let dir = Path::new("D:/sandbox");
+        assert_eq!(
+            resolve(Some(dir), Known::Roaming),
+            PathBuf::from("D:/sandbox").join("Roaming")
+        );
+        assert_eq!(
+            resolve(Some(dir), Known::Local),
+            PathBuf::from("D:/sandbox").join("Local")
+        );
+        assert_eq!(
+            resolve(Some(dir), Known::Pictures),
+            PathBuf::from("D:/sandbox").join("Pictures")
+        );
+    }
+
+    #[test]
+    fn resolve_does_not_create_directories() {
+        let dir = std::env::temp_dir().join(format!("darkshot_paths_{}_x", std::process::id()));
+        let _ = resolve(Some(&dir), Known::Local);
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn no_override_uses_system_folders() {
+        for k in [Known::Roaming, Known::Local, Known::Pictures] {
+            let p = resolve(None, k);
+            assert!(p.is_absolute(), "{k:?}");
+        }
+        assert_ne!(resolve(None, Known::Roaming), resolve(None, Known::Local));
+    }
+
+    #[test]
+    fn profile_value_must_be_non_empty() {
+        assert_eq!(override_from(None), None);
+        assert_eq!(override_from(Some(std::ffi::OsString::new())), None);
+        assert_eq!(
+            override_from(Some("D:\\sb".into())),
+            Some(PathBuf::from("D:\\sb"))
+        );
+    }
+
+    #[test]
+    fn history_dir_is_under_local_darkshot() {
+        assert_eq!(
+            history_dir_in(Path::new("C:/L")),
+            PathBuf::from("C:/L").join("darkshot").join("history")
+        );
+        assert!(history_dir().ends_with("darkshot/history"));
+    }
+
+    #[test]
     fn local_now_is_plausible() {
         let t = local_now();
         assert!(t.year >= 2026 && (1..=12).contains(&t.month));
