@@ -10,7 +10,9 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build đo ngày 2026-11-16, khi ứng dụng còn tên cũ: **1.513.472 byte** (khoảng 1,44 MiB, bản `--release` trên Windows 11). Chưa đo lại `darkshot.exe`.
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build đo ngày 2026-11-17 (commit `f67268a`): **1.686.528 byte** (khoảng 1,61 MiB, bản `--release` trên Windows 11).
+
+Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
 ## Chuyển từ shotme
 
@@ -158,6 +160,8 @@ Chỉ một bản darkshot chạy cùng lúc. Mở bản thứ hai thì bản m�
 - Thông báo ở khay và hộp chọn thư mục vẫn theo chế độ của Windows, sáng hoặc tối.
 - Thanh tiêu đề tối cần Windows 10 bản 20H1 trở lên. Bản cũ hơn vẫn chạy, với thanh tiêu đề sáng.
 - Menu khay dùng nền tối khi Windows cho phép. Nếu không, menu vẫn chạy với nền sáng.
+- Biểu tượng: nền than chì, viền xám nhạt, bốn góc khung màu xanh `#4C8DFF`, chấm sáng ở giữa (cỡ 16 đến 24 px không có chấm). Nếu khay, thanh tác vụ hoặc Explorer vẫn hiện biểu tượng xanh cũ sau khi cập nhật, khởi động lại Explorer (Task Manager, **Windows Explorer**, **Restart**) để xóa bộ đệm biểu tượng.
+- Ô tích, nút chọn, thanh trượt, ô nhập và hộp chọn trong Tùy chọn được vẽ lại theo màu tối, cạnh khử răng cưa; bàn phím, Tab và Trình tường thuật vẫn dùng như điều khiển gốc của Windows.
 
 ## Chuẩn bị Cloudflare R2
 
