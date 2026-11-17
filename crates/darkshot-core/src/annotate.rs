@@ -7,25 +7,31 @@ use crate::theme::{contrast_ratio, Rgb};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
+    Select,
     Pen,
     Line,
     Arrow,
     Rect,
+    Ellipse,
     Marker,
     Blur,
     Text,
+    Step,
 }
 
 impl Tool {
     /// Thứ tự trên thanh công cụ.
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 10] = [
+        Tool::Select,
         Tool::Pen,
         Tool::Line,
         Tool::Arrow,
         Tool::Rect,
+        Tool::Ellipse,
         Tool::Marker,
         Tool::Blur,
         Tool::Text,
+        Tool::Step,
     ];
 
     /// Mã phím ảo chữ hoa: P, L, A, R, H, B, T.
@@ -38,7 +44,7 @@ impl Tool {
             0x48 => Some(Tool::Marker),
             0x42 => Some(Tool::Blur),
             0x54 => Some(Tool::Text),
-            _ => None,
+            _ => None, // Task 44: thêm V, E, N
         }
     }
 }
@@ -105,6 +111,60 @@ pub const ARROW_HEAD_FACTOR: f32 = 4.0;
 pub const ARROW_HEAD_MIN_DIP: f32 = 12.0;
 pub const ARROW_HALF_ANGLE_DEG: f32 = 28.0;
 pub const MIN_DRAG_PX: f32 = 2.0;
+/// Độ dày viền vòng số / bán kính.
+pub const STEP_RING: f32 = 0.12;
+/// Cạnh tối thiểu khi đổi cỡ.
+pub const MIN_EXTENT_DIP: f32 = 6.0;
+/// Dung sai trúng hình.
+pub const HIT_TOL_DIP: f32 = 4.0;
+pub const TEXT_SIZE_MIN_PX: f32 = 8.0;
+pub const TEXT_SIZE_MAX_PX: f32 = 400.0;
+pub const STEP_RADIUS_MIN_PX: f32 = 6.0;
+pub const STEP_RADIUS_MAX_PX: f32 = 300.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SizeLevel {
+    Small,
+    #[default]
+    Medium,
+    Large,
+    Huge,
+}
+
+impl SizeLevel {
+    pub const ALL: [SizeLevel; 4] = [
+        SizeLevel::Small,
+        SizeLevel::Medium,
+        SizeLevel::Large,
+        SizeLevel::Huge,
+    ];
+
+    pub fn smaller(self) -> SizeLevel {
+        todo!()
+    }
+
+    pub fn larger(self) -> SizeLevel {
+        todo!()
+    }
+
+    /// Pen, Line, Arrow, Rect, Ellipse.
+    pub fn stroke_dip(self) -> f32 {
+        todo!()
+    }
+
+    pub fn marker_dip(self) -> f32 {
+        todo!()
+    }
+
+    pub fn text_dip(self) -> f32 {
+        todo!()
+    }
+
+    /// Bán kính vòng số.
+    pub fn step_dip(self) -> f32 {
+        todo!()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pt {
@@ -149,6 +209,19 @@ pub enum Shape {
         origin: Pt,
         text: String,
         size: f32,
+        color: Rgb,
+    },
+    Ellipse {
+        a: Pt,
+        b: Pt,
+        width: f32,
+        color: Rgb,
+    },
+    /// Vòng đánh số; `n` do `Annotations` đánh lại (1 + số Step đứng trước trong danh sách).
+    Step {
+        center: Pt,
+        radius: f32,
+        n: u32,
         color: Rgb,
     },
 }
@@ -210,6 +283,7 @@ impl Shape {
                 })
             }
             Shape::Text { .. } => None,
+            Shape::Ellipse { .. } | Shape::Step { .. } => None, // Task 44: chưa làm
         }
     }
 }
@@ -401,6 +475,7 @@ pub enum PressMode {
     Draw,
     Selection,
     Ignore,
+    Pick,
 }
 
 /// Quyết định khi bấm chuột trong lớp phủ (ngoài thanh công cụ và bảng màu):
@@ -416,9 +491,45 @@ pub fn press_mode(tool: Option<Tool>, has_shapes: bool, hit: Hit) -> PressMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Change {
+    /// Hình mới nằm ở `index` (sau thêm, hoặc hoàn tác một lần xóa).
+    Inserted { index: usize },
+    /// Hình `shape` đã bị lấy khỏi `index`.
+    Removed { index: usize, shape: Shape },
+    /// Hình ở `index` đã được thay; `old` là hình trước đó.
+    Replaced { index: usize, old: Shape },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Applied {
+    pub change: Change,
+    /// Vị trí (sau thay đổi) các Step khác đổi `n`, tăng dần; không gồm `index` của `change`.
+    pub renumbered: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+enum Edit {
+    Add {
+        index: usize,
+        shape: Shape,
+    },
+    Remove {
+        index: usize,
+        shape: Shape,
+    },
+    Replace {
+        index: usize,
+        before: Shape,
+        after: Shape,
+    },
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Annotations {
     shapes: Vec<Shape>,
+    undo: Vec<Edit>,
+    redo: Vec<Edit>,
 }
 
 impl Annotations {
@@ -426,13 +537,40 @@ impl Annotations {
         &self.shapes
     }
 
-    pub fn push(&mut self, s: Shape) {
-        self.shapes.push(s);
+    /// Thêm vào cuối, ghi sổ, xóa ngăn làm lại.
+    pub fn add(&mut self, s: Shape) -> Applied {
+        todo!()
     }
 
-    /// Bỏ hình cuối.
-    pub fn undo(&mut self) -> Option<Shape> {
-        self.shapes.pop()
+    /// None khi `index` ngoài danh sách.
+    pub fn remove(&mut self, index: usize) -> Option<Applied> {
+        todo!()
+    }
+
+    /// None khi `index` ngoài danh sách hoặc `s` (sau khi đánh số theo vị trí) bằng hệt hình cũ.
+    pub fn replace(&mut self, index: usize, s: Shape) -> Option<Applied> {
+        todo!()
+    }
+
+    pub fn undo(&mut self) -> Option<Applied> {
+        todo!()
+    }
+
+    pub fn redo(&mut self) -> Option<Applied> {
+        todo!()
+    }
+
+    pub fn can_undo(&self) -> bool {
+        todo!()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        todo!()
+    }
+
+    /// Số mà một Step thêm vào cuối sẽ mang (1 + số Step hiện có).
+    pub fn next_step_number(&self) -> u32 {
+        todo!()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -660,18 +798,6 @@ mod tests {
         assert_eq!(Tool::from_key(0x54), Some(Tool::Text));
         assert_eq!(Tool::from_key(0x5A), None);
         assert_eq!(Tool::from_key(0), None);
-        assert_eq!(
-            Tool::ALL,
-            [
-                Tool::Pen,
-                Tool::Line,
-                Tool::Arrow,
-                Tool::Rect,
-                Tool::Marker,
-                Tool::Blur,
-                Tool::Text
-            ]
-        );
     }
 
     #[test]
@@ -845,31 +971,6 @@ mod tests {
             color: c,
         };
         assert_eq!(empty.bounds(), None);
-    }
-
-    #[test]
-    fn annotations_undo() {
-        let mut a = Annotations::default();
-        assert!(a.is_empty());
-        assert_eq!(a.undo(), None);
-        let s1 = Shape::Line {
-            a: p(0.0, 0.0),
-            b: p(5.0, 5.0),
-            width: 3.0,
-            color: DEFAULT_COLOR,
-        };
-        let s2 = Shape::Rect {
-            a: p(0.0, 0.0),
-            b: p(5.0, 5.0),
-            width: 3.0,
-            color: DEFAULT_COLOR,
-        };
-        a.push(s1.clone());
-        a.push(s2.clone());
-        assert_eq!(a.shapes().len(), 2);
-        assert_eq!(a.undo(), Some(s2));
-        assert_eq!(a.shapes().len(), 1);
-        assert_eq!(a.into_shapes(), vec![s1]);
     }
 
     fn edit() -> TextEdit {
@@ -1050,8 +1151,8 @@ mod tests {
     #[test]
     fn tool_blur_key_order() {
         assert_eq!(Tool::from_key(0x42), Some(Tool::Blur));
-        assert_eq!(Tool::ALL[5], Tool::Blur);
-        assert_eq!(Tool::ALL[6], Tool::Text);
+        assert_eq!(Tool::ALL[7], Tool::Blur);
+        assert_eq!(Tool::ALL[8], Tool::Text);
         for (a, b) in [
             (p(0.0, 0.0), p(10.0, 1.0)),
             (p(0.0, 0.0), p(10.0, 5.0)),
@@ -1081,5 +1182,323 @@ mod tests {
                 h: 22
             })
         );
+    }
+
+    #[test]
+    fn tool_keys_and_order() {
+        assert_eq!(
+            Tool::ALL,
+            [
+                Tool::Select,
+                Tool::Pen,
+                Tool::Line,
+                Tool::Arrow,
+                Tool::Rect,
+                Tool::Ellipse,
+                Tool::Marker,
+                Tool::Blur,
+                Tool::Text,
+                Tool::Step
+            ]
+        );
+        assert_eq!(Tool::from_key(0x56), Some(Tool::Select));
+        assert_eq!(Tool::from_key(0x46), Some(Tool::Ellipse));
+        assert_eq!(Tool::from_key(0x4E), Some(Tool::Step));
+        assert_eq!(Tool::from_key(0x50), Some(Tool::Pen));
+        assert_eq!(Tool::from_key(0x4C), Some(Tool::Line));
+        assert_eq!(Tool::from_key(0x41), Some(Tool::Arrow));
+        assert_eq!(Tool::from_key(0x52), Some(Tool::Rect));
+        assert_eq!(Tool::from_key(0x48), Some(Tool::Marker));
+        assert_eq!(Tool::from_key(0x42), Some(Tool::Blur));
+        assert_eq!(Tool::from_key(0x54), Some(Tool::Text));
+    }
+
+    #[test]
+    fn size_level_values() {
+        use SizeLevel::*;
+        assert_eq!(SizeLevel::ALL, [Small, Medium, Large, Huge]);
+        assert_eq!(SizeLevel::default(), Medium);
+        let stroke = SizeLevel::ALL.map(|l| l.stroke_dip());
+        assert_eq!(stroke, [2.0, 3.0, 5.0, 8.0]);
+        let marker = SizeLevel::ALL.map(|l| l.marker_dip());
+        assert_eq!(marker, [10.0, 16.0, 24.0, 32.0]);
+        let text = SizeLevel::ALL.map(|l| l.text_dip());
+        assert_eq!(text, [14.0, 18.0, 26.0, 36.0]);
+        let step = SizeLevel::ALL.map(|l| l.step_dip());
+        assert_eq!(step, [10.0, 13.0, 17.0, 22.0]);
+        assert_eq!(Medium.stroke_dip(), STROKE_DIP);
+        assert_eq!(Medium.marker_dip(), MARKER_DIP);
+        assert_eq!(Medium.text_dip(), TEXT_DIP);
+        assert_eq!(Small.smaller(), Small);
+        assert_eq!(Huge.larger(), Huge);
+        assert_eq!(Small.larger(), Medium);
+        assert_eq!(Medium.larger(), Large);
+        assert_eq!(Large.larger(), Huge);
+        assert_eq!(Huge.smaller(), Large);
+        assert_eq!(Medium.smaller(), Small);
+    }
+
+    #[test]
+    fn ellipse_and_step_bounds() {
+        let e = Shape::Ellipse {
+            a: p(10.0, 10.0),
+            b: p(30.0, 20.0),
+            width: 4.0,
+            color: DEFAULT_COLOR,
+        };
+        assert_eq!(
+            e.bounds(),
+            Some(Rect {
+                x: 7,
+                y: 7,
+                w: 26,
+                h: 16
+            })
+        );
+        let s = Shape::Step {
+            center: p(50.0, 50.0),
+            radius: 10.0,
+            n: 1,
+            color: DEFAULT_COLOR,
+        };
+        assert_eq!(
+            s.bounds(),
+            Some(Rect {
+                x: 38,
+                y: 38,
+                w: 24,
+                h: 24
+            })
+        );
+    }
+
+    #[test]
+    fn too_short_ellipse_like_rect() {
+        for (a, b) in [
+            (p(0.0, 0.0), p(10.0, 1.0)),
+            (p(0.0, 0.0), p(10.0, 5.0)),
+            (p(0.0, 0.0), p(1.0, 10.0)),
+            (p(3.0, 3.0), p(3.0, 3.0)),
+        ] {
+            assert_eq!(too_short(Tool::Ellipse, a, b), too_short(Tool::Rect, a, b));
+        }
+        assert!(too_short(Tool::Ellipse, p(0.0, 0.0), p(10.0, 1.0)));
+        assert!(!too_short(Tool::Step, p(0.0, 0.0), p(0.0, 0.0)));
+    }
+
+    #[test]
+    fn press_mode_select() {
+        use crate::geometry::Handle;
+        for has in [false, true] {
+            assert_eq!(
+                press_mode(Some(Tool::Select), has, Hit::Inside),
+                PressMode::Pick
+            );
+            assert_eq!(
+                press_mode(Some(Tool::Select), has, Hit::Outside),
+                PressMode::Pick
+            );
+            assert_eq!(
+                press_mode(Some(Tool::Select), has, Hit::Handle(Handle::N)),
+                PressMode::Selection
+            );
+        }
+    }
+
+    fn line(x: f32) -> Shape {
+        Shape::Line {
+            a: p(x, 0.0),
+            b: p(x, 9.0),
+            width: 3.0,
+            color: DEFAULT_COLOR,
+        }
+    }
+    fn step(x: f32, n: u32) -> Shape {
+        Shape::Step {
+            center: p(x, 5.0),
+            radius: 10.0,
+            n,
+            color: DEFAULT_COLOR,
+        }
+    }
+    fn step_ns(a: &Annotations) -> Vec<u32> {
+        a.shapes()
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Step { n, .. } => Some(*n),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn add_undo_redo_multi() {
+        let (sa, sb, sc) = (line(1.0), line(2.0), line(3.0));
+        let mut a = Annotations::default();
+        assert!(!a.can_undo() && !a.can_redo());
+        a.add(sa.clone());
+        a.add(sb.clone());
+        a.add(sc.clone());
+        assert!(a.can_undo() && !a.can_redo());
+        let rm = |index, shape| {
+            Some(Applied {
+                change: Change::Removed { index, shape },
+                renumbered: vec![],
+            })
+        };
+        assert_eq!(a.undo(), rm(2, sc.clone()));
+        assert!(a.can_undo() && a.can_redo());
+        assert_eq!(a.undo(), rm(1, sb.clone()));
+        assert_eq!(a.undo(), rm(0, sa.clone()));
+        assert!(!a.can_undo() && a.can_redo());
+        assert_eq!(a.undo(), None);
+        assert!(a.shapes().is_empty());
+        for i in 0..3 {
+            let r = a.redo().unwrap();
+            assert_eq!(r.change, Change::Inserted { index: i });
+            assert!(a.can_undo());
+            assert_eq!(a.can_redo(), i < 2);
+        }
+        assert_eq!(a.redo(), None);
+        assert_eq!(a.shapes(), &[sa, sb, sc]);
+    }
+
+    #[test]
+    fn new_edit_clears_redo() {
+        let (sa, sb, sc) = (line(1.0), line(2.0), line(3.0));
+        let mut a = Annotations::default();
+        a.add(sa.clone());
+        a.add(sb);
+        a.undo();
+        assert!(a.can_redo());
+        a.add(sc.clone());
+        assert!(!a.can_redo());
+        assert_eq!(a.shapes(), &[sa, sc]);
+    }
+
+    #[test]
+    fn remove_middle_then_undo_restores_position() {
+        let (sa, sb, sc) = (line(1.0), line(2.0), line(3.0));
+        let mut a = Annotations::default();
+        a.add(sa.clone());
+        a.add(sb.clone());
+        a.add(sc.clone());
+        let r = a.remove(1).unwrap();
+        assert_eq!(
+            r.change,
+            Change::Removed {
+                index: 1,
+                shape: sb.clone()
+            }
+        );
+        assert_eq!(a.shapes(), &[sa.clone(), sc.clone()]);
+        let r = a.undo().unwrap();
+        assert_eq!(r.change, Change::Inserted { index: 1 });
+        assert_eq!(a.shapes(), &[sa.clone(), sb, sc.clone()]);
+        a.redo().unwrap();
+        assert_eq!(a.shapes(), &[sa, sc]);
+    }
+
+    #[test]
+    fn replace_and_undo() {
+        let (sa, a2) = (line(1.0), line(7.0));
+        let mut a = Annotations::default();
+        a.add(sa.clone());
+        let r = a.replace(0, a2.clone()).unwrap();
+        assert_eq!(
+            r.change,
+            Change::Replaced {
+                index: 0,
+                old: sa.clone()
+            }
+        );
+        assert_eq!(a.shapes()[0], a2);
+        let r = a.undo().unwrap();
+        assert_eq!(
+            r.change,
+            Change::Replaced {
+                index: 0,
+                old: a2.clone()
+            }
+        );
+        assert_eq!(a.shapes()[0], sa);
+        a.redo().unwrap();
+        assert_eq!(a.shapes()[0], a2);
+    }
+
+    #[test]
+    fn replace_identical_is_not_recorded() {
+        let sa = line(1.0);
+        let mut a = Annotations::default();
+        a.add(sa.clone());
+        assert_eq!(a.replace(0, sa.clone()), None);
+        assert_eq!(a.replace(5, line(2.0)), None);
+        assert_eq!(a.remove(5), None);
+        // Chỉ còn mục add: một lần hoàn tác là hết.
+        assert!(a.undo().is_some());
+        assert!(!a.can_undo());
+    }
+
+    #[test]
+    fn steps_renumber() {
+        let mut a = Annotations::default();
+        assert_eq!(a.next_step_number(), 1);
+        for x in [1.0, 2.0, 3.0] {
+            a.add(step(x, 0));
+        }
+        assert_eq!(step_ns(&a), vec![1, 2, 3]);
+        assert_eq!(a.next_step_number(), 4);
+        let r = a.remove(0).unwrap();
+        assert_eq!(step_ns(&a), vec![1, 2]);
+        assert_eq!(r.renumbered, vec![0, 1]);
+        let r = a.undo().unwrap();
+        assert_eq!(r.change, Change::Inserted { index: 0 });
+        assert_eq!(step_ns(&a), vec![1, 2, 3]);
+        assert_eq!(r.renumbered, vec![1, 2]);
+        // Hình khác chèn giữa không đổi số Step.
+        let mut b = Annotations::default();
+        b.add(step(1.0, 0));
+        let r = b.add(line(1.0));
+        assert!(r.renumbered.is_empty());
+        b.add(step(2.0, 0));
+        assert_eq!(step_ns(&b), vec![1, 2]);
+        assert_eq!(b.next_step_number(), 3);
+    }
+
+    #[test]
+    fn replace_step_keeps_number() {
+        let mut a = Annotations::default();
+        a.add(step(1.0, 0));
+        a.add(step(2.0, 0));
+        let r = a.replace(1, step(9.0, 99)).unwrap();
+        assert_eq!(
+            r.change,
+            Change::Replaced {
+                index: 1,
+                old: step(2.0, 2)
+            }
+        );
+        assert_eq!(a.shapes()[1], step(9.0, 2));
+        assert_eq!(a.replace(1, step(9.0, 77)), None);
+    }
+
+    #[test]
+    fn history_memory_is_per_shape() {
+        let big = |w: f32| Shape::Pen {
+            points: (0..10_000).map(|i| p(i as f32, 0.0)).collect(),
+            width: w,
+            color: DEFAULT_COLOR,
+        };
+        let first = big(1.0);
+        let mut a = Annotations::default();
+        a.add(first.clone());
+        for i in 0..100 {
+            a.replace(0, big(2.0 + i as f32)).unwrap();
+        }
+        assert_eq!(a.shapes().len(), 1);
+        for _ in 0..100 {
+            assert!(a.undo().is_some());
+        }
+        assert_eq!(a.shapes()[0], first);
     }
 }

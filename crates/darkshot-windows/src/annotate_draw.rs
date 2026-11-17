@@ -354,6 +354,8 @@ fn draw_one(g: *mut GpGraphics, s: &Shape, text: &mut Option<TextStyle>) -> bool
             };
             draw_text(g, style, *origin, t, *size, *color)
         }
+        // Task 46: vẽ elip và vòng số.
+        Shape::Ellipse { .. } | Shape::Step { .. } => true,
     }
 }
 

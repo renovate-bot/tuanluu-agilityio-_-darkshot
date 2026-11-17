@@ -11,8 +11,8 @@ use crate::lang;
 use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
     add_point, blur_pixel_rect, constrain_45, constrain_square, dip_to_px, press_mode,
-    redact_color, sanitize_paste, too_short, Annotations, PressMode, Pt, Shape, TextEdit, Tool,
-    DEFAULT_COLOR, MARKER_DIP, PALETTE, STROKE_DIP, TEXT_DIP,
+    redact_color, sanitize_paste, too_short, Annotations, Change, PressMode, Pt, Shape, TextEdit,
+    Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE, STROKE_DIP, TEXT_DIP,
 };
 use darkshot_core::color::{
     hls_to_rgb, lum_at, lum_y, picker_layout, rgb_to_hls, spectrum_hs, spectrum_point,
@@ -159,6 +159,9 @@ impl SideItem {
             SideItem::Tool(Tool::Marker) => Msg::ToolMarker,
             SideItem::Tool(Tool::Blur) => Msg::ToolBlur,
             SideItem::Tool(Tool::Text) => Msg::ToolText,
+            SideItem::Tool(Tool::Select) => Msg::ToolSelect, // Task 47
+            SideItem::Tool(Tool::Ellipse) => Msg::ToolEllipse, // Task 47
+            SideItem::Tool(Tool::Step) => Msg::ToolStep,     // Task 47
             SideItem::Color => Msg::ToolColor,
             SideItem::Undo => Msg::ToolUndo,
         }
@@ -598,7 +601,8 @@ fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb, img: &Image) -> Option<
             b: p,
             color: pixel_color(img, p).unwrap_or(BLUR_FALLBACK),
         },
-        Tool::Text => return None,
+        // Task 46/47: Select, Ellipse, Step chưa có nét kéo.
+        Tool::Text | Tool::Select | Tool::Ellipse | Tool::Step => return None,
     };
     Some(Stroke {
         tool,
@@ -1475,6 +1479,7 @@ impl State {
             PressMode::Draw => IDC_CROSS,
             PressMode::Ignore => IDC_ARROW,
             PressMode::Selection => cursor_for_hit(hit),
+            PressMode::Pick => IDC_ARROW, // Task 47
         }
     }
 
@@ -1516,17 +1521,19 @@ impl State {
     /// Chốt hình vào `marks`, lưu sẵn hộp bao để khi vẽ bỏ qua hình không giao vùng cần vẽ.
     fn push_mark(&mut self, shape: Shape) {
         self.mark_bounds.push(shape_bounds(&shape));
-        self.marks.push(shape);
+        self.marks.add(shape);
     }
 
     /// Bỏ hình cuối; trả hộp bao của nó.
     fn pop_mark(&mut self) -> Option<Rect> {
-        let shape = self.marks.undo()?;
-        Some(
-            self.mark_bounds
-                .pop()
-                .unwrap_or_else(|| shape_bounds(&shape)),
-        )
+        // Hôm nay chỉ có thêm và hoàn tác, nên mỗi lần hoàn tác là một `Removed`.
+        let Change::Removed { index, shape } = self.marks.undo()?.change else {
+            return None;
+        };
+        if index < self.mark_bounds.len() {
+            return Some(self.mark_bounds.remove(index));
+        }
+        Some(shape_bounds(&shape))
     }
 
     /// Đăng ký (`on`) hoặc gỡ phím tắt Esc toàn cục của lớp phủ. Gỡ khi ô chữ mở để Esc tới được
@@ -2012,7 +2019,7 @@ impl State {
         let rad = self.hit_radius(p);
         let hit = self.sel.hit_test(p, rad);
         match press_mode(self.tool, !self.marks.is_empty(), hit) {
-            PressMode::Ignore => Effects::default(),
+            PressMode::Ignore | PressMode::Pick => Effects::default(), // Task 47: Pick
             PressMode::Draw => {
                 let Some(tool) = self.tool else {
                     return Effects::default();
@@ -3270,7 +3277,8 @@ impl Gp {
                 p.arc(14.5, 14.5, 5.5, 270.0, 180.0);
                 p.line(14.5, 20.0, 9.0, 20.0);
             }
-            SideItem::Color => {}
+            // Task 47: biểu tượng Select, Ellipse, Step.
+            SideItem::Tool(Tool::Select | Tool::Ellipse | Tool::Step) | SideItem::Color => {}
         });
     }
 }
