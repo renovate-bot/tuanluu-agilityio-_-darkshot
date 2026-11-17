@@ -1,10 +1,12 @@
 #![windows_subsystem = "windows"]
 
 mod about;
+mod annotate_draw;
 mod app;
 mod autostart;
 mod capture;
 mod clipboard;
+mod gdiplus;
 mod help;
 mod hotkey;
 mod lang;
