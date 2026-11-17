@@ -1556,6 +1556,24 @@ mod tests {
         assert!(!info_windows_stale(&a, &b));
     }
 
+    /// Lịch sử chỉ có chữ theo ngôn ngữ (không hiện phím tắt): đổi ngôn ngữ thì đóng, đổi phím thì không.
+    #[test]
+    fn history_window_closes_only_when_language_changes() {
+        use std::path::Path;
+        let a = Config::defaults(Path::new("C:/p"), Lang::Vi);
+        assert!(!history_window_stale(&a, &a.clone()));
+        let mut b = a.clone();
+        b.language = Lang::En;
+        assert!(history_window_stale(&a, &b));
+        let mut b = a.clone();
+        b.hotkeys.region.key.ctrl = !b.hotkeys.region.key.ctrl;
+        assert!(info_windows_stale(&a, &b));
+        assert!(!history_window_stale(&a, &b));
+        let mut b = a.clone();
+        b.history_enabled = !b.history_enabled;
+        assert!(!history_window_stale(&a, &b));
+    }
+
     #[test]
     fn info_windows_close_when_any_hotkey_row_changes() {
         use std::path::Path;

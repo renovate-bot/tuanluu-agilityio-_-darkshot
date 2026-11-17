@@ -429,6 +429,7 @@ mod tests {
                 Item(OpenUpdate),
                 Separator,
                 Item(Capture),
+                Item(History),
                 Item(Options),
                 Item(About),
                 Item(Help),
@@ -439,6 +440,7 @@ mod tests {
             menu_layout(false),
             vec![
                 Item(Capture),
+                Item(History),
                 Item(Options),
                 Item(About),
                 Item(Help),

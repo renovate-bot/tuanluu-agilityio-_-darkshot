@@ -3128,6 +3128,89 @@ mod tests {
     }
 
     #[test]
+    fn history_ids_are_153_and_154() {
+        assert_eq!(ID_HISTORY, 153);
+        assert_eq!(ID_HISTORY_NOTE, 154);
+    }
+
+    /// Cấu hình → hộp tích (`general_checks`, theo thứ tự Tab) và hộp tích → cấu hình (`apply_form`).
+    #[test]
+    fn history_check_box_round_trips_config() {
+        for on in [false, true] {
+            let mut c = base();
+            c.history_enabled = on;
+            let checks = general_checks(&c);
+            assert_eq!(
+                checks.map(|(id, _)| id),
+                [
+                    ID_AUTOSTART,
+                    ID_NOTICES,
+                    ID_CHECK_UPDATES,
+                    ID_HISTORY,
+                    ID_KEEP_SELECTION,
+                    ID_INCLUDE_CURSOR
+                ]
+            );
+            assert!(checks.contains(&(ID_HISTORY, on)));
+            let mut f = form_of(&c);
+            f.history_enabled = !on;
+            assert_eq!(apply_form(&c, &f, Lang::Vi).unwrap().history_enabled, !on);
+        }
+    }
+
+    /// Hộp Lịch sử và ghi chú nằm sau "Báo có bản mới", trước nhóm chụp; ghi chú đủ cao cho chữ dài
+    /// nhất (đo thật bằng phông hệ thống) ở 100/150/200%; không ô nào đè ô nào và tất cả trong khung.
+    #[test]
+    fn general_tab_fits_history_note_at_common_dpis() {
+        let texts = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
+        for label_w in [None, Some(250)] {
+            for dpi in [96u32, 144, 192] {
+                let font = crate::winutil::system_font(dpi).expect("system font");
+                let l = Layout::from_label_width(label_w);
+                let w = general_note_width(l);
+                let note_h = note_height_dip(font, dpi as i32, &texts, w).expect("measure");
+                for text in texts {
+                    let need = text_height_px(font, text, scale(w, dpi)).expect("measure px");
+                    assert!(
+                        scale(note_h, dpi) >= need,
+                        "dpi {dpi}: note {note_h} DIP < {need} px"
+                    );
+                }
+                // Câu dài: ít nhất hai dòng ở bề rộng tối thiểu, không quá năm dòng.
+                let one = text_height_px(font, "Ag", 10_000).unwrap();
+                assert!(scale(note_h, dpi) >= one, "dpi {dpi}");
+                assert!(scale(note_h, dpi) <= one * 5 + scale(4, dpi), "dpi {dpi}");
+                // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn nó.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(font.0));
+                }
+
+                let g = general_layout(l, note_h);
+                assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
+                assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
+                assert!(g.history_note.1 < g.keep_selection.1, "dpi {dpi}");
+                assert_eq!(g.history_note.3, note_h);
+                let rects = g.rects();
+                let px = |r: (i32, i32, i32, i32)| {
+                    let (x, y) = (scale(r.0, dpi), scale(r.1, dpi));
+                    (x, y, x + scale(r.2, dpi), y + scale(r.3, dpi))
+                };
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.0 >= LX && a.1 >= 0, "dpi {dpi}: {a:?}");
+                    // Khung rộng `client_w - 24` trừ viền dải tab: chừa thêm 12 DIP.
+                    assert!(a.0 + a.2 <= l.client_w - 36, "dpi {dpi}: {a:?}");
+                    assert!(a.1 + a.3 <= g.height, "dpi {dpi}: {a:?}");
+                    for b in &rects[i + 1..] {
+                        let (pa, pb) = (px(*a), px(*b));
+                        let apart = pa.2 <= pb.0 || pb.2 <= pa.0 || pa.3 <= pb.1 || pb.3 <= pa.1;
+                        assert!(apart, "dpi {dpi}: {a:?} overlaps {b:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn check_updates_follows_form_and_notified_is_kept() {
         let mut c = base();
         c.update_notified = Some(darkshot_core::update::Version {
@@ -3881,7 +3964,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..12 {
+            for _ in 0..13 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -3890,6 +3973,7 @@ mod tests {
                 ID_AUTOSTART,
                 ID_NOTICES,
                 ID_CHECK_UPDATES,
+                ID_HISTORY,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
                 ID_DIR,
