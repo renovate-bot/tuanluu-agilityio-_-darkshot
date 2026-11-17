@@ -361,6 +361,9 @@ messages! {
     HistoryToday => ("Hôm nay", "Today"),
     HistoryYesterday => ("Hôm qua", "Yesterday"),
     ChkHistory => ("Bật lịch sử ảnh chụp", "Enable Screenshot History"),
+    ChkSnapWindows => ("", ""),
+    OverlayHintSnap => ("", ""),
+    OverlayHintDrag => ("", ""),
     NoteHistory => (
         "Lưu lịch sử ảnh chụp trên thiết bị này. Ảnh không được gửi đến máy chủ bổ sung.",
         "Keep a local history of screenshots on this device. Images are never sent to an additional server."
@@ -1051,6 +1054,24 @@ mod tests {
                 s
             );
         }
+    }
+
+    #[test]
+    fn snap_strings_and_help() {
+        for m in [
+            Msg::ChkSnapWindows,
+            Msg::OverlayHintSnap,
+            Msg::OverlayHintDrag,
+        ] {
+            assert!(!t(Lang::Vi, m).is_empty() && !t(Lang::En, m).is_empty());
+            assert_ne!(t(Lang::Vi, m), t(Lang::En, m));
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("Enter") && vi.contains("rê chuột lên một cửa sổ"));
+        assert!(en.contains("Enter") && en.contains("hover a window"));
+        assert!(vi.contains("Esc lùi một bước"));
+        assert!(en.contains("Esc steps back"));
     }
 
     #[test]
