@@ -11,15 +11,16 @@ use crate::lang;
 use darkshot_core::actions::Action;
 use darkshot_core::annotate::{
     add_point, blur_pixel_rect, constrain_45, constrain_square, dip_to_px, press_mode,
-    redact_color, sanitize_paste, too_short, Annotations, Change, PressMode, Pt, Shape, TextEdit,
-    Tool, DEFAULT_COLOR, MARKER_DIP, PALETTE, STROKE_DIP, TEXT_DIP,
+    redact_color, sanitize_paste, too_short, Annotations, Applied, Change, PressMode, Pt, Shape,
+    SizeLevel, TextEdit, Tool, DEFAULT_COLOR, PALETTE,
 };
 use darkshot_core::color::{
     hls_to_rgb, lum_at, lum_y, picker_layout, rgb_to_hls, spectrum_hs, spectrum_point,
     CustomColors, Hls, PickerLayout, CUSTOM_SLOTS, HLS_MAX, HUE_MAX, RGB_MAX,
 };
 use darkshot_core::geometry::{
-    monitor_containing, place_side_toolbar, place_toolbar, Handle, Hit, Point, Rect, Selection,
+    monitor_containing, place_side_toolbar, place_toolbar, side_layout, Handle, Hit, Point, Rect,
+    Selection, SideLayout,
 };
 use darkshot_core::i18n::{self, Msg};
 use darkshot_core::image::Image;
@@ -44,9 +45,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Graphics::GdiPlus::{
     DashCapFlat, FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure,
-    GdipCreatePath, GdipCreatePen1, GdipDeletePath, GdipDeletePen, GdipDrawPath,
-    GdipSetPenLineCap197819, GdipSetPenLineJoin, GdipStartPathFigure, GpPath, LineCapRound,
-    LineJoinRound, UnitPixel,
+    GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeletePath,
+    GdipDeletePen, GdipDrawPath, GdipFillEllipse, GdipSetPenLineCap197819, GdipSetPenLineJoin,
+    GdipStartPathFigure, GpBrush, GpPath, GpSolidFill, LineCapRound, LineJoinRound, UnitPixel,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
@@ -59,7 +60,8 @@ use windows::Win32::UI::Input::Ime::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetCapture, GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus,
     UnregisterHotKey, MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
-    VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_TAB, VK_UP,
+    VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_OEM_4, VK_OEM_6, VK_RETURN, VK_RIGHT, VK_SHIFT,
+    VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -131,6 +133,8 @@ fn cr(c: Rgb) -> COLORREF {
 thread_local! {
     /// Màu nét nhớ qua các lần mở lớp phủ trong tiến trình.
     static LAST_COLOR: Cell<Rgb> = const { Cell::new(DEFAULT_COLOR) };
+    /// Mức cỡ nhớ qua các lần mở lớp phủ trong tiến trình.
+    static LAST_SIZE: Cell<SizeLevel> = const { Cell::new(SizeLevel::Medium) };
 }
 
 /// Kết quả chọn vùng: hành động, vùng (tọa độ ảnh chụp) và các hình đã vẽ (tọa độ ảnh chụp).
@@ -145,79 +149,116 @@ pub struct Picked {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SideItem {
     Tool(Tool),
+    Size,
     Color,
     Undo,
+    Redo,
 }
 
 impl SideItem {
     fn tip(self) -> Msg {
         match self {
+            SideItem::Tool(Tool::Select) => Msg::ToolSelect,
             SideItem::Tool(Tool::Pen) => Msg::ToolPen,
             SideItem::Tool(Tool::Line) => Msg::ToolLine,
             SideItem::Tool(Tool::Arrow) => Msg::ToolArrow,
             SideItem::Tool(Tool::Rect) => Msg::ToolRect,
+            SideItem::Tool(Tool::Ellipse) => Msg::ToolEllipse,
             SideItem::Tool(Tool::Marker) => Msg::ToolMarker,
             SideItem::Tool(Tool::Blur) => Msg::ToolBlur,
             SideItem::Tool(Tool::Text) => Msg::ToolText,
-            SideItem::Tool(Tool::Select) => Msg::ToolSelect, // Task 47
-            SideItem::Tool(Tool::Ellipse) => Msg::ToolEllipse, // Task 47
-            SideItem::Tool(Tool::Step) => Msg::ToolStep,     // Task 47
+            SideItem::Tool(Tool::Step) => Msg::ToolStep,
+            SideItem::Size => Msg::ToolSize,
             SideItem::Color => Msg::ToolColor,
             SideItem::Undo => Msg::ToolUndo,
+            SideItem::Redo => Msg::ToolRedo,
         }
     }
 }
 
-/// Thứ tự trên thanh dọc; vạch ngăn nằm trước Màu và trước Hoàn tác.
-const SIDE_ITEMS: [SideItem; 9] = [
+/// Thứ tự trên thanh dọc (thiết kế mục 3): Chọn | chín công cụ vẽ | Cỡ, Màu | Hoàn tác, Làm lại.
+const SIDE_ITEMS: [SideItem; 14] = [
+    SideItem::Tool(Tool::Select),
     SideItem::Tool(Tool::Pen),
     SideItem::Tool(Tool::Line),
     SideItem::Tool(Tool::Arrow),
     SideItem::Tool(Tool::Rect),
+    SideItem::Tool(Tool::Ellipse),
     SideItem::Tool(Tool::Marker),
     SideItem::Tool(Tool::Blur),
     SideItem::Tool(Tool::Text),
+    SideItem::Tool(Tool::Step),
+    SideItem::Size,
     SideItem::Color,
     SideItem::Undo,
+    SideItem::Redo,
 ];
-/// Chỉ số của nút Màu trong `SIDE_ITEMS`.
-const COLOR_INDEX: usize = 7;
+/// Vạch ngăn nằm trước các mục này của `SIDE_ITEMS`.
+const SIDE_SEPS: [usize; 3] = [1, 10, 12];
 
-/// Số vạch ngăn nằm phía trên mục thứ `i`.
-fn seps_before(i: usize) -> i32 {
-    match i {
-        0..=6 => 0,
-        7 => 1,
-        _ => 2,
-    }
+/// Vị trí của `item` trong `SIDE_ITEMS` (mọi mục đều có mặt).
+fn side_index(item: SideItem) -> usize {
+    SIDE_ITEMS.iter().position(|x| *x == item).unwrap_or(0)
 }
 
-/// Cỡ thanh dọc với nút `b` và ô vạch ngăn cao `sep` (gồm lề).
-fn side_bar_size(b: i32, sep: i32) -> (i32, i32) {
-    (b, b * SIDE_ITEMS.len() as i32 + 2 * sep)
+/// Bố cục thanh dọc trên màn hình `mon` ở `dpi`: một cột, hoặc hai cột khi một cột cao hơn màn
+/// hình trừ lề `GAP` hai đầu.
+fn side_layout_for(mon: Rect, dpi: u32) -> SideLayout {
+    side_layout(
+        SIDE_ITEMS.len(),
+        &SIDE_SEPS,
+        scaled(BUTTON, dpi),
+        scaled(SIDE_SEP, dpi),
+        mon.h - 2 * scaled(GAP, dpi),
+    )
 }
 
-/// Ô của mục thứ `i` trên thanh dọc `bar` (nút vuông cạnh `bar.w`).
-fn side_item_rect(bar: Rect, sep: i32, i: usize) -> Rect {
-    let b = bar.w;
-    Rect {
-        x: bar.x,
-        y: bar.y + b * i as i32 + sep * seps_before(i),
-        w: b,
-        h: b,
-    }
+/// Ô của mục thứ `i` trên thanh dọc đặt tại `side` với bố cục `l`.
+fn side_item_rect(side: Rect, l: &SideLayout, i: usize) -> Option<Rect> {
+    l.items.get(i).map(|r| Rect {
+        x: side.x + r.x,
+        y: side.y + r.y,
+        ..*r
+    })
 }
 
 /// Mục của thanh dọc dưới điểm `p`; vạch ngăn và lề của nó trả `None`.
-fn side_item_at(bar: Rect, sep: i32, p: Point) -> Option<SideItem> {
-    if bar.w <= 0 || !bar.contains(p) {
+fn side_item_at(side: Rect, l: &SideLayout, p: Point) -> Option<SideItem> {
+    if side.w <= 0 || !side.contains(p) {
         return None;
     }
-    SIDE_ITEMS
-        .iter()
-        .enumerate()
-        .find(|(i, _)| side_item_rect(bar, sep, *i).contains(p))
-        .map(|(_, item)| *item)
+    (0..SIDE_ITEMS.len())
+        .find(|i| side_item_rect(side, l, *i).is_some_and(|r| r.contains(p)))
+        .and_then(|i| SIDE_ITEMS.get(i).copied())
+}
+
+/// Gợi ý của ô mức cỡ.
+fn size_tip(level: SizeLevel) -> Msg {
+    match level {
+        SizeLevel::Small => Msg::SizeSmall,
+        SizeLevel::Medium => Msg::SizeMedium,
+        SizeLevel::Large => Msg::SizeLarge,
+        SizeLevel::Huge => Msg::SizeHuge,
+    }
+}
+
+/// `[` (`VK_OEM_4`) giảm, `]` (`VK_OEM_6`) tăng mức cỡ; phím khác `None`.
+fn size_for_key(level: SizeLevel, vk: u16) -> Option<SizeLevel> {
+    match VIRTUAL_KEY(vk) {
+        VK_OEM_4 => Some(level.smaller()),
+        VK_OEM_6 => Some(level.larger()),
+        _ => None,
+    }
+}
+
+/// Đường kính chấm của mức cỡ trên lưới biểu tượng 24.
+fn size_dot(level: SizeLevel) -> f32 {
+    match level {
+        SizeLevel::Small => 6.0,
+        SizeLevel::Medium => 9.0,
+        SizeLevel::Large => 12.0,
+        SizeLevel::Huge => 15.0,
+    }
 }
 
 /// Màu hiện tại của phần tự chọn: giữ cả HLS và RGB (như hộp Windows) để sửa một ô số không làm
@@ -467,7 +508,7 @@ fn bars_for(sel: Rect, mon: Rect, dpi: u32) -> (Rect, Rect) {
     let b = scaled(BUTTON, dpi);
     let gap = scaled(GAP, dpi);
     let bar = place_toolbar(sel, (b * ACTIONS.len() as i32, b), gap, mon);
-    let size = side_bar_size(b, scaled(SIDE_SEP, dpi));
+    let size = side_layout_for(mon, dpi).size;
     let side = place_side_toolbar(sel, size, gap, mon, Some(bar));
     (bar, side)
 }
@@ -484,13 +525,12 @@ fn clamp_into(mut r: Rect, m: Rect) -> Rect {
     r
 }
 
-/// Bảng màu (dạng gọn hoặc đủ theo `expanded`) cạnh nút Màu của thanh dọc `side`: bên trái thanh
-/// nếu thanh nằm nửa phải vùng chọn, ngược lại bên phải; giữa theo chiều dọc nút Màu; kẹp vào màn
-/// hình `mon` (màn hình hẹp hơn bảng thì bảng sát mép trái màn hình).
-fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32, expanded: bool) -> Rect {
+/// Bảng cỡ `size` cạnh nút `btn` của thanh dọc `side`: bên trái thanh nếu thanh nằm nửa phải vùng
+/// chọn, ngược lại bên phải; giữa theo chiều dọc nút; kẹp vào màn hình `mon` (màn hình hẹp hơn bảng
+/// thì bảng sát mép trái màn hình).
+fn flyout_rect(side: Rect, btn: Rect, sel: Rect, mon: Rect, dpi: u32, size: (i32, i32)) -> Rect {
     let gap = scaled(GAP, dpi);
-    let (w, h) = picker_layout(dpi, expanded).size;
-    let btn = side_item_rect(side, scaled(SIDE_SEP, dpi), COLOR_INDEX);
+    let (w, h) = size;
     let x = if side_on_right(side, sel) {
         side.x - gap - w
     } else {
@@ -505,6 +545,51 @@ fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32, expanded: bool) 
         },
         mon,
     )
+}
+
+/// Ô của mục `item` trên thanh dọc `side` (bố cục theo màn hình `mon`).
+fn side_button(side: Rect, mon: Rect, dpi: u32, item: SideItem) -> Rect {
+    let l = side_layout_for(mon, dpi);
+    side_item_rect(side, &l, side_index(item)).unwrap_or(side)
+}
+
+/// Bảng màu (dạng gọn hoặc đủ theo `expanded`) cạnh nút Màu của thanh dọc `side`.
+fn palette_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32, expanded: bool) -> Rect {
+    let btn = side_button(side, mon, dpi, SideItem::Color);
+    flyout_rect(side, btn, sel, mon, dpi, picker_layout(dpi, expanded).size)
+}
+
+/// Bảng Cỡ cạnh nút Cỡ `btn`: bốn ô vuông `BUTTON` ngang, lề `GAP`.
+fn size_flyout_rect(side: Rect, btn: Rect, sel: Rect, mon: Rect, dpi: u32) -> Rect {
+    let (b, gap) = (scaled(BUTTON, dpi), scaled(GAP, dpi));
+    let n = SizeLevel::ALL.len() as i32;
+    flyout_rect(side, btn, sel, mon, dpi, (n * b + 2 * gap, b + 2 * gap))
+}
+
+/// Bảng Cỡ cạnh nút Cỡ của thanh dọc `side`.
+fn size_rect_for(side: Rect, sel: Rect, mon: Rect, dpi: u32) -> Rect {
+    let btn = side_button(side, mon, dpi, SideItem::Size);
+    size_flyout_rect(side, btn, sel, mon, dpi)
+}
+
+/// Ô thứ `i` (theo `SizeLevel::ALL`) của bảng Cỡ `fly`.
+fn size_cell_rect(fly: Rect, dpi: u32, i: usize) -> Rect {
+    let (b, gap) = (scaled(BUTTON, dpi), scaled(GAP, dpi));
+    Rect {
+        x: fly.x + gap + b * i as i32,
+        y: fly.y + gap,
+        w: b,
+        h: b,
+    }
+}
+
+/// Mức cỡ dưới điểm `p` của bảng Cỡ `fly`; lề trả `None`.
+fn size_cell_at(fly: Rect, dpi: u32, p: Point) -> Option<SizeLevel> {
+    SizeLevel::ALL
+        .iter()
+        .enumerate()
+        .find(|(i, _)| size_cell_rect(fly, dpi, *i).contains(p))
+        .map(|(_, l)| *l)
 }
 
 /// Phím bổ trợ giả cho kiểm thử gửi thông điệp (bit 0: Ctrl, bit 1: Shift).
@@ -558,13 +643,21 @@ fn blur_color(img: &Image, a: Pt, b: Pt, old: Rgb) -> Rgb {
     redact_color(img, blur_pixel_rect(a, b)).unwrap_or(old)
 }
 
-/// Bắt đầu nét tại `p` với độ dày theo `dpi` của màn hình chứa `p`; `None` với Chữ.
+/// Bắt đầu nét tại `p` với độ dày theo mức `level` và `dpi` của màn hình chứa `p`; `None` với
+/// Chữ, Chọn, Đánh số (không có nét kéo).
 /// `img`: ảnh chụp gốc (màu che của Làm mờ; màu `color` của bảng màu không dùng cho nó).
-fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb, img: &Image) -> Option<Stroke> {
+fn begin_stroke(
+    tool: Tool,
+    p: Pt,
+    dpi: u32,
+    level: SizeLevel,
+    color: Rgb,
+    img: &Image,
+) -> Option<Stroke> {
     let dip = if tool == Tool::Marker {
-        MARKER_DIP
+        level.marker_dip()
     } else {
-        STROKE_DIP
+        level.stroke_dip()
     };
     let width = dip_to_px(dip, dpi);
     let shape = match tool {
@@ -596,13 +689,18 @@ fn begin_stroke(tool: Tool, p: Pt, dpi: u32, color: Rgb, img: &Image) -> Option<
             width,
             color,
         },
+        Tool::Ellipse => Shape::Ellipse {
+            a: p,
+            b: p,
+            width,
+            color,
+        },
         Tool::Blur => Shape::Blur {
             a: p,
             b: p,
             color: pixel_color(img, p).unwrap_or(BLUR_FALLBACK),
         },
-        // Task 46/47: Select, Ellipse, Step chưa có nét kéo.
-        Tool::Text | Tool::Select | Tool::Ellipse | Tool::Step => return None,
+        Tool::Text | Tool::Select | Tool::Step => return None,
     };
     Some(Stroke {
         tool,
@@ -671,12 +769,15 @@ fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool, img: &Image) -> Option<Rect
         _ => {
             let end = match (s.tool, shift) {
                 (Tool::Line | Tool::Arrow, true) => constrain_45(s.start, p),
-                (Tool::Rect | Tool::Blur, true) => constrain_square(s.start, p),
+                (Tool::Rect | Tool::Ellipse | Tool::Blur, true) => constrain_square(s.start, p),
                 _ => p,
             };
             let before = s.shape.bounds();
             match &mut s.shape {
-                Shape::Line { b, .. } | Shape::Arrow { b, .. } | Shape::Rect { b, .. } => {
+                Shape::Line { b, .. }
+                | Shape::Arrow { b, .. }
+                | Shape::Rect { b, .. }
+                | Shape::Ellipse { b, .. } => {
                     if *b == end {
                         return None;
                     }
@@ -696,13 +797,15 @@ fn extend_stroke(s: &mut Stroke, p: Pt, shift: bool, img: &Image) -> Option<Rect
     }
 }
 
-/// Hình chốt từ nét vừa vẽ; `None` khi Đường thẳng, Mũi tên, Hình chữ nhật, Làm mờ quá ngắn.
+/// Hình chốt từ nét vừa vẽ; `None` khi Đường thẳng, Mũi tên, Hình chữ nhật, Hình elip, Làm mờ
+/// quá ngắn.
 /// Làm mờ: màu che tính lại lần cuối trên ảnh gốc `img`.
 fn end_stroke(s: Stroke, img: &Image) -> Option<Shape> {
     match s.shape {
         Shape::Line { a, b, .. }
         | Shape::Arrow { a, b, .. }
         | Shape::Rect { a, b, .. }
+        | Shape::Ellipse { a, b, .. }
         | Shape::Blur { a, b, .. }
             if too_short(s.tool, a, b) =>
         {
@@ -715,6 +818,52 @@ fn end_stroke(s: Stroke, img: &Image) -> Option<Shape> {
         }),
         shape => Some(shape),
     }
+}
+
+/// Áp một thay đổi của sổ hình (`a`, đã áp vào `shapes`) lên danh sách hộp bao `bounds` (cùng độ
+/// dài, thứ tự với `shapes`): Inserted chèn hộp mới tại vị trí, Removed bỏ hộp tại vị trí, Replaced
+/// tính lại hộp tại vị trí; các vòng số đổi `n` được tính lại. Trả các vùng cần làm mới (hộp cũ và
+/// mới). Lệch độ dài (không nên xảy ra) thì dựng lại cả danh sách và làm mới mọi hộp.
+fn apply_bounds(bounds: &mut Vec<Rect>, shapes: &[Shape], a: &Applied) -> Vec<Rect> {
+    let mut dirty = Vec::new();
+    match &a.change {
+        Change::Inserted { index } => {
+            if let (Some(s), true) = (shapes.get(*index), *index <= bounds.len()) {
+                let r = shape_bounds(s);
+                bounds.insert(*index, r);
+                dirty.push(r);
+            }
+        }
+        Change::Removed { index, shape } => {
+            if *index < bounds.len() {
+                dirty.push(bounds.remove(*index));
+            } else {
+                dirty.push(shape_bounds(shape));
+            }
+        }
+        Change::Replaced { index, old } => {
+            if let Some(s) = shapes.get(*index) {
+                let r = shape_bounds(s);
+                match bounds.get_mut(*index) {
+                    Some(slot) => dirty.push(std::mem::replace(slot, r)),
+                    None => dirty.push(shape_bounds(old)),
+                }
+                dirty.push(r);
+            }
+        }
+    }
+    for i in &a.renumbered {
+        if let (Some(s), Some(slot)) = (shapes.get(*i), bounds.get_mut(*i)) {
+            let r = shape_bounds(s);
+            dirty.push(std::mem::replace(slot, r));
+            dirty.push(r);
+        }
+    }
+    if bounds.len() != shapes.len() {
+        *bounds = shapes.iter().map(shape_bounds).collect();
+        dirty.extend(bounds.iter().copied());
+    }
+    dirty
 }
 
 const NO_RECT: Rect = Rect {
@@ -731,6 +880,8 @@ struct TextBox {
     at: Point,
     /// DPI của màn hình chứa `at`.
     dpi: u32,
+    /// Cỡ chữ (px).
+    size: f32,
     /// Con trỏ nháy (tọa độ ảnh chụp).
     caret: Rect,
     /// Khung nét đứt (tọa độ ảnh chụp).
@@ -738,16 +889,13 @@ struct TextBox {
 }
 
 impl TextBox {
-    fn new(at: Point, dpi: u32, color: Rgb) -> TextBox {
-        let origin = Pt {
-            x: at.x as f32,
-            y: at.y as f32,
-        };
-        let edit = TextEdit::new(origin, dip_to_px(TEXT_DIP, dpi), color);
+    fn new(at: Point, dpi: u32, level: SizeLevel, color: Rgb) -> TextBox {
+        let size = dip_to_px(level.text_dip(), dpi);
         let mut b = TextBox {
-            edit,
+            edit: TextEdit::new(Self::origin(at), size, color),
             at,
             dpi,
+            size,
             caret: NO_RECT,
             frame: NO_RECT,
         };
@@ -774,6 +922,28 @@ impl TextBox {
         }
         .unwrap_or(self.caret);
         self.frame = inflate(base, scaled(TEXT_FRAME_PAD, self.dpi));
+    }
+
+    fn origin(at: Point) -> Pt {
+        Pt {
+            x: at.x as f32,
+            y: at.y as f32,
+        }
+    }
+
+    /// Đổi cỡ chữ theo mức `level` (giữ chữ, màu `color`, vị trí con trỏ) rồi đo lại.
+    fn resize(&mut self, level: SizeLevel, color: Rgb) {
+        self.size = dip_to_px(level.text_dip(), self.dpi);
+        let text = self.edit.text();
+        let caret = self.edit.caret();
+        let mut edit = TextEdit::new(Self::origin(self.at), self.size, color);
+        edit.insert(&text);
+        // Sau khi chèn, con trỏ ở cuối chữ: lùi về chỗ cũ.
+        for _ in caret..edit.caret() {
+            edit.left();
+        }
+        self.edit = edit;
+        self.measure();
     }
 
     /// Vùng màn hình ô chiếm (chữ, khung, con trỏ).
@@ -1023,6 +1193,13 @@ struct State {
     esc_registered: bool,
     /// Màu cho hình vẽ sau đó.
     color: Rgb,
+    /// Mức cỡ cho hình vẽ sau đó.
+    size: SizeLevel,
+    /// Bảng Cỡ đang mở.
+    sizes_open: bool,
+    /// Ô của bảng Cỡ đang rê chuột, đang được nhấn (tác dụng khi nhả trên cùng ô).
+    size_hover: Option<SizeLevel>,
+    size_pressed: Option<SizeLevel>,
     /// Nét đang kéo (chưa chốt vào `marks`).
     stroke: Option<Stroke>,
     side_hover: Option<SideItem>,
@@ -1079,6 +1256,8 @@ struct Bars {
     bar: Rect,
     /// Thanh công cụ vẽ (dọc).
     side: Rect,
+    /// Bố cục thanh dọc (tương đối `side`).
+    sl: SideLayout,
 }
 
 /// DC bộ nhớ có DIB 32 bit cố định được chọn sẵn; giải phóng khi drop.
@@ -1195,6 +1374,7 @@ impl State {
             dpi,
             bar,
             side,
+            sl: side_layout_for(mon, dpi),
         })
     }
 
@@ -1207,8 +1387,23 @@ impl State {
     }
 
     fn side_item_at(&self, p: Point) -> Option<SideItem> {
-        let (side, dpi) = self.side_bar()?;
-        side_item_at(side, scaled(SIDE_SEP, dpi), p)
+        let b = self.bars()?;
+        side_item_at(b.side, &b.sl, p)
+    }
+
+    /// Bảng Cỡ khi đang mở.
+    fn size_rect(&self) -> Option<(Rect, u32)> {
+        if !self.sizes_open {
+            return None;
+        }
+        let b = self.bars()?;
+        Some((size_rect_for(b.side, b.sel, b.mon, b.dpi), b.dpi))
+    }
+
+    /// Ô mức cỡ dưới `p`; `None` khi bảng Cỡ đóng hoặc `p` không trên ô nào.
+    fn size_cell_at(&self, p: Point) -> Option<SizeLevel> {
+        let (fly, dpi) = self.size_rect()?;
+        size_cell_at(fly, dpi, p)
     }
 
     /// Bảng màu khi đang mở.
@@ -1323,6 +1518,9 @@ impl State {
 
     /// Chú thích của nút đang rê chuột (thanh bốn nút hoặc thanh dọc): vị trí, chữ, DPI.
     fn tooltip(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
+        if self.size_hover.is_some() {
+            return self.size_tooltip();
+        }
         if self.side_hover.is_some() {
             return self.side_tooltip();
         }
@@ -1367,7 +1565,7 @@ impl State {
         let b = self.bars()?;
         let dpi = b.dpi;
         let i = SIDE_ITEMS.iter().position(|x| *x == item)?;
-        let btn = side_item_rect(b.side, scaled(SIDE_SEP, dpi), i);
+        let btn = side_item_rect(b.side, &b.sl, i)?;
         let text = wide(lang::tr(item.tip()));
         let (tw, th) = self.text_size(&text, dpi);
         let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
@@ -1399,13 +1597,46 @@ impl State {
         Some((rect, text, dpi))
     }
 
-    /// Thanh dọc, bảng màu và chú thích: các vùng đổi khi chọn công cụ, màu, rê chuột trên thanh.
+    /// Chú thích của ô bảng Cỡ đang rê chuột: trên bảng (không đủ chỗ thì dưới), giữa theo ô.
+    fn size_tooltip(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
+        let level = self.size_hover?;
+        let (fly, dpi) = self.size_rect()?;
+        let mon = self.bars()?.mon;
+        let i = SizeLevel::ALL.iter().position(|l| *l == level)?;
+        let cell = size_cell_rect(fly, dpi, i);
+        let text = wide(lang::tr(size_tip(level)));
+        let (tw, th) = self.text_size(&text, dpi);
+        let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
+        let gap = scaled(7, dpi);
+        let above = fly.y - gap - h;
+        let y = if above >= mon.y {
+            above
+        } else {
+            fly.bottom() + gap
+        };
+        let rect = clamp_into(
+            Rect {
+                x: cell.x + cell.w / 2 - w / 2,
+                y,
+                w,
+                h,
+            },
+            mon,
+        );
+        Some((rect, text, dpi))
+    }
+
+    /// Thanh dọc, bảng màu, bảng Cỡ và chú thích: các vùng đổi khi chọn công cụ, màu, cỡ, rê
+    /// chuột trên thanh.
     fn bar_chrome(&mut self) -> Vec<Rect> {
         let mut v = Vec::new();
         if let Some((r, _)) = self.side_bar() {
             v.push(inflate(r, 1));
         }
         if let Some((r, _)) = self.palette_rect() {
+            v.push(inflate(r, 1));
+        }
+        if let Some((r, _)) = self.size_rect() {
             v.push(inflate(r, 1));
         }
         if let Some((r, _, _)) = self.tooltip() {
@@ -1462,8 +1693,8 @@ impl State {
         if self.dragging() {
             return self.drag_cursor;
         }
-        if self.palette {
-            // Bảng màu mở: cú bấm nào ngoài bảng cũng chỉ đóng bảng.
+        if self.palette || self.sizes_open {
+            // Bảng màu hay bảng Cỡ mở: cú bấm nào ngoài bảng cũng chỉ đóng bảng.
             return IDC_ARROW;
         }
         let on_bar = [self.toolbar(), self.side_bar(), self.palette_rect()]
@@ -1503,7 +1734,11 @@ impl State {
     }
 
     /// Hoàn tác. Đang gõ: ô có chữ thì chỉ xóa ô đó; ô rỗng thì hủy ô rồi hoàn tác hình cuối.
+    /// Đang kéo: không làm gì.
     fn undo(&mut self) {
+        if self.dragging() {
+            return;
+        }
         if let Some(b) = &self.text {
             let had_text = !b.edit.text().is_empty();
             self.close_text(false);
@@ -1511,29 +1746,34 @@ impl State {
                 return;
             }
         }
-        let mut removed = None;
-        self.update_bars(|s| removed = s.pop_mark());
-        if let Some(r) = removed {
-            self.invalidate(&[r]);
+        if let Some(a) = self.marks.undo() {
+            self.apply_change(&a);
         }
     }
 
-    /// Chốt hình vào `marks`, lưu sẵn hộp bao để khi vẽ bỏ qua hình không giao vùng cần vẽ.
-    fn push_mark(&mut self, shape: Shape) {
-        self.mark_bounds.push(shape_bounds(&shape));
-        self.marks.add(shape);
+    /// Làm lại. Ô chữ đang mở hoặc đang kéo: không làm gì.
+    fn redo(&mut self) {
+        if self.text.is_some() || self.dragging() {
+            return;
+        }
+        if let Some(a) = self.marks.redo() {
+            self.apply_change(&a);
+        }
     }
 
-    /// Bỏ hình cuối; trả hộp bao của nó.
-    fn pop_mark(&mut self) -> Option<Rect> {
-        // Hôm nay chỉ có thêm và hoàn tác, nên mỗi lần hoàn tác là một `Removed`.
-        let Change::Removed { index, shape } = self.marks.undo()?.change else {
-            return None;
-        };
-        if index < self.mark_bounds.len() {
-            return Some(self.mark_bounds.remove(index));
-        }
-        Some(shape_bounds(&shape))
+    /// Thêm hình vào `marks` (ghi sổ) và áp thay đổi.
+    fn add_mark(&mut self, shape: Shape) {
+        let a = self.marks.add(shape);
+        self.apply_change(&a);
+    }
+
+    /// Sau mỗi thay đổi của sổ hình: cập nhật `mark_bounds` (để khi vẽ bỏ qua hình không giao vùng
+    /// cần vẽ), làm mới hộp cũ và mới (cả các vòng số đổi `n`) và thanh dọc (Hoàn tác, Làm lại).
+    fn apply_change(&mut self, a: &Applied) {
+        let dirty = apply_bounds(&mut self.mark_bounds, self.marks.shapes(), a);
+        self.invalidate(&dirty);
+        let bars = self.bar_chrome();
+        self.invalidate(&bars);
     }
 
     /// Đăng ký (`on`) hoặc gỡ phím tắt Esc toàn cục của lớp phủ. Gỡ khi ô chữ mở để Esc tới được
@@ -1586,9 +1826,9 @@ impl State {
 
     /// Mở ô chữ tại `p` (đã chốt ô cũ).
     fn open_text(&mut self, p: Point) {
-        let b = TextBox::new(p, self.dpi_at(p), self.color);
+        let b = TextBox::new(p, self.dpi_at(p), self.size, self.color);
         self.invalidate(&[b.dirty()]);
-        place_ime(self.hwnd, b.caret, dip_to_px(TEXT_DIP, b.dpi));
+        place_ime(self.hwnd, b.caret, b.size);
         self.text = Some(b);
         self.high_surrogate = None;
         self.set_esc_hotkey(false);
@@ -1620,10 +1860,8 @@ impl State {
         self.set_esc_hotkey(true);
         if commit {
             if let Some(shape) = b.edit.to_shape() {
-                self.push_mark(shape);
-                // Chữ hoàn tất từ bộ gõ có thể vượt khung cũ.
-                let added: Vec<Rect> = self.mark_bounds.last().copied().into_iter().collect();
-                self.invalidate(&added);
+                // Làm mới cả hộp của hình mới: chữ hoàn tất từ bộ gõ có thể vượt khung cũ.
+                self.add_mark(shape);
             }
         }
         // Nút Hoàn tác có thể đổi trạng thái (mờ, sáng).
@@ -1639,7 +1877,7 @@ impl State {
         let before = b.dirty();
         f(&mut b.edit);
         b.measure();
-        let (after, caret, size) = (b.dirty(), b.caret, dip_to_px(TEXT_DIP, b.dpi));
+        let (after, caret, size) = (b.dirty(), b.caret, b.size);
         self.invalidate(&[before, after]);
         place_ime(self.hwnd, caret, size);
         self.restart_blink();
@@ -1692,7 +1930,8 @@ impl State {
     fn text_key(&mut self, vk: u16) {
         if key_held(VK_CONTROL) {
             match vk {
-                0x5A => self.undo(),  // Z
+                // Z; Ctrl+Shift+Z (làm lại) và Ctrl+Y khi ô mở: không làm gì.
+                0x5A if !key_held(VK_SHIFT) => self.undo(),
                 0x56 => self.paste(), // V
                 0x44 => self.finish(Action::Upload),
                 0x53 => self.finish(Action::Save),
@@ -1734,7 +1973,10 @@ impl State {
         let Some(st) = self.stroke.as_mut() else {
             return;
         };
-        if !matches!(st.tool, Tool::Line | Tool::Arrow | Tool::Rect | Tool::Blur) {
+        if !matches!(
+            st.tool,
+            Tool::Line | Tool::Arrow | Tool::Rect | Tool::Ellipse | Tool::Blur
+        ) {
             return;
         }
         let at = st.cursor;
@@ -1771,6 +2013,7 @@ impl State {
 
     fn open_palette(&mut self) {
         self.update_bars(|s| {
+            s.close_sizes_state();
             s.palette = true;
             s.pick = PickColor::from_rgb(s.color);
             s.target = None;
@@ -1779,12 +2022,56 @@ impl State {
         });
     }
 
+    fn close_sizes_state(&mut self) {
+        self.sizes_open = false;
+        self.size_hover = None;
+        self.size_pressed = None;
+    }
+
+    /// Đóng bảng Cỡ, mức không đổi.
+    fn close_sizes(&mut self) {
+        self.update_bars(|s| s.close_sizes_state());
+    }
+
+    /// Mở bảng Cỡ (đóng bảng màu).
+    fn open_sizes(&mut self) {
+        self.update_bars(|s| {
+            s.close_picker_state();
+            s.close_sizes_state();
+            s.sizes_open = true;
+        });
+    }
+
+    /// Đặt mức cỡ cho hình vẽ sau đó (nhớ qua các lần mở); ô chữ đang mở đổi cỡ theo.
+    fn set_size(&mut self, level: SizeLevel) {
+        LAST_SIZE.with(|l| l.set(level));
+        if level != self.size {
+            self.update_bars(|s| s.size = level);
+        }
+        let color = self.color;
+        let Some(b) = self.text.as_mut() else {
+            return;
+        };
+        if b.size == dip_to_px(level.text_dip(), b.dpi) {
+            return;
+        }
+        let before = b.dirty();
+        b.resize(level, color);
+        let (after, caret, size) = (b.dirty(), b.caret, b.size);
+        self.invalidate(&[before, after]);
+        place_ime(self.hwnd, caret, size);
+        self.restart_blink();
+    }
+
     fn activate(&mut self, item: SideItem) {
         match item {
             SideItem::Tool(t) => self.toggle_tool(t),
+            SideItem::Size if self.sizes_open => self.close_sizes(),
+            SideItem::Size => self.open_sizes(),
             SideItem::Color if self.palette => self.close_palette(),
             SideItem::Color => self.open_palette(),
             SideItem::Undo => self.undo(),
+            SideItem::Redo => self.redo(),
         }
     }
 
@@ -1938,11 +2225,13 @@ impl State {
         self.text.is_none()
     }
 
-    /// Esc (phím hoặc phím tắt toàn cục): ô số đang sửa thì bỏ sửa; bảng màu đang mở thì chỉ
-    /// đóng bảng; đang gõ thì hủy ô chữ (trừ khi bộ gõ đang soạn: Esc thuộc về bộ gõ); còn lại
-    /// đóng lớp phủ.
+    /// Esc (phím hoặc phím tắt toàn cục): bảng Cỡ đang mở thì chỉ đóng bảng; ô số đang sửa thì bỏ
+    /// sửa; bảng màu đang mở thì chỉ đóng bảng; đang gõ thì hủy ô chữ (trừ khi bộ gõ đang soạn: Esc
+    /// thuộc về bộ gõ); còn lại đóng lớp phủ.
     fn escape(&mut self) {
-        if self.palette && self.field.is_some() {
+        if self.sizes_open {
+            self.close_sizes();
+        } else if self.palette && self.field.is_some() {
             self.field = None;
             self.invalidate_picker();
         } else if self.palette {
@@ -1970,7 +2259,7 @@ impl State {
         };
         let drawn = s.shape.bounds();
         match end_stroke(s, self.shot_image()) {
-            Some(shape) => self.update_bars(|st| st.push_mark(shape)),
+            Some(shape) => self.add_mark(shape),
             None => self.invalidate(&drawn.into_iter().collect::<Vec<_>>()),
         }
     }
@@ -1990,11 +2279,22 @@ impl State {
         if self.dragging() {
             return Effects::default();
         }
-        // Bấm ra chỗ khác thì chốt ô chữ; trên thanh dọc (Màu, Hoàn tác, công cụ tự chốt khi cần)
-        // và khi bảng màu mở (để đổi màu ô đang gõ) thì chưa.
+        // Bấm ra chỗ khác thì chốt ô chữ; trên thanh dọc (Màu, Cỡ, Hoàn tác, công cụ tự chốt khi
+        // cần) và khi bảng màu hay bảng Cỡ mở (để đổi màu, cỡ ô đang gõ) thì chưa.
         let on_side = self.side_bar().is_some_and(|(r, _)| r.contains(p));
-        if self.text.is_some() && !self.palette && !on_side {
+        if self.text.is_some() && !self.palette && !self.sizes_open && !on_side {
             self.close_text(true);
+        }
+        if self.sizes_open {
+            if let Some(level) = self.size_cell_at(p) {
+                self.size_pressed = Some(level);
+                return Effects::default();
+            }
+            // Bấm ngoài ô của bảng Cỡ (lề bảng thì không làm gì) chỉ đóng bảng.
+            if !self.size_rect().is_some_and(|(r, _)| r.contains(p)) {
+                self.close_sizes();
+            }
+            return Effects::default();
         }
         if self.palette {
             if let Some(hit) = self.picker_hit_at(p) {
@@ -2032,8 +2332,18 @@ impl State {
                     y: p.y as f32,
                 };
                 let dpi = self.dpi_at(p);
-                let Some(stroke) = begin_stroke(tool, at, dpi, self.color, self.shot_image())
-                else {
+                if tool == Tool::Step {
+                    // Đặt ngay một vòng tại điểm bấm (không kéo, không giữ chuột); lõi đánh số.
+                    self.add_mark(Shape::Step {
+                        center: at,
+                        radius: dip_to_px(self.size.step_dip(), dpi),
+                        n: 0,
+                        color: self.color,
+                    });
+                    return Effects::default();
+                }
+                let img = self.shot_image();
+                let Some(stroke) = begin_stroke(tool, at, dpi, self.size, self.color, img) else {
                     return Effects::default();
                 };
                 let dirty = stroke.shape.bounds();
@@ -2089,6 +2399,10 @@ impl State {
         } else if self.sel.is_dragging() {
             self.update(|s| s.sel.drag_to(p));
         } else {
+            let size_hover = self.size_cell_at(p);
+            if size_hover != self.size_hover {
+                self.update_bars(|s| s.size_hover = size_hover);
+            }
             let hover = self.toolbar().and_then(|(bar, _)| button_at(bar, p));
             if hover != self.hover {
                 self.update(|s| s.hover = hover);
@@ -2142,6 +2456,13 @@ impl State {
                 ..Default::default()
             };
         }
+        if let Some(level) = self.size_pressed.take() {
+            if self.size_cell_at(p) == Some(level) {
+                self.set_size(level);
+                self.close_sizes();
+            }
+            return Effects::default();
+        }
         if let Some(hit) = self.picker_pressed.take() {
             if self.picker_hit_at(p) == Some(hit) {
                 self.picker_activate(hit);
@@ -2189,14 +2510,26 @@ impl State {
             if !key_held(VK_MENU) && !repeat {
                 if let Some(t) = Tool::from_key(vk) {
                     self.toggle_tool(t);
+                } else if let Some(level) = size_for_key(self.size, vk) {
+                    self.set_size(level);
                 }
             }
             return;
         }
         let a = match vk {
+            // Ctrl+Shift+Z làm lại.
+            0x5A if key_held(VK_SHIFT) => {
+                self.redo();
+                return;
+            }
             0x5A => {
                 // Z
                 self.undo();
+                return;
+            }
+            0x59 => {
+                // Y
+                self.redo();
                 return;
             }
             0x44 => Action::Upload, // D
@@ -2392,15 +2725,20 @@ impl State {
         if let Some((bar, dpi)) = self.toolbar() {
             p.toolbar(bar, dpi, self.hover, self.gdiplus);
         }
-        if let Some((side, dpi)) = self.side_bar() {
+        if let Some(b) = self.bars() {
             let look = SideLook {
                 tool: self.tool,
                 hover: self.side_hover,
                 color: self.color,
+                size: self.size,
                 // Đang gõ thì Hoàn tác xóa ô chữ (hoặc hủy ô rỗng rồi hoàn tác hình cuối).
-                can_undo: !self.marks.is_empty() || self.text.is_some(),
+                can_undo: self.marks.can_undo() || self.text.is_some(),
+                can_redo: self.marks.can_redo(),
             };
-            p.side_toolbar(side, dpi, &look, self.gdiplus);
+            p.side_toolbar(b.side, &b.sl, b.dpi, &look, self.gdiplus);
+        }
+        if let Some((fly, dpi)) = self.size_rect() {
+            p.size_flyout(fly, dpi, self.size, self.size_hover, self.gdiplus);
         }
         if let Some((pal, dpi)) = self.palette_rect() {
             let l = picker_layout(dpi, self.expanded);
@@ -2446,7 +2784,9 @@ struct SideLook {
     tool: Option<Tool>,
     hover: Option<SideItem>,
     color: Rgb,
+    size: SizeLevel,
     can_undo: bool,
+    can_redo: bool,
 }
 
 impl SideLook {
@@ -2455,7 +2795,11 @@ impl SideLook {
     }
 
     fn enabled(&self, item: SideItem) -> bool {
-        item != SideItem::Undo || self.can_undo
+        match item {
+            SideItem::Undo => self.can_undo,
+            SideItem::Redo => self.can_redo,
+            _ => true,
+        }
     }
 }
 
@@ -2673,26 +3017,22 @@ impl Painter {
         }
     }
 
-    /// Thanh công cụ vẽ (dọc): sáu công cụ, vạch ngăn, Màu, vạch ngăn, Hoàn tác.
-    fn side_toolbar(&self, bar: Rect, dpi: u32, look: &SideLook, gdiplus: bool) {
-        let b = bar.w;
-        let sep = scaled(SIDE_SEP, dpi);
+    /// Thanh công cụ vẽ (dọc) đặt tại `bar` theo bố cục `l`: các mục, vạch ngăn, ô màu hiện tại,
+    /// biểu tượng.
+    fn side_toolbar(&self, bar: Rect, l: &SideLayout, dpi: u32, look: &SideLook, gdiplus: bool) {
         self.round_rect(bar, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
         let mark = scaled(MARK, dpi);
         let mark_inset = scaled(6, dpi);
-        for (i, item) in SIDE_ITEMS.iter().enumerate() {
-            let r = side_item_rect(bar, sep, i);
-            let selected = look.selected(*item);
-            if selected || (look.enabled(*item) && look.hover == Some(*item)) {
-                self.fill(
-                    Rect {
-                        x: r.x + 1,
-                        y: r.y + 1,
-                        w: r.w - 2,
-                        h: r.h - 2,
-                    },
-                    OVERLAY_HOVER,
-                );
+        let items = || {
+            SIDE_ITEMS
+                .iter()
+                .enumerate()
+                .filter_map(|(i, item)| side_item_rect(bar, l, i).map(|r| (*item, r)))
+        };
+        for (item, r) in items() {
+            let selected = look.selected(item);
+            if selected || (look.enabled(item) && look.hover == Some(item)) {
+                self.fill(inflate(r, -1), OVERLAY_HOVER);
             }
             if selected {
                 self.fill(
@@ -2708,51 +3048,109 @@ impl Painter {
         }
         // Vạch ngăn 1 px giữa ô vạch ngăn, có lề hai bên.
         let margin = scaled(GAP, dpi);
-        for y in [bar.y + 6 * b + sep / 2, bar.y + 7 * b + sep + sep / 2] {
+        for s in &l.seps {
             self.fill(
                 Rect {
-                    x: bar.x + margin,
-                    y,
-                    w: b - 2 * margin,
+                    x: bar.x + s.x + margin,
+                    y: bar.y + s.y + s.h / 2,
+                    w: s.w - 2 * margin,
                     h: 1,
                 },
                 OVERLAY_BORDER,
             );
         }
         // Nút Màu: ô vuông tô màu hiện tại, viền OVERLAY_BORDER.
-        let btn = side_item_rect(bar, sep, COLOR_INDEX);
-        let sw = scaled(SWATCH, dpi);
-        self.round_rect(
-            Rect {
-                x: btn.x + (btn.w - sw) / 2,
-                y: btn.y + (btn.h - sw) / 2,
-                w: sw,
-                h: sw,
-            },
-            scaled(2, dpi),
-            look.color,
-            OVERLAY_BORDER,
-        );
+        if let Some(btn) = side_item_rect(bar, l, side_index(SideItem::Color)) {
+            let sw = scaled(SWATCH, dpi);
+            self.round_rect(
+                Rect {
+                    x: btn.x + (btn.w - sw) / 2,
+                    y: btn.y + (btn.h - sw) / 2,
+                    w: sw,
+                    h: sw,
+                },
+                scaled(2, dpi),
+                look.color,
+                OVERLAY_BORDER,
+            );
+        }
         if !gdiplus {
             return;
         }
         let Some(g) = Gp::new(self.dc) else { return };
         let icon = scaled(ICON, dpi) as f32;
-        for (i, item) in SIDE_ITEMS.iter().enumerate() {
-            if *item == SideItem::Color {
+        for (item, r) in items() {
+            if item == SideItem::Color {
                 continue;
             }
-            let r = side_item_rect(bar, sep, i);
             let cx = (r.x - self.ox) as f32 + r.w as f32 * 0.5;
             let cy = (r.y - self.oy) as f32 + r.h as f32 * 0.5;
-            let color = if !look.enabled(*item) {
+            let color = if !look.enabled(item) {
                 ICON_DISABLED_ARGB
-            } else if look.selected(*item) || look.hover == Some(*item) {
+            } else if look.selected(item) || look.hover == Some(item) {
                 ICON_HOVER_ARGB
             } else {
                 ICON_ARGB
             };
-            g.side_icon(*item, cx, cy, icon, color);
+            if item == SideItem::Size {
+                g.dot(cx, cy, size_dot(look.size) * icon / 24.0, color);
+            } else {
+                g.side_icon(item, cx, cy, icon, color);
+            }
+        }
+    }
+
+    /// Bảng Cỡ `fly`: bốn ô, mỗi ô một chấm lớn dần; ô mức `current` viền `ACCENT`, ô `hover` nền
+    /// `OVERLAY_HOVER`.
+    fn size_flyout(
+        &self,
+        fly: Rect,
+        dpi: u32,
+        current: SizeLevel,
+        hover: Option<SizeLevel>,
+        gdiplus: bool,
+    ) {
+        self.round_rect(fly, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
+        let t = scaled(MARK, dpi);
+        for (i, level) in SizeLevel::ALL.iter().enumerate() {
+            let r = size_cell_rect(fly, dpi, i);
+            if hover == Some(*level) {
+                self.fill(inflate(r, -1), OVERLAY_HOVER);
+            }
+            if *level == current {
+                for edge in [
+                    Rect { h: t, ..r },
+                    Rect {
+                        y: r.bottom() - t,
+                        h: t,
+                        ..r
+                    },
+                    Rect { w: t, ..r },
+                    Rect {
+                        x: r.right() - t,
+                        w: t,
+                        ..r
+                    },
+                ] {
+                    self.fill(edge, ACCENT);
+                }
+            }
+        }
+        if !gdiplus {
+            return;
+        }
+        let Some(g) = Gp::new(self.dc) else { return };
+        let icon = scaled(ICON, dpi) as f32;
+        for (i, level) in SizeLevel::ALL.iter().enumerate() {
+            let r = size_cell_rect(fly, dpi, i);
+            let cx = (r.x - self.ox) as f32 + r.w as f32 * 0.5;
+            let cy = (r.y - self.oy) as f32 + r.h as f32 * 0.5;
+            let color = if hover == Some(*level) || *level == current {
+                ICON_HOVER_ARGB
+            } else {
+                ICON_ARGB
+            };
+            g.dot(cx, cy, size_dot(*level) * icon / 24.0, color);
         }
     }
 
@@ -3110,6 +3508,25 @@ impl IconPath {
         }
     }
 
+    /// Elip trọn (hình mới) tâm (`x`, `y`), bán trục `rx`, `ry`.
+    fn oval(&self, x: f32, y: f32, rx: f32, ry: f32) {
+        let k = self.k;
+        self.start();
+        // SAFETY: như `arc`.
+        unsafe {
+            GdipAddPathArc(
+                self.path,
+                self.ox + (x - rx) * k,
+                self.oy + (y - ry) * k,
+                2.0 * rx * k,
+                2.0 * ry * k,
+                0.0,
+                360.0,
+            );
+        }
+        self.close();
+    }
+
     fn line(&self, x1: f32, y1: f32, x2: f32, y2: f32) {
         let (ox, oy, k) = (self.ox, self.oy, self.k);
         // SAFETY: như `arc`.
@@ -3149,6 +3566,20 @@ impl IconPath {
 }
 
 impl Gp {
+    /// Chấm tròn đặc màu `argb`, đường kính `d` pixel, tâm (`cx`, `cy`).
+    fn dot(&self, cx: f32, cy: f32, d: f32, argb: u32) {
+        let mut brush: *mut GpSolidFill = std::ptr::null_mut();
+        // SAFETY: chổi được tạo, dùng và xóa trong khối; kiểm null trước khi dùng.
+        unsafe {
+            if GdipCreateSolidFill(argb, &mut brush).0 != 0 || brush.is_null() {
+                return;
+            }
+            let r = d / 2.0;
+            GdipFillEllipse(self.raw(), brush.cast::<GpBrush>(), cx - r, cy - r, d, d);
+            GdipDeleteBrush(brush.cast::<GpBrush>());
+        }
+    }
+
     /// Vẽ nét mảnh (1,8 trong lưới 24×24, đầu và chỗ nối tròn) của đường do `build` dựng,
     /// cỡ `size` pixel, tâm (`cx`, `cy`).
     fn stroke_icon(&self, cx: f32, cy: f32, size: f32, argb: u32, build: impl FnOnce(&IconPath)) {
@@ -3277,8 +3708,36 @@ impl Gp {
                 p.arc(14.5, 14.5, 5.5, 270.0, 180.0);
                 p.line(14.5, 20.0, 9.0, 20.0);
             }
-            // Task 47: biểu tượng Select, Ellipse, Step.
-            SideItem::Tool(Tool::Select | Tool::Ellipse | Tool::Step) | SideItem::Color => {}
+            SideItem::Redo => {
+                // Hoàn tác lật ngang: đầu nhọn bên phải, thân vòng nửa tròn bên trái.
+                p.poly(&[(16.0, 5.0), (20.0, 9.0), (16.0, 13.0)]);
+                p.start();
+                p.line(20.0, 9.0, 9.5, 9.0);
+                p.arc(9.5, 14.5, 5.5, 270.0, -180.0);
+                p.line(9.5, 20.0, 15.0, 20.0);
+            }
+            SideItem::Tool(Tool::Select) => {
+                // Mũi tên con trỏ: tam giác nghiêng, đuôi chéo xuống phải.
+                p.poly(&[
+                    (6.0, 3.5),
+                    (6.0, 18.5),
+                    (10.0, 14.5),
+                    (12.8, 20.5),
+                    (15.2, 19.4),
+                    (12.4, 13.5),
+                    (18.0, 13.5),
+                ]);
+                p.close();
+            }
+            SideItem::Tool(Tool::Ellipse) => p.oval(12.0, 12.0, 8.5, 6.0),
+            SideItem::Tool(Tool::Step) => {
+                // Vòng tròn với số "1" dựng bằng nét: mũ chéo, thân đứng, chân ngang.
+                p.oval(12.0, 12.0, 8.5, 8.5);
+                p.poly(&[(10.0, 9.5), (12.5, 7.5), (12.5, 16.5)]);
+                p.poly(&[(10.0, 16.5), (15.0, 16.5)]);
+            }
+            // Màu và Cỡ vẽ riêng (ô màu, chấm theo mức).
+            SideItem::Color | SideItem::Size => {}
         });
     }
 }
@@ -3629,6 +4088,10 @@ pub fn pick_region(
         high_surrogate: None,
         esc_registered: false,
         color,
+        size: LAST_SIZE.with(|c| c.get()),
+        sizes_open: false,
+        size_hover: None,
+        size_pressed: None,
         stroke: None,
         side_hover: None,
         side_pressed: None,
@@ -3723,6 +4186,7 @@ pub fn pick_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darkshot_core::annotate::STROKE_DIP;
 
     #[test]
     fn toolbar_button_hit_testing() {
@@ -3875,15 +4339,28 @@ mod tests {
         steps.push(live::Step::Key(u16::from(b'R')));
         steps.extend(live::drag(inside(30, 30), inside(150, 120)));
         steps.push(live::Step::Ctrl(u16::from(b'Z')));
-        steps.extend(live::click(l.item(COLOR_INDEX)));
+        steps.extend(live::click(l.item(SideItem::Color)));
         steps.push(live::Step::Key(VK_ESCAPE.0));
+        // Bảng Cỡ: mở, chọn Vừa (đóng); mở lại, đóng bằng Esc. Hình elip, vòng số, hoàn tác, làm lại.
+        steps.extend(live::click(l.item(SideItem::Size)));
+        steps.extend(live::click(l.size_cell(SizeLevel::Medium)));
+        steps.extend(live::click(l.item(SideItem::Size)));
+        steps.push(live::Step::Key(VK_ESCAPE.0));
+        steps.push(live::Step::Key(u16::from(b'E')));
+        steps.extend(live::drag(inside(50, 50), inside(180, 140)));
+        steps.push(live::Step::Key(u16::from(b'N')));
+        steps.extend(live::click(inside(250, 40)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'Y')));
         steps.extend(live::click(l.save()));
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
         let p = r.unwrap().unwrap();
-        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 2));
+        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Save, sel, 4));
         assert!(matches!(p.shapes[0], Shape::Pen { .. }));
         assert!(matches!(p.shapes[1], Shape::Blur { .. }));
+        assert!(matches!(p.shapes[2], Shape::Ellipse { .. }));
+        assert!(matches!(p.shapes[3], Shape::Step { n: 1, .. }));
         // Vòng có chữ: mở ô, gõ, bấm chỗ khác (chốt, mở ô mới), gõ, Ctrl+S.
         let mut steps = vec![live::Step::Key(u16::from(b'T'))];
         steps.extend(live::click(inside(30, 40)));
@@ -3897,7 +4374,7 @@ mod tests {
         assert_eq!(p.shapes.len(), 2);
         assert!(p.shapes.iter().all(|s| matches!(s, Shape::Text { .. })));
         // Vòng bảng chọn màu: mở dạng đủ, kéo ô sắc độ và thanh độ sáng, thêm màu, đóng bằng Esc.
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.extend(live::click(l.define()));
         steps.extend(live::drag(
             l.full_center(|p| p.spectrum),
@@ -3929,79 +4406,201 @@ mod tests {
     }
 
     #[test]
-    fn side_bar_button_hit_testing() {
-        let (b, sep) = (36, 9);
-        let (w, h) = side_bar_size(b, sep);
-        assert_eq!((w, h), (36, 9 * 36 + 2 * 9));
-        assert_eq!(SIDE_ITEMS.len(), 9);
-        assert_eq!(COLOR_INDEX, 7);
-        assert_eq!(SIDE_ITEMS[COLOR_INDEX], SideItem::Color);
-        assert_eq!(SIDE_ITEMS[5].tip(), Msg::ToolBlur);
+    fn side_items_order() {
+        use darkshot_core::i18n::{t, Lang};
+        assert_eq!(SIDE_ITEMS.len(), 14);
         assert_eq!(
-            (0..9).map(seps_before).collect::<Vec<_>>(),
-            vec![0, 0, 0, 0, 0, 0, 0, 1, 2]
+            SIDE_ITEMS,
+            [
+                SideItem::Tool(Tool::Select),
+                SideItem::Tool(Tool::Pen),
+                SideItem::Tool(Tool::Line),
+                SideItem::Tool(Tool::Arrow),
+                SideItem::Tool(Tool::Rect),
+                SideItem::Tool(Tool::Ellipse),
+                SideItem::Tool(Tool::Marker),
+                SideItem::Tool(Tool::Blur),
+                SideItem::Tool(Tool::Text),
+                SideItem::Tool(Tool::Step),
+                SideItem::Size,
+                SideItem::Color,
+                SideItem::Undo,
+                SideItem::Redo,
+            ]
         );
-        let bar = Rect {
-            x: 500,
-            y: 100,
-            w,
-            h,
-        };
-        for (i, item) in SIDE_ITEMS.iter().enumerate() {
-            let r = side_item_rect(bar, sep, i);
-            assert_eq!((r.x, r.w, r.h), (500, 36, 36));
-            let c = Point {
-                x: r.x + r.w / 2,
-                y: r.y + r.h / 2,
-            };
-            assert_eq!(side_item_at(bar, sep, c), Some(*item), "mục {i}");
+        // Công cụ vẽ theo đúng thứ tự `Tool::ALL[1..]`.
+        for (i, tool) in Tool::ALL.iter().enumerate() {
+            assert_eq!(SIDE_ITEMS[i], SideItem::Tool(*tool));
         }
-        let at = |y| side_item_at(bar, sep, Point { x: 518, y });
-        assert_eq!(at(100 + 18), Some(SideItem::Tool(Tool::Pen)));
-        assert_eq!(at(100 + 36 + 18), Some(SideItem::Tool(Tool::Line)));
-        assert_eq!(at(100 + 2 * 36 + 18), Some(SideItem::Tool(Tool::Arrow)));
-        assert_eq!(at(100 + 3 * 36 + 18), Some(SideItem::Tool(Tool::Rect)));
-        assert_eq!(at(100 + 4 * 36 + 18), Some(SideItem::Tool(Tool::Marker)));
-        assert_eq!(at(100 + 5 * 36 + 18), Some(SideItem::Tool(Tool::Blur)));
-        assert_eq!(at(100 + 6 * 36 + 18), Some(SideItem::Tool(Tool::Text)));
-        // Vạch ngăn thứ nhất cùng lề của nó.
-        for y in 100 + 7 * 36..100 + 7 * 36 + 9 {
-            assert_eq!(at(y), None, "y = {y}");
-        }
-        assert_eq!(at(100 + 7 * 36 + 9), Some(SideItem::Color));
-        assert_eq!(at(100 + 7 * 36 + 9 + 18), Some(SideItem::Color));
-        // Vạch ngăn thứ hai.
-        for y in 100 + 8 * 36 + 9..100 + 8 * 36 + 18 {
-            assert_eq!(at(y), None, "y = {y}");
-        }
-        assert_eq!(at(100 + 8 * 36 + 18 + 18), Some(SideItem::Undo));
-        assert_eq!(at(100 + h - 1), Some(SideItem::Undo));
-        // Ngoài thanh.
-        assert_eq!(at(99), None);
-        assert_eq!(at(100 + h), None);
-        assert_eq!(side_item_at(bar, sep, Point { x: 499, y: 118 }), None);
-        assert_eq!(side_item_at(bar, sep, Point { x: 536, y: 118 }), None);
+        assert_eq!(SIDE_SEPS, [1, 10, 12]);
+        let tips: Vec<Msg> = SIDE_ITEMS.iter().map(|i| i.tip()).collect();
+        assert_eq!(
+            tips,
+            vec![
+                Msg::ToolSelect,
+                Msg::ToolPen,
+                Msg::ToolLine,
+                Msg::ToolArrow,
+                Msg::ToolRect,
+                Msg::ToolEllipse,
+                Msg::ToolMarker,
+                Msg::ToolBlur,
+                Msg::ToolText,
+                Msg::ToolStep,
+                Msg::ToolSize,
+                Msg::ToolColor,
+                Msg::ToolUndo,
+                Msg::ToolRedo,
+            ]
+        );
+        assert_eq!(t(Lang::Vi, SideItem::Redo.tip()), "Làm lại (Ctrl+Y)");
+        assert_eq!(side_index(SideItem::Size), 10);
+        assert_eq!(side_index(SideItem::Color), 11);
+        assert_eq!(side_index(SideItem::Redo), 13);
+        let tips: Vec<Msg> = SizeLevel::ALL.iter().map(|l| size_tip(*l)).collect();
+        assert_eq!(
+            tips,
+            vec![
+                Msg::SizeSmall,
+                Msg::SizeMedium,
+                Msg::SizeLarge,
+                Msg::SizeHuge
+            ]
+        );
     }
 
-    /// Thanh dọc 9 nút trên màn hình thấp 1366×768 ở 100% và 150%: nằm trọn trong màn hình,
-    /// không chồng thanh bốn nút.
+    #[test]
+    fn side_bar_button_hit_testing() {
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        };
+        for dpi in [96, 192] {
+            let l = side_layout_for(mon, dpi);
+            let side = Rect {
+                x: 500,
+                y: 100,
+                w: l.size.0,
+                h: l.size.1,
+            };
+            let b = scaled(BUTTON, dpi);
+            for (i, item) in SIDE_ITEMS.iter().enumerate() {
+                let r = side_item_rect(side, &l, i).unwrap();
+                assert_eq!((r.w, r.h), (b, b));
+                let c = Point {
+                    x: r.x + r.w / 2,
+                    y: r.y + r.h / 2,
+                };
+                assert_eq!(side_item_at(side, &l, c), Some(*item), "dpi {dpi} mục {i}");
+            }
+            assert_eq!(side_item_rect(side, &l, SIDE_ITEMS.len()), None);
+            // Vạch ngăn và lề của nó không trúng mục nào.
+            for s in &l.seps {
+                for dy in 0..s.h {
+                    let p = Point {
+                        x: side.x + s.x + s.w / 2,
+                        y: side.y + s.y + dy,
+                    };
+                    assert_eq!(side_item_at(side, &l, p), None, "dpi {dpi} {p:?}");
+                }
+            }
+            // Ngoài thanh.
+            for p in [
+                Point { x: 499, y: 120 },
+                Point {
+                    x: side.right(),
+                    y: 120,
+                },
+                Point { x: 510, y: 99 },
+                Point {
+                    x: 510,
+                    y: side.bottom(),
+                },
+            ] {
+                assert_eq!(side_item_at(side, &l, p), None);
+            }
+        }
+        // Một cột ở 96 DPI: vạch trước Pen, trước Cỡ, trước Hoàn tác.
+        let l = side_layout_for(mon, 96);
+        let side = Rect {
+            x: 500,
+            y: 100,
+            w: l.size.0,
+            h: l.size.1,
+        };
+        let at = |y| side_item_at(side, &l, Point { x: 518, y });
+        assert_eq!(at(118), Some(SideItem::Tool(Tool::Select)));
+        assert_eq!(at(100 + 36 + 9 + 18), Some(SideItem::Tool(Tool::Pen)));
+        assert_eq!(at(100 + 36), None);
+        assert_eq!(at(100 + 10 * 36 + 9 + 9 + 18), Some(SideItem::Size));
+        assert_eq!(at(100 + 11 * 36 + 18 + 18), Some(SideItem::Color));
+        assert_eq!(at(100 + 13 * 36 + 27 + 18), Some(SideItem::Redo));
+    }
+
+    /// Thanh dọc 14 nút: 1920×1080 ở 200% (540 DIP) cần hai cột, nằm trọn trong màn hình và không
+    /// chồng thanh bốn nút; ở 100% một cột. Màn hình thấp 1366×768 ở 100% và 150% vẫn vừa.
     #[test]
     fn side_bar_fits_low_screen() {
+        let inside = |r: Rect, mon: Rect| {
+            r.x >= mon.x && r.y >= mon.y && r.right() <= mon.right() && r.bottom() <= mon.bottom()
+        };
+        let hd = Rect {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        };
+        let one = side_layout_for(hd, 96);
+        assert_eq!(one.size.0, scaled(BUTTON, 96));
+        let two = side_layout_for(hd, 192);
+        assert_eq!(two.size.0, 2 * scaled(BUTTON, 192));
+        assert!(two.size.1 <= hd.h - 2 * scaled(GAP, 192));
+        for dpi in [96, 192] {
+            let l = side_layout_for(hd, dpi);
+            for sel in [
+                // Giữa màn hình.
+                Rect {
+                    x: 660,
+                    y: 340,
+                    w: 600,
+                    h: 400,
+                },
+                // Sát góc trên trái.
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 300,
+                    h: 200,
+                },
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: 120,
+                    h: 600,
+                },
+                hd,
+            ] {
+                let (bar, side) = bars_for(sel, hd, dpi);
+                assert_eq!((side.w, side.h), l.size, "dpi {dpi} sel {sel:?}");
+                assert!(inside(side, hd), "dpi {dpi} sel {sel:?}: {side:?}");
+                assert!(inside(bar, hd), "dpi {dpi} sel {sel:?}: {bar:?}");
+                assert!(
+                    !mon_overlap(bar, side),
+                    "dpi {dpi} sel {sel:?}: {bar:?} {side:?}"
+                );
+            }
+        }
         let mon = Rect {
             x: 0,
             y: 0,
             w: 1366,
             h: 768,
         };
-        let inside = |r: Rect| {
-            r.x >= mon.x && r.y >= mon.y && r.right() <= mon.right() && r.bottom() <= mon.bottom()
-        };
-        let overlap = |a: Rect, b: Rect| {
-            a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
-        };
         for dpi in [96, 144] {
-            let (_, h) = side_bar_size(scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
-            assert!(h <= mon.h, "dpi {dpi}: thanh cao {h}");
+            let l = side_layout_for(mon, dpi);
+            assert!(l.size.1 <= mon.h, "dpi {dpi}: thanh cao {}", l.size.1);
             for sel in [
                 mon,
                 Rect {
@@ -4030,11 +4629,11 @@ mod tests {
                 },
             ] {
                 let (bar, side) = bars_for(sel, mon, dpi);
-                assert_eq!(side.h, h);
-                assert!(inside(side), "dpi {dpi} sel {sel:?}: {side:?}");
-                assert!(inside(bar), "dpi {dpi} sel {sel:?}: {bar:?}");
+                assert_eq!((side.w, side.h), l.size);
+                assert!(inside(side, mon), "dpi {dpi} sel {sel:?}: {side:?}");
+                assert!(inside(bar, mon), "dpi {dpi} sel {sel:?}: {bar:?}");
                 assert!(
-                    !overlap(bar, side),
+                    !mon_overlap(bar, side),
                     "dpi {dpi} sel {sel:?}: {bar:?} {side:?}"
                 );
             }
@@ -4078,10 +4677,217 @@ mod tests {
                 || side.bottom() <= bar.y;
             assert!(disjoint, "dpi {dpi}: {bar:?} {side:?}");
             assert!(side.x >= 0 && side.y >= 0 && side.right() <= 1366 && side.bottom() <= 768);
-            // Nút Màu không bị che.
-            let color = side_item_rect(side, scaled(SIDE_SEP, dpi), COLOR_INDEX);
-            assert!(!mon_overlap(color, bar));
+            // Nút Màu và nút Cỡ không bị che.
+            let l = side_layout_for(mon, dpi);
+            for item in [SideItem::Color, SideItem::Size] {
+                let r = side_item_rect(side, &l, side_index(item)).unwrap();
+                assert!(!mon_overlap(r, bar));
+            }
         }
+    }
+
+    /// `[` / `]` đổi mức trong giới hạn; phím khác không đổi. Độ dày nét theo mức.
+    #[test]
+    fn size_keys() {
+        use darkshot_core::annotate::DEFAULT_COLOR;
+        let (dec, inc) = (VK_OEM_4.0, VK_OEM_6.0);
+        assert_eq!(size_for_key(SizeLevel::Medium, dec), Some(SizeLevel::Small));
+        assert_eq!(size_for_key(SizeLevel::Small, dec), Some(SizeLevel::Small));
+        assert_eq!(size_for_key(SizeLevel::Medium, inc), Some(SizeLevel::Large));
+        assert_eq!(size_for_key(SizeLevel::Large, inc), Some(SizeLevel::Huge));
+        assert_eq!(size_for_key(SizeLevel::Huge, inc), Some(SizeLevel::Huge));
+        assert_eq!(size_for_key(SizeLevel::Huge, dec), Some(SizeLevel::Large));
+        assert_eq!(size_for_key(SizeLevel::Medium, u16::from(b'P')), None);
+        let img = Image {
+            width: 1,
+            height: 1,
+            bgra: vec![0, 0, 0, 255],
+        };
+        let p = Pt { x: 10.0, y: 10.0 };
+        let width = |tool, dpi, level| match begin_stroke(tool, p, dpi, level, DEFAULT_COLOR, &img)
+            .unwrap()
+            .shape
+        {
+            Shape::Pen { width, .. }
+            | Shape::Marker { width, .. }
+            | Shape::Ellipse { width, .. } => width,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(width(Tool::Pen, 96, SizeLevel::Large), 5.0);
+        assert_eq!(width(Tool::Marker, 96, SizeLevel::Small), 10.0);
+        // Mặc định (Vừa) đúng như hôm nay.
+        assert_eq!(width(Tool::Pen, 144, SizeLevel::Medium), 4.5);
+        assert_eq!(width(Tool::Marker, 96, SizeLevel::Medium), 16.0);
+        assert_eq!(width(Tool::Ellipse, 192, SizeLevel::Huge), 16.0);
+        // Hình elip: kéo, Shift thành hình tròn, quá ngắn thì bỏ.
+        let mut s =
+            begin_stroke(Tool::Ellipse, p, 96, SizeLevel::Medium, DEFAULT_COLOR, &img).unwrap();
+        let q = Pt { x: 50.0, y: 30.0 };
+        assert!(extend_stroke(&mut s, q, false, &img).is_some());
+        assert!(matches!(s.shape, Shape::Ellipse { b, .. } if b == q));
+        extend_stroke(&mut s, q, true, &img);
+        assert!(matches!(s.shape, Shape::Ellipse { b, .. } if b == constrain_square(p, q)));
+        assert!(matches!(end_stroke(s, &img), Some(Shape::Ellipse { .. })));
+        let mut t =
+            begin_stroke(Tool::Ellipse, p, 96, SizeLevel::Medium, DEFAULT_COLOR, &img).unwrap();
+        extend_stroke(&mut t, Pt { x: 50.0, y: 11.0 }, false, &img);
+        assert_eq!(end_stroke(t, &img), None);
+        // Chữ, Chọn, Đánh số không có nét kéo.
+        for tool in [Tool::Text, Tool::Select, Tool::Step] {
+            assert!(begin_stroke(tool, p, 96, SizeLevel::Medium, DEFAULT_COLOR, &img).is_none());
+        }
+    }
+
+    /// Bảng Cỡ: bốn ô vuông ngang, lề GAP; mục dưới điểm; đặt cạnh nút Cỡ trong màn hình.
+    #[test]
+    fn size_flyout_geometry() {
+        let mon = Rect {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        };
+        for dpi in [96, 144, 192] {
+            let (b, gap) = (scaled(BUTTON, dpi), scaled(GAP, dpi));
+            for sel in [
+                Rect {
+                    x: 660,
+                    y: 340,
+                    w: 600,
+                    h: 400,
+                },
+                Rect {
+                    x: 1500,
+                    y: 600,
+                    w: 420,
+                    h: 480,
+                },
+                mon,
+            ] {
+                let (_, side) = bars_for(sel, mon, dpi);
+                let l = side_layout_for(mon, dpi);
+                let btn = side_item_rect(side, &l, side_index(SideItem::Size)).unwrap();
+                let fly = size_flyout_rect(side, btn, sel, mon, dpi);
+                assert_eq!((fly.w, fly.h), (4 * b + 2 * gap, b + 2 * gap));
+                assert!(fly.x >= 0 && fly.y >= 0 && fly.right() <= 1920 && fly.bottom() <= 1080);
+                assert!(!mon_overlap(fly, side) || sel == mon, "{fly:?} {side:?}");
+                for (i, level) in SizeLevel::ALL.iter().enumerate() {
+                    let c = size_cell_rect(fly, dpi, i);
+                    assert_eq!((c.w, c.h), (b, b));
+                    let p = Point {
+                        x: c.x + b / 2,
+                        y: c.y + b / 2,
+                    };
+                    assert_eq!(size_cell_at(fly, dpi, p), Some(*level));
+                }
+                assert_eq!(
+                    size_cell_at(
+                        fly,
+                        dpi,
+                        Point {
+                            x: fly.x + 1,
+                            y: fly.y + 1
+                        }
+                    ),
+                    None
+                );
+                assert_eq!(
+                    size_cell_at(
+                        fly,
+                        dpi,
+                        Point {
+                            x: fly.right(),
+                            y: fly.y + gap + 1
+                        }
+                    ),
+                    None
+                );
+            }
+        }
+    }
+
+    /// Review Focus 1: `mark_bounds` luôn cùng độ dài, thứ tự với danh sách hình qua thêm, xóa
+    /// giữa, hoàn tác, làm lại; vùng làm mới chứa hộp cũ và mới.
+    #[test]
+    fn mark_bounds_follow_history() {
+        use darkshot_core::annotate::DEFAULT_COLOR;
+        let line = |x: f32| Shape::Line {
+            a: Pt { x, y: 0.0 },
+            b: Pt {
+                x: x + 30.0,
+                y: 9.0,
+            },
+            width: 3.0,
+            color: DEFAULT_COLOR,
+        };
+        let step = |x: f32| Shape::Step {
+            center: Pt { x, y: 50.0 },
+            radius: 13.0,
+            n: 0,
+            color: DEFAULT_COLOR,
+        };
+        let covers = |dirty: &[Rect], r: Rect| {
+            dirty.iter().any(|d| {
+                d.x <= r.x && d.y <= r.y && d.right() >= r.right() && d.bottom() >= r.bottom()
+            })
+        };
+        let mut marks = Annotations::default();
+        let mut bounds: Vec<Rect> = Vec::new();
+        let check = |marks: &Annotations, bounds: &[Rect]| {
+            assert_eq!(bounds.len(), marks.shapes().len());
+            for (i, s) in marks.shapes().iter().enumerate() {
+                assert_eq!(bounds[i], shape_bounds(s), "mục {i}");
+            }
+        };
+        for s in [step(10.0), line(100.0), step(200.0)] {
+            let a = marks.add(s);
+            let dirty = apply_bounds(&mut bounds, marks.shapes(), &a);
+            check(&marks, &bounds);
+            let last = *bounds.last().unwrap();
+            assert!(covers(&dirty, last));
+        }
+        // Xóa giữa... rồi xóa vòng số đầu: vòng sau đổi số, phải được làm mới.
+        let a = marks.remove(1).unwrap();
+        let removed = shape_bounds(&line(100.0));
+        let dirty = apply_bounds(&mut bounds, marks.shapes(), &a);
+        check(&marks, &bounds);
+        assert!(covers(&dirty, removed));
+        let a = marks.remove(0).unwrap();
+        assert_eq!(a.renumbered, vec![0]);
+        let dirty = apply_bounds(&mut bounds, marks.shapes(), &a);
+        check(&marks, &bounds);
+        assert!(covers(&dirty, bounds[0]));
+        // Hoàn tác hai lần, làm lại một lần.
+        for _ in 0..2 {
+            let a = marks.undo().unwrap();
+            let dirty = apply_bounds(&mut bounds, marks.shapes(), &a);
+            check(&marks, &bounds);
+            assert!(!dirty.is_empty());
+        }
+        assert_eq!(marks.shapes().len(), 3);
+        let a = marks.redo().unwrap();
+        apply_bounds(&mut bounds, marks.shapes(), &a);
+        check(&marks, &bounds);
+        // Thay hình: hộp tại vị trí được tính lại, vùng làm mới gồm cả cũ và mới.
+        let old = bounds[1];
+        let a = marks.replace(1, step(400.0)).unwrap();
+        let dirty = apply_bounds(&mut bounds, marks.shapes(), &a);
+        check(&marks, &bounds);
+        assert!(covers(&dirty, old) && covers(&dirty, bounds[1]));
+        // Hoàn tác hết rồi làm lại hết.
+        while let Some(a) = marks.undo() {
+            apply_bounds(&mut bounds, marks.shapes(), &a);
+            check(&marks, &bounds);
+        }
+        while let Some(a) = marks.redo() {
+            apply_bounds(&mut bounds, marks.shapes(), &a);
+            check(&marks, &bounds);
+        }
+        // Lệch độ dài (không nên xảy ra): dựng lại cả danh sách.
+        bounds.pop();
+        let a = marks.add(line(5.0));
+        apply_bounds(&mut bounds, marks.shapes(), &a);
+        check(&marks, &bounds);
     }
 
     fn mon_overlap(a: Rect, b: Rect) -> bool {
@@ -4366,6 +5172,7 @@ mod tests {
             Tool::Pen,
             Pt { x: 100.0, y: 100.0 },
             dpi,
+            SizeLevel::Medium,
             DEFAULT_COLOR,
             &img,
         )
@@ -4429,7 +5236,8 @@ mod tests {
             _ => panic!("không phải Blur"),
         };
         let a = Pt { x: 5.0, y: 4.0 };
-        let mut s = begin_stroke(Tool::Blur, a, 144, DEFAULT_COLOR, &img).unwrap();
+        let mut s =
+            begin_stroke(Tool::Blur, a, 144, SizeLevel::Medium, DEFAULT_COLOR, &img).unwrap();
         // Điểm ảnh (5, 4): B = 30, G = 32, R = 27.
         assert_eq!(color_of(&s), Rgb(27, 32, 30));
         let b = Pt { x: 20.5, y: 12.2 };
@@ -4475,12 +5283,20 @@ mod tests {
             })
         );
         // Quá ngắn: bỏ.
-        let mut t = begin_stroke(Tool::Blur, a, 96, DEFAULT_COLOR, &img).unwrap();
+        let mut t =
+            begin_stroke(Tool::Blur, a, 96, SizeLevel::Medium, DEFAULT_COLOR, &img).unwrap();
         extend_stroke(&mut t, Pt { x: 30.0, y: 5.0 }, false, &img);
         assert_eq!(end_stroke(t, &img), None);
         // Điểm đầu ngoài ảnh: xám.
-        let out =
-            begin_stroke(Tool::Blur, Pt { x: -9.0, y: 3.0 }, 96, DEFAULT_COLOR, &img).unwrap();
+        let out = begin_stroke(
+            Tool::Blur,
+            Pt { x: -9.0, y: 3.0 },
+            96,
+            SizeLevel::Medium,
+            DEFAULT_COLOR,
+            &img,
+        )
+        .unwrap();
         assert_eq!(color_of(&out), Rgb(128, 128, 128));
     }
 
@@ -4509,6 +5325,8 @@ mod tests {
             EscFree(bool),
             /// WM_KEYDOWN khi Ctrl đang giữ.
             Ctrl(u16),
+            /// WM_KEYDOWN khi Ctrl và Shift đang giữ.
+            CtrlShift(u16),
             /// Phím tắt Esc toàn cục.
             Hotkey,
             /// Lớp phủ vẫn mở sau bước này.
@@ -4535,7 +5353,10 @@ mod tests {
             /// Bảng màu dạng gọn và dạng đủ.
             pub palette: Rect,
             pub full: Rect,
+            /// Bảng Cỡ.
+            pub sizes: Rect,
             pub dpi: u32,
+            pub sl: SideLayout,
         }
 
         impl Layout {
@@ -4546,9 +5367,16 @@ mod tests {
                 }
             }
 
-            /// Giữa mục thứ `i` của thanh dọc.
-            pub fn item(&self, i: usize) -> Point {
-                Self::center(side_item_rect(self.side, scaled(SIDE_SEP, self.dpi), i))
+            /// Giữa mục `item` của thanh dọc.
+            pub fn item(&self, item: SideItem) -> Point {
+                let r = side_item_rect(self.side, &self.sl, side_index(item)).unwrap();
+                Self::center(r)
+            }
+
+            /// Giữa ô mức `level` của bảng Cỡ.
+            pub fn size_cell(&self, level: SizeLevel) -> Point {
+                let i = SizeLevel::ALL.iter().position(|l| *l == level).unwrap();
+                Self::center(size_cell_rect(self.sizes, self.dpi, i))
             }
 
             /// Giữa ô màu cơ bản thứ `i` của bảng dạng gọn.
@@ -4607,12 +5435,15 @@ mod tests {
             let (bar, side) = bars_for(sel, mon, dpi);
             let palette = palette_rect_for(side, sel, mon, dpi, false);
             let full = palette_rect_for(side, sel, mon, dpi, true);
+            let sizes = size_rect_for(side, sel, mon, dpi);
             Layout {
                 bar,
                 side,
                 palette,
                 full,
+                sizes,
                 dpi,
+                sl: side_layout_for(mon, dpi),
             }
         }
 
@@ -4685,6 +5516,12 @@ mod tests {
                         }
                         Step::Ctrl(vk) => {
                             TEST_MODS.store(1, Ordering::SeqCst);
+                            post(WM_KEYDOWN, usize::from(vk), LPARAM(0));
+                            std::thread::sleep(Duration::from_millis(200));
+                            TEST_MODS.store(0, Ordering::SeqCst);
+                        }
+                        Step::CtrlShift(vk) => {
+                            TEST_MODS.store(3, Ordering::SeqCst);
                             post(WM_KEYDOWN, usize::from(vk), LPARAM(0));
                             std::thread::sleep(Duration::from_millis(200));
                             TEST_MODS.store(0, Ordering::SeqCst);
@@ -4819,7 +5656,7 @@ mod tests {
             color,
         };
         // Chọn màu xanh lam (ô 5, #0080FF) qua bảng màu, chọn Đường thẳng, kéo, Ctrl+S.
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Key(u16::from(b'L')));
         steps.extend(live::drag(a, b));
@@ -4945,7 +5782,7 @@ mod tests {
         let sel = live::test_sel(&shot);
         let l = live::layout(&shot, sel);
         // Esc bằng WM_KEYDOWN.
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.push(live::Step::Key(VK_ESCAPE.0));
         steps.push(live::Step::Alive);
         steps.push(live::Step::Key(VK_ESCAPE.0));
@@ -4956,7 +5793,7 @@ mod tests {
         );
         assert_eq!(r, Ok(None));
         // Esc qua phím tắt toàn cục.
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.push(live::Step::Hotkey);
         steps.push(live::Step::Alive);
         steps.push(live::Step::Hotkey);
@@ -5140,7 +5977,7 @@ mod tests {
             y: sel.y + 40,
         }));
         // Đổi công cụ bằng nút Bút vẽ trên thanh dọc (phím P lúc này đi vào ô chữ).
-        steps.extend(live::click(l.item(0)));
+        steps.extend(live::click(l.item(SideItem::Tool(Tool::Pen))));
         steps.extend(live::click(l.save()));
         let (r, ok) = live::drive(&shot, Some(sel), steps);
         assert!(ok);
@@ -5287,7 +6124,7 @@ mod tests {
         let sel = live::test_sel(&shot);
         let l = live::layout(&shot, sel);
         let (a, b) = line_points(sel);
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.extend(live::click(l.cell(5)));
         steps.push(live::Step::Alive);
         // Bảng đã đóng: phím L chọn công cụ, kéo vẽ được (bảng mở thì cú bấm chỉ đóng bảng).
@@ -5329,7 +6166,7 @@ mod tests {
             l: lum_at(bar, lum_to.y),
             s,
         });
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(click_sp));
         steps.extend(live::drag(lum_from, lum_to));
@@ -5370,7 +6207,7 @@ mod tests {
             l: rgb_to_hls(before).l,
             s,
         });
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(click_sp));
         steps.extend(live::click(l.full_center(|p| p.add_btn)));
@@ -5397,7 +6234,7 @@ mod tests {
         let before = LAST_COLOR.with(|c| c.get());
         let red = l.full_center(|p| p.fields[3].1);
         // Bảng mở, chưa sửa ô số: phím chữ không chọn công cụ.
-        let mut steps = live::click(l.item(COLOR_INDEX));
+        let mut steps = live::click(l.item(SideItem::Color));
         steps.push(live::Step::Key(u16::from(b'H')));
         steps.extend(live::click(l.define()));
         steps.extend(live::click(red));
@@ -5448,7 +6285,7 @@ mod tests {
         let from = l.full_center(|p| p.spectrum);
         let to = l.full_center(|p| p.lum_bar);
         for close in [VK_ESCAPE.0, VK_RETURN.0] {
-            let mut steps = live::click(l.item(COLOR_INDEX));
+            let mut steps = live::click(l.item(SideItem::Color));
             steps.extend(live::click(l.define()));
             // Kéo trong ô sắc độ, đóng bảng giữa chừng, rồi nhả.
             steps.push(live::Step::Down(from));
@@ -5463,6 +6300,241 @@ mod tests {
             let (r, ok) = live::drive(&shot, Some(sel), steps);
             assert!(ok, "phím {close:#x}: lớp phủ phải trả chuột sau khi nhả");
             assert_eq!(r, Ok(None));
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored ellipse_draw_save --test-threads=1"]
+    fn ellipse_draw_save() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = (
+            Point {
+                x: sel.x + 40,
+                y: sel.y + 30,
+            },
+            Point {
+                x: sel.x + 240,
+                y: sel.y + 170,
+            },
+        );
+        let mut steps = vec![live::Step::Key(u16::from(b'E'))];
+        steps.extend(live::drag(a, b));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect), (Action::Save, sel));
+        let color = match p.shapes.as_slice() {
+            [Shape::Ellipse {
+                a: pa,
+                b: pb,
+                width,
+                color,
+            }] => {
+                assert_eq!((*pa, *pb), (live::pt(a), live::pt(b)));
+                assert_eq!(*width, dip_to_px(STROKE_DIP, live::dpi_at(&shot, a)));
+                *color
+            }
+            other => panic!("không phải một Ellipse: {other:?}"),
+        };
+        let out = crate::picked_image(&shot.image, p.rect, &p.shapes).unwrap();
+        let px = |x: i32, y: i32| {
+            let i = (((y - sel.y) as u32 * out.width + (x - sel.x) as u32) * 4) as usize;
+            Rgb(out.bgra[i + 2], out.bgra[i + 1], out.bgra[i])
+        };
+        let src = |x: i32, y: i32| {
+            let i = ((y as u32 * shot.image.width + x as u32) * 4) as usize;
+            Rgb(
+                shot.image.bgra[i + 2],
+                shot.image.bgra[i + 1],
+                shot.image.bgra[i],
+            )
+        };
+        let (cx, cy) = ((a.x + b.x) / 2, (a.y + b.y) / 2);
+        // Mép phải, mép dưới, mép trái của elip: có điểm ảnh đúng màu nét.
+        for (ex, ey) in [(b.x, cy), (cx, b.y), (a.x, cy)] {
+            let hit = (-1..=1).any(|d| {
+                let (x, y) = if ey == cy { (ex + d, ey) } else { (ex, ey + d) };
+                near(px(x, y), color, 8)
+            });
+            assert!(hit, "mép ({ex},{ey}) không có màu nét");
+        }
+        // Tâm giữ nguyên ảnh gốc.
+        assert_eq!(px(cx, cy), src(cx, cy));
+    }
+
+    /// Số của các vòng Đánh số trong `shapes`; hình khác làm kiểm thử thất bại.
+    fn step_numbers(shapes: &[Shape]) -> Vec<u32> {
+        shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Step { n, .. } => *n,
+                other => panic!("không phải Step: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored steps_number_and_undo_redo --test-threads=1"]
+    fn steps_number_and_undo_redo() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let spots = [at(40, 40), at(110, 60), at(180, 90), at(250, 150)];
+        let mut steps = vec![live::Step::Key(u16::from(b'N'))];
+        for p in &spots[..3] {
+            steps.extend(live::click(*p));
+        }
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'Y')));
+        steps.extend(live::click(spots[3]));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.action, Action::Save);
+        assert_eq!(step_numbers(&p.shapes), vec![1, 2, 3, 4]);
+        for (s, spot) in p.shapes.iter().zip(spots) {
+            let Shape::Step { center, radius, .. } = s else {
+                unreachable!()
+            };
+            assert_eq!(*center, live::pt(spot));
+            assert_eq!(*radius, dip_to_px(13.0, live::dpi_at(&shot, spot)));
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored undo_redo_multi --test-threads=1"]
+    fn undo_redo_multi() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        let mut steps = vec![live::Step::Key(u16::from(b'L'))];
+        for i in 0..3 {
+            steps.extend(live::drag(at(20, 20 + 40 * i), at(200, 30 + 40 * i)));
+        }
+        for _ in 0..3 {
+            steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        }
+        // Làm lại bằng Ctrl+Y và Ctrl+Shift+Z.
+        steps.push(live::Step::Ctrl(u16::from(b'Y')));
+        steps.push(live::Step::CtrlShift(u16::from(b'Z')));
+        steps.extend(live::drag(at(30, 170), at(250, 180)));
+        // Thao tác mới đã xóa ngăn làm lại: Ctrl+Y và nút Làm lại không làm gì.
+        steps.push(live::Step::Ctrl(u16::from(b'Y')));
+        steps.extend(live::click(l.item(SideItem::Redo)));
+        steps.extend(live::click(l.save()));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 3);
+        let ys: Vec<f32> = p
+            .shapes
+            .iter()
+            .map(|s| match s {
+                Shape::Line { a, .. } => a.y,
+                other => panic!("không phải Line: {other:?}"),
+            })
+            .collect();
+        let y0 = sel.y as f32;
+        assert_eq!(ys, vec![y0 + 20.0, y0 + 60.0, y0 + 170.0]);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored size_flyout --test-threads=1"]
+    fn size_flyout() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let l = live::layout(&shot, sel);
+        let (a, b) = line_points(sel);
+        let dpi = live::dpi_at(&shot, a);
+        // Bấm nút Cỡ, bấm ô Lớn, vẽ Bút vẽ.
+        let mut steps = live::click(l.item(SideItem::Size));
+        steps.extend(live::click(l.size_cell(SizeLevel::Large)));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(u16::from(b'P')));
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        LAST_SIZE.with(|s| s.set(SizeLevel::Medium));
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        match p.shapes.as_slice() {
+            [Shape::Pen { width, .. }] => assert_eq!(*width, 5.0 * dpi as f32 / 96.0),
+            other => panic!("không phải một Pen: {other:?}"),
+        }
+        // Bấm nút Cỡ rồi kéo trong vùng (không công cụ): chỉ đóng bảng, vùng không dời. Bảng đã
+        // đóng thì L rồi kéo vẽ được một đường.
+        let mut steps = live::click(l.item(SideItem::Size));
+        steps.extend(live::drag(
+            Point {
+                x: sel.x + 30,
+                y: sel.y + 40,
+            },
+            Point {
+                x: sel.x + 150,
+                y: sel.y + 90,
+            },
+        ));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Key(u16::from(b'L')));
+        steps.extend(live::drag(a, b));
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.rect, sel);
+        match p.shapes.as_slice() {
+            [Shape::Line { width, .. }] => assert_eq!(*width, dip_to_px(STROKE_DIP, dpi)),
+            other => panic!("không phải một Line: {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored text_ctrl_z_unchanged --test-threads=1"]
+    fn text_ctrl_z_unchanged() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let at = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        // Hai nét, hoàn tác nét thứ hai (ngăn làm lại có một mục), mở ô chữ, gõ.
+        let mut steps = vec![live::Step::Key(u16::from(b'P'))];
+        steps.extend(live::drag(at(20, 20), at(120, 80)));
+        steps.extend(live::drag(at(20, 100), at(120, 160)));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Key(u16::from(b'T')));
+        steps.extend(live::click(at(160, 40)));
+        steps.extend(live::chars("x"));
+        // Ô mở: Ctrl+Y và Ctrl+Shift+Z không làm gì; Ctrl+Z xóa ô (chữ không được chốt).
+        steps.push(live::Step::Ctrl(u16::from(b'Y')));
+        steps.push(live::Step::CtrlShift(u16::from(b'Z')));
+        steps.push(live::Step::Ctrl(u16::from(b'Z')));
+        steps.push(live::Step::Alive);
+        steps.push(live::Step::Ctrl(u16::from(b'S')));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!(p.shapes.len(), 1);
+        match &p.shapes[0] {
+            Shape::Pen { points, .. } => assert_eq!(points[0], live::pt(at(20, 20))),
+            other => panic!("không phải Pen: {other:?}"),
         }
     }
 }
