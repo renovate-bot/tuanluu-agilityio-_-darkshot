@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalTime {
     pub year: u16,
     pub month: u8,

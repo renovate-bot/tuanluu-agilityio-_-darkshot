@@ -4,6 +4,7 @@ pub mod color;
 pub mod config;
 pub mod edit;
 pub mod geometry;
+pub mod history;
 pub mod i18n;
 pub mod image;
 pub mod migrate;
