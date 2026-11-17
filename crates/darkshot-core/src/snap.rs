@@ -51,6 +51,54 @@ pub fn clip(r: Rect, bounds: Rect) -> Option<Rect> {
     })
 }
 
+/// Lề trên của viên nhắc so với mép trên màn hình (DIP).
+pub const HINT_TOP_DIP: i32 = 16;
+/// Đệm ngang của viên nhắc (DIP).
+pub const HINT_PAD_X_DIP: i32 = 12;
+/// Đệm dọc của viên nhắc (DIP).
+pub const HINT_PAD_Y_DIP: i32 = 6;
+/// Bán kính bo góc của viên nhắc (DIP).
+pub const HINT_RADIUS_DIP: i32 = 6;
+/// Con trỏ cách viên nhắc dưới khoảng này (DIP) thì viên nhắc ẩn.
+pub const HINT_CLEAR_DIP: i32 = 48;
+
+/// Đổi `v` DIP sang pixel ở `dpi` (làm tròn, tối thiểu 1; cùng công thức với lớp phủ).
+pub fn dip(v: i32, dpi: u32) -> i32 {
+    let _ = (v, dpi);
+    0
+}
+
+/// Gợi ý cửa sổ chạy khi có ứng viên, chưa có vùng chọn, không đang kéo, không bảng nổi nào mở.
+pub fn snap_active(has_cands: bool, has_selection: bool, dragging: bool, panel_open: bool) -> bool {
+    let _ = (has_cands, has_selection, dragging, panel_open);
+    false
+}
+
+/// Viên nhắc: giữa mép trên của `monitor`, cách mép trên `HINT_TOP_DIP`; cỡ = chữ `text_size` cộng
+/// đệm. Chữ rộng hơn màn hình thì dán mép trái màn hình.
+pub fn hint_rect(monitor: Rect, text_size: (i32, i32), dpi: u32) -> Rect {
+    let _ = (monitor, text_size, dpi);
+    Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    }
+}
+
+/// Viên nhắc hiện khi chưa có vùng chọn, không đang kéo và con trỏ không nằm trong viên nhắc mở
+/// rộng `HINT_CLEAR_DIP`.
+pub fn hint_visible(
+    hint: Rect,
+    cursor: Point,
+    dpi: u32,
+    has_selection: bool,
+    dragging: bool,
+) -> bool {
+    let _ = (hint, cursor, dpi, has_selection, dragging);
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +221,74 @@ mod tests {
         assert_eq!(candidate_at(&[w, m], p(500, 500)), Some(m));
         assert_eq!(candidate_at(&[w, m], p(2000, 2000)), None);
         assert_eq!(candidate_at(&[], p(1, 1)), None);
+    }
+    #[test]
+    fn dip_scales_and_rounds() {
+        assert_eq!(dip(16, 96), 16);
+        assert_eq!(dip(16, 144), 24);
+        assert_eq!(dip(16, 192), 32);
+        assert_eq!(dip(6, 120), 8);
+        assert_eq!(dip(1, 96), 1);
+    }
+
+    #[test]
+    fn snap_active_only_when_all_four_hold() {
+        for bits in 0..16u8 {
+            let (c, s, d, o) = (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0);
+            let want = c && !s && !d && !o;
+            assert_eq!(snap_active(c, s, d, o), want, "{c} {s} {d} {o}");
+        }
+        assert!(snap_active(true, false, false, false));
+        assert!(!snap_active(false, false, false, false));
+        assert!(!snap_active(true, true, false, false));
+        assert!(!snap_active(true, false, true, false));
+        assert!(!snap_active(true, false, false, true));
+    }
+
+    #[test]
+    fn hint_rect_centered_at_top_per_dpi() {
+        let m = r(0, 0, 1920, 1080);
+        assert_eq!(hint_rect(m, (200, 20), 96), r(848, 16, 224, 32));
+        assert_eq!(hint_rect(m, (200, 20), 144), r(842, 24, 236, 38));
+        assert_eq!(hint_rect(m, (200, 20), 192), r(836, 32, 248, 44));
+    }
+
+    #[test]
+    fn hint_rect_second_monitor_and_negative_coordinates() {
+        assert_eq!(
+            hint_rect(r(1920, 300, 1280, 1024), (200, 20), 96),
+            r(1920 + 528, 316, 224, 32)
+        );
+        assert_eq!(
+            hint_rect(r(-1920, -300, 1920, 1080), (200, 20), 96),
+            r(-1920 + 848, -284, 224, 32)
+        );
+    }
+
+    #[test]
+    fn hint_rect_wider_than_monitor_sticks_left() {
+        let m = r(100, 0, 200, 600);
+        assert_eq!(hint_rect(m, (300, 20), 96), r(100, 16, 324, 32));
+    }
+
+    #[test]
+    fn hint_visible_near_far_selection_dragging() {
+        let h = r(848, 16, 224, 32);
+        // xa
+        assert!(hint_visible(h, p(100, 500), 96, false, false));
+        // trong viên nhắc
+        assert!(!hint_visible(h, p(900, 30), 96, false, false));
+        // dưới viên nhắc 47 px: còn trong vùng 48 DIP
+        assert!(!hint_visible(h, p(900, 48 + 47), 96, false, false));
+        assert!(hint_visible(h, p(900, 48 + 48), 96, false, false));
+        // trái viên nhắc
+        assert!(!hint_visible(h, p(848 - 48, 30), 96, false, false));
+        assert!(hint_visible(h, p(848 - 49, 30), 96, false, false));
+        // DPI 192: vùng 96 px
+        assert!(!hint_visible(h, p(900, 48 + 95), 192, false, false));
+        assert!(hint_visible(h, p(900, 48 + 96), 192, false, false));
+        // có vùng chọn, đang kéo
+        assert!(!hint_visible(h, p(100, 500), 96, true, false));
+        assert!(!hint_visible(h, p(100, 500), 96, false, true));
     }
 }
