@@ -10,8 +10,9 @@ use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindowVisible,
-    GWL_EXSTYLE, WS_EX_TRANSPARENT,
+    EnumWindows, GetClassNameW, GetLayeredWindowAttributes, GetWindowLongPtrW, GetWindowRect,
+    IsIconic, IsWindowVisible, GWL_EXSTYLE, LAYERED_WINDOW_ATTRIBUTES_FLAGS, LWA_ALPHA,
+    WS_EX_LAYERED, WS_EX_TRANSPARENT,
 };
 
 /// Khung các cửa sổ cấp cao hiện được, thứ tự Z từ trên xuống, tọa độ MÀN HÌNH, pixel vật lý.
@@ -70,12 +71,26 @@ fn is_candidate(hwnd: HWND) -> bool {
         && cloaked != 0;
     // SAFETY: chỉ đọc kiểu mở rộng của hwnd.
     let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    let invisible = is_invisible_layered(ex_style, layered_attributes(hwnd, ex_style));
     let mut buf = [0u16; 256];
     // SAFETY: bộ đệm cục bộ; hàm ghi tối đa buf.len() ký tự kể cả số 0 cuối.
     let n = unsafe { GetClassNameW(hwnd, &mut buf) };
     let len = usize::try_from(n).unwrap_or(0).min(buf.len());
     let class = String::from_utf16_lossy(&buf[..len]);
-    accept(visible, iconic, cloaked, ex_style, &class)
+    accept(visible, iconic, cloaked, invisible, ex_style, &class)
+}
+
+/// Độ mờ và cờ của cửa sổ layered (chỉ đọc khi có `WS_EX_LAYERED`); lỗi đọc → None (ví dụ cửa
+/// sổ dùng UpdateLayeredWindow: GetLayeredWindowAttributes thất bại).
+fn layered_attributes(hwnd: HWND, ex_style: u32) -> Option<(u8, u32)> {
+    if ex_style & WS_EX_LAYERED.0 == 0 {
+        return None;
+    }
+    let mut alpha: u8 = 0;
+    let mut flags = LAYERED_WINDOW_ATTRIBUTES_FLAGS(0);
+    // SAFETY: hai bộ đệm cục bộ đúng kiểu; màu khóa không cần nên truyền None.
+    unsafe { GetLayeredWindowAttributes(hwnd, None, Some(&mut alpha), Some(&mut flags)) }.ok()?;
+    Some((alpha, flags.0))
 }
 
 /// Khung cửa sổ: ưu tiên khung DWM (không gồm bóng), lỗi thì GetWindowRect. Rỗng/âm → None.
@@ -118,11 +133,27 @@ pub fn is_shell_background(class: &str) -> bool {
     class.eq_ignore_ascii_case("Progman") || class.eq_ignore_ascii_case("WorkerW")
 }
 
-/// Thuần: quyết định một cửa sổ có là ứng viên không từ các thuộc tính đã đọc.
-pub fn accept(visible: bool, iconic: bool, cloaked: bool, ex_style: u32, class: &str) -> bool {
+/// Thuần: cửa sổ phủ vô hình: `WS_EX_LAYERED` với độ mờ 0 đặt qua `LWA_ALPHA`. `attrs` là
+/// (độ mờ, cờ LWA_*) đã đọc; None (lỗi đọc) thì giữ cửa sổ.
+pub fn is_invisible_layered(ex_style: u32, attrs: Option<(u8, u32)>) -> bool {
+    ex_style & WS_EX_LAYERED.0 != 0
+        && attrs.is_some_and(|(alpha, flags)| flags & LWA_ALPHA.0 != 0 && alpha == 0)
+}
+
+/// Thuần: quyết định một cửa sổ có là ứng viên không từ các thuộc tính đã đọc. `invisible`: cửa sổ
+/// phủ vô hình (xem `is_invisible_layered`).
+pub fn accept(
+    visible: bool,
+    iconic: bool,
+    cloaked: bool,
+    invisible: bool,
+    ex_style: u32,
+    class: &str,
+) -> bool {
     visible
         && !iconic
         && !cloaked
+        && !invisible
         && ex_style & WS_EX_TRANSPARENT.0 == 0
         && !is_shell_background(class)
 }

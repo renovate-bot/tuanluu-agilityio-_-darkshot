@@ -30,9 +30,7 @@ use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
 use darkshot_core::color::CustomColors;
-use darkshot_core::config::{
-    Config, Expiry, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT,
-};
+use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
 use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
@@ -464,19 +462,18 @@ const HISTORY_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong, rồi chờ hàng ghi lịch sử. Chạy trên luồng
 /// chính, chỉ ghi file, không mạng. Thứ tự: `drain` (giành mọi lượt còn dở; lượt nào đã được trao
-/// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → ghi dự phòng đồng bộ → `flush`.
+/// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → lưu ảnh, đẩy mục dự phòng vào CUỐI
+/// hàng ghi (mới hơn mọi mục Lưu/Chép còn trong hàng) → `flush` một lần (tối đa 3 s).
 /// Gọi lại lần hai thì vô hại: sổ rỗng, hàng rỗng.
 fn save_pending_uploads() {
     let items = PENDING.with(|p| p.drain());
-    if !items.is_empty() {
-        let now = paths::local_now();
-        // Tiến trình sắp thoát: ghi lịch sử đồng bộ.
-        app::save_pending(items, now, &|o, img| {
-            history_service::record_outcome_blocking(o, img, Expiry::Keep, now)
-        });
-    }
+    let now = paths::local_now();
     // Hết giờ thì bỏ: không treo khi thoát.
-    let _ = history_service::flush(HISTORY_FLUSH_TIMEOUT);
+    let _ = history_service::finish_on_exit(now, HISTORY_FLUSH_TIMEOUT, |record| {
+        if !items.is_empty() {
+            app::save_pending(items, now, record);
+        }
+    });
 }
 
 /// Luồng nền (hoặc lúc khởi động) nhờ luồng chính mở Cài đặt.

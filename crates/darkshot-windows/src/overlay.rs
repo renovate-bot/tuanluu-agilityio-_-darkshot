@@ -5049,7 +5049,7 @@ impl State {
         // SAFETY: DC bộ nhớ để đo chữ; State xóa nó khi drop.
         let measure = unsafe { CreateCompatibleDC(None) };
         let color = LAST_COLOR.with(|c| c.get());
-        Ok(State {
+        let mut s = State {
             hwnd: HWND::default(),
             w,
             h,
@@ -5115,7 +5115,10 @@ impl State {
                 x: shot.cursor.x.saturating_sub(shot.origin.x),
                 y: shot.cursor.y.saturating_sub(shot.origin.y),
             },
-        })
+        };
+        // Khung đầu tiên đã có ứng viên dưới con trỏ (không chớp tối trước lần di chuột đầu).
+        s.snap_hover = s.snap_at(s.mouse);
+        Ok(s)
     }
 }
 
@@ -5166,6 +5169,19 @@ pub fn pick_region(
     // Thả trước _window: gỡ phím Esc khi cửa sổ còn sống.
     let _esc = EscHotkey(hwnd);
     with_state(|s| s.set_esc_hotkey(true));
+    // Chuột có thể đã rời chỗ lúc chụp: tính lại ứng viên theo vị trí hiện tại TRƯỚC khung đầu.
+    let mut pt = POINT::default();
+    // SAFETY: chỉ đọc vị trí chuột.
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let p = Point {
+            x: pt.x.saturating_sub(shot.origin.x),
+            y: pt.y.saturating_sub(shot.origin.y),
+        };
+        with_state(|s| {
+            s.mouse = p;
+            s.snap_hover = s.snap_at(p);
+        });
+    }
 
     // SAFETY: hiện và vẽ ngay cửa sổ vừa tạo của luồng này.
     unsafe {

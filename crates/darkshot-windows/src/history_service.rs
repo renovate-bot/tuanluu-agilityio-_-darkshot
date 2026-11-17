@@ -52,6 +52,12 @@ fn fail() {
     FAILURES.fetch_add(1, Ordering::SeqCst);
 }
 
+/// Tăng bộ đếm toàn tiến trình và bộ đếm riêng của một hàng đợi.
+fn fail_in(local: &AtomicU32) {
+    fail();
+    local.fetch_add(1, Ordering::SeqCst);
+}
+
 /// Ánh xạ thuần: kết quả hành động → mục mới. `Failed`/`Cancelled` không ghi.
 pub fn plan(
     outcome: &Outcome,
@@ -120,12 +126,15 @@ fn notify_window() {
     }
 }
 
-/// Ghi một mục (đồng bộ) và nuốt mọi lỗi/panic.
-fn write_entry(root: PathBuf, new: NewEntry, img: &Image) {
+/// Ghi một mục (đồng bộ) và nuốt mọi lỗi/panic; `true` khi đã ghi. Bên gọi đếm lỗi.
+fn write_entry(root: PathBuf, new: NewEntry, img: &Image) -> bool {
     let r = catch_unwind(AssertUnwindSafe(|| Store::new(root).record(new, img)));
     match r {
-        Ok(Ok(_)) => notify_window(),
-        Ok(Err(_)) | Err(_) => fail(),
+        Ok(Ok(_)) => {
+            notify_window();
+            true
+        }
+        Ok(Err(_)) | Err(_) => false,
     }
 }
 
@@ -198,6 +207,8 @@ struct Writer {
     tx: Mutex<Option<Sender<Job>>>,
     pending: Arc<Pending>,
     spawns: AtomicU32,
+    /// Lỗi của riêng hàng này (bộ đếm toàn tiến trình vẫn tăng song song).
+    failures: Arc<AtomicU32>,
 }
 
 impl Writer {
@@ -207,6 +218,7 @@ impl Writer {
             tx: Mutex::new(None),
             pending: Arc::new(Pending::default()),
             spawns: AtomicU32::new(0),
+            failures: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -215,13 +227,14 @@ impl Writer {
         let (tx, rx) = mpsc::channel::<Job>();
         let root = self.root.clone();
         let pending = self.pending.clone();
+        let failures = self.failures.clone();
         let r = std::thread::Builder::new()
             .name("darkshot-history".into())
             .spawn(move || {
                 for job in rx {
                     let _done = DoneGuard(&pending);
                     if catch_unwind(AssertUnwindSafe(|| job(&root))).is_err() {
-                        fail();
+                        fail_in(&failures);
                     }
                 }
             });
@@ -234,9 +247,9 @@ impl Writer {
         }
     }
 
-    /// Đẩy một việc vào hàng; không chặn. Không có luồng ghi thì `fail()` và bỏ việc (lần sau thử
-    /// sinh lại); không bao giờ ghi trên luồng gọi.
-    fn push(&self, job: Job) {
+    /// Đẩy một việc vào hàng; không chặn; `true` khi đã vào hàng. Không có luồng ghi thì đếm lỗi
+    /// và bỏ việc (lần sau thử sinh lại); không bao giờ ghi trên luồng gọi.
+    fn push(&self, job: Job) -> bool {
         self.pending.inc();
         let mut job = job;
         {
@@ -250,7 +263,7 @@ impl Writer {
                     break;
                 };
                 match sender.send(job) {
-                    Ok(()) => return,
+                    Ok(()) => return true,
                     Err(mpsc::SendError(back)) => {
                         job = back;
                         *tx = None;
@@ -259,8 +272,9 @@ impl Writer {
             }
         }
         drop(job);
-        fail();
+        fail_in(&self.failures);
         self.pending.dec();
+        false
     }
 
     /// Chờ hàng rỗng và việc đang ghi xong, tối đa `timeout`.
@@ -273,6 +287,12 @@ impl Writer {
     fn spawn_count(&self) -> u32 {
         self.spawns.load(Ordering::SeqCst)
     }
+
+    /// Số lỗi ghi của riêng hàng này (cho kiểm thử).
+    #[cfg(test)]
+    fn failure_count(&self) -> u32 {
+        self.failures.load(Ordering::SeqCst)
+    }
 }
 
 /// Hàng đợi của tiến trình, ghi vào `paths::history_dir()`; chỉ tạo khi lịch sử bật và có việc.
@@ -282,7 +302,7 @@ fn writer() -> &'static Writer {
     WRITER.get_or_init(|| Writer::new(paths::history_dir()))
 }
 
-/// Như `record_outcome` nhưng với hàng đợi và cờ bật truyền vào; `true` nếu đã đẩy một việc.
+/// Như `record_outcome` nhưng với hàng đợi và cờ bật truyền vào; `true` nếu đã đẩy được một việc.
 fn record_with(
     enabled: bool,
     w: &Writer,
@@ -298,13 +318,16 @@ fn record_with(
         return false;
     };
     let img = img.into_arc();
+    let failures = w.failures.clone();
     w.push(Box::new(move |root: &Path| {
-        write_entry(root.to_path_buf(), new, &img)
-    }));
-    true
+        if !write_entry(root.to_path_buf(), new, &img) {
+            fail_in(&failures);
+        }
+    }))
 }
 
-/// Như `record_outcome_blocking` nhưng với thư mục gốc và cờ bật truyền vào.
+/// Ghi đồng bộ trên luồng gọi với thư mục gốc và cờ bật truyền vào; `true` khi đã ghi một mục.
+/// Lỗi tăng bộ đếm toàn tiến trình. Chỉ dùng khi không có luồng ghi (xem `record_on_exit_with`).
 fn record_blocking_with(
     enabled: bool,
     root: PathBuf,
@@ -312,13 +335,43 @@ fn record_blocking_with(
     img: &Image,
     expiry: Expiry,
     now: LocalTime,
-) {
+) -> bool {
     if !enabled {
+        return false;
+    }
+    let Some(new) = plan(outcome, expiry, &now, unix_millis_now()) else {
+        return false;
+    };
+    let ok = write_entry(root, new, img);
+    if !ok {
+        fail();
+    }
+    ok
+}
+
+/// Một mục dự phòng lúc thoát: đẩy vào CUỐI hàng (sau mọi mục đã đẩy trước nên mới hơn chúng);
+/// chỉ khi không đẩy được (không tạo được luồng ghi) mới ghi đồng bộ, lúc đó không có luồng ghi
+/// nào chạy song song.
+fn record_on_exit_with(enabled: bool, w: &Writer, outcome: &Outcome, img: &Image, now: LocalTime) {
+    if !enabled || plan(outcome, Expiry::Keep, &now, 0).is_none() {
         return;
     }
-    if let Some(new) = plan(outcome, expiry, &now, unix_millis_now()) {
-        write_entry(root, new, img);
+    if !record_with(true, w, outcome, ImgSrc::Borrowed(img), Expiry::Keep, now) {
+        let _ = record_blocking_with(true, w.root.clone(), outcome, img, Expiry::Keep, now);
     }
+}
+
+/// Trình tự lịch sử lúc thoát: `save` lưu ảnh và báo từng mục dự phòng qua `record` (đẩy vào cuối
+/// hàng), rồi chờ hàng rỗng MỘT lần, tối đa `timeout`. `true` khi hàng rỗng.
+fn finish_on_exit_with(
+    enabled: bool,
+    w: &Writer,
+    now: LocalTime,
+    timeout: Duration,
+    save: impl FnOnce(&dyn Fn(&Outcome, &Image)),
+) -> bool {
+    save(&|o, img| record_on_exit_with(enabled, w, o, img, now));
+    w.flush(timeout)
 }
 
 /// Ghi kết quả vào lịch sử: đẩy vào hàng của luồng nền `darkshot-history`; không chặn, không panic.
@@ -344,12 +397,20 @@ pub fn flush(timeout: Duration) -> bool {
     WRITER.get().is_none_or(|w| w.flush(timeout))
 }
 
-/// Như `record_outcome` nhưng ghi xong mới trả về (dùng khi thoát: lưu dự phòng).
-pub fn record_outcome_blocking(outcome: &Outcome, img: &Image, expiry: Expiry, now: LocalTime) {
+/// Lúc thoát (luồng chính): `save` lưu ảnh của các lượt tải lên còn dở và báo từng mục dự phòng
+/// qua hàm `record` nó nhận. Mục dự phòng vào cuối hàng ghi, sau các mục Lưu/Chép đã đẩy trước,
+/// nên lịch sử xếp đúng thứ tự; rồi chờ hàng rỗng một lần, tối đa `timeout`. Tắt thì `save` vẫn
+/// chạy (ảnh vẫn được lưu) nhưng không ghi gì. `true` khi hàng rỗng.
+pub fn finish_on_exit(
+    now: LocalTime,
+    timeout: Duration,
+    save: impl FnOnce(&dyn Fn(&Outcome, &Image)),
+) -> bool {
     if !is_enabled() {
-        return;
+        save(&|_, _| {});
+        return flush(timeout);
     }
-    record_blocking_with(true, paths::history_dir(), outcome, img, expiry, now);
+    finish_on_exit_with(true, writer(), now, timeout, save)
 }
 
 #[cfg(test)]
