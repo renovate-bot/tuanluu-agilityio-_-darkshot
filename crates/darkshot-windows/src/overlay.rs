@@ -109,8 +109,8 @@ impl BarItem {
 }
 
 /// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ,
-/// Hủy; `None` là vạch ngăn.
-const BAR_CELLS: [Option<BarItem>; 9] = [
+/// Chụp cuộn, Hủy; `None` là vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 10] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
@@ -119,8 +119,21 @@ const BAR_CELLS: [Option<BarItem>; 9] = [
     Some(BarItem::Act(Action::Copy)),
     Some(BarItem::Act(Action::Pin)),
     Some(BarItem::Act(Action::Ocr)),
+    Some(BarItem::Act(Action::Scroll)),
     Some(BarItem::Act(Action::Cancel)),
 ];
+
+/// Chữ chú thích của ô thanh ngang `item`: Chụp cuộn thêm ghi chú hình đánh dấu không đi kèm.
+fn tip_text(lang: i18n::Lang, item: BarItem) -> String {
+    let base = i18n::t(lang, item.tip());
+    match item {
+        BarItem::Act(Action::Scroll) => format!(
+            "{base} \u{00B7} {}",
+            i18n::t(lang, Msg::ScrollNoAnnotations)
+        ),
+        _ => base.to_string(),
+    }
+}
 
 // Kích thước ở 96 DPI (100%); nhân theo DPI của màn hình chứa phần tử.
 const BUTTON: i32 = 36;
@@ -1884,7 +1897,7 @@ impl State {
         let item = self.hover?;
         let (bar, dpi) = self.toolbar()?;
         let btn = bar_item_rect_with(bar, dpi, self.steps, item)?;
-        let text = wide(lang::tr(item.tip()));
+        let text = wide(&tip_text(lang::current(), item));
         let (tw, th) = self.text_size(&text, dpi);
         let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
         let btn_right = btn.right();
@@ -2620,6 +2633,8 @@ impl State {
                 0x54 => self.finish(Action::Ocr),
                 // N: thêm bước (chỉ khi có phiên chụp từng bước), chốt ô chữ như P.
                 0x4E if self.steps => self.finish(Action::AddStep),
+                // L: chụp cuộn; ô chữ được chốt nhưng hình đánh dấu không đi kèm.
+                0x4C => self.finish(Action::Scroll),
                 _ => {}
             }
             return;
@@ -3385,6 +3400,7 @@ impl State {
             0x54 => Action::Ocr,    // T
             // N: thêm bước, chỉ khi có phiên chụp từng bước.
             0x4E if self.steps => Action::AddStep,
+            0x4C => Action::Scroll, // L
             _ => return,
         };
         self.finish(a);
@@ -4761,8 +4777,17 @@ impl Gp {
                 p.poly(&[(12.0, 8.0), (12.0, 16.0)]);
                 p.poly(&[(8.0, 12.0), (16.0, 12.0)]);
             }
-            // Biểu tượng Chụp cuộn vẽ ở Task 90 (chưa có ô trên thanh ngang).
-            Action::Scroll => {}
+            Action::Scroll => {
+                // Mũi tên xuống trong khung bo góc (4,3)-(20,21), bán kính 2.
+                p.start();
+                p.arc(6.0, 5.0, 2.0, 180.0, 90.0);
+                p.arc(18.0, 5.0, 2.0, 270.0, 90.0);
+                p.arc(18.0, 19.0, 2.0, 0.0, 90.0);
+                p.arc(6.0, 19.0, 2.0, 90.0, 90.0);
+                p.close();
+                p.poly(&[(12.0, 7.0), (12.0, 16.5)]);
+                p.poly(&[(8.5, 13.0), (12.0, 16.5), (15.5, 13.0)]);
+            }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
@@ -5383,7 +5408,7 @@ mod tests {
         let bar = Rect {
             x: 100,
             y: 100,
-            w: 8 * 36 + 9,
+            w: 9 * 36 + 9,
             h: 36,
         };
         let at = |x, y| bar_item_at(bar, Point { x, y }, 96);
@@ -5398,14 +5423,17 @@ mod tests {
         assert_eq!(at(325, 110), Some(BarItem::Act(Action::Ocr)));
         assert_eq!(at(340, 110), Some(BarItem::Act(Action::Ocr)));
         assert_eq!(at(360, 110), Some(BarItem::Act(Action::Ocr)));
-        assert_eq!(at(361, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(396, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(397, 110), None);
+        assert_eq!(at(361, 110), Some(BarItem::Act(Action::Scroll)));
+        assert_eq!(at(396, 110), Some(BarItem::Act(Action::Scroll)));
+        assert_eq!(at(397, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(432, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(433, 110), None);
         assert_eq!(at(99, 110), None);
         assert_eq!(at(110, 136), None);
     }
 
-    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy; các ô
+    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn,
+    /// Hủy; các ô
     /// liền nhau, không
     /// chồng, nằm trong thanh; `bar_item_at` đúng ở tâm ô và `None` trên vạch ngăn.
     #[test]
@@ -5421,15 +5449,16 @@ mod tests {
                 Some(BarItem::Act(Action::Copy)),
                 Some(BarItem::Act(Action::Pin)),
                 Some(BarItem::Act(Action::Ocr)),
+                Some(BarItem::Act(Action::Scroll)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
         );
         for dpi in [96, 120, 144, 192] {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             let l = bar_layout(dpi);
-            // 8 nút và 1 vạch ngăn.
-            assert_eq!(l.size, (8 * b + sep, b), "dpi {dpi}");
-            assert_eq!(l.cells.len(), 9);
+            // 9 nút và 1 vạch ngăn.
+            assert_eq!(l.size, (9 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.cells.len(), 10);
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, BAR_CELLS.to_vec());
             let mut x = 0;
@@ -5488,13 +5517,14 @@ mod tests {
         }
     }
 
-    /// Không phiên: đúng `BAR_CELLS` (9 ô) như cũ. Có phiên: thêm Thêm bước ngay trước Hủy (10 ô);
+    /// Không phiên: đúng `BAR_CELLS` (10 ô). Có phiên: thêm Thêm bước ngay trước Hủy (11 ô);
     /// bố cục và dò ô theo đúng danh sách ô.
     #[test]
     fn bar_cells_with_and_without_steps() {
         assert_eq!(bar_cells(false), BAR_CELLS.to_vec());
         let with = bar_cells(true);
-        assert_eq!(with.len(), 10);
+        assert_eq!(bar_cells(false).len(), 10);
+        assert_eq!(with.len(), 11);
         assert_eq!(
             with,
             vec![
@@ -5506,6 +5536,7 @@ mod tests {
                 Some(BarItem::Act(Action::Copy)),
                 Some(BarItem::Act(Action::Pin)),
                 Some(BarItem::Act(Action::Ocr)),
+                Some(BarItem::Act(Action::Scroll)),
                 Some(BarItem::Act(Action::AddStep)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
@@ -5514,9 +5545,21 @@ mod tests {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             assert_eq!(bar_layout(dpi), bar_layout_with(dpi, false));
             let l = bar_layout_with(dpi, true);
-            assert_eq!(l.size, (9 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.size, (10 * b + sep, b), "dpi {dpi}");
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, with);
+            // Chụp cuộn đứng ngay trước Thêm bước.
+            let scroll_bar = Rect {
+                x: 50,
+                y: 40,
+                w: l.size.0,
+                h: l.size.1,
+            };
+            let sc =
+                bar_item_rect_with(scroll_bar, dpi, true, BarItem::Act(Action::Scroll)).unwrap();
+            let st =
+                bar_item_rect_with(scroll_bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
+            assert_eq!(sc.right(), st.x);
             let bar = Rect {
                 x: 50,
                 y: 40,
@@ -5932,6 +5975,20 @@ mod tests {
         assert_eq!(BarItem::Act(Action::Save).tip(), Msg::OverlaySave);
         assert_eq!(BarItem::Act(Action::Pin).tip(), Msg::OverlayPin);
         assert_eq!(BarItem::Act(Action::Ocr).tip(), Msg::OverlayOcr);
+        assert_eq!(BarItem::Act(Action::Scroll).tip(), Msg::OverlayScroll);
+        // Chú thích Chụp cuộn nói rõ hình đánh dấu không đi kèm; các ô khác giữ nguyên chữ.
+        assert_eq!(
+            tip_text(Lang::Vi, BarItem::Act(Action::Scroll)),
+            "Chụp cuộn (Ctrl+L) · Không kèm hình đánh dấu"
+        );
+        assert_eq!(
+            tip_text(Lang::En, BarItem::Act(Action::Scroll)),
+            "Scrolling capture (Ctrl+L) · Annotations are not included"
+        );
+        assert_eq!(
+            tip_text(Lang::Vi, BarItem::Act(Action::Ocr)),
+            t(Lang::Vi, Msg::OverlayOcr)
+        );
         let tips: Vec<Msg> = SHAPE_TOOLS.iter().map(|t| shape_tip(*t)).collect();
         assert_eq!(
             tips,
@@ -9801,6 +9858,88 @@ mod tests {
             assert!(s.result.is_none());
         }
 
+        #[test]
+        fn ctrl_l_starts_scrolling_capture() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4C, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Scroll, SEL));
+            // Có phiên chụp từng bước: Ctrl+L vẫn là chụp cuộn.
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            s.on_key(0x4C, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!(r.action, Action::Scroll);
+        }
+
+        #[test]
+        fn ctrl_l_without_selection_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4C, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_l_while_typing_commits_text_then_scrolls() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4C, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Scroll, SEL));
+        }
+
+        /// Thanh ngang của trạng thái có ô Chụp cuộn (có và không có phiên); bấm vào nó kết thúc
+        /// bằng Scroll.
+        #[test]
+        fn scroll_button_finishes_with_scroll() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            for steps in [false, true] {
+                let mut s = state(&sh, Some(SEL));
+                s.steps = steps;
+                let (bar, dpi) = s.toolbar().unwrap();
+                assert_eq!((bar.w, bar.h), bar_layout_with(dpi, steps).size);
+                let r = bar_item_rect_with(bar, dpi, steps, BarItem::Act(Action::Scroll)).unwrap();
+                let at = p(r.x + r.w / 2, r.y + r.h / 2);
+                assert_eq!(s.bar_item_at(at), Some(BarItem::Act(Action::Scroll)));
+                s.on_move(at);
+                s.on_down(at);
+                s.on_up(at);
+                let res = s
+                    .result
+                    .take()
+                    .expect("đã kết thúc")
+                    .expect("không phải Hủy");
+                assert_eq!((res.action, res.rect), (Action::Scroll, SEL));
+            }
+        }
+
         /// Có phiên: thanh ngang của trạng thái có ô Thêm bước; bấm vào nó kết thúc bằng AddStep.
         #[test]
         fn add_step_button_with_session() {
@@ -9823,7 +9962,7 @@ mod tests {
                 .expect("đã kết thúc")
                 .expect("không phải Hủy");
             assert_eq!(res.action, Action::AddStep);
-            // Không phiên: thanh 9 ô như cũ.
+            // Không phiên: thanh 10 ô.
             let s2 = state(&sh, Some(SEL));
             let (bar2, dpi2) = s2.toolbar().unwrap();
             assert_eq!((bar2.w, bar2.h), bar_layout(dpi2).size);

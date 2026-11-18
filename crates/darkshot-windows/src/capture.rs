@@ -237,18 +237,14 @@ fn clip_to_image(r: Rect, w: i32, h: i32) -> Option<Rect> {
     })
 }
 
-/// Chụp toàn bộ màn hình ảo (mọi màn hình). `include_cursor`: vẽ con trỏ đang hiện vào ảnh.
-pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Screenshot> {
-    let _dpi = DpiScope::per_monitor_v2();
-    // SAFETY: GetSystemMetrics chỉ đọc giá trị hệ thống.
-    let (x, y, w, h) = unsafe {
-        (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-            GetSystemMetrics(SM_CXVIRTUALSCREEN),
-            GetSystemMetrics(SM_CYVIRTUALSCREEN),
-        )
-    };
+/// Chép vùng `r` (tọa độ màn hình, pixel vật lý) của màn hình bằng BitBlt với `rop` vào bộ nhớ BGRA
+/// từ trên xuống, alpha 255. `draw_cursor_in`: vẽ con trỏ đang hiện vào ảnh và trả vị trí của nó.
+fn grab(
+    r: Rect,
+    rop: ROP_CODE,
+    draw_cursor_in: bool,
+) -> windows::core::Result<(Vec<u8>, Option<Point>)> {
+    let Rect { x, y, w, h } = r;
     if w <= 0 || h <= 0 {
         return Err(Error::from_hresult(E_FAIL));
     }
@@ -287,39 +283,24 @@ pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Scr
     if bits.is_null() {
         return Err(Error::from_hresult(E_FAIL));
     }
-    let origin = Point { x, y };
-    let cursor;
+    let pos;
     {
         // SAFETY: chọn DIB vào DC bộ nhớ; guard chọn lại đối tượng cũ trước khi DIB bị xóa.
         let _sel = Selected {
             dc: mem.0,
             old: unsafe { SelectObject(mem.0, bmp.0.into()) },
         };
-        // SAFETY: cả hai DC còn sống; vùng nguồn là màn hình ảo, đích vừa khít DIB.
-        // Lỗi (màn hình khóa, UAC) trả về Err cho bên gọi hiện thông báo.
+        // SAFETY: cả hai DC còn sống; vùng nguồn là `r`, đích vừa khít DIB.
+        // Lỗi (màn hình khóa, UAC) trả về Err cho bên gọi.
         unsafe {
-            BitBlt(
-                mem.0,
-                0,
-                0,
-                w,
-                h,
-                Some(screen.0),
-                x,
-                y,
-                ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
-            )?;
+            BitBlt(mem.0, 0, 0, w, h, Some(screen.0), x, y, rop)?;
         }
-        // Con trỏ vẽ khi DIB còn được chọn trong DC bộ nhớ; ô tắt thì chỉ đọc vị trí.
-        let pos = if include_cursor {
-            draw_cursor(mem.0, origin)
+        // Con trỏ vẽ khi DIB còn được chọn trong DC bộ nhớ.
+        pos = if draw_cursor_in {
+            draw_cursor(mem.0, Point { x, y })
         } else {
             None
         };
-        cursor = pos.or_else(cursor_pos).unwrap_or(Point {
-            x: x + w / 2,
-            y: y + h / 2,
-        });
         // SAFETY: đẩy mọi lệnh vẽ GDI còn chờ vào DIB trước khi đọc pixel.
         unsafe {
             let _ = GdiFlush();
@@ -335,6 +316,46 @@ pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Scr
     for px in bgra.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
+    Ok((bgra, pos))
+}
+
+/// Chụp đúng vùng `screen` (tọa độ màn hình, pixel vật lý; luồng gọi được đặt PerMonitorV2 trong
+/// lúc chụp), không có con trỏ, alpha 255. Dùng cho chụp cuộn (mỗi lượt hẹn giờ).
+///
+/// Chỉ `SRCCOPY`, không `CAPTUREBLT`: khi DWM bật, màn hình đã gồm cửa sổ lớp; `CAPTUREBLT` có thể
+/// làm con trỏ nháy ở mỗi lượt chụp (10 lần mỗi giây).
+pub fn capture_rect(screen: Rect) -> windows::core::Result<Image> {
+    let _dpi = DpiScope::per_monitor_v2();
+    let (bgra, _) = grab(screen, SRCCOPY, false)?;
+    Ok(Image {
+        width: screen.w as u32,
+        height: screen.h as u32,
+        bgra,
+    })
+}
+
+/// Chụp toàn bộ màn hình ảo (mọi màn hình). `include_cursor`: vẽ con trỏ đang hiện vào ảnh.
+pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Screenshot> {
+    let _dpi = DpiScope::per_monitor_v2();
+    // SAFETY: GetSystemMetrics chỉ đọc giá trị hệ thống.
+    let (x, y, w, h) = unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN),
+        )
+    };
+    let origin = Point { x, y };
+    let (bgra, pos) = grab(
+        Rect { x, y, w, h },
+        ROP_CODE(SRCCOPY.0 | CAPTUREBLT.0),
+        include_cursor,
+    )?;
+    let cursor = pos.or_else(cursor_pos).unwrap_or(Point {
+        x: x + w / 2,
+        y: y + h / 2,
+    });
 
     let mut screens: Vec<Rect> = Vec::new();
     // SAFETY: callback chỉ ghi vào `screens`, sống đến hết lời gọi đồng bộ này.
@@ -506,6 +527,46 @@ mod tests {
         );
     }
 
+    /// Chụp một vùng: đúng cỡ, alpha đục, không rò GDI; vùng rỗng bị từ chối.
+    #[test]
+    fn capture_rect_returns_region_only() {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        let _gdi = GDI_TEST_LOCK.lock();
+        // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
+        let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        // SAFETY: chỉ đọc giá trị hệ thống.
+        let (vx, vy) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+            )
+        };
+        let region = Rect {
+            x: vx + 10,
+            y: vy + 20,
+            w: 50,
+            h: 40,
+        };
+        let img = capture_rect(region).unwrap();
+        assert_eq!((img.width, img.height), (50, 40));
+        assert_eq!(img.bgra.len(), 50 * 40 * 4);
+        assert!(img.bgra.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
+        let before = gdi();
+        for _ in 0..30 {
+            assert!(capture_rect(region).unwrap().is_valid());
+        }
+        assert!(gdi() <= before, "GDI tăng");
+        for bad in [
+            Rect { w: 0, ..region },
+            Rect { h: 0, ..region },
+            Rect { w: -5, ..region },
+        ] {
+            assert!(capture_rect(bad).is_err(), "{bad:?}");
+        }
+    }
+
     /// Ảnh 64×48 gồm bốn ô màu phẳng 32×24 (đỏ, lục, lam, xám); kèm tâm và màu [R, G, B] của mỗi ô.
     type Tiles = [(i32, i32, [u8; 3]); 4];
     fn four_tiles() -> (darkshot_core::image::Image, Tiles) {
@@ -535,6 +596,8 @@ mod tests {
     /// Giải nén JPEG do core tạo bằng GDI+ (bộ giải nén độc lập), so kích thước và màu tâm mỗi ô.
     #[test]
     fn jpeg_decodes_with_gdiplus() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         use windows::Win32::Graphics::GdiPlus::{
             GdipBitmapGetPixel, GdipCreateBitmapFromStream, GdipDisposeImage, GdipGetImageHeight,
             GdipGetImageWidth, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap,

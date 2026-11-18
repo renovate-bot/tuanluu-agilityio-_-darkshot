@@ -1387,6 +1387,8 @@ mod tests {
     /// `WM_OCR_RESULT` gửi tới cửa sổ không phải cửa sổ kết quả: `pre_translate` không đụng LPARAM.
     #[test]
     fn pre_translate_ignores_foreign_result_message() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         use windows::core::w;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
