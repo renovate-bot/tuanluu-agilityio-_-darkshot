@@ -506,6 +506,46 @@ mod tests {
         );
     }
 
+    /// Chụp một vùng: đúng cỡ, alpha đục, không rò GDI; vùng rỗng bị từ chối.
+    #[test]
+    fn capture_rect_returns_region_only() {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        let _gdi = GDI_TEST_LOCK.lock();
+        // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
+        let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        // SAFETY: chỉ đọc giá trị hệ thống.
+        let (vx, vy) = unsafe {
+            (
+                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                GetSystemMetrics(SM_YVIRTUALSCREEN),
+            )
+        };
+        let region = Rect {
+            x: vx + 10,
+            y: vy + 20,
+            w: 50,
+            h: 40,
+        };
+        let img = capture_rect(region).unwrap();
+        assert_eq!((img.width, img.height), (50, 40));
+        assert_eq!(img.bgra.len(), 50 * 40 * 4);
+        assert!(img.bgra.chunks_exact(4).all(|p| p[3] == 255));
+        let before = gdi();
+        for _ in 0..30 {
+            assert!(capture_rect(region).unwrap().is_valid());
+        }
+        assert!(gdi() <= before, "GDI tăng");
+        for bad in [
+            Rect { w: 0, ..region },
+            Rect { h: 0, ..region },
+            Rect { w: -5, ..region },
+        ] {
+            assert!(capture_rect(bad).is_err(), "{bad:?}");
+        }
+    }
+
     /// Ảnh 64×48 gồm bốn ô màu phẳng 32×24 (đỏ, lục, lam, xám); kèm tâm và màu [R, G, B] của mỗi ô.
     type Tiles = [(i32, i32, [u8; 3]); 4];
     fn four_tiles() -> (darkshot_core::image::Image, Tiles) {

@@ -23,6 +23,7 @@ mod pin;
 mod secret;
 mod settings;
 mod snap;
+mod scroll_session;
 mod steps_bar;
 mod steps_export;
 mod steps_store;
@@ -1901,6 +1902,42 @@ mod tests {
             vec![r(0, 0, 800, 600), r(10, 10, 50, 50)]
         );
         assert_eq!(without_frame(wins.clone(), None), wins);
+    }
+
+    /// Trong lúc phiên chụp cuộn chạy, cổng coi như đang chụp: phím chụp và mục Chụp của menu bị
+    /// bỏ qua; bấm khay (mở menu), hẹn giờ menu, Tùy chọn vẫn đi như thường.
+    #[test]
+    fn scroll_session_blocks_capture_requests() {
+        for ev in [MenuCapture, Hotkey] {
+            assert!(scroll_blocks(true, ev), "{ev:?}");
+            assert!(!scroll_blocks(false, ev), "{ev:?}");
+        }
+        for ev in [
+            TimerFired,
+            OverlayClosed,
+            TrayClick,
+            OpenSettings,
+            SettingsClosed,
+        ] {
+            assert!(!scroll_blocks(true, ev), "{ev:?}");
+        }
+    }
+
+    /// Vùng chụp cuộn: tọa độ ảnh kẹp vào ảnh rồi cộng gốc màn hình ảo đúng một lần.
+    #[test]
+    fn scroll_region_to_screen_once() {
+        let origin = Point { x: -1920, y: -100 };
+        assert_eq!(
+            scroll_region(rc(100, 50, 400, 300), origin, 3840, 1180),
+            Some(rc(-1820, -50, 400, 300))
+        );
+        // Vượt mép ảnh: kẹp lại.
+        assert_eq!(
+            scroll_region(rc(-10, 1000, 400, 300), origin, 3840, 1180),
+            Some(rc(-1920, 900, 390, 180))
+        );
+        assert_eq!(scroll_region(rc(4000, 0, 10, 10), origin, 3840, 1180), None);
+        assert_eq!(scroll_region(rc(0, 0, 0, 10), origin, 3840, 1180), None);
     }
 
     /// Mã thông điệp của chụp từng bước không trùng mã nào đã dùng (WM_APP+1..+12).
