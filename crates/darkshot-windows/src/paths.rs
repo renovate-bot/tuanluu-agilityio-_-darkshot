@@ -110,7 +110,7 @@ pub fn config_path() -> PathBuf {
 
 /// `<appdata>\darkshot\last_capture.json` (cùng thư mục với `config.json`).
 pub fn last_capture_path_in(appdata: &Path) -> PathBuf {
-    appdata.join("last_capture.json")
+    appdata.join("darkshot").join("last_capture.json")
 }
 
 /// `%APPDATA%\darkshot\last_capture.json` (theo `DARKSHOT_PROFILE_DIR`).

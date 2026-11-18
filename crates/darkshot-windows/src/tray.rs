@@ -16,8 +16,8 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, LoadIconW,
     LoadImageW, PostMessageW, SetForegroundWindow, TrackPopupMenu, HICON, IDI_APPLICATION,
-    IMAGE_ICON, LR_SHARED, MF_SEPARATOR, MF_STRING, SM_CXSMICON, SM_CYSMICON, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
+    IMAGE_ICON, LR_SHARED, MF_GRAYED, MF_SEPARATOR, MF_STRING, SM_CXSMICON, SM_CYSMICON,
+    TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_NULL,
 };
 
 /// Thông điệp riêng của biểu tượng khay.
@@ -34,6 +34,7 @@ const ID_QUIT: usize = 5;
 const ID_UPDATE: usize = 6;
 const ID_HISTORY: usize = 7;
 const ID_CLOSE_PINS: usize = 8;
+const ID_REPEAT_LAST: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
@@ -155,12 +156,19 @@ impl Tray {
     }
 
     /// Hiện menu tại con trỏ chuột và trả về mục được chọn. `update` là chữ của mục "Có bản mới";
-    /// `pins` là số ảnh ghim đang mở (lớn hơn 0 thì có mục "Đóng mọi ảnh ghim (n)").
-    pub fn show_menu(&self, update: Option<&str>, pins: usize) -> Option<MenuCommand> {
+    /// `pins` là số ảnh ghim đang mở (lớn hơn 0 thì có mục "Đóng mọi ảnh ghim (n)"); `can_repeat`
+    /// là có lần chụp trước để lặp (không có thì mục "Chụp lại vùng trước" mờ).
+    pub fn show_menu(
+        &self,
+        update: Option<&str>,
+        pins: usize,
+        can_repeat: bool,
+    ) -> Option<MenuCommand> {
         // SAFETY: menu được tạo và hủy trong hàm này; hwnd thuộc luồng gọi.
         unsafe {
             let menu = CreatePopupMenu().ok()?;
             let capture = HSTRING::from(lang::tr(Msg::TrayCapture));
+            let repeat_last = HSTRING::from(lang::tr(Msg::MenuRepeatLast));
             let history = HSTRING::from(lang::tr(Msg::TrayHistory));
             let close_pins = HSTRING::from(i18n::tray_close_pins(lang::current(), pins));
             let options = HSTRING::from(lang::tr(Msg::TrayOptions));
@@ -168,7 +176,7 @@ impl Tray {
             let help = HSTRING::from(lang::tr(Msg::TrayHelp));
             let exit = HSTRING::from(lang::tr(Msg::TrayExit));
             let update_text = HSTRING::from(update.unwrap_or_default());
-            for entry in menu_layout(update.is_some(), pins, false) {
+            for entry in menu_layout(update.is_some(), pins, can_repeat) {
                 match entry {
                     MenuEntry::Separator => {
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
@@ -179,7 +187,15 @@ impl Tray {
                     MenuEntry::Item(MenuCommand::Capture) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
                     }
-                    MenuEntry::Item(MenuCommand::RepeatLast) | MenuEntry::Grayed(_) => {}
+                    MenuEntry::Item(MenuCommand::RepeatLast) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_REPEAT_LAST, &repeat_last);
+                    }
+                    MenuEntry::Grayed(MenuCommand::RepeatLast) => {
+                        let _ =
+                            AppendMenuW(menu, MF_STRING | MF_GRAYED, ID_REPEAT_LAST, &repeat_last);
+                    }
+                    // `menu_layout` chỉ làm mờ mục lặp lại.
+                    MenuEntry::Grayed(_) => {}
                     MenuEntry::Item(MenuCommand::History) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_HISTORY, &history);
                     }
@@ -218,6 +234,7 @@ impl Tray {
             match cmd.0 as usize {
                 ID_UPDATE => Some(MenuCommand::OpenUpdate),
                 ID_CAPTURE => Some(MenuCommand::Capture),
+                ID_REPEAT_LAST => Some(MenuCommand::RepeatLast),
                 ID_HISTORY => Some(MenuCommand::History),
                 ID_CLOSE_PINS => Some(MenuCommand::ClosePins),
                 ID_OPTIONS => Some(MenuCommand::Options),
@@ -339,13 +356,17 @@ pub enum MenuEntry {
 /// ghim (`pins` > 0) thì "Đóng mọi ảnh ghim" ngay sau Lịch sử. "Chụp lại vùng trước" luôn ngay sau
 /// "Chụp", mờ khi `can_repeat` là `false`.
 pub fn menu_layout(has_update: bool, pins: usize, can_repeat: bool) -> Vec<MenuEntry> {
-    let _ = can_repeat;
     let mut v = Vec::new();
     if has_update {
         v.push(MenuEntry::Item(MenuCommand::OpenUpdate));
         v.push(MenuEntry::Separator);
     }
     v.push(MenuEntry::Item(MenuCommand::Capture));
+    v.push(if can_repeat {
+        MenuEntry::Item(MenuCommand::RepeatLast)
+    } else {
+        MenuEntry::Grayed(MenuCommand::RepeatLast)
+    });
     v.push(MenuEntry::Item(MenuCommand::History));
     if pins > 0 {
         v.push(MenuEntry::Item(MenuCommand::ClosePins));

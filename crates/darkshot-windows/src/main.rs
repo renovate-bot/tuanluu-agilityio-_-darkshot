@@ -68,7 +68,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Sự kiện nội bộ; Task 11 mở rộng.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEvent {
-    /// Phím tắt chụp (một trong ba loại).
+    /// Phím tắt chụp (một trong các loại).
     Capture(CaptureKind),
     OpenSettings,
     Quit,
@@ -162,7 +162,7 @@ pub fn kind_of(role: HotkeyRole) -> CaptureKind {
         HotkeyRole::Region => CaptureKind::Region,
         HotkeyRole::SaveFull => CaptureKind::SaveFull,
         HotkeyRole::UploadFull => CaptureKind::UploadFull,
-        HotkeyRole::RepeatLast => CaptureKind::Region, // Task 74
+        HotkeyRole::RepeatLast => CaptureKind::RepeatLast,
     }
 }
 
@@ -203,8 +203,18 @@ pub fn repeat_plan(
     img_h: i32,
     monitors: &[Rect],
 ) -> RepeatPlan {
-    let _ = (last, origin, img_w, img_h, monitors);
-    RepeatPlan::Overlay
+    let Some(last) = last else {
+        return RepeatPlan::Overlay;
+    };
+    // `repeat_rect` nhận màn hình theo tọa độ màn hình và tự trừ gốc đúng một lần.
+    let screens: Vec<Rect> = monitors
+        .iter()
+        .map(|m| capture::to_screen_coords(*m, origin))
+        .collect();
+    match last_capture::repeat_rect(&last, origin, img_w, img_h, &screens) {
+        Some(r) => RepeatPlan::Run(r, last.action),
+        None => RepeatPlan::OverlayWithNotice,
+    }
 }
 
 /// Lần chụp trước mới sau một lượt chụp vùng kết thúc bằng `action` với vùng `screen` (tọa độ
@@ -214,21 +224,63 @@ pub fn last_capture_after(
     action: Action,
     screen: Rect,
 ) -> (Option<LastCapture>, bool) {
-    let _ = (action, screen);
-    (prev, false)
+    let next = last_capture::remember(prev, action, screen);
+    (next, next != prev)
 }
+
+/// Tệp lần chụp trước lớn hơn mức này là hỏng (tệp thật chỉ vài chục byte).
+const LAST_CAPTURE_MAX_BYTES: u64 = 4096;
 
 /// Đọc tệp lần chụp trước; thiếu, quá lớn hay hỏng thì `None` (im lặng).
 pub fn read_last_capture(path: &Path) -> Option<LastCapture> {
-    let _ = path;
-    None
+    use std::io::Read;
+    let f = std::fs::File::open(path).ok()?;
+    let mut s = String::new();
+    // Đọc tối đa một byte quá giới hạn để nhận ra tệp quá lớn mà không đọc hết.
+    f.take(LAST_CAPTURE_MAX_BYTES + 1)
+        .read_to_string(&mut s)
+        .ok()?;
+    if s.len() as u64 > LAST_CAPTURE_MAX_BYTES {
+        return None;
+    }
+    last_capture::from_json(&s)
 }
 
 /// Ghi tệp lần chụp trước nguyên tử: tệp tạm cùng thư mục, `sync_all`, đổi tên; tạo thư mục nếu
 /// thiếu. Lỗi thì xóa tệp tạm và trả lỗi (bên gọi nuốt).
 pub fn write_last_capture(path: &Path, l: &LastCapture) -> std::io::Result<()> {
-    let _ = (path, l);
-    Ok(())
+    use std::io::Write;
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = dir.join(tmp_name);
+    let write_tmp = || -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(last_capture::to_json(l).as_bytes())?;
+        f.sync_all()
+    };
+    if let Err(e) = write_tmp() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Nhớ lượt chụp vùng vừa kết thúc bằng `action` với vùng `screen` (tọa độ màn hình); giá trị đổi
+/// thì ghi tệp. Lỗi ghi bị nuốt: không bao giờ làm hỏng luồng chụp.
+fn remember_last_capture(action: Action, screen: Rect) {
+    let prev = LAST_CAPTURE.with(|l| l.get());
+    let (next, write) = last_capture_after(prev, action, screen);
+    LAST_CAPTURE.with(|l| l.set(next));
+    if let (true, Some(l)) = (write, next) {
+        let _ = write_last_capture(&paths::last_capture_path(), &l);
+    }
 }
 
 /// Vùng (tọa độ ảnh) của lượt chụp toàn màn hình: màn hình chứa con trỏ (`cursor`, tọa độ màn
@@ -290,7 +342,7 @@ thread_local! {
     static GATE: Cell<CaptureGate> = const { Cell::new(CaptureGate::Idle) };
     /// Loại của lượt chụp đã được cổng nhận (đang chờ menu hoặc đang chạy); chỉ `request` đổi nó.
     static CAPTURE_KIND: Cell<CaptureKind> = const { Cell::new(CaptureKind::Region) };
-    /// Khung đã chọn ở lượt chụp vùng gần nhất (tọa độ màn hình); chỉ nhớ trong phiên.
+    /// Khung đã chọn ở lượt chụp vùng gần nhất (tọa độ màn hình); lúc khởi động lấy từ tệp lần chụp trước.
     static LAST_SELECTION: Cell<Option<Rect>> = const { Cell::new(None) };
     /// Lần chụp vùng trước (vùng tọa độ màn hình và hành động) cho "Chụp lại vùng trước"; đọc từ
     /// tệp lúc khởi động.
@@ -664,7 +716,14 @@ fn capture_flow(hwnd: HWND) {
 }
 
 /// Thân của `capture_flow` với loại `kind` và bộ thông báo truyền vào.
-fn capture_flow_with(hwnd: HWND, kind: CaptureKind, notifier: Option<Arc<dyn Notifier>>) {
+fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dyn Notifier>>) {
+    let last = LAST_CAPTURE.with(|l| l.get());
+    // Chưa có lần chụp trước: phím lặp lại chạy đúng như phím chụp vùng (kể cả gợi ý cửa sổ).
+    let kind = if requested == CaptureKind::RepeatLast && last.is_none() {
+        CaptureKind::Region
+    } else {
+        requested
+    };
     let notify = |kind: NoticeKind, title: &str, body: &str| {
         if let Some(n) = &notifier {
             n.notify(kind, title, body);
@@ -694,8 +753,23 @@ fn capture_flow_with(hwnd: HWND, kind: CaptureKind, notifier: Option<Arc<dyn Not
     shot.windows = frames.map(|w| snap::windows_to_image(&w, shot.origin));
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
-    let (action, rect, shapes) = match kind {
-        CaptureKind::Region | CaptureKind::RepeatLast => {
+    let mut repeat = None;
+    if kind == CaptureKind::RepeatLast {
+        match repeat_plan(last, shot.origin, img_w, img_h, &shot.monitors) {
+            RepeatPlan::Run(r, a) => repeat = Some((a, r)),
+            RepeatPlan::OverlayWithNotice => notify(
+                NoticeKind::Info,
+                lang::tr(Msg::RepeatRegionGoneTitle),
+                lang::tr(Msg::RepeatRegionGoneBody),
+            ),
+            RepeatPlan::Overlay => {}
+        }
+    }
+    let (action, rect, shapes) = match (kind, repeat) {
+        // Lặp lại: không mở lớp phủ, không đổi lần chụp trước, không có hình đánh dấu.
+        (_, Some((action, rect))) => (action, rect, Vec::new()),
+        // Như phím chụp vùng; với phím lặp lại thì trên cùng ảnh đã chụp (vùng trước đã mất).
+        (CaptureKind::Region | CaptureKind::RepeatLast, None) => {
             let prev = LAST_SELECTION.with(|s| s.get());
             let initial = if keep_selection {
                 // `restore_selection` nhận màn hình theo tọa độ màn hình (nó tự trừ gốc), còn
@@ -725,6 +799,8 @@ fn capture_flow_with(hwnd: HWND, kind: CaptureKind, notifier: Option<Arc<dyn Not
                     // Nhớ cả khi ô "giữ vị trí" đang tắt, để bật lên là có ngay.
                     let screen = capture::to_screen_coords(p.rect, shot.origin);
                     LAST_SELECTION.with(|s| s.set(remember_after(prev, p.action, screen)));
+                    // Trước khi chạy hành động: tải lên lâu thì lần chụp vẫn đã được nhớ.
+                    remember_last_capture(p.action, screen);
                     (p.action, p.rect, p.shapes)
                 }
                 Ok(None) => return,
@@ -738,7 +814,7 @@ fn capture_flow_with(hwnd: HWND, kind: CaptureKind, notifier: Option<Arc<dyn Not
                 }
             }
         }
-        CaptureKind::SaveFull | CaptureKind::UploadFull => {
+        (CaptureKind::SaveFull | CaptureKind::UploadFull, None) => {
             let rect = full_screen_rect(shot.cursor, shot.origin, &shot.monitors, img_w, img_h);
             let action = if kind == CaptureKind::SaveFull {
                 Action::Save
@@ -1175,7 +1251,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
     match msg {
         WM_HOTKEY if hotkey::role_of(wp.0 as i32).is_some() => {
-            // Cả ba phím (chụp vùng, lưu và tải lên toàn màn hình) dùng chung một luật.
+            // Mọi phím (chụp vùng, lưu và tải lên toàn màn hình, lặp lại) dùng chung một luật.
             let kind = hotkey::role_of(wp.0 as i32)
                 .map(kind_of)
                 .unwrap_or(CaptureKind::Region);
@@ -1218,7 +1294,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 })
                 .flatten();
                 let pins = pin::count();
-                let cmd = current_tray().and_then(|t| t.show_menu(label.as_deref(), pins));
+                let can_repeat = LAST_CAPTURE.with(|l| l.get()).is_some();
+                let cmd =
+                    current_tray().and_then(|t| t.show_menu(label.as_deref(), pins, can_repeat));
                 MENU_OPEN.with(|m| m.set(false));
                 match cmd {
                     Some(MenuCommand::OpenUpdate) => {
@@ -1231,7 +1309,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::Capture) => {
                         request(hwnd, GateEvent::MenuCapture, CaptureKind::Region);
                     }
-                    Some(MenuCommand::RepeatLast) => {}
+                    Some(MenuCommand::RepeatLast) => {
+                        request(hwnd, GateEvent::MenuCapture, CaptureKind::RepeatLast);
+                    }
                     Some(MenuCommand::Options) => {
                         note_open_reason(OpenReason::User);
                         handle_event(hwnd, AppEvent::OpenSettings);
@@ -1451,6 +1531,10 @@ fn main() {
     }
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     APP.with(|a| *a.borrow_mut() = Some(state));
+    // Lần chụp trước (nếu có) cho phím lặp lại và cho "giữ vị trí vùng"; lỗi đọc thì coi như chưa có.
+    let last = read_last_capture(&paths::last_capture_path());
+    LAST_CAPTURE.with(|l| l.set(last));
+    LAST_SELECTION.with(|s| s.set(last.map(|l| l.rect)));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
     if mode.update_timer && with_app(|a| a.config.check_updates).unwrap_or(false) {
         start_update_timer(hwnd);
