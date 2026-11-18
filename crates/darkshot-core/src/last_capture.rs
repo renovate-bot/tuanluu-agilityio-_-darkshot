@@ -18,7 +18,7 @@ fn action_code(a: Action) -> Option<&'static str> {
         Action::Copy => Some("copy"),
         Action::Upload => Some("upload"),
         Action::Pin => Some("pin"),
-        Action::Cancel | Action::Ocr => None,
+        Action::Cancel | Action::Ocr | Action::AddStep => None,
     }
 }
 
@@ -65,9 +65,9 @@ pub fn from_json(s: &str) -> Option<LastCapture> {
 }
 
 /// Lần chụp trước sau một lần chụp vùng kết thúc bằng `action` với vùng `rect` (tọa độ màn hình):
-/// Cancel và Ocr giữ `prev` (OCR không phải lần chụp để lặp lại).
+/// Cancel, Ocr và AddStep giữ `prev` (OCR không phải lần chụp để lặp lại).
 pub fn remember(prev: Option<LastCapture>, action: Action, rect: Rect) -> Option<LastCapture> {
-    if matches!(action, Action::Cancel | Action::Ocr) {
+    if matches!(action, Action::Cancel | Action::Ocr | Action::AddStep) {
         return prev;
     }
     Some(LastCapture { rect, action })
@@ -176,6 +176,14 @@ mod tests {
         let prev = lc(rc(5, 5, 10, 10), Action::Pin);
         assert_eq!(remember(None, Action::Ocr, r), None);
         assert_eq!(remember(Some(prev), Action::Ocr, r), Some(prev));
+    }
+
+    #[test]
+    fn remember_add_step_keeps_prev() {
+        let r = rc(1, 2, 30, 40);
+        let prev = lc(rc(5, 5, 10, 10), Action::Pin);
+        assert_eq!(remember(None, Action::AddStep, r), None);
+        assert_eq!(remember(Some(prev), Action::AddStep, r), Some(prev));
     }
 
     #[test]

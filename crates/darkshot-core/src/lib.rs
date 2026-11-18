@@ -15,6 +15,7 @@ pub mod ocr_text;
 pub mod pin;
 pub mod sigv4;
 pub mod snap;
+pub mod steps;
 pub mod theme;
 pub mod thumb;
 pub mod update;

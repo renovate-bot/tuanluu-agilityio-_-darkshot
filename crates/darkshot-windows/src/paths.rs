@@ -98,6 +98,16 @@ pub fn history_dir() -> PathBuf {
     history_dir_in(&local_appdata_dir())
 }
 
+/// `<local>\darkshot\steps\current` với thư mục gốc truyền vào.
+pub fn steps_dir_in(local: &Path) -> PathBuf {
+    local.join("darkshot").join("steps").join("current")
+}
+
+/// `%LOCALAPPDATA%\darkshot\steps\current`: phiên chụp từng bước (theo `DARKSHOT_PROFILE_DIR`).
+pub fn steps_dir() -> PathBuf {
+    steps_dir_in(&local_appdata_dir())
+}
+
 /// `<appdata>\darkshot\config.json` với thư mục gốc truyền vào.
 pub fn config_path_in(appdata: &Path) -> PathBuf {
     appdata.join("darkshot").join("config.json")
@@ -196,6 +206,22 @@ mod tests {
             PathBuf::from("C:/L").join("darkshot").join("history")
         );
         assert!(history_dir().ends_with("darkshot/history"));
+    }
+
+    #[test]
+    fn steps_dir_is_under_local_darkshot() {
+        assert_eq!(
+            steps_dir_in(Path::new("C:/L")),
+            PathBuf::from("C:/L")
+                .join("darkshot")
+                .join("steps")
+                .join("current")
+        );
+        assert!(steps_dir().ends_with("darkshot/steps/current"));
+        assert_eq!(
+            steps_dir_in(&resolve(Some(Path::new("D:/sb")), Known::Local)),
+            PathBuf::from("D:/sb/Local/darkshot/steps/current")
+        );
     }
 
     #[test]

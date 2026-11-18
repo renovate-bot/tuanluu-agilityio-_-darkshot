@@ -408,6 +408,45 @@ messages! {
         "Lưu lịch sử ảnh chụp trên thiết bị này. Ảnh không được gửi đến máy chủ bổ sung.",
         "Keep a local history of screenshots on this device. Images are never sent to an additional server."
     ),
+    TrayStepsStart => ("Chụp từng bước", "Step capture"),
+    OverlayAddStep => ("Thêm bước (Ctrl+N)", "Add step (Ctrl+N)"),
+    StepsBarTitle => ("Chụp từng bước", "Step capture"),
+    StepsCapture => ("Chụp bước", "Capture step"),
+    StepsReview => ("Xem lại", "Review"),
+    StepsFinish => ("Kết thúc", "Finish"),
+    StepsWindowTitle => ("Các bước", "Steps"),
+    StepsCaption => ("Ghi chú", "Caption"),
+    StepsUp => ("Lên", "Up"),
+    StepsDown => ("Xuống", "Down"),
+    StepsDelete => ("Xóa bước", "Delete step"),
+    StepsExport => ("Xuất…", "Export…"),
+    StepsEndSession => ("Kết thúc phiên", "End session"),
+    StepsClose => ("Đóng", "Close"),
+    StepsEmpty => (
+        "Chưa có bước nào. Bấm Chụp bước trên thanh phiên.",
+        "No steps yet. Click Capture step on the session bar."
+    ),
+    StepsEndConfirmYes => ("Kết thúc", "End"),
+    StepsCancel => ("Hủy", "Cancel"),
+    StepsFullTitle => ("Đã đủ 99 bước", "99 steps reached"),
+    StepsFullBody => (
+        "Xuất hoặc kết thúc phiên để chụp thêm.",
+        "Export or end the session to capture more."
+    ),
+    StepsExportFailedTitle => ("Không xuất được các bước", "Couldn't export the steps"),
+    StepsStartFailedTitle => (
+        "Không bắt đầu được phiên chụp từng bước",
+        "Couldn't start step capture"
+    ),
+    StepsSessionSaveFailedTitle => (
+        "Không lưu được phiên chụp từng bước",
+        "Couldn't save the step capture session"
+    ),
+    StepsWorkerFailed => (
+        "Không chạy được tác vụ nền.",
+        "The background task couldn't run."
+    ),
+    StepsEndFailedTitle => ("Không xóa hết ảnh của phiên", "Couldn't delete all session images"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -429,6 +468,11 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::AnnotateFailedTitle,
     Msg::OcrCopiedTitle,
     Msg::OcrCopyFailedTitle,
+    Msg::StepsFullTitle,
+    Msg::StepsExportFailedTitle,
+    Msg::StepsStartFailedTitle,
+    Msg::StepsSessionSaveFailedTitle,
+    Msg::StepsEndFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -713,7 +757,7 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại.
 \n
 \n6. Lịch sử ảnh chụp
-\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2."
+\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2.\n\n7. Chụp từng bước\nChọn \"Chụp từng bước\" ở menu khay để mở thanh phiên, rồi bấm \"Chụp bước\" (hoặc Ctrl+N trong lúc chọn vùng) để thêm ảnh có hình đánh dấu vào phiên, tối đa 99 bước. \"Xem lại\" cho đổi thứ tự, ghi chú, xóa bước và xuất ra một thư mục gồm ảnh đánh số và tệp steps.md. Ảnh bước chỉ nằm trên máy cho đến khi bạn xuất."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -755,7 +799,7 @@ f) Click Test connection, wait for the success message, then click OK.\n\
 The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again.
 \n
 \n6. Screenshot history
-\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2."
+\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2.\n\n7. Step capture\nChoose \"Step capture\" in the tray menu to open the session bar, then click \"Capture step\" (or press Ctrl+N while selecting a region) to add an annotated image to the session, up to 99 steps. \"Review\" lets you reorder steps, add captions, delete steps and export a folder of numbered images plus a steps.md file. Step images stay on this device until you export."
         ),
     }
 }
@@ -802,6 +846,48 @@ pub fn hotkeys_taken_body(lang: Lang, combos: &[String]) -> String {
     }
 }
 
+/// Mục menu khay khi đang có phiên: "Xem lại các bước (N)".
+pub fn tray_steps_review(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::Vi => format!("Xem lại các bước ({n})"),
+        Lang::En => format!("Review steps ({n})"),
+    }
+}
+
+/// Thanh phiên: "N bước" | "N step(s)".
+pub fn steps_count(lang: Lang, n: usize) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!("{n} bước"),
+        (Lang::En, 1) => "1 step".to_string(),
+        (Lang::En, n) => format!("{n} steps"),
+    }
+}
+
+/// "Bước k" | "Step k" (k tính từ 1).
+pub fn step_label(lang: Lang, k: usize) -> String {
+    match lang {
+        Lang::Vi => format!("Bước {k}"),
+        Lang::En => format!("Step {k}"),
+    }
+}
+
+/// Thẻ xác nhận kết thúc phiên chưa xuất.
+pub fn steps_end_confirm(lang: Lang, n: usize) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!("Kết thúc mà không xuất? {n} bước sẽ bị xóa."),
+        (Lang::En, 1) => "End without exporting? 1 step will be deleted.".to_string(),
+        (Lang::En, n) => format!("End without exporting? {n} steps will be deleted."),
+    }
+}
+
+/// Thông báo sau khi xuất: "Đã xuất N bước" | "Exported N step(s)".
+pub fn steps_exported(lang: Lang, n: usize) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!("Đã xuất {n} bước"),
+        (Lang::En, 1) => "Exported 1 step".to_string(),
+        (Lang::En, n) => format!("Exported {n} steps"),
+    }
+}
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
@@ -1366,6 +1452,95 @@ mod tests {
         for (m, vi, en) in want {
             assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
             assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn step_capture_strings() {
+        assert_eq!(t(Lang::Vi, Msg::TrayStepsStart), "Chụp từng bước");
+        assert_eq!(t(Lang::En, Msg::TrayStepsStart), "Step capture");
+        assert_eq!(t(Lang::Vi, Msg::OverlayAddStep), "Thêm bước (Ctrl+N)");
+        assert_eq!(t(Lang::En, Msg::OverlayAddStep), "Add step (Ctrl+N)");
+        assert_eq!(t(Lang::En, Msg::StepsExport), "Export…");
+        assert_eq!(tray_steps_review(Lang::Vi, 3), "Xem lại các bước (3)");
+        assert_eq!(tray_steps_review(Lang::En, 3), "Review steps (3)");
+        assert_eq!(steps_count(Lang::Vi, 3), "3 bước");
+        assert_eq!(steps_count(Lang::En, 1), "1 step");
+        assert_eq!(steps_count(Lang::En, 2), "2 steps");
+        assert_eq!(steps_count(Lang::En, 0), "0 steps");
+        assert_eq!(step_label(Lang::Vi, 2), "Bước 2");
+        assert_eq!(step_label(Lang::En, 2), "Step 2");
+        assert_eq!(
+            steps_end_confirm(Lang::Vi, 4),
+            "Kết thúc mà không xuất? 4 bước sẽ bị xóa."
+        );
+        assert_eq!(
+            steps_end_confirm(Lang::En, 1),
+            "End without exporting? 1 step will be deleted."
+        );
+        assert_eq!(
+            steps_end_confirm(Lang::En, 4),
+            "End without exporting? 4 steps will be deleted."
+        );
+        assert_eq!(steps_exported(Lang::Vi, 5), "Đã xuất 5 bước");
+        assert_eq!(steps_exported(Lang::En, 1), "Exported 1 step");
+        assert_eq!(steps_exported(Lang::En, 5), "Exported 5 steps");
+        for (a, b) in [
+            (
+                tray_steps_review(Lang::Vi, 2),
+                tray_steps_review(Lang::En, 2),
+            ),
+            (steps_count(Lang::Vi, 2), steps_count(Lang::En, 2)),
+            (step_label(Lang::Vi, 2), step_label(Lang::En, 2)),
+            (
+                steps_end_confirm(Lang::Vi, 2),
+                steps_end_confirm(Lang::En, 2),
+            ),
+            (steps_exported(Lang::Vi, 2), steps_exported(Lang::En, 2)),
+        ] {
+            assert_ne!(a, b);
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::StepsFullTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::StepsExportFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::StepsStartFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::StepsSessionSaveFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::StepsEndFailedTitle));
+        assert_eq!(
+            t(Lang::Vi, Msg::StepsEndFailedTitle),
+            "Không xóa hết ảnh của phiên"
+        );
+        assert_eq!(
+            t(Lang::En, Msg::StepsEndFailedTitle),
+            "Couldn't delete all session images"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::StepsStartFailedTitle),
+            "Không bắt đầu được phiên chụp từng bước"
+        );
+        assert_eq!(
+            t(Lang::En, Msg::StepsStartFailedTitle),
+            "Couldn't start step capture"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::StepsWorkerFailed),
+            "Không chạy được tác vụ nền."
+        );
+        assert_eq!(
+            t(Lang::En, Msg::StepsWorkerFailed),
+            "The background task couldn't run."
+        );
+        assert_eq!(
+            t(Lang::En, Msg::StepsSessionSaveFailedTitle),
+            "Couldn't save the step capture session"
+        );
+    }
+
+    #[test]
+    fn help_text_mentions_step_capture() {
+        for l in Lang::ALL {
+            let h = help_text(l, &HelpKeys::default());
+            assert!(h.contains(t(l, Msg::TrayStepsStart)), "{l:?}");
+            assert!(h.contains("Ctrl+N"), "{l:?}");
         }
     }
 }
