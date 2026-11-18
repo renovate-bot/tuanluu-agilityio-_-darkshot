@@ -105,15 +105,16 @@ impl BarItem {
     }
 }
 
-/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Hủy; `None` là vạch
-/// ngăn.
-const BAR_CELLS: [Option<BarItem>; 7] = [
+/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Hủy; `None` là
+/// vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 8] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
     Some(BarItem::Act(Action::Upload)),
     Some(BarItem::Act(Action::Save)),
     Some(BarItem::Act(Action::Copy)),
+    Some(BarItem::Act(Action::Pin)),
     Some(BarItem::Act(Action::Cancel)),
 ];
 
@@ -249,7 +250,7 @@ enum Glyph {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BarLayout {
     size: (i32, i32),
-    cells: [(Option<BarItem>, Rect); 7],
+    cells: [(Option<BarItem>, Rect); BAR_CELLS.len()],
 }
 
 /// Thanh ngang: các nút vuông `BUTTON` xếp liền, vạch ngăn rộng `SIDE_SEP`.
@@ -2555,7 +2556,7 @@ impl State {
         true
     }
 
-    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C.
+    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C/P.
     fn text_key(&mut self, vk: u16) {
         if key_held(VK_CONTROL) {
             match vk {
@@ -2565,6 +2566,8 @@ impl State {
                 0x44 => self.finish(Action::Upload),
                 0x53 => self.finish(Action::Save),
                 0x43 => self.finish(Action::Copy),
+                // P: `finish` chốt ô chữ (cả chuỗi bộ gõ đang soạn) trước khi ghim.
+                0x50 => self.finish(Action::Pin),
                 _ => {}
             }
             return;
@@ -3326,6 +3329,7 @@ impl State {
             0x44 => Action::Upload, // D
             0x53 => Action::Save,   // S
             0x43 => Action::Copy,   // C
+            0x50 => Action::Pin,    // P
             _ => return,
         };
         self.finish(a);
@@ -4372,7 +4376,7 @@ impl Painter {
         );
     }
 
-    /// Thanh ngang `bar`: Hoàn tác, Làm lại (mờ khi không dùng được), vạch ngăn, bốn nút hành
+    /// Thanh ngang `bar`: Hoàn tác, Làm lại (mờ khi không dùng được), vạch ngăn, năm nút hành
     /// động ngăn bằng vạch 1 px.
     fn toolbar(&self, bar: Rect, dpi: u32, look: &BarLook, gdiplus: bool) {
         self.round_rect(bar, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
@@ -4446,6 +4450,31 @@ impl Painter {
             }
         }
     }
+}
+
+/// Một điểm trong lưới 24×24 của biểu tượng.
+type GridPt = (f32, f32);
+
+/// Đinh ghim trong lưới 24×24: viền đầu và thân (đường khép kín) và mũi kim (hai điểm: gốc, mũi).
+/// Dựng đứng (đầu hình thang trên thân thon, loe ra ở chân) rồi xoay 45° theo chiều kim đồng hồ
+/// quanh tâm lưới và dời cho cân: đầu đinh lên trên phải, mũi kim chéo xuống dưới trái.
+fn pin_glyph() -> ([GridPt; 6], [GridPt; 2]) {
+    const UPRIGHT: [GridPt; 6] = [
+        (9.0, 3.0),
+        (15.0, 3.0),
+        (14.0, 9.0),
+        (17.0, 13.0),
+        (7.0, 13.0),
+        (10.0, 9.0),
+    ];
+    const NEEDLE: [GridPt; 2] = [(12.0, 13.0), (12.0, 21.0)];
+    let s = std::f32::consts::FRAC_1_SQRT_2;
+    // Xoay (trục y hướng xuống) rồi dời (-1, +1) để khung bao cân giữa lưới.
+    let turn = |(x, y): GridPt| {
+        let (dx, dy) = (x - 12.0, y - 12.0);
+        (12.0 + (dx - dy) * s - 1.0, 12.0 + (dx + dy) * s + 1.0)
+    };
+    (UPRIGHT.map(turn), NEEDLE.map(turn))
 }
 
 /// Đường GDI+ đang dựng cho một biểu tượng: tọa độ trong lưới 24×24, gốc (`ox`, `oy`), hệ số `k`.
@@ -4635,7 +4664,13 @@ impl Gp {
                 p.arc(7.0, 5.0, 2.0, 180.0, 90.0);
                 p.line(7.0, 3.0, 15.0, 3.0);
             }
-            Action::Cancel | Action::Pin => {
+            Action::Pin => {
+                let (outline, needle) = pin_glyph();
+                p.poly(&outline);
+                p.close();
+                p.poly(&needle);
+            }
+            Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
             }
@@ -9385,7 +9420,11 @@ mod tests {
             assert_eq!(s.sel.rect(), Some(SEL));
             let _ctrl = CtrlHeld::hold();
             s.on_key(0x50, false);
-            let r = s.result.take().expect("đã kết thúc").expect("không phải Hủy");
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
             assert_eq!((r.action, r.rect), (Action::Pin, SEL));
             assert!(r.shapes.is_empty());
         }
@@ -9413,7 +9452,11 @@ mod tests {
             let _ctrl = CtrlHeld::hold();
             s.on_key(0x50, false);
             assert!(s.text.is_none());
-            let r = s.result.take().expect("đã kết thúc").expect("không phải Hủy");
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
             assert_eq!((r.action, r.rect), (Action::Pin, SEL));
             assert_eq!(r.shapes.len(), 1);
             assert!(matches!(r.shapes[0], Shape::Text { .. }));

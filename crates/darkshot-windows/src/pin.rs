@@ -4,9 +4,6 @@
 //! Quy tắc tái nhập: trạng thái `Pin` chỉ được mượn trong `with_pin`, và closure của nó không gọi
 //! hàm Win32 nào có thể gửi thông điệp cho cửa sổ (SetWindowPos, DestroyWindow, SetCapture...).
 
-// Task 69 nối luồng chụp, menu khay và dọn khi thoát; đến lúc đó phần lớn API chưa có người gọi.
-#![allow(dead_code)]
-
 use crate::clipboard::WinClipboard;
 use crate::lang;
 use crate::theme;
@@ -75,6 +72,8 @@ pub enum PinPlace {
     /// Ảnh hiện 100% với góc trên trái của ẢNH tại điểm màn hình này (cửa sổ = ảnh nới một viền ra ngoài).
     At(Point),
     /// Căn giữa vùng làm việc của màn hình chứa con trỏ, mức `pin::fit_zoom`.
+    // Nút Ghim của Lịch sử (Task 70) là nơi gọi; đến lúc đó chỉ kiểm thử dùng.
+    #[allow(dead_code)]
     CenterOnCursorMonitor,
 }
 
@@ -334,6 +333,15 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
 
 pub fn count() -> usize {
     PINS.with(|v| v.try_borrow().map(|v| v.len()).unwrap_or(0))
+}
+
+/// Khung ảnh (không kể viền, tọa độ màn hình) của mọi ảnh ghim, cho kiểm thử của nơi gọi.
+#[cfg(test)]
+pub fn image_rects() -> Vec<Rect> {
+    handles()
+        .into_iter()
+        .filter_map(|h| with_pin(h, |p| p.img))
+        .collect()
 }
 
 /// HWND của mọi ảnh ghim còn sống (bản chép của sổ).

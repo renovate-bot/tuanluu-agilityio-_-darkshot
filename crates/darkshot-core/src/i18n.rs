@@ -357,6 +357,10 @@ messages! {
     HistoryPin => ("Ghim", "Pin"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
+    PinFailedBody => (
+        "Không tạo được cửa sổ ảnh ghim. Thử lại.",
+        "Couldn't create the pinned image window. Try again."
+    ),
     HistoryFileMissingHint => (
         "Tệp đã bị di chuyển hoặc xóa. Vẫn có thể xóa mục này khỏi lịch sử.",
         "The file was moved or deleted. You can still remove this entry from history."

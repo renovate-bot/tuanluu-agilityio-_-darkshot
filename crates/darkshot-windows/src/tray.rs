@@ -2,7 +2,7 @@
 
 use crate::lang;
 use darkshot_core::actions::{NoticeKind, Notifier};
-use darkshot_core::i18n::Msg;
+use darkshot_core::i18n::{self, Msg};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::ffi::c_void;
@@ -33,12 +33,15 @@ const ID_HELP: usize = 4;
 const ID_QUIT: usize = 5;
 const ID_UPDATE: usize = 6;
 const ID_HISTORY: usize = 7;
+const ID_CLOSE_PINS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuCommand {
     OpenUpdate,
     Capture,
     History,
+    /// Đóng mọi ảnh ghim (chỉ có khi đang có ảnh ghim).
+    ClosePins,
     Options,
     About,
     Help,
@@ -149,19 +152,21 @@ impl Tray {
         ok
     }
 
-    /// Hiện menu tại con trỏ chuột và trả về mục được chọn. `update` là chữ của mục "Có bản mới".
-    pub fn show_menu(&self, update: Option<&str>) -> Option<MenuCommand> {
+    /// Hiện menu tại con trỏ chuột và trả về mục được chọn. `update` là chữ của mục "Có bản mới";
+    /// `pins` là số ảnh ghim đang mở (lớn hơn 0 thì có mục "Đóng mọi ảnh ghim (n)").
+    pub fn show_menu(&self, update: Option<&str>, pins: usize) -> Option<MenuCommand> {
         // SAFETY: menu được tạo và hủy trong hàm này; hwnd thuộc luồng gọi.
         unsafe {
             let menu = CreatePopupMenu().ok()?;
             let capture = HSTRING::from(lang::tr(Msg::TrayCapture));
             let history = HSTRING::from(lang::tr(Msg::TrayHistory));
+            let close_pins = HSTRING::from(i18n::tray_close_pins(lang::current(), pins));
             let options = HSTRING::from(lang::tr(Msg::TrayOptions));
             let about = HSTRING::from(lang::tr(Msg::TrayAbout));
             let help = HSTRING::from(lang::tr(Msg::TrayHelp));
             let exit = HSTRING::from(lang::tr(Msg::TrayExit));
             let update_text = HSTRING::from(update.unwrap_or_default());
-            for entry in menu_layout(update.is_some()) {
+            for entry in menu_layout(update.is_some(), pins) {
                 match entry {
                     MenuEntry::Separator => {
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
@@ -174,6 +179,9 @@ impl Tray {
                     }
                     MenuEntry::Item(MenuCommand::History) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_HISTORY, &history);
+                    }
+                    MenuEntry::Item(MenuCommand::ClosePins) => {
+                        let _ = AppendMenuW(menu, MF_STRING, ID_CLOSE_PINS, &close_pins);
                     }
                     MenuEntry::Item(MenuCommand::Options) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_OPTIONS, &options);
@@ -208,6 +216,7 @@ impl Tray {
                 ID_UPDATE => Some(MenuCommand::OpenUpdate),
                 ID_CAPTURE => Some(MenuCommand::Capture),
                 ID_HISTORY => Some(MenuCommand::History),
+                ID_CLOSE_PINS => Some(MenuCommand::ClosePins),
                 ID_OPTIONS => Some(MenuCommand::Options),
                 ID_ABOUT => Some(MenuCommand::About),
                 ID_HELP => Some(MenuCommand::Help),
@@ -321,17 +330,21 @@ pub enum MenuEntry {
     Separator,
 }
 
-/// Các dòng của menu khay theo thứ tự; có bản mới thì mục cập nhật và vạch ngăn đứng đầu.
-pub fn menu_layout(has_update: bool) -> Vec<MenuEntry> {
+/// Các dòng của menu khay theo thứ tự; có bản mới thì mục cập nhật và vạch ngăn đứng đầu; có ảnh
+/// ghim (`pins` > 0) thì "Đóng mọi ảnh ghim" ngay sau Lịch sử.
+pub fn menu_layout(has_update: bool, pins: usize) -> Vec<MenuEntry> {
     let mut v = Vec::new();
     if has_update {
         v.push(MenuEntry::Item(MenuCommand::OpenUpdate));
         v.push(MenuEntry::Separator);
     }
+    v.push(MenuEntry::Item(MenuCommand::Capture));
+    v.push(MenuEntry::Item(MenuCommand::History));
+    if pins > 0 {
+        v.push(MenuEntry::Item(MenuCommand::ClosePins));
+    }
     v.extend(
         [
-            MenuCommand::Capture,
-            MenuCommand::History,
             MenuCommand::Options,
             MenuCommand::About,
             MenuCommand::Help,
