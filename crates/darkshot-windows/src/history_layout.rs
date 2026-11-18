@@ -84,8 +84,8 @@ pub struct Layout {
     /// Dòng tiêu đề (ngày giờ đầy đủ), nằm đầu `meta_area`.
     pub title: RECT,
     pub buttons_row: RECT,
-    /// Năm nút hành động (Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Xóa); rỗng khi ẩn.
-    pub buttons: [RECT; 5],
+    /// Sáu nút hành động (Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Ghim, Xóa); rỗng khi ẩn.
+    pub buttons: [RECT; 6],
     pub status_line: RECT,
     pub row_h: i32,
     /// Cỡ ô ảnh nhỏ (pixel).
@@ -199,7 +199,7 @@ pub fn layout(client_w: i32, client_h: i32, dpi: u32, banner: bool) -> Layout {
         meta_area,
         title,
         buttons_row,
-        buttons: [RECT::default(); 5],
+        buttons: [RECT::default(); 6],
         status_line,
         row_h: s(ROW_H).max(1),
         thumb: (s(THUMB_W), s(THUMB_H)),
@@ -287,16 +287,16 @@ impl Layout {
         Hit::None
     }
 
-    /// Xếp năm nút hành động (bề rộng pixel `widths`, `shown` = hiện) trong `buttons_row`: bốn nút đầu
+    /// Xếp sáu nút hành động (bề rộng pixel `widths`, `shown` = hiện) trong `buttons_row`: năm nút đầu
     /// chảy từ trái, xuống hàng khi hết chỗ; "Xóa khỏi lịch sử" sát mép phải của hàng cuối (hoặc hàng
     /// dưới nếu không đủ chỗ). Tối đa hai hàng.
-    pub fn place_buttons(&mut self, widths: [i32; 5], shown: [bool; 5]) {
+    pub fn place_buttons(&mut self, widths: [i32; 6], shown: [bool; 6]) {
         let r = self.buttons_row;
         let (gap, bh) = (scale(BTN_GAP, self.dpi), scale(BTN_H, self.dpi));
         let row_w = (r.right - r.left).max(0);
         let line_top = |line: i32| r.top + line.min(1) * (bh + gap);
         let (mut x, mut line) = (r.left, 0);
-        for k in 0..4 {
+        for k in 0..5 {
             if !shown[k] {
                 self.buttons[k] = RECT::default();
                 continue;
@@ -310,15 +310,15 @@ impl Layout {
             self.buttons[k] = rc(x, t, x + bw, t + bh);
             x += bw + gap;
         }
-        if shown[4] {
-            let bw = widths[4].clamp(0, row_w);
+        if shown[5] {
+            let bw = widths[5].clamp(0, row_w);
             if x > r.left && x + bw > r.right {
                 line += 1;
             }
             let t = line_top(line);
-            self.buttons[4] = rc(r.right - bw, t, r.right, t + bh);
+            self.buttons[5] = rc(r.right - bw, t, r.right, t + bh);
         } else {
-            self.buttons[4] = RECT::default();
+            self.buttons[5] = RECT::default();
         }
         // Đủ một hàng: đặt ở hàng dưới, sát dòng trạng thái (nút luôn neo đáy khung chi tiết).
         if line == 0 {
@@ -349,17 +349,23 @@ pub struct ActionSet {
     pub copy_image: Avail,
     pub copy_link: Avail,
     pub show_folder: Avail,
+    pub pin: Avail,
     pub remove: Avail,
 }
 
+/// Chỉ số nút Ghim và nút Xóa trong `as_array`/`Layout.buttons`.
+pub const BTN_PIN: usize = 4;
+pub const BTN_REMOVE: usize = 5;
+
 impl ActionSet {
-    /// Theo thứ tự nút: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Xóa khỏi lịch sử.
-    pub fn as_array(&self) -> [Avail; 5] {
+    /// Theo thứ tự nút: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Ghim, Xóa khỏi lịch sử.
+    pub fn as_array(&self) -> [Avail; 6] {
         [
             self.open,
             self.copy_image,
             self.copy_link,
             self.show_folder,
+            self.pin,
             self.remove,
         ]
     }
@@ -383,6 +389,7 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
             copy_image: file,
             copy_link: Avail::Hidden,
             show_folder: file,
+            pin: file,
             remove: Avail::Enabled,
         },
         Kind::Uploaded => ActionSet {
@@ -399,6 +406,7 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
                 Avail::Hidden
             },
             show_folder: Avail::Hidden,
+            pin: file,
             remove: Avail::Enabled,
         },
         Kind::Copied => ActionSet {
@@ -407,6 +415,7 @@ pub fn actions_for(e: &Entry, file_exists: bool) -> ActionSet {
             copy_image: file,
             copy_link: Avail::Hidden,
             show_folder: Avail::Hidden,
+            pin: file,
             remove: Avail::Enabled,
         },
     }
@@ -905,7 +914,7 @@ impl Status {
 /// Một mục của menu chuột phải.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuItem {
-    /// Chỉ số hành động (0–4, như thứ tự nút).
+    /// Chỉ số hành động (0–5, như thứ tự nút; menu không có Ghim, chỉ số 4).
     pub action: usize,
     pub label: Msg,
     pub enabled: bool,
@@ -926,6 +935,7 @@ pub fn menu_items(a: &ActionSet) -> Vec<MenuItem> {
         Msg::HistoryCopyImage,
         Msg::HistoryCopyLink,
         Msg::HistoryShowInFolder,
+        Msg::HistoryPin,
         Msg::HistoryRemove,
     ];
     let keys = [
@@ -933,18 +943,19 @@ pub fn menu_items(a: &ActionSet) -> Vec<MenuItem> {
         Some("Ctrl+C"),
         Some("Ctrl+Shift+C"),
         None,
+        None,
         Some("Del"),
     ];
     a.as_array()
         .into_iter()
         .enumerate()
-        .filter(|(_, av)| *av != Avail::Hidden)
+        .filter(|(k, av)| *av != Avail::Hidden && *k != BTN_PIN)
         .map(|(k, av)| MenuItem {
             action: k,
             label: labels[k],
             enabled: av == Avail::Enabled,
             shortcut: keys[k],
-            separator_before: k == 4,
+            separator_before: k == BTN_REMOVE,
         })
         .collect()
 }
@@ -1408,46 +1419,79 @@ mod tests {
         assert_eq!(l.hit_test(mid(l.clear_btn), 0, 50), Hit::Clear);
         assert_eq!(l.hit_test(mid(l.preview_area), 0, 50), Hit::Preview);
         assert_eq!(l.hit_test(mid(l.search), 0, 50), Hit::None);
-        l.place_buttons([80, 110, 130, 150, 130], [true, true, false, true, true]);
+        l.place_buttons(
+            [80, 110, 130, 150, 70, 130],
+            [true, true, false, true, true, true],
+        );
         assert_eq!(l.hit_test(mid(l.buttons[0]), 0, 50), Hit::Button(0));
         assert_eq!(l.hit_test(mid(l.buttons[4]), 0, 50), Hit::Button(4));
+        assert_eq!(l.hit_test(mid(l.buttons[5]), 0, 50), Hit::Button(5));
         // Nút ẩn không trúng.
         assert_eq!(area(&l.buttons[2]), 0);
         assert_eq!(l.hit_test(p(-5, -5), 0, 50), Hit::None);
     }
 
+    /// Bề rộng giả của nút cho nhãn `text` ở 96 DPI: 7 px mỗi ký tự (phông thật ~6,3) + đệm.
+    fn fake_width(text: &str, dpi: u32) -> i32 {
+        scale((text.chars().count() as i32 * 7 + 32).max(72), dpi)
+    }
+
     #[test]
     fn buttons_flow_in_two_lines_without_overlap() {
-        for dpi in DPIS {
-            for (w, h) in sizes(dpi) {
-                let mut l = layout(w, h, dpi, false);
-                // Bề rộng thật cỡ chữ tiếng Việt dài nhất + đệm.
-                let wd = [72, 108, 128, 152, 124].map(|v| scale(v, dpi));
-                for shown in [
-                    [true, true, false, true, true],
-                    [true, true, true, false, true],
-                    [true, true, false, false, true],
-                    [true, true, true, true, true],
-                ] {
-                    l.place_buttons(wd, shown);
-                    let vis: Vec<RECT> =
-                        (0..5).filter(|&k| shown[k]).map(|k| l.buttons[k]).collect();
-                    for (i, a) in vis.iter().enumerate() {
-                        assert!(inside(a, &l.buttons_row), "{a:?} at {w}x{h}@{dpi}");
-                        assert_eq!(a.bottom - a.top, scale(32, dpi));
-                        for b in vis.iter().skip(i + 1) {
-                            assert!(!overlap(a, b), "{a:?} {b:?} at {w}x{h}@{dpi}");
+        use darkshot_core::i18n::{t, Msg};
+        for lang in Lang::ALL {
+            for open in [Msg::HistoryOpen, Msg::HistoryOpenLink] {
+                let labels = [
+                    open,
+                    Msg::HistoryCopyImage,
+                    Msg::HistoryCopyLink,
+                    Msg::HistoryShowInFolder,
+                    Msg::HistoryPin,
+                    Msg::HistoryRemove,
+                ];
+                for dpi in DPIS {
+                    let wd = labels.map(|m| fake_width(t(lang, m), dpi));
+                    for (w, h) in sizes(dpi) {
+                        let mut l = layout(w, h, dpi, false);
+                        for shown in [
+                            [true, true, false, true, true, true],
+                            [true, true, true, false, true, true],
+                            [true, true, false, false, true, true],
+                            [true, true, true, true, true, true],
+                            [true, true, true, true, false, true],
+                        ] {
+                            l.place_buttons(wd, shown);
+                            let vis: Vec<usize> = (0..6).filter(|&k| shown[k]).collect();
+                            let (bh, gap) = (scale(32, dpi), scale(BTN_GAP, dpi));
+                            for (i, &ka) in vis.iter().enumerate() {
+                                let a = l.buttons[ka];
+                                let ctx = format!("{lang:?} {ka} {a:?} at {w}x{h}@{dpi}");
+                                assert!(inside(&a, &l.buttons_row), "{ctx}");
+                                assert_eq!(a.bottom - a.top, bh, "{ctx}");
+                                // Không cắt chữ: nút đủ rộng cho nhãn.
+                                assert_eq!(a.right - a.left, wd[ka], "{ctx}");
+                                // Tối đa hai hàng.
+                                assert!(a.top <= l.buttons_row.top + bh + gap, "{ctx}");
+                                for &kb in vis.iter().skip(i + 1) {
+                                    assert!(
+                                        !overlap(&a, &l.buttons[kb]),
+                                        "{ctx} vs {kb} {:?} row {:?} shown {shown:?} wd {wd:?}",
+                                        l.buttons[kb],
+                                        l.buttons_row
+                                    );
+                                }
+                            }
+                            for k in 0..6 {
+                                if !shown[k] {
+                                    assert_eq!(area(&l.buttons[k]), 0);
+                                }
+                            }
+                            // Nút Xóa ở mép phải.
+                            assert_eq!(l.buttons[5].right, l.buttons_row.right);
+                            // Mở là nút đầu tiên, sát lề trái.
+                            assert_eq!(l.buttons[0].left, l.buttons_row.left);
                         }
                     }
-                    for k in 0..5 {
-                        if !shown[k] {
-                            assert_eq!(area(&l.buttons[k]), 0);
-                        }
-                    }
-                    // Nút Xóa ở mép phải.
-                    assert_eq!(l.buttons[4].right, l.buttons_row.right);
-                    // Mở là nút đầu tiên, sát lề trái.
-                    assert_eq!(l.buttons[0].left, l.buttons_row.left);
                 }
             }
         }
@@ -1489,50 +1533,50 @@ mod tests {
             (
                 Kind::Saved,
                 true,
-                [Enabled, Enabled, Hidden, Enabled, Enabled],
+                [Enabled, Enabled, Hidden, Enabled, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::Saved,
                 false,
-                [Disabled, Disabled, Hidden, Disabled, Enabled],
+                [Disabled, Disabled, Hidden, Disabled, Disabled, Enabled],
                 false,
             ),
             (
                 Kind::UploadFallback,
                 true,
-                [Enabled, Enabled, Hidden, Enabled, Enabled],
+                [Enabled, Enabled, Hidden, Enabled, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::UploadFallback,
                 false,
-                [Disabled, Disabled, Hidden, Disabled, Enabled],
+                [Disabled, Disabled, Hidden, Disabled, Disabled, Enabled],
                 false,
             ),
             (
                 Kind::Uploaded,
                 true,
-                [Enabled, Enabled, Enabled, Hidden, Enabled],
+                [Enabled, Enabled, Enabled, Hidden, Enabled, Enabled],
                 true,
             ),
             // Tải lên: mở liên kết vẫn được khi bản sao mất.
             (
                 Kind::Uploaded,
                 false,
-                [Enabled, Disabled, Enabled, Hidden, Enabled],
+                [Enabled, Disabled, Enabled, Hidden, Disabled, Enabled],
                 true,
             ),
             (
                 Kind::Copied,
                 true,
-                [Enabled, Enabled, Hidden, Hidden, Enabled],
+                [Enabled, Enabled, Hidden, Hidden, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::Copied,
                 false,
-                [Disabled, Disabled, Hidden, Hidden, Enabled],
+                [Disabled, Disabled, Hidden, Hidden, Disabled, Enabled],
                 false,
             ),
         ];
@@ -2160,7 +2204,7 @@ mod tests {
         // Đã lưu, còn tệp: Mở, Sao chép ảnh, Mở thư mục, vạch, Xóa (không có Sao chép liên kết).
         let m = menu_items(&actions_for(&entry(1, Kind::Saved), true));
         let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
-        assert_eq!(ids, vec![0, 1, 3, 4]);
+        assert_eq!(ids, vec![0, 1, 3, 5]);
         assert!(m.iter().all(|i| i.enabled));
         assert_eq!(m[0].label, Msg::HistoryOpen);
         assert_eq!(m[0].shortcut, Some("Enter"));
@@ -2176,7 +2220,7 @@ mod tests {
         // Tải lên: Mở liên kết, Sao chép liên kết có Ctrl+Shift+C.
         let m = menu_items(&actions_for(&entry(1, Kind::Uploaded), true));
         let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
-        assert_eq!(ids, vec![0, 1, 2, 4]);
+        assert_eq!(ids, vec![0, 1, 2, 5]);
         assert_eq!(m[0].label, Msg::HistoryOpenLink);
         assert_eq!(m[2].label, Msg::HistoryCopyLink);
         assert_eq!(m[2].shortcut, Some("Ctrl+Shift+C"));
