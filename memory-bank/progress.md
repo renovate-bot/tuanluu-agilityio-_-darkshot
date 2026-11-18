@@ -81,6 +81,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 63c Viên nhắc sau khi bấm chọn (chỉ thêm kiểm thử, không tái hiện) | task/63c-snap-hint-repaint | builder | sonnet | xong | 67.733 | phiên điều phối đọc diff | 0 | 67.733 |
 | Rà soát toàn đợt 8 | feature/window-snap | specialist | fable | xong (DUYỆT, 5 điểm nên sửa → 63b) | | 164.294 | | 164.294 |
 | 64 Tài liệu, demo, QA giao diện đợt 8 | feature/window-snap | phiên chính | opus | xong | không đo | | | |
+| 64b Kiểm thử lớp phủ không phụ thuộc DPI màn hình thật (phát hiện khi gộp) | task/64b-snap-test-dpi | phiên chính | opus | xong | không đo | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

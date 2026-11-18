@@ -8650,7 +8650,11 @@ mod tests {
         }
 
         fn state(shot: &Screenshot, initial: Option<Rect>) -> State {
-            State::new(shot, W, H, initial, &CustomColors::default(), false).unwrap()
+            let mut s = State::new(shot, W, H, initial, &CustomColors::default(), false).unwrap();
+            // DPI cố định: `State::new` đọc DPI của màn hình THẬT (MonitorFromPoint), nên vị trí và
+            // cỡ viên nhắc trong kiểm thử không được phụ thuộc cấu hình màn hình của máy chạy.
+            s.dpis = vec![96; s.dpis.len()];
+            s
         }
 
         fn click(s: &mut State, at: Point) {
