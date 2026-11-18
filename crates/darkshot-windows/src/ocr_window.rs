@@ -257,6 +257,8 @@ struct Win {
     /// Điều khiển có tiêu điểm khi cửa sổ mất kích hoạt (trả lại khi kích hoạt lại).
     focus: HWND,
     field: Rect,
+    /// Thứ đang hiện (để `relabel` dựng lại chữ khi đổi ngôn ngữ).
+    shown: Shown,
 }
 
 type Notify = fn(NoticeKind, &str, &str);
@@ -680,6 +682,7 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
             muted: true,
             label: String::new(),
             focus: HWND::default(),
+            shown: Shown::Busy,
             field: Rect {
                 x: 0,
                 y: 0,
@@ -748,6 +751,7 @@ fn on_result(hwnd: HWND, wp: WPARAM, lp: LPARAM) {
             if let Ok(r) = res.as_ref() {
                 w.label = lang_label(&r.lang_tag, &r.lang_name);
             }
+            w.shown = shown_of(&res);
             true
         } else {
             false
@@ -1133,26 +1137,77 @@ fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> 
     center
 }
 
-/// Thứ cửa sổ đang hiện (chưa làm).
+/// Thứ cửa sổ đang hiện, đủ để dựng lại chữ giao diện khi đổi ngôn ngữ.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Shown {
     Busy,
-    Text { label: String, lines: usize },
-    Empty { label: String },
+    /// Chữ nhận dạng (người dùng có thể đang sửa): ngôn ngữ OCR và số dòng nhận được.
+    Text {
+        label: String,
+        lines: usize,
+    },
+    Empty {
+        label: String,
+    },
     NoLanguage,
     Failed,
 }
 
-fn shown_of(_res: &Result<OcrResult, OcrError>) -> Shown {
-    Shown::Busy
+fn shown_of(res: &Result<OcrResult, OcrError>) -> Shown {
+    match res {
+        Ok(r) if r.text.trim().is_empty() => Shown::Empty {
+            label: lang_label(&r.lang_tag, &r.lang_name),
+        },
+        Ok(r) => Shown::Text {
+            label: lang_label(&r.lang_tag, &r.lang_name),
+            lines: r.lines,
+        },
+        Err(OcrError::NoLanguage) => Shown::NoLanguage,
+        Err(OcrError::Failed(_)) => Shown::Failed,
+    }
 }
 
-fn relabel_parts(_lang: Lang, _shown: &Shown) -> (Option<String>, String) {
-    (None, String::new())
+/// Chữ ô (chỉ khi ô đang hiện câu thông báo chỉ đọc; `None` = giữ chữ người dùng) và dòng trạng thái
+/// của `shown` ở ngôn ngữ `lang`. Khớp `busy_view`/`view_of`.
+fn relabel_parts(lang: Lang, shown: &Shown) -> (Option<String>, String) {
+    let msg = |m| Some(t(lang, m).to_string());
+    match shown {
+        Shown::Busy => (msg(Msg::OcrBusy), String::new()),
+        Shown::Text { label, lines } => (None, ocr_status(lang, label, *lines)),
+        Shown::Empty { label } => (msg(Msg::OcrEmpty), ocr_status(lang, label, 0)),
+        Shown::NoLanguage => (msg(Msg::OcrNoLanguage), String::new()),
+        Shown::Failed => (msg(Msg::OcrFailed), String::new()),
+    }
 }
 
-/// Đặt lại chữ giao diện theo ngôn ngữ hiện tại (chưa làm).
-pub fn relabel() {}
+/// Đổi ngôn ngữ giao diện khi cửa sổ đang mở: tiêu đề, chữ nút, dòng trạng thái, câu thông báo
+/// trong ô chỉ đọc, rồi tính lại bố cục. Không đụng chữ người dùng đang sửa.
+pub fn relabel() {
+    let lang = lang::current();
+    let all: Vec<(HWND, HWND, HWND, HWND, HWND, Shown)> = WINS.with(|v| {
+        v.borrow()
+            .iter()
+            .map(|w| (w.hwnd, w.edit, w.status, w.copy, w.close, w.shown.clone()))
+            .collect()
+    });
+    for (hwnd, edit, status, copy, close, shown) in all {
+        let (text, line) = relabel_parts(lang, &shown);
+        let set = |h: HWND, s: &str| {
+            // SAFETY: cửa sổ kết quả hoặc điều khiển con của nó; chuỗi sống suốt lời gọi.
+            unsafe {
+                let _ = SetWindowTextW(h, &HSTRING::from(s));
+            }
+        };
+        set(hwnd, t(lang, Msg::OcrWindowTitle));
+        set(copy, t(lang, Msg::OcrCopy));
+        set(close, t(lang, Msg::OcrClose));
+        set(status, &line);
+        if let Some(text) = text {
+            set(edit, &text);
+        }
+        relayout(hwnd);
+    }
+}
 
 #[cfg(test)]
 fn test_windows() -> Vec<(HWND, usize)> {

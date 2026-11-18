@@ -1173,6 +1173,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
             if info_windows_stale(&config, &new) {
                 about::close();
                 help::close();
+                // Cửa sổ Nhận dạng chữ không đóng (giữ chữ người dùng đang sửa): đổi chữ giao diện.
+                ocr_window::relabel();
             }
             if history_window_stale(&config, &new) {
                 history_window::close_if_open();
