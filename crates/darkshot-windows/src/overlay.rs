@@ -103,6 +103,7 @@ impl BarItem {
             BarItem::Act(Action::Pin) => Msg::OverlayPin,
             BarItem::Act(Action::Ocr) => Msg::OverlayOcr,
             BarItem::Act(Action::AddStep) => Msg::OverlayAddStep,
+            BarItem::Act(Action::Scroll) => Msg::OverlayScroll,
         }
     }
 }
@@ -4760,6 +4761,8 @@ impl Gp {
                 p.poly(&[(12.0, 8.0), (12.0, 16.0)]);
                 p.poly(&[(8.0, 12.0), (16.0, 12.0)]);
             }
+            // Biểu tượng Chụp cuộn vẽ ở Task 90 (chưa có ô trên thanh ngang).
+            Action::Scroll => {}
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);

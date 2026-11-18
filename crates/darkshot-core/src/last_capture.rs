@@ -18,8 +18,7 @@ fn action_code(a: Action) -> Option<&'static str> {
         Action::Copy => Some("copy"),
         Action::Upload => Some("upload"),
         Action::Pin => Some("pin"),
-        Action::Cancel | Action::Ocr | Action::AddStep => None,
-        Action::Scroll => todo!(),
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll => None,
     }
 }
 
@@ -66,9 +65,12 @@ pub fn from_json(s: &str) -> Option<LastCapture> {
 }
 
 /// Lần chụp trước sau một lần chụp vùng kết thúc bằng `action` với vùng `rect` (tọa độ màn hình):
-/// Cancel, Ocr và AddStep giữ `prev` (OCR không phải lần chụp để lặp lại).
+/// Cancel, Ocr, AddStep và Scroll giữ `prev` (không phải lần chụp để lặp lại).
 pub fn remember(prev: Option<LastCapture>, action: Action, rect: Rect) -> Option<LastCapture> {
-    if matches!(action, Action::Cancel | Action::Ocr | Action::AddStep) {
+    if matches!(
+        action,
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll
+    ) {
         return prev;
     }
     Some(LastCapture { rect, action })

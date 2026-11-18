@@ -38,7 +38,8 @@ pub enum Reason {
 pub enum Push {
     /// Khung giống khung đã nhận trước đó (hoặc chỉ đổi cục bộ, không cuộn).
     NoChange,
-    /// Đã nối số hàng này (khung đầu: cả chiều cao khung).
+    /// Nội dung dịch xuống dy hàng và khung đã được nối (khung đầu: H). Số hàng thêm vào ảnh
+    /// có thể lớn hơn dy khi dải tĩnh dưới thu nhỏ; xem `height()`.
     Appended(u32),
     /// Khung bị bỏ.
     Uncertain(Reason),
@@ -46,55 +47,415 @@ pub enum Push {
     Limit,
 }
 
+/// Độ lệch điểm cho phép giữa dy tốt nhất và dy khác trước khi coi là mơ hồ.
+const AMBIGUITY_MARGIN: f64 = 0.005;
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
 /// FNV-1a 64 bit trên các byte B, G, R của một hàng BGRA (bỏ alpha).
 fn row_hash(row: &[u8]) -> u64 {
-    let _ = row;
-    todo!()
+    let mut h = FNV_OFFSET;
+    for px in row.as_chunks::<4>().0 {
+        for &b in &px[..3] {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(FNV_PRIME);
+        }
+    }
+    h
+}
+
+/// Đúng khi mọi điểm ảnh của hàng có cùng B, G, R.
+fn row_uniform(row: &[u8]) -> bool {
+    match row.get(..3) {
+        Some(first) => row.as_chunks::<4>().0.iter().all(|px| &px[..3] == first),
+        None => true,
+    }
+}
+
+/// Băm FNV-1a (như `row_hash`) bốn hàng cùng độ dài một lúc: bốn chuỗi nhân độc lập chạy song
+/// song trong bộ xử lý, nhanh hơn băm lần lượt từng hàng.
+fn row_hash4(rows: [&[u8]; 4]) -> [u64; 4] {
+    #[inline(always)]
+    fn step(h: u64, b: u8) -> u64 {
+        (h ^ u64::from(b)).wrapping_mul(FNV_PRIME)
+    }
+    let (mut h0, mut h1, mut h2, mut h3) = (FNV_OFFSET, FNV_OFFSET, FNV_OFFSET, FNV_OFFSET);
+    let [a, b, c, d] = rows;
+    for (((pa, pb), pc), pd) in a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .zip(c.as_chunks::<4>().0)
+        .zip(d.as_chunks::<4>().0)
+    {
+        for k in 0..3 {
+            h0 = step(h0, pa[k]);
+            h1 = step(h1, pb[k]);
+            h2 = step(h2, pc[k]);
+            h3 = step(h3, pd[k]);
+        }
+    }
+    [h0, h1, h2, h3]
+}
+
+/// Hai hàng BGRA cùng B, G, R ở mọi điểm ảnh.
+fn rows_equal_bgr(a: &[u8], b: &[u8]) -> bool {
+    a == b
+        || (a.len() == b.len()
+            && a.as_chunks::<4>()
+                .0
+                .iter()
+                .zip(b.as_chunks::<4>().0)
+                .all(|(p, q)| p[..3] == q[..3]))
 }
 
 /// Đúng khi ảnh W×H nằm trong `MAX_HEIGHT` và `MAX_BYTES`.
 fn within_limits(w: u32, h: u32) -> bool {
-    let _ = (w, h);
-    todo!()
+    h <= MAX_HEIGHT
+        && u64::from(w)
+            .checked_mul(u64::from(h))
+            .and_then(|n| n.checked_mul(4))
+            .is_some_and(|n| n <= MAX_BYTES)
+}
+
+/// Số hàng tối đa của ảnh ghép rộng `w`.
+fn max_rows(w: u32) -> u32 {
+    let by_bytes = MAX_BYTES / (u64::from(w.max(1)) * 4);
+    u32::try_from(by_bytes).unwrap_or(u32::MAX).min(MAX_HEIGHT)
+}
+
+/// Chồng lấp tối thiểu (hàng) cho vùng chạy cao `run_h`.
+fn min_overlap(run_h: u32) -> u32 {
+    let frac = (f64::from(run_h) * MIN_OVERLAP_FRAC).ceil() as u32;
+    MIN_OVERLAP_PX.max(frac)
+}
+
+/// Một khung đã băm: điểm ảnh, băm từng hàng, cờ hàng một màu.
+struct Frame {
+    bgra: Vec<u8>,
+    hash: Vec<u64>,
+    uniform: Vec<bool>,
+}
+
+impl Frame {
+    /// `img` phải hợp lệ (đã kiểm `is_valid`).
+    fn new(img: &Image) -> Frame {
+        let stride = img.width as usize * 4;
+        let rows: Vec<&[u8]> = img.bgra.chunks_exact(stride).collect();
+        let mut hash = Vec::with_capacity(rows.len());
+        let (groups, rest) = rows.as_chunks::<4>();
+        for g in groups {
+            hash.extend(row_hash4(*g));
+        }
+        hash.extend(rest.iter().map(|r| row_hash(r)));
+        let uniform = rows.iter().map(|r| row_uniform(r)).collect();
+        Frame {
+            bgra: img.bgra.clone(),
+            hash,
+            uniform,
+        }
+    }
+
+    fn row(&self, y: u32, stride: usize) -> &[u8] {
+        let s = y as usize * stride;
+        &self.bgra[s..s + stride]
+    }
+}
+
+/// Dải tĩnh ứng viên giữa hai khung cùng cỡ: số hàng đầu và số hàng cuối có băm giống nhau,
+/// mỗi dải tối đa H/3.
+fn static_bands(prev: &Frame, cur: &Frame) -> (u32, u32) {
+    let h = cur.hash.len();
+    let cap = h / 3;
+    let pairs = || prev.hash.iter().zip(cur.hash.iter());
+    let top = pairs().take_while(|(a, b)| a == b).count().min(cap);
+    let bottom = pairs().rev().take_while(|(a, b)| a == b).count().min(cap);
+    (top as u32, bottom as u32)
+}
+
+/// Tỉ lệ hàng khớp khi hàng chạy `i` của khung mới ứng với hàng chạy `i + d` của khung trước
+/// (`d` âm: cuộn lên). `None` khi tỉ lệ chắc chắn dưới `floor` (dừng sớm).
+fn score(prev: &[u64], cur: &[u64], d: i64, floor: f64) -> Option<f64> {
+    let run = cur.len() as i64;
+    let n = run - d.abs();
+    if n <= 0 {
+        return None;
+    }
+    let need = (floor * n as f64).ceil() as i64;
+    let max_miss = n - need;
+    let (c0, p0) = if d >= 0 { (0, d) } else { (-d, 0) };
+    let (c0, p0, n) = (c0 as usize, p0 as usize, n as usize);
+    let mut miss = 0i64;
+    for (a, b) in cur[c0..c0 + n].iter().zip(&prev[p0..p0 + n]) {
+        if a != b {
+            miss += 1;
+            if miss > max_miss {
+                return None;
+            }
+        }
+    }
+    Some((n as i64 - miss) as f64 / n as f64)
 }
 
 /// Ghép các khung cùng cỡ thành một ảnh dọc.
+///
+/// Ảnh ghép = `body` + hàng [`tail`, H) của khung đã nhận cuối (`prev`). `body` kết thúc đúng
+/// trước hàng `tail` của `prev`, nên phần đuôi (chân trang dính) chỉ có một lần, lấy từ khung cuối.
+/// Khung không ghép được bị bỏ; `prev` luôn là khung đã nhận cuối cùng, nên mọi chỗ nối đều đã
+/// được xác nhận bằng vùng chồng lấp.
 pub struct Stitcher {
     w: u32,
     h: u32,
+    prev: Option<Frame>,
+    body: Vec<u8>,
+    tail: u32,
+    /// Dải tĩnh (trên, dưới) nhỏ nhất đã dùng cho một lần nối.
+    bands: Option<(u32, u32)>,
+    appended: u32,
+    uncertain: u32,
+    in_gap: bool,
+    limited: bool,
+}
+
+/// Kết quả so khớp một khung với khung trước.
+enum Match {
+    Same,
+    Shift { d: u32, top: u32, bottom: u32 },
+    Fail(Reason),
 }
 
 impl Stitcher {
     /// Bộ ghép cho các khung W×H.
     pub fn new(w: u32, h: u32) -> Stitcher {
-        Stitcher { w, h }
+        Stitcher {
+            w,
+            h,
+            prev: None,
+            body: Vec::new(),
+            tail: 0,
+            bands: None,
+            appended: 0,
+            uncertain: 0,
+            in_gap: false,
+            limited: false,
+        }
+    }
+
+    fn stride(&self) -> usize {
+        self.w as usize * 4
     }
 
     /// Nhận một khung.
     pub fn push(&mut self, frame: &Image) -> Push {
-        let _ = (frame, self.w, self.h);
-        todo!()
+        if self.limited {
+            return Push::Limit;
+        }
+        if !frame.is_valid() || frame.width != self.w || frame.height != self.h {
+            return self.fail(Reason::SizeMismatch);
+        }
+        let Some(prev) = &self.prev else {
+            return self.first(frame);
+        };
+        let cur = Frame::new(frame);
+        match self.find_shift(prev, &cur) {
+            Match::Same => Push::NoChange,
+            Match::Fail(r) => self.fail(r),
+            Match::Shift { d, top, bottom } => self.append(cur, d, top, bottom),
+        }
+    }
+
+    fn first(&mut self, frame: &Image) -> Push {
+        if !within_limits(self.w, self.h) {
+            self.limited = true;
+            return Push::Limit;
+        }
+        let f = Frame::new(frame);
+        self.body = f.bgra.clone();
+        self.tail = self.h;
+        self.prev = Some(f);
+        self.appended = 1;
+        Push::Appended(self.h)
+    }
+
+    fn fail(&mut self, r: Reason) -> Push {
+        if !self.in_gap && self.appended >= 2 {
+            self.uncertain += 1;
+        }
+        self.in_gap = true;
+        Push::Uncertain(r)
+    }
+
+    /// Tìm độ dịch của khung mới so với khung trước.
+    fn find_shift(&self, prev: &Frame, cur: &Frame) -> Match {
+        if prev.hash == cur.hash {
+            return Match::Same;
+        }
+        let h = self.h;
+        let (ct, cb) = static_bands(prev, cur);
+        let (mut top, mut bottom) = match self.bands {
+            Some((t, b)) => (t.min(ct), b.min(cb)),
+            None => (ct, cb),
+        };
+        let mut run_h = h - top - bottom;
+        if run_h < 2 * min_overlap(run_h) {
+            (top, bottom, run_h) = (0, 0, h);
+        }
+        let min_ov = min_overlap(run_h);
+        if run_h <= min_ov {
+            return Match::Fail(Reason::NoOverlap);
+        }
+        let max_d = i64::from(run_h - min_ov);
+        let run = top as usize..(top + run_h) as usize;
+        let (p, c) = (&prev.hash[run.clone()], &cur.hash[run]);
+        let floor = MATCH_RATIO - AMBIGUITY_MARGIN;
+        let scored: Vec<(i64, f64)> = (-max_d..=max_d)
+            .filter_map(|d| score(p, c, d, floor).map(|s| (d, s)))
+            .collect();
+        let Some(&(best_d, best)) = scored.iter().max_by(|a, b| a.1.total_cmp(&b.1)) else {
+            return Match::Fail(Reason::NoOverlap);
+        };
+        if best < MATCH_RATIO {
+            return Match::Fail(Reason::NoOverlap);
+        }
+        if scored
+            .iter()
+            .any(|&(d, s)| d != best_d && s >= best - AMBIGUITY_MARGIN)
+        {
+            return Match::Fail(Reason::Ambiguous);
+        }
+        if best_d < 0 {
+            return Match::Fail(Reason::Backward);
+        }
+        if best_d == 0 {
+            // Đổi cục bộ (con trỏ nhấp nháy, hiệu ứng rê chuột), nội dung không cuộn.
+            return Match::Same;
+        }
+        let d = best_d as u32;
+        if !self.confirm(prev, cur, top, run_h, d) {
+            return Match::Fail(Reason::Ambiguous);
+        }
+        Match::Shift { d, top, bottom }
+    }
+
+    /// Kiểm hàng khớp theo băm bằng so điểm ảnh, và đếm hàng phân biệt.
+    fn confirm(&self, prev: &Frame, cur: &Frame, top: u32, run_h: u32, d: u32) -> bool {
+        let stride = self.stride();
+        let mut distinct = 0;
+        for c in top..top + run_h - d {
+            let p = c + d;
+            if cur.hash[c as usize] != prev.hash[p as usize] {
+                continue;
+            }
+            if !rows_equal_bgr(cur.row(c, stride), prev.row(p, stride)) {
+                return false;
+            }
+            let ci = c as usize;
+            if !cur.uniform[ci] && (ci == 0 || cur.hash[ci] != cur.hash[ci - 1]) {
+                distinct += 1;
+            }
+        }
+        distinct >= MIN_DISTINCT_ROWS
+    }
+
+    /// Nối khung đã khớp với độ dịch `d` và dải tĩnh `top`, `bottom`.
+    fn append(&mut self, cur: Frame, d: u32, top: u32, bottom: u32) -> Push {
+        let stride = self.stride();
+        let run_end = self.h - bottom;
+        // Lần nối đầu: bỏ phần dưới vùng chạy của khung đầu (chân trang lấy từ khung cuối).
+        let (body_rows, tail) = {
+            let rows = (self.body.len() / stride.max(1)) as u32;
+            if self.tail > run_end {
+                if self.appended != 1 {
+                    return self.fail(Reason::NoOverlap);
+                }
+                (rows - (self.tail - run_end), run_end)
+            } else {
+                (rows, self.tail)
+            }
+        };
+        // Hàng cuối của body (hàng tail - 1 của khung trước) phải nằm trong vùng chồng lấp.
+        if tail < top + d + 1 {
+            return self.fail(Reason::NoOverlap);
+        }
+        let from = tail - d;
+        let add = run_end - from;
+        let total = body_rows + add + (self.h - run_end);
+        if !within_limits(self.w, total) {
+            self.limited = true;
+            return Push::Limit;
+        }
+        let keep = body_rows as usize * stride;
+        let need = keep + add as usize * stride;
+        if need > self.body.capacity() {
+            let cap_max = max_rows(self.w) as usize * stride;
+            let target = (self.body.capacity() * 2).clamp(need, cap_max.max(need));
+            if self
+                .body
+                .try_reserve_exact(target - self.body.len())
+                .is_err()
+            {
+                self.limited = true;
+                return Push::Limit;
+            }
+        }
+        self.body.truncate(keep);
+        self.body
+            .extend_from_slice(&cur.bgra[from as usize * stride..run_end as usize * stride]);
+        self.tail = run_end;
+        self.prev = Some(cur);
+        self.bands = Some((top, bottom));
+        self.appended += 1;
+        self.in_gap = false;
+        Push::Appended(d)
     }
 
     /// Chiều cao ảnh ghép hiện tại (0 khi chưa có khung).
     pub fn height(&self) -> u32 {
-        todo!()
+        match self.prev {
+            Some(_) => (self.body.len() / self.stride()) as u32 + (self.h - self.tail),
+            None => 0,
+        }
     }
 
     /// Số chỗ ghép không chắc chắn: mỗi chuỗi khung liên tiếp không ghép được, sau khi đã có ít
     /// nhất một lần nối, tính là một.
     pub fn uncertain_count(&self) -> u32 {
-        todo!()
+        self.uncertain
     }
 
     /// Số khung đã góp hàng vào ảnh, kể cả khung đầu.
     pub fn appended_frames(&self) -> u32 {
-        todo!()
+        self.appended
     }
 
     /// Ảnh ghép và số chỗ ghép không chắc chắn. Chưa có khung: ảnh 0×0.
     pub fn finish(self) -> (Image, u32) {
-        todo!()
+        let Some(prev) = &self.prev else {
+            let empty = Image {
+                width: 0,
+                height: 0,
+                bgra: Vec::new(),
+            };
+            return (empty, self.uncertain);
+        };
+        let stride = self.stride();
+        let mut bgra = self.body;
+        let tail_bytes = &prev.bgra[self.tail as usize * stride..];
+        // Không cấp được bộ nhớ cho phần đuôi: trả phần thân, vẫn là ảnh đúng.
+        if bgra.try_reserve_exact(tail_bytes.len()).is_ok() {
+            bgra.extend_from_slice(tail_bytes);
+        }
+        let height = (bgra.len() / stride) as u32;
+        (
+            Image {
+                width: self.w,
+                height,
+                bgra,
+            },
+            self.uncertain,
+        )
     }
 }
 
@@ -161,7 +522,7 @@ mod tests {
                     let (a, b) = (rng.color(), rng.color());
                     let p = 2 + rng.below(6) as u32;
                     for yy in y..y + len {
-                        let c = if (yy / p) % 2 == 0 { a } else { b };
+                        let c = if (yy / p).is_multiple_of(2) { a } else { b };
                         for x in 0..w {
                             set_px(&mut img, x, yy, c);
                         }
@@ -172,7 +533,7 @@ mod tests {
                     let p = 3 + rng.below(9) as u32;
                     for yy in y..y + len {
                         for x in 0..w {
-                            let c = if (x / p) % 2 == 0 { a } else { b };
+                            let c = if (x / p).is_multiple_of(2) { a } else { b };
                             set_px(&mut img, x, yy, c);
                         }
                     }
@@ -182,7 +543,11 @@ mod tests {
                     let p = 4 + rng.below(12) as u32;
                     for yy in y..y + len {
                         for x in 0..w {
-                            let c = if ((x / p) + (yy / p)) % 2 == 0 { a } else { b };
+                            let c = if ((x / p) + (yy / p)).is_multiple_of(2) {
+                                a
+                            } else {
+                                b
+                            };
                             set_px(&mut img, x, yy, c);
                         }
                     }
@@ -261,6 +626,19 @@ mod tests {
         assert_eq!(row_hash(&px2), row_hash(&px));
         // Một điểm ảnh khác alpha nhưng cùng BGR: cùng băm; khác BGR: khác băm.
         assert_ne!(row_hash(&[b'a', 0, 0, 0]), row_hash(&[b'b', 0, 0, 0]));
+    }
+
+    #[test]
+    fn four_row_hash_equals_single_row_hash() {
+        let pg = page(37, 8, 13);
+        let r: Vec<&[u8]> = pg.bgra.chunks_exact(pg.width as usize * 4).collect();
+        let four = row_hash4([r[0], r[1], r[2], r[3]]);
+        for k in 0..4 {
+            assert_eq!(four[k], row_hash(r[k]));
+        }
+        let f = Frame::new(&pg);
+        let single: Vec<u64> = r.iter().map(|x| row_hash(x)).collect();
+        assert_eq!(f.hash, single);
     }
 
     #[test]
@@ -586,6 +964,20 @@ mod tests {
         assert_eq!(st.push(&f), Push::Appended(90));
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         println!("push 1920x1080: {ms:.2} ms");
+        assert!(ms < 15.0, "{ms} ms");
+        // Trường hợp xấu nhất cho tìm dy: khung gần như một màu, mọi dy khớp đến cuối.
+        let mut pg = noise_page(1920, 3000, 14);
+        let s = 1920 * 4;
+        for p in pg.bgra[200 * s..].chunks_mut(4) {
+            p.copy_from_slice(&[1, 2, 3, 255]);
+        }
+        let mut st = Stitcher::new(1920, 1080);
+        st.push(&frame(&pg, 0, 1080));
+        let f = frame(&pg, 400, 1080);
+        let t = std::time::Instant::now();
+        assert_eq!(st.push(&f), Push::Uncertain(Reason::Ambiguous));
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!("push 1920x1080 one colour: {ms:.2} ms");
         assert!(ms < 15.0, "{ms} ms");
     }
 }

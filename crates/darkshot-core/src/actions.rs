@@ -72,7 +72,7 @@ pub enum Outcome {
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
     if matches!(
         action,
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep
+        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll
     ) {
         return Outcome::Cancelled;
     }
@@ -85,8 +85,9 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         return Outcome::Failed;
     }
     match action {
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep => Outcome::Cancelled,
-        Action::Scroll => todo!(),
+        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll => {
+            Outcome::Cancelled
+        }
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
