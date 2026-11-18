@@ -33,18 +33,44 @@ fn action_from_code(s: &str) -> Option<Action> {
 }
 
 pub fn to_json(l: &LastCapture) -> String {
-    todo!()
+    serde_json::json!({
+        "version": FILE_VERSION,
+        "x": l.rect.x,
+        "y": l.rect.y,
+        "w": l.rect.w,
+        "h": l.rect.h,
+        "action": action_code(l.action).unwrap_or("save"),
+    })
+    .to_string()
 }
 
 /// None khi JSON hỏng, version khác 1, w/h < MIN_SIZE, action lạ hoặc "cancel".
 pub fn from_json(s: &str) -> Option<LastCapture> {
-    todo!()
+    let v: serde_json::Value = serde_json::from_str(s).ok()?;
+    if v.get("version")?.as_u64()? != u64::from(FILE_VERSION) {
+        return None;
+    }
+    let num = |k: &str| -> Option<i32> { i32::try_from(v.get(k)?.as_i64()?).ok() };
+    let rect = Rect {
+        x: num("x")?,
+        y: num("y")?,
+        w: num("w")?,
+        h: num("h")?,
+    };
+    if rect.w < MIN_SIZE || rect.h < MIN_SIZE {
+        return None;
+    }
+    let action = action_from_code(v.get("action")?.as_str()?)?;
+    Some(LastCapture { rect, action })
 }
 
 /// Lần chụp trước sau một lần chụp vùng kết thúc bằng `action` với vùng `rect` (tọa độ màn hình):
 /// Cancel giữ `prev`.
 pub fn remember(prev: Option<LastCapture>, action: Action, rect: Rect) -> Option<LastCapture> {
-    todo!()
+    if action == Action::Cancel {
+        return prev;
+    }
+    Some(LastCapture { rect, action })
 }
 
 /// Vùng cắt (tọa độ ẢNH) để lặp lại; None khi vùng không giao màn hình nào hoặc phần còn trong
@@ -56,7 +82,31 @@ pub fn repeat_rect(
     img_h: i32,
     monitors_screen: &[Rect],
 ) -> Option<Rect> {
-    todo!()
+    let (ox, oy) = (i64::from(origin.x), i64::from(origin.y));
+    let r = last.rect;
+    // Tọa độ ảnh, i64 để không tràn.
+    let (x0, y0) = (i64::from(r.x) - ox, i64::from(r.y) - oy);
+    let (x1, y1) = (x0 + i64::from(r.w), y0 + i64::from(r.h));
+    let (cx0, cy0) = (x0.max(0), y0.max(0));
+    let (cx1, cy1) = (x1.min(i64::from(img_w)), y1.min(i64::from(img_h)));
+    if cx1 - cx0 < i64::from(MIN_SIZE) || cy1 - cy0 < i64::from(MIN_SIZE) {
+        return None;
+    }
+    let touches = monitors_screen.iter().any(|m| {
+        let mx0 = i64::from(m.x) - ox;
+        let my0 = i64::from(m.y) - oy;
+        let (mx1, my1) = (mx0 + i64::from(m.w), my0 + i64::from(m.h));
+        cx0.max(mx0) < cx1.min(mx1) && cy0.max(my0) < cy1.min(my1)
+    });
+    if !touches {
+        return None;
+    }
+    Some(Rect {
+        x: i32::try_from(cx0).ok()?,
+        y: i32::try_from(cy0).ok()?,
+        w: i32::try_from(cx1 - cx0).ok()?,
+        h: i32::try_from(cy1 - cy0).ok()?,
+    })
 }
 
 #[cfg(test)]
@@ -128,7 +178,10 @@ mod tests {
             remember(Some(prev), Action::Save, r),
             Some(lc(r, Action::Save))
         );
-        assert_eq!(remember(None, Action::Upload, r), Some(lc(r, Action::Upload)));
+        assert_eq!(
+            remember(None, Action::Upload, r),
+            Some(lc(r, Action::Upload))
+        );
     }
 
     #[test]

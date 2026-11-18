@@ -159,6 +159,7 @@ pub fn kind_of(role: HotkeyRole) -> CaptureKind {
         HotkeyRole::Region => CaptureKind::Region,
         HotkeyRole::SaveFull => CaptureKind::SaveFull,
         HotkeyRole::UploadFull => CaptureKind::UploadFull,
+        HotkeyRole::RepeatLast => CaptureKind::Region, // Task 74
     }
 }
 

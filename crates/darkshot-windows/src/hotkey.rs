@@ -8,12 +8,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_SHIFT, MOD_WIN,
 };
 
-/// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3.
+/// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3, RepeatLast = 4.
 pub fn id_of(role: HotkeyRole) -> i32 {
     match role {
         HotkeyRole::Region => 1,
         HotkeyRole::SaveFull => 2,
         HotkeyRole::UploadFull => 3,
+        HotkeyRole::RepeatLast => 4,
     }
 }
 
@@ -56,6 +57,7 @@ pub fn help_keys(keys: &Hotkeys) -> HelpKeys {
         region: on(HotkeyRole::Region),
         save_full: on(HotkeyRole::SaveFull),
         upload_full: on(HotkeyRole::UploadFull),
+        repeat_last: on(HotkeyRole::RepeatLast),
     }
 }
 
@@ -172,12 +174,12 @@ mod tests {
     fn ids_round_trip() {
         assert_eq!(id_of(HotkeyRole::Region), 1);
         let ids: Vec<i32> = HotkeyRole::ALL.iter().map(|r| id_of(*r)).collect();
-        assert_eq!(ids, vec![1, 2, 3]);
+        assert_eq!(ids, vec![1, 2, 3, 4]);
         for r in HotkeyRole::ALL {
             assert_eq!(role_of(id_of(r)), Some(r));
         }
         assert_eq!(role_of(0), None);
-        assert_eq!(role_of(4), None);
+        assert_eq!(role_of(5), None);
     }
 
     #[test]
@@ -188,7 +190,8 @@ mod tests {
             HelpKeys {
                 region: Some("PrintScreen".into()),
                 save_full: None,
-                upload_full: None
+                upload_full: None,
+                repeat_last: None
             }
         );
         h.upload_full.enabled = true;
@@ -198,7 +201,8 @@ mod tests {
             HelpKeys {
                 region: None,
                 save_full: None,
-                upload_full: Some("Ctrl+PrintScreen".into())
+                upload_full: Some("Ctrl+PrintScreen".into()),
+                repeat_last: None
             }
         );
     }
