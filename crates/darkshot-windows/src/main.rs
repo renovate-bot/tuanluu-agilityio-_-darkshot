@@ -20,6 +20,7 @@ mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
+mod scroll_result;
 mod scroll_session;
 mod secret;
 mod settings;

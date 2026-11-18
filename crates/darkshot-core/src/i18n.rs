@@ -463,6 +463,9 @@ messages! {
     ScrollUpload => ("Tải lên", "Upload"),
     ScrollPin => ("Ghim", "Pin"),
     ScrollClose => ("Đóng", "Close"),
+    ScrollManyOpenTitle => ("?", "??"),
+    ScrollManyOpenBody => ("?", "??"),
+    ScrollPreparing => ("?", "??"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -917,6 +920,12 @@ pub fn scroll_height(lang: Lang, px: u32) -> String {
     match lang {
         Lang::Vi | Lang::En => format!("{px} px"),
     }
+}
+
+/// Cỡ ảnh trên dòng thông tin của cửa sổ kết quả chụp cuộn: "900 × 12000 px".
+pub fn scroll_size(lang: Lang, w: u32, h: u32) -> String {
+    let _ = (lang, w, h);
+    String::new()
 }
 
 /// Dải cảnh báo của cửa sổ kết quả chụp cuộn.
@@ -1542,6 +1551,27 @@ mod tests {
         assert!(NOTICE_TITLES.contains(&Msg::ScrollNoRoomTitle));
         assert_eq!(scroll_height(Lang::Vi, 1840), "1840 px");
         assert_eq!(scroll_height(Lang::En, 0), "0 px");
+        // Cửa sổ kết quả (Task 91).
+        let result = [
+            (
+                Msg::ScrollManyOpenTitle,
+                "Có nhiều ảnh chụp cuộn chưa lưu",
+                "Several scrolling captures are not saved",
+            ),
+            (
+                Msg::ScrollManyOpenBody,
+                "Lưu hoặc đóng bớt các cửa sổ Ảnh chụp cuộn.",
+                "Save or close some Scrolling capture windows.",
+            ),
+            (Msg::ScrollPreparing, "Đang chuẩn bị…", "Preparing…"),
+        ];
+        for (m, vi, en) in result {
+            assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
+            assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollManyOpenTitle));
+        assert_eq!(scroll_size(Lang::Vi, 900, 12000), "900 × 12000 px");
+        assert_eq!(scroll_size(Lang::En, 1, 2), "1 × 2 px");
         assert_eq!(
             scroll_uncertain(Lang::Vi, 3),
             "Có 3 chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng."
