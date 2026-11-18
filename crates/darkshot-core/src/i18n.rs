@@ -472,6 +472,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::StepsExportFailedTitle,
     Msg::StepsStartFailedTitle,
     Msg::StepsSessionSaveFailedTitle,
+    Msg::StepsEndFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`

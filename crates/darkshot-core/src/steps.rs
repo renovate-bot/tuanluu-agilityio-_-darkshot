@@ -153,13 +153,15 @@ fn escape_line(line: &str) -> String {
     let mut out = String::with_capacity(body.len() + 4);
     // Vị trí (theo ký tự) cần thêm `\` ở đầu dòng; chỉ ký tự ASCII nên so khớp theo chỉ số.
     let digits = chars.iter().take_while(|c| c.is_ascii_digit()).count();
+    // Dấu danh sách `-`/`+`/`*` theo sau bởi khoảng trắng (cách hay tab) hoặc đứng một mình.
+    let list_marker = matches!(chars.first(), Some('-' | '+' | '*'))
+        && chars.get(1).is_none_or(|c| c.is_whitespace());
     let block_at = if body.starts_with('#')
         || body.starts_with("---")
-        || body.starts_with("- ")
-        || body.starts_with("+ ")
-        || body == "-"
-        || body == "+"
+        || body.starts_with('~')
+        || list_marker
         || (!chars.is_empty() && chars.iter().all(|&c| c == '='))
+        || (!chars.is_empty() && chars.iter().all(|&c| c == '-'))
     {
         Some(0)
     } else if (1..=9).contains(&digits)

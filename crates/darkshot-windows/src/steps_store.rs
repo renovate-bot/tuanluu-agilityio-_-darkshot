@@ -201,6 +201,50 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     r
 }
 
+/// Xóa thư mục phiên `root`: mọi thứ trừ tệp đánh dấu `ended` trước, đánh dấu sau cùng, rồi thư mục.
+/// Lỗi giữa chừng thì đánh dấu còn lại cùng phần sót (để lần sau nhận ra và xóa nốt). Không có thư
+/// mục thì coi là xong.
+fn remove_session_dir(root: &Path) -> std::io::Result<()> {
+    let not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(e) if not_found(&e) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let mut first: Option<std::io::Error> = None;
+    for e in entries {
+        let r = e.and_then(|e| {
+            if e.file_name() == ENDED_FILE {
+                return Ok(());
+            }
+            let p = e.path();
+            if e.file_type()?.is_dir() {
+                std::fs::remove_dir_all(&p)
+            } else {
+                std::fs::remove_file(&p)
+            }
+        });
+        if let Err(e) = r {
+            if !not_found(&e) {
+                first.get_or_insert(e);
+            }
+        }
+    }
+    if let Some(e) = first {
+        return Err(e);
+    }
+    for r in [
+        std::fs::remove_file(root.join(ENDED_FILE)),
+        std::fs::remove_dir(root),
+    ] {
+        match r {
+            Err(e) if !not_found(&e) => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Mã hóa PNG rồi ghi nguyên tử (chạy trên luồng nền).
 fn write_png(path: &Path, img: &Image, lang: Lang) -> Result<(), String> {
     let png = encode_png(img).map_err(|e| e.message(lang))?;
@@ -272,19 +316,25 @@ impl Store {
         self.session.as_ref().map_or(&[], |s| &s.steps)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Quyết định hỏi dùng `needs_end_confirm`.
     pub fn dirty(&self) -> bool {
         self.dirty
     }
 
     /// Chờ ảnh đang ghi (tối đa `timeout`) rồi áp kết quả.
     pub fn settle(&mut self, timeout: Duration) -> Drained {
-        let _ = timeout;
-        Drained::default()
+        let _ = self.flush(timeout);
+        self.drain()
     }
 
     /// Kết thúc lúc này cần hỏi: còn bước chưa xuất, hay còn ảnh đang ghi (chưa vào danh sách).
     pub fn needs_end_confirm(&self) -> bool {
-        self.dirty && self.count() > 0
+        (self.dirty && self.count() > 0) || !self.in_flight.is_empty()
+    }
+
+    /// Thư mục phiên là phần sót của một lần kết thúc: có `ended`, không có `session.json`.
+    fn is_ended_leftover(&self) -> bool {
+        self.root.join(ENDED_FILE).is_file() && !self.root.join(SESSION_FILE).exists()
     }
 
     pub fn mark_exported(&mut self) {
@@ -331,6 +381,10 @@ impl Store {
     pub fn start_at(&mut self, now: LocalTime) -> std::io::Result<()> {
         if self.active() {
             return Ok(());
+        }
+        if self.is_ended_leftover() {
+            // Phần sót của lần kết thúc trước: xóa nốt (không phải dữ liệu cần giữ).
+            let _ = remove_session_dir(&self.root);
         }
         if self.has_leftovers() {
             self.keep_corrupt(now)?;
@@ -483,8 +537,14 @@ impl Store {
             return;
         }
         let Ok(bytes) = std::fs::read(self.root.join(SESSION_FILE)) else {
+            if self.is_ended_leftover() {
+                // Phần sót của lần kết thúc trước (thoát hay tệp bị giữ lúc xóa): xóa nốt.
+                let _ = remove_session_dir(&self.root);
+            }
             return;
         };
+        // Có json: phiên chưa kết thúc xong (dừng giữa ghi đánh dấu và xóa json) thì giữ phiên.
+        let _ = std::fs::remove_file(self.root.join(ENDED_FILE));
         let parsed = String::from_utf8(bytes)
             .ok()
             .and_then(|s| StepSession::from_json(&s));
@@ -554,8 +614,16 @@ impl Store {
             return Ok(());
         }
         let _ = self.flush(END_FLUSH);
+        // Đánh dấu trước: nếu xóa dở, phần sót được nhận ra và xóa nốt về sau (không giữ như hỏng).
+        let marker = self.root.join(ENDED_FILE);
+        let marked = std::fs::write(&marker, b"").is_ok();
         match std::fs::remove_file(self.root.join(SESSION_FILE)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                if marked {
+                    let _ = std::fs::remove_file(&marker);
+                }
+                return Err(e);
+            }
             _ => {}
         }
         // Kết quả còn lại thuộc phiên cũ: bỏ (ảnh nằm trong thư mục sắp xóa).
@@ -565,10 +633,7 @@ impl Store {
         self.session = None;
         self.dirty = false;
         self.json_stale = false;
-        match std::fs::remove_dir_all(&self.root) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
-        }
+        remove_session_dir(&self.root)
     }
 
     /// Sửa phiên bằng `f`; đổi thì ghi `session.json` và đánh dấu chưa xuất. Ghi lỗi thì thay
@@ -748,12 +813,20 @@ pub fn restore() {
 
 /// Kết thúc phiên và xóa thư mục phiên; lỗi được báo qua `set_on_error`.
 pub fn end() -> bool {
-    let r = with(|s| s.end());
+    let (r, ended) = with(|s| (s.end(), !s.active()));
     changed();
-    if let Err(e) = &r {
-        report(&[StepError::Session(e.to_string())]);
+    match r {
+        Ok(()) => true,
+        // Phiên đã kết thúc, còn sót tệp: xóa nốt ở lần bắt đầu hay khởi động sau.
+        Err(e) if ended => {
+            report(&[StepError::End(e.to_string())]);
+            true
+        }
+        Err(e) => {
+            report(&[StepError::Session(e.to_string())]);
+            false
+        }
     }
-    r.is_ok()
 }
 
 /// Lúc thoát: chờ ảnh đang ghi tối đa `timeout`, áp kết quả và ghi lại `session.json` nếu đang
@@ -773,6 +846,7 @@ pub fn image_path(i: usize) -> Option<PathBuf> {
     with(|s| s.image_path(i))
 }
 
+#[cfg_attr(not(test), allow(dead_code))] // Quyết định hỏi dùng `needs_end_confirm`.
 pub fn dirty() -> bool {
     with(|s| s.dirty())
 }

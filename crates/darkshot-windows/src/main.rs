@@ -587,19 +587,16 @@ fn side_effects_allowed() -> bool {
     SIDE_EFFECTS_ALLOWED.load(Ordering::SeqCst)
 }
 
-/// Giới hạn chờ hàng ghi lịch sử lúc thoát; Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
-const HISTORY_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
-
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong, rồi chờ hàng ghi lịch sử. Chạy trên luồng
 /// chính, chỉ ghi file, không mạng. Thứ tự: `drain` (giành mọi lượt còn dở; lượt nào đã được trao
 /// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → lưu ảnh, đẩy mục dự phòng vào CUỐI
 /// hàng ghi (mới hơn mọi mục Lưu/Chép còn trong hàng) → `flush` một lần (tối đa 3 s).
 /// Gọi lại lần hai thì vô hại: sổ rỗng, hàng rỗng.
-fn save_pending_uploads() {
+fn save_pending_uploads(timeout: Duration) {
     let items = PENDING.with(|p| p.drain());
     let now = paths::local_now();
     // Hết giờ thì bỏ: không treo khi thoát.
-    let _ = history_service::finish_on_exit(now, HISTORY_FLUSH_TIMEOUT, |record| {
+    let _ = history_service::finish_on_exit(now, timeout, |record| {
         if !items.is_empty() {
             app::save_pending(items, now, record);
         }
@@ -961,19 +958,30 @@ pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static st
     use steps_store::StepError;
     let (title, why) = match e {
         StepError::Image(w) => (Msg::SaveFailedTitle, w),
-        StepError::Session(w) | StepError::End(w) => (Msg::StepsSessionSaveFailedTitle, w),
+        StepError::Session(w) => (Msg::StepsSessionSaveFailedTitle, w),
+        StepError::End(w) => (Msg::StepsEndFailedTitle, w),
         StepError::Start(w) => (Msg::StepsStartFailedTitle, w),
     };
     (i18n::t(lang, title), i18n::reason(lang, why))
 }
 
-/// Tổng thời gian chờ lúc thoát (ghi Lịch sử, ảnh bước, xuất), chia nhau theo một hạn chót chung.
+/// Tổng thời gian chờ lúc thoát (ghi Lịch sử, ảnh bước, xuất), chia nhau theo một hạn chót chung;
+/// Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
 const EXIT_BUDGET: Duration = Duration::from_secs(4);
 
 /// Thời gian còn lại tới hạn chót `deadline` (0 khi đã qua).
 fn remaining(deadline: std::time::Instant, now: std::time::Instant) -> Duration {
-    let _ = (deadline, now);
-    Duration::ZERO
+    deadline.saturating_duration_since(now)
+}
+
+/// Việc lúc thoát (Thoát, tắt máy): lưu ảnh của lượt tải lên còn dở, ghi Lịch sử, chờ ảnh bước và
+/// lượt xuất, tất cả trong một hạn chót chung `EXIT_BUDGET`. Cửa sổ Xem lại đóng trước tiên để
+/// ghi chú đang sửa được lưu trước mọi lần chờ.
+fn exit_cleanup() {
+    steps_window::close();
+    let deadline = std::time::Instant::now() + EXIT_BUDGET;
+    save_pending_uploads(remaining(deadline, std::time::Instant::now()));
+    finish_steps_on_exit(deadline);
 }
 
 /// Báo các lỗi của phiên chụp từng bước qua khay.
@@ -988,12 +996,12 @@ fn notify_step_errors(errors: &[steps_store::StepError]) {
 }
 
 /// Lúc thoát: chờ ảnh bước đang ghi (tối đa 3 s) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
-fn finish_steps_on_exit() {
+fn finish_steps_on_exit(deadline: std::time::Instant) {
     // Cửa sổ Xem lại lưu ghi chú đang sửa khi bị hủy (trước khi chờ ghi ảnh).
     steps_window::close();
-    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    steps_store::flush(remaining(deadline, std::time::Instant::now()));
     // Lượt xuất đang chạy: chờ có hạn để thư mục kịp đổi sang tên cuối.
-    steps_window::wait_export_on_exit(HISTORY_FLUSH_TIMEOUT);
+    steps_window::wait_export_on_exit(remaining(deadline, std::time::Instant::now()));
     steps_bar::close();
 }
 
@@ -1419,13 +1427,14 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             gate(hwnd, GateEvent::OpenSettings);
         }
         AppEvent::Quit => {
-            // Đóng mọi ảnh ghim trước (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
+            // Lưu ghi chú đang sửa của cửa sổ Xem lại trước mọi việc khác.
+            steps_window::close();
+            // Đóng mọi ảnh ghim (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
-            // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng.
-            save_pending_uploads();
-            finish_steps_on_exit();
+            // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng; chờ trong một hạn chót.
+            exit_cleanup();
             // SAFETY: hwnd là cửa sổ của luồng này.
             unsafe {
                 let _ = DestroyWindow(hwnd);
@@ -1620,11 +1629,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_ENDSESSION => {
             if wp.0 != 0 {
                 // Phiên sắp kết thúc (tắt máy, đăng xuất): đóng ảnh ghim, ghi file ảnh của các lượt
-                // còn dở.
+                // còn dở. Ghi chú đang sửa của cửa sổ Xem lại được lưu trước tiên.
+                steps_window::close();
                 pin::close_all();
                 ocr_window::close_all();
-                save_pending_uploads();
-                finish_steps_on_exit();
+                exit_cleanup();
             }
             LRESULT(0)
         }
@@ -1801,8 +1810,9 @@ fn main() {
         }
     }
     // Lưới an toàn: vòng lặp kết thúc theo đường nào thì ảnh của lượt còn dở cũng được lưu.
-    save_pending_uploads();
-    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    let deadline = std::time::Instant::now() + EXIT_BUDGET;
+    save_pending_uploads(remaining(deadline, std::time::Instant::now()));
+    steps_store::flush(remaining(deadline, std::time::Instant::now()));
 }
 
 #[cfg(test)]
