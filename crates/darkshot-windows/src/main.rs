@@ -1993,4 +1993,13 @@ mod tests {
         assert!(hotkey_defers(false, true));
         assert!(hotkey_defers(true, true));
     }
+
+    /// Hẹn giờ chụp sau menu: menu ảnh ghim hay Lịch sử còn mở thì chờ thêm, không chụp.
+    #[test]
+    fn timer_waits_while_pin_or_history_menu_open() {
+        assert!(!timer_should_wait(false, false));
+        assert!(timer_should_wait(true, false));
+        assert!(timer_should_wait(false, true));
+        assert!(timer_should_wait(true, true));
+    }
 }
