@@ -23,7 +23,7 @@ pub fn role_of(id: i32) -> Option<HotkeyRole> {
     HotkeyRole::ALL.into_iter().find(|r| id_of(*r) == id)
 }
 
-/// Hủy đăng ký cả ba dòng; dòng chưa đăng ký thì bỏ qua.
+/// Hủy đăng ký mọi dòng; dòng chưa đăng ký thì bỏ qua.
 pub fn unregister_all(hwnd: HWND) {
     for r in HotkeyRole::ALL {
         // SAFETY: hủy phím đã đăng ký cho cửa sổ này; lỗi (chưa đăng ký) được bỏ qua.
@@ -33,7 +33,7 @@ pub fn unregister_all(hwnd: HWND) {
     }
 }
 
-/// Hủy cả ba dòng rồi đăng ký các dòng đang bật theo `HotkeyRole::ALL`; dòng tắt không bao giờ
+/// Hủy mọi dòng rồi đăng ký các dòng đang bật theo `HotkeyRole::ALL`; dòng tắt không bao giờ
 /// được đăng ký. Trả về các dòng đang bật mà không đăng ký được.
 pub fn register_enabled(hwnd: HWND, keys: &Hotkeys) -> Vec<HotkeyRole> {
     // RegisterHotKey với cùng hwnd và id không thay phím cũ mà giữ cả hai: luôn hủy trước.
