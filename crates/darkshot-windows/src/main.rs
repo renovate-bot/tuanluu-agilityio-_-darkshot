@@ -19,6 +19,7 @@ mod overlay;
 mod paths;
 mod secret;
 mod settings;
+mod snap;
 mod theme;
 mod tray;
 mod wer;
@@ -29,9 +30,7 @@ use darkshot_core::actions::{
     notice_visible, run_action, Action, Clipboard, Ctx, NoticeKind, Notifier,
 };
 use darkshot_core::color::CustomColors;
-use darkshot_core::config::{
-    Config, Expiry, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT,
-};
+use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
 use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
@@ -44,6 +43,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tray::{MenuCommand, Notice, Tray, WM_NOTICE, WM_TRAY};
 use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{
@@ -457,16 +457,23 @@ fn side_effects_allowed() -> bool {
     SIDE_EFFECTS_ALLOWED.load(Ordering::SeqCst)
 }
 
-/// Lưu vào máy ảnh của mọi lượt tải lên chưa xong. Chạy trên luồng chính, chỉ ghi file, không mạng.
+/// Giới hạn chờ hàng ghi lịch sử lúc thoát; Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
+const HISTORY_FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Lưu vào máy ảnh của mọi lượt tải lên chưa xong, rồi chờ hàng ghi lịch sử. Chạy trên luồng
+/// chính, chỉ ghi file, không mạng. Thứ tự: `drain` (giành mọi lượt còn dở; lượt nào đã được trao
+/// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → lưu ảnh, đẩy mục dự phòng vào CUỐI
+/// hàng ghi (mới hơn mọi mục Lưu/Chép còn trong hàng) → `flush` một lần (tối đa 3 s).
+/// Gọi lại lần hai thì vô hại: sổ rỗng, hàng rỗng.
 fn save_pending_uploads() {
     let items = PENDING.with(|p| p.drain());
-    if !items.is_empty() {
-        let now = paths::local_now();
-        // Tiến trình sắp thoát: ghi lịch sử đồng bộ (luồng nền có thể bị cắt ngang).
-        app::save_pending(items, now, &|o, img| {
-            history_service::record_outcome_blocking(o, img, Expiry::Keep, now)
-        });
-    }
+    let now = paths::local_now();
+    // Hết giờ thì bỏ: không treo khi thoát.
+    let _ = history_service::finish_on_exit(now, HISTORY_FLUSH_TIMEOUT, |record| {
+        if !items.is_empty() {
+            app::save_pending(items, now, record);
+        }
+    });
 }
 
 /// Luồng nền (hoặc lúc khởi động) nhờ luồng chính mở Cài đặt.
@@ -591,9 +598,17 @@ fn capture_flow(hwnd: HWND) {
             n.notify(kind, title, body);
         }
     };
-    let (include_cursor, keep_selection) =
-        with_app(|a| (a.config.include_cursor, a.config.keep_selection)).unwrap_or((false, false));
-    let shot = match capture::capture_virtual_screen(include_cursor) {
+    let (include_cursor, keep_selection, snap_windows) = with_app(|a| {
+        (
+            a.config.include_cursor,
+            a.config.keep_selection,
+            a.config.snap_windows,
+        )
+    })
+    .unwrap_or((false, false, false));
+    // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi chọn vùng và ô gợi ý đang bật.
+    let frames = (kind == CaptureKind::Region && snap_windows).then(snap::enumerate_windows);
+    let mut shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
             notify(
@@ -604,6 +619,7 @@ fn capture_flow(hwnd: HWND) {
             return;
         }
     };
+    shot.windows = frames.map(|w| snap::windows_to_image(&w, shot.origin));
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
     let (action, rect, shapes) = match kind {
@@ -783,9 +799,15 @@ fn run_on_image(
                 lang: lang::current(),
                 upload_format: config.upload_format,
                 jpeg_quality: config.jpeg_quality,
-                on_outcome: Some(Box::new(move |o, img| {
-                    history_service::record_outcome(o, img, expiry, paths::local_now())
-                })),
+                on_outcome: Some({
+                    // Cùng ảnh của lượt (`Arc`): hàng ghi giữ nó, không sao chép lần hai.
+                    let shared = image.clone();
+                    Box::new(move |o, _img| {
+                        // Hạn tính từ lúc tải xong: R2 đếm vòng đời từ lúc đối tượng được tạo (PUT xong).
+                        let now = paths::local_now();
+                        history_service::record_outcome_arc(o, shared.clone(), expiry, now)
+                    })
+                }),
             };
             if let Err(e) = app::spawn_upload(job) {
                 // Không có luồng nào giữ lượt này: lưu ngay ở dưới, rút khỏi sổ.

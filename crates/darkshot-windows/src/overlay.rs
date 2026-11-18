@@ -27,6 +27,7 @@ use darkshot_core::geometry::{
 };
 use darkshot_core::i18n::{self, Msg};
 use darkshot_core::image::Image;
+use darkshot_core::snap;
 use darkshot_core::theme::{
     Rgb, ACCENT, ACCENT_BUTTON, ACCENT_BUTTON_PRESSED, BUTTON as BUTTON_FILL, BUTTON_BORDER,
     BUTTON_PRESSED, INPUT, INPUT_BORDER, OVERLAY_BORDER, OVERLAY_HOVER, OVERLAY_ICON,
@@ -1340,6 +1341,9 @@ struct Effects {
 
 struct State {
     hwnd: HWND,
+    /// Vùng đã yêu cầu vẽ lại (chỉ kiểm thử, vì không có cửa sổ thật).
+    #[cfg(test)]
+    inval_log: std::cell::RefCell<Vec<Rect>>,
     w: i32,
     h: i32,
     /// Ảnh gốc (`Screenshot::image.bgra`), sống suốt `pick_region`; chỉ đọc.
@@ -1434,6 +1438,18 @@ struct State {
     /// DC bộ nhớ dùng để đo chữ.
     measure: HDC,
     gdiplus: bool,
+    /// Ứng viên gợi ý (cửa sổ rồi màn hình, tọa độ ảnh); rỗng khi ô gợi ý tắt.
+    cands: Vec<Rect>,
+    /// Ô gợi ý cửa sổ bật (`Screenshot::windows` là `Some`): chọn chữ của viên nhắc.
+    snap_windows: bool,
+    /// Ứng viên đang xem trước dưới con trỏ (chỉ khi `snap_active`, hoặc trong lúc bấm còn giữ
+    /// `snap_press` và chuột chưa rời điểm bấm).
+    snap_hover: Option<Rect>,
+    /// Điểm bấm của lần bấm hiện tại khi gợi ý đang chạy; bỏ khi chuột rời điểm bấm từ
+    /// `MIN_SIZE` (thành kéo vùng). Nhả khi còn giữ thì chọn ứng viên tại điểm bấm.
+    snap_press: Option<Point>,
+    /// Vị trí chuột cuối cùng (tọa độ ảnh); lúc mở là vị trí con trỏ lúc chụp.
+    mouse: Point,
 }
 
 impl Drop for State {
@@ -1727,9 +1743,49 @@ impl State {
         (sz.cx, sz.cy)
     }
 
+    /// Khung đang hiển thị: ứng viên xem trước (chỉ có khi chưa có vùng chọn thật, hoặc khi vừa
+    /// bấm mà chuột chưa rời điểm bấm: vùng tạm < MIN_SIZE không được vẽ), nếu không thì vùng chọn.
+    fn shown_rect(&self) -> Option<Rect> {
+        self.snap_hover.or(self.sel.rect())
+    }
+
+    /// Gợi ý cửa sổ đang chạy (thiết kế 3.1). Có hình đánh dấu thì coi như đã có vùng chọn; ô chữ
+    /// đang gõ coi như bảng nổi.
+    fn snap_active(&self) -> bool {
+        snap::snap_active(
+            !self.cands.is_empty(),
+            self.sel.rect().is_some() || !self.marks.is_empty(),
+            self.dragging(),
+            self.palette || self.sizes_open || self.shapes_open || self.text.is_some(),
+        )
+    }
+
+    /// Ứng viên xem trước tại `p` (None khi gợi ý không chạy).
+    fn snap_at(&self, p: Point) -> Option<Rect> {
+        if self.snap_active() {
+            snap::candidate_at(&self.cands, p)
+        } else {
+            None
+        }
+    }
+
+    /// Chọn ứng viên `c` làm vùng chọn thật (như kéo xong: có tay nắm, thanh công cụ).
+    fn select_candidate(&mut self, c: Rect) {
+        self.sel = Selection::with_rect(
+            Rect {
+                x: 0,
+                y: 0,
+                w: self.w,
+                h: self.h,
+            },
+            Some(c),
+        );
+        self.snap_hover = None;
+    }
+
     /// Nhãn kích thước: vị trí, chữ, DPI.
     fn label(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
-        let r = self.sel.rect()?;
+        let r = self.shown_rect()?;
         let corner = Point { x: r.x, y: r.y };
         let mon = monitor_containing(corner, &self.monitors);
         let dpi = self.monitor_dpi(mon);
@@ -1742,6 +1798,25 @@ impl State {
         let x = if above >= mon.y { r.x } else { r.x + gap };
         let rect = clamp_x(Rect { x, y, w: lw, h: lh }, mon);
         Some((rect, text, dpi))
+    }
+
+    /// Viên nhắc (khi đang hiện): vị trí, chữ, DPI.
+    fn hint(&mut self) -> Option<(Rect, Vec<u16>, u32)> {
+        let (has_sel, dragging) = (self.sel.rect().is_some(), self.dragging());
+        if has_sel || dragging {
+            return None;
+        }
+        let mon = monitor_containing(self.mouse, &self.monitors);
+        let dpi = self.monitor_dpi(mon);
+        let msg = if self.snap_windows {
+            Msg::OverlayHintSnap
+        } else {
+            Msg::OverlayHintDrag
+        };
+        let text = wide(lang::tr(msg));
+        let size = self.text_size(&text, dpi);
+        let r = snap::hint_rect(mon, size, dpi);
+        snap::hint_visible(r, self.mouse, dpi, has_sel, dragging).then_some((r, text, dpi))
     }
 
     /// Chú thích của nút đang rê chuột (thanh ngang, thanh dọc, bảng Cỡ, bảng Hình): vị trí, chữ,
@@ -1904,17 +1979,26 @@ impl State {
     /// Mọi vùng có vẽ thêm ngoài nền tối (khung, tay nắm, nhãn, các thanh, bảng màu, chú thích).
     fn chrome(&mut self) -> Vec<Rect> {
         let mut v = Vec::new();
-        if let Some(r) = self.sel.rect() {
+        if let Some(r) = self.shown_rect() {
             v.push(inflate(r, scaled(HANDLE_SIZE, self.max_dpi()) / 2 + 3));
         }
         if let Some((r, _, _)) = self.label() {
             v.push(r);
+        }
+        if let Some((r, _, _)) = self.hint() {
+            v.push(inflate(r, 1));
         }
         v.extend(self.bar_chrome());
         v
     }
 
     fn invalidate(&self, rects: &[Rect]) {
+        #[cfg(test)]
+        self.inval_log.borrow_mut().extend_from_slice(rects);
+        // Chưa có cửa sổ (trạng thái dựng trong kiểm thử): InvalidateRect(NULL) sẽ vẽ lại mọi cửa sổ.
+        if self.hwnd.is_invalid() {
+            return;
+        }
         for r in rects {
             let rc = to_rect(*r);
             // SAFETY: hwnd là cửa sổ lớp phủ của luồng này; chỉ đánh dấu vùng cần vẽ lại.
@@ -2869,8 +2953,12 @@ impl State {
         if self.gesture.is_some() {
             self.commit_gesture();
         }
+        self.snap_press = None;
         if self.sel.is_dragging() {
-            self.update(|s| s.sel.release());
+            self.update(|s| {
+                s.sel.release();
+                s.snap_hover = s.snap_at(s.mouse);
+            });
         }
     }
 
@@ -2989,10 +3077,15 @@ impl State {
                 }
             }
             PressMode::Selection => {
+                // Gợi ý đang chạy lúc bấm: giữ xem trước tới khi chuột rời điểm bấm; nhả không kéo
+                // thì chọn ứng viên tại điểm bấm (on_up).
+                let press = self.snap_active().then_some(p);
                 if hit == Hit::Outside {
                     self.deselect();
                 }
                 self.update(|s| {
+                    s.snap_press = press;
+                    s.snap_hover = press.and_then(|a| snap::candidate_at(&s.cands, a));
                     s.new_drag = hit == Hit::Outside;
                     s.drag_cursor = cursor_for_hit(hit);
                     s.hover = None;
@@ -3010,6 +3103,8 @@ impl State {
     }
 
     fn on_move(&mut self, p: Point) {
+        let hint_before = self.hint().map(|h| h.0);
+        self.mouse = p;
         if let Some(kind) = self.picker_drag {
             self.drag_picker(kind, p);
         } else if self.gesture.is_some() {
@@ -3030,7 +3125,14 @@ impl State {
                 self.invalidate(&[r]);
             }
         } else if self.sel.is_dragging() {
-            self.update(|s| s.sel.drag_to(p));
+            self.update(|s| {
+                s.sel.drag_to(p);
+                // Chuột rời điểm bấm từ MIN_SIZE: thành kéo vùng, bỏ xem trước.
+                if s.snap_press.is_some_and(|a| !snap::is_click(a, p)) {
+                    s.snap_press = None;
+                    s.snap_hover = None;
+                }
+            });
         } else {
             let size_hover = self.size_cell_at(p);
             if size_hover != self.size_hover {
@@ -3048,6 +3150,19 @@ impl State {
             if side_hover != self.side_hover {
                 self.update_bars(|s| s.side_hover = side_hover);
             }
+            let snap_hover = self.snap_at(p);
+            if snap_hover != self.snap_hover {
+                self.update(|s| s.snap_hover = snap_hover);
+            }
+        }
+        let hint_after = self.hint().map(|h| h.0);
+        if hint_before != hint_after {
+            let dirty: Vec<Rect> = [hint_before, hint_after]
+                .into_iter()
+                .flatten()
+                .map(|r| inflate(r, 1))
+                .collect();
+            self.invalidate(&dirty);
         }
         set_cursor(self.cursor_at(p));
     }
@@ -3092,10 +3207,19 @@ impl State {
             };
         }
         if self.sel.is_dragging() {
+            let press = self.snap_press.take();
             self.update(|s| {
                 s.sel.drag_to(p);
                 s.sel.release();
+                // Bấm không kéo (dịch < MIN_SIZE theo cả hai trục) khi gợi ý đang chạy: chọn ứng
+                // viên tại điểm bấm. Kéo dẹt (một trục >= MIN_SIZE) không chọn gì, như đợt 7.
+                if let Some(a) = press.filter(|a| snap::is_click(*a, p)) {
+                    if let Some(c) = snap::candidate_at(&s.cands, a) {
+                        s.select_candidate(c);
+                    }
+                }
                 s.hover = s.bar_item_at(p);
+                s.snap_hover = s.snap_at(p);
             });
             return Effects {
                 release: true,
@@ -3152,6 +3276,16 @@ impl State {
         }
         if self.text.is_some() {
             self.text_key(vk);
+            return;
+        }
+        if vk == VK_RETURN.0 && !repeat && self.sel.rect().is_none() {
+            // Enter khi chưa có vùng chọn: chọn ứng viên đang xem trước (như bấm).
+            if let Some(c) = self.snap_hover.filter(|_| self.snap_active()) {
+                self.update(|s| {
+                    s.select_candidate(c);
+                    s.hover = s.bar_item_at(s.mouse);
+                });
+            }
             return;
         }
         if self.dragging() || self.sel.rect().is_none() {
@@ -3270,7 +3404,9 @@ impl State {
     }
 
     fn draw(&mut self, p: &Painter, area: Rect) {
-        let sel = self.sel.rect().and_then(|r| intersect(r, area));
+        // Khung hiển thị: vùng chọn, hoặc ứng viên xem trước (sáng trong, tối ngoài như vùng chọn).
+        let shown = self.shown_rect();
+        let sel = shown.and_then(|r| intersect(r, area));
         let (w, h) = (self.w, self.h);
         // SAFETY: `bright`/`bright_len` là bộ đệm của Screenshot::image, sống suốt pick_region
         // (State bị hủy trước khi pick_region trả về) và không bị ai ghi trong lúc này.
@@ -3382,20 +3518,26 @@ impl State {
                 p.fill(b.caret, ACCENT);
             }
         }
-        let Some(r) = self.sel.rect() else { return };
+        let Some(r) = shown else {
+            self.draw_hint(p, area);
+            return;
+        };
         p.border(r);
-        for (hx, hy) in [
-            (r.x, r.y),
-            (r.x + r.w / 2, r.y),
-            (r.right(), r.y),
-            (r.right(), r.y + r.h / 2),
-            (r.right(), r.bottom()),
-            (r.x + r.w / 2, r.bottom()),
-            (r.x, r.bottom()),
-            (r.x, r.y + r.h / 2),
-        ] {
-            let size = scaled(HANDLE_SIZE, self.dpi_at(Point { x: hx, y: hy }));
-            p.handle(hx, hy, size);
+        // Xem trước ứng viên: không tay nắm (và không thanh công cụ: `bars` cần vùng chọn).
+        if self.snap_hover.is_none() && self.sel.rect().is_some() {
+            for (hx, hy) in [
+                (r.x, r.y),
+                (r.x + r.w / 2, r.y),
+                (r.right(), r.y),
+                (r.right(), r.y + r.h / 2),
+                (r.right(), r.bottom()),
+                (r.x + r.w / 2, r.bottom()),
+                (r.x, r.bottom()),
+                (r.x, r.y + r.h / 2),
+            ] {
+                let size = scaled(HANDLE_SIZE, self.dpi_at(Point { x: hx, y: hy }));
+                p.handle(hx, hy, size);
+            }
         }
         if let Some((rect, mut text, dpi)) = self.label() {
             let font = self.font(dpi);
@@ -3469,6 +3611,26 @@ impl State {
                 OVERLAY_BORDER,
             );
         }
+        self.draw_hint(p, area);
+    }
+
+    /// Viên nhắc (chỉ trên lớp phủ, không bao giờ vào ảnh xuất ra).
+    fn draw_hint(&mut self, p: &Painter, area: Rect) {
+        let Some((rect, mut text, dpi)) = self.hint() else {
+            return;
+        };
+        if intersect(inflate(rect, 1), area).is_none() {
+            return;
+        }
+        let font = self.font(dpi);
+        p.bubble(
+            rect,
+            scaled(snap::HINT_RADIUS_DIP, dpi),
+            &mut text,
+            font,
+            OVERLAY_LABEL,
+            OVERLAY_BORDER,
+        );
     }
 }
 
@@ -4857,6 +5019,116 @@ impl Drop for EscHotkey {
     }
 }
 
+impl State {
+    /// Trạng thái ban đầu của lớp phủ cho ảnh `shot` cỡ `w`×`h` (đã kiểm hợp lệ).
+    fn new(
+        shot: &Screenshot,
+        w: i32,
+        h: i32,
+        initial: Option<Rect>,
+        custom: &CustomColors,
+        gdiplus: bool,
+    ) -> Result<State, String> {
+        let img = &shot.image;
+        let bounds = Rect { x: 0, y: 0, w, h };
+        let cands = match &shot.windows {
+            Some(wins) => snap::candidates(wins, &shot.monitors, bounds),
+            None => Vec::new(),
+        };
+        let mut dark = Vec::new();
+        if dark.try_reserve_exact(img.bgra.len()).is_err() {
+            return Err(lang::tr(Msg::OverlayErrMemory).to_string());
+        }
+        dark.extend(img.bgra.iter().map(|b| b >> 1));
+
+        let dpis = shot
+            .monitors
+            .iter()
+            .map(|m| {
+                monitor_dpi_at(POINT {
+                    x: shot.origin.x + m.x + m.w / 2,
+                    y: shot.origin.y + m.y + m.h / 2,
+                })
+            })
+            .collect();
+        // SAFETY: DC bộ nhớ để đo chữ; State xóa nó khi drop.
+        let measure = unsafe { CreateCompatibleDC(None) };
+        let color = LAST_COLOR.with(|c| c.get());
+        let mut s = State {
+            hwnd: HWND::default(),
+            w,
+            h,
+            bright: img.bgra.as_ptr(),
+            bright_len: img.bgra.len(),
+            image: img,
+            dark,
+            back: BackBuffer::new(w, h),
+            focus_retries: 0,
+            monitors: shot.monitors.clone(),
+            dpis,
+            sel: Selection::with_rect(Rect { x: 0, y: 0, w, h }, initial),
+            new_drag: false,
+            drag_cursor: IDC_CROSS,
+            pressed: None,
+            hover: None,
+            tool: None,
+            marks: Annotations::default(),
+            mark_bounds: Vec::new(),
+            text: None,
+            caret_on: false,
+            high_surrogate: None,
+            esc_registered: false,
+            color,
+            size: LAST_SIZE.with(|c| c.get()),
+            sizes_open: false,
+            size_hover: None,
+            size_pressed: None,
+            shape_tool: LAST_SHAPE.with(|c| c.get()),
+            shapes_open: false,
+            shape_hover: None,
+            shape_pressed: None,
+            stroke: None,
+            selected: None,
+            gesture: None,
+            preview: None,
+            preview_bounds: NO_RECT,
+            gesture_at: Pt { x: 0.0, y: 0.0 },
+            grip_off: Pt { x: 0.0, y: 0.0 },
+            gesture_moved: false,
+            side_hover: None,
+            side_pressed: None,
+            palette: false,
+            expanded: false,
+            custom: *custom,
+            pick: PickColor::from_rgb(color),
+            target: None,
+            field: None,
+            picker_pressed: None,
+            picker_drag: None,
+            spectra: Vec::new(),
+            lum_img: None,
+            eat_char: None,
+            result: None,
+            fonts: Vec::new(),
+            measure,
+            gdiplus,
+            cands,
+            snap_windows: shot.windows.is_some(),
+            snap_hover: None,
+            snap_press: None,
+            #[cfg(test)]
+            inval_log: Default::default(),
+            mouse: Point {
+                x: shot.cursor.x.saturating_sub(shot.origin.x),
+                y: shot.cursor.y.saturating_sub(shot.origin.y),
+            },
+        };
+        // Khung đầu tiên đã có ứng viên dưới con trỏ (không chớp tối trước lần di chuột đầu).
+        s.snap_hover = s.snap_at(s.mouse);
+        Ok(s)
+    }
+}
+
 /// Hiện lớp phủ trên ảnh `shot` và chờ người dùng chọn. `Rect` trong tọa độ ảnh.
 /// `initial` (tọa độ ảnh): khung chọn sẵn, lớp phủ mở ở trạng thái đã chọn xong; khung không
 /// nằm trọn trong ảnh thì như `None`. `Ok(None)` khi người dùng hủy; `Err` khi không mở được.
@@ -4880,85 +5152,8 @@ pub fn pick_region(
         return Err(lang::tr(Msg::OverlayErrAlreadyOpen).to_string());
     }
 
-    let mut dark = Vec::new();
-    if dark.try_reserve_exact(img.bgra.len()).is_err() {
-        return Err(lang::tr(Msg::OverlayErrMemory).to_string());
-    }
-    dark.extend(img.bgra.iter().map(|b| b >> 1));
-
     let gdiplus = GdiPlus::start();
-    let dpis = shot
-        .monitors
-        .iter()
-        .map(|m| {
-            monitor_dpi_at(POINT {
-                x: shot.origin.x + m.x + m.w / 2,
-                y: shot.origin.y + m.y + m.h / 2,
-            })
-        })
-        .collect();
-    // SAFETY: DC bộ nhớ để đo chữ; State xóa nó khi drop.
-    let measure = unsafe { CreateCompatibleDC(None) };
-    let color = LAST_COLOR.with(|c| c.get());
-    let state = State {
-        hwnd: HWND::default(),
-        w,
-        h,
-        bright: img.bgra.as_ptr(),
-        bright_len: img.bgra.len(),
-        image: img,
-        dark,
-        back: BackBuffer::new(w, h),
-        focus_retries: 0,
-        monitors: shot.monitors.clone(),
-        dpis,
-        sel: Selection::with_rect(Rect { x: 0, y: 0, w, h }, initial),
-        new_drag: false,
-        drag_cursor: IDC_CROSS,
-        pressed: None,
-        hover: None,
-        tool: None,
-        marks: Annotations::default(),
-        mark_bounds: Vec::new(),
-        text: None,
-        caret_on: false,
-        high_surrogate: None,
-        esc_registered: false,
-        color,
-        size: LAST_SIZE.with(|c| c.get()),
-        sizes_open: false,
-        size_hover: None,
-        size_pressed: None,
-        shape_tool: LAST_SHAPE.with(|c| c.get()),
-        shapes_open: false,
-        shape_hover: None,
-        shape_pressed: None,
-        stroke: None,
-        selected: None,
-        gesture: None,
-        preview: None,
-        preview_bounds: NO_RECT,
-        gesture_at: Pt { x: 0.0, y: 0.0 },
-        grip_off: Pt { x: 0.0, y: 0.0 },
-        gesture_moved: false,
-        side_hover: None,
-        side_pressed: None,
-        palette: false,
-        expanded: false,
-        custom: *custom,
-        pick: PickColor::from_rgb(color),
-        target: None,
-        field: None,
-        picker_pressed: None,
-        picker_drag: None,
-        spectra: Vec::new(),
-        lum_img: None,
-        eat_char: None,
-        result: None,
-        fonts: Vec::new(),
-        measure,
-        gdiplus: gdiplus.ok(),
-    };
+    let state = State::new(shot, w, h, initial, custom, gdiplus.ok())?;
     let placed = OVERLAY.with(|o| match o.try_borrow_mut() {
         Ok(mut b) => {
             *b = Some(state);
@@ -4981,6 +5176,19 @@ pub fn pick_region(
     // Thả trước _window: gỡ phím Esc khi cửa sổ còn sống.
     let _esc = EscHotkey(hwnd);
     with_state(|s| s.set_esc_hotkey(true));
+    // Chuột có thể đã rời chỗ lúc chụp: tính lại ứng viên theo vị trí hiện tại TRƯỚC khung đầu.
+    let mut pt = POINT::default();
+    // SAFETY: chỉ đọc vị trí chuột.
+    if unsafe { GetCursorPos(&mut pt) }.is_ok() {
+        let p = Point {
+            x: pt.x.saturating_sub(shot.origin.x),
+            y: pt.y.saturating_sub(shot.origin.y),
+        };
+        with_state(|s| {
+            s.mouse = p;
+            s.snap_hover = s.snap_at(p);
+        });
+    }
 
     // SAFETY: hiện và vẽ ngay cửa sổ vừa tạo của luồng này.
     unsafe {
@@ -4993,9 +5201,10 @@ pub fn pick_region(
             SetTimer(Some(hwnd), FOCUS_TIMER_ID, FOCUS_RETRY_MS, None);
         }
     }
-    if initial.is_some() && with_state(|s| s.sel.rect().is_some()) == Some(true) {
+    let follow = with_state(|s| (initial.is_some() && s.sel.rect().is_some()) || s.snap_active());
+    if follow == Some(true) {
         // Mở với khung có sẵn: con trỏ chuột và nút đang rê theo chỗ chuột đứng ngay,
-        // không đợi lần di chuột đầu tiên.
+        // không đợi lần di chuột đầu tiên. Gợi ý cửa sổ: hiện ngay ứng viên dưới con trỏ.
         let mut pt = POINT::default();
         // SAFETY: chỉ đọc vị trí chuột.
         if unsafe { GetCursorPos(&mut pt) }.is_ok() {
@@ -5370,6 +5579,94 @@ mod tests {
         assert!(
             after_third <= after_first,
             "GDI tăng từ {after_first} lên {after_third}"
+        );
+    }
+
+    /// Gợi ý cửa sổ bật: mở/đóng lớp phủ 20 lần, mỗi lần rê qua các ứng viên (đổi khung xem
+    /// trước, ẩn/hiện viên nhắc), chọn bằng bấm hoặc Enter rồi Lưu; số đối tượng GDI không tăng.
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored snap_overlay_round_trip_without_gdi_leaks --test-threads=1"]
+    fn snap_overlay_round_trip_without_gdi_leaks() {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
+        };
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let mut shot = live_setup();
+        let m0 = shot.monitors[0];
+        let win = Rect {
+            x: m0.x + 150,
+            y: m0.y + 150,
+            w: 400,
+            h: 300,
+        };
+        let inner = Rect {
+            x: m0.x + 200,
+            y: m0.y + 200,
+            w: 120,
+            h: 90,
+        };
+        shot.windows = Some(vec![inner, win]);
+        let in_inner = Point {
+            x: inner.x + 60,
+            y: inner.y + 45,
+        };
+        let in_win = Point {
+            x: win.x + 300,
+            y: win.y + 250,
+        };
+        let near_hint = Point {
+            x: m0.x + m0.w / 2,
+            y: m0.y + 20,
+        };
+        let background = Point {
+            x: m0.right() - 30,
+            y: m0.bottom() - 30,
+        };
+        // SAFETY: chỉ đọc số đối tượng GDI của tiến trình này.
+        let gdi = || unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
+        let run = |i: usize| {
+            let (target, at) = if i.is_multiple_of(2) {
+                (win, in_win)
+            } else {
+                (inner, in_inner)
+            };
+            let mut steps = vec![
+                live::Step::Move(near_hint),
+                live::Step::Move(in_inner),
+                live::Step::Move(in_win),
+                live::Step::Move(background),
+            ];
+            // Con trỏ thật đứng tại `at`: lần di chuột hệ thống tự sinh (khi giữ chuột, khi hiện
+            // cửa sổ) không đổi ứng viên đang xem trước, không biến cú bấm thành kéo.
+            steps.push(live::Step::Cursor(at));
+            if i % 4 < 2 {
+                steps.extend(live::click(at));
+            } else {
+                steps.push(live::Step::Move(at));
+                steps.push(live::Step::Key(VK_RETURN.0));
+            }
+            steps.extend(live::click(live::layout(&shot, target).save()));
+            let (r, ok) = live::drive(&shot, None, steps);
+            assert!(ok, "lần {i}");
+            assert_eq!(
+                r,
+                Ok(Some(Picked {
+                    action: Action::Save,
+                    rect: target,
+                    shapes: Vec::new(),
+                })),
+                "lần {i}"
+            );
+        };
+        run(0);
+        let after_first = gdi();
+        for i in 1..20 {
+            run(i);
+        }
+        let after = gdi();
+        assert!(
+            after <= after_first,
+            "GDI tăng từ {after_first} lên {after}"
         );
     }
 
@@ -6401,6 +6698,8 @@ mod tests {
             Captured(bool),
             /// Giữ (`true`) hoặc nhả Shift giả cho các bước sau (`key_held(VK_SHIFT)`).
             Shift(bool),
+            /// Đặt con trỏ thật tại điểm (tọa độ ảnh chụp, cộng `origin` của ảnh) bằng `SetCursorPos`.
+            Cursor(Point),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -6559,6 +6858,7 @@ mod tests {
             custom: &mut CustomColors,
             steps: Vec<Step>,
         ) -> (Result<Option<Picked>, String>, bool) {
+            let origin = shot.origin;
             let driver = std::thread::spawn(move || {
                 let lp =
                     |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
@@ -6616,6 +6916,22 @@ mod tests {
                         }
                         Step::Shift(on) => {
                             TEST_MODS.store(if on { 2 } else { 0 }, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Step::Cursor(p) => {
+                            use windows::Win32::UI::HiDpi::{
+                                SetThreadDpiAwarenessContext,
+                                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                            };
+                            use windows::Win32::UI::WindowsAndMessaging::SetCursorPos;
+                            // SAFETY: tọa độ pixel vật lý như lớp phủ (PerMonitorV2 cho luồng
+                            // này); chỉ dời con trỏ chuột.
+                            unsafe {
+                                SetThreadDpiAwarenessContext(
+                                    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+                                );
+                                let _ = SetCursorPos(origin.x + p.x, origin.y + p.y);
+                            }
                             std::thread::sleep(Duration::from_millis(100));
                         }
                     }
@@ -8292,5 +8608,352 @@ mod tests {
         let p = run(tail);
         assert_eq!(p.shapes.len(), 0);
         assert_eq!(p.action, Action::Save);
+    }
+
+    /// Trạng thái lớp phủ dựng không cần cửa sổ: gợi ý cửa sổ (Task 62).
+    mod snap_state {
+        use super::*;
+        use crate::capture::{Screenshot, GDI_TEST_LOCK};
+
+        const W: i32 = 800;
+        const H: i32 = 600;
+        const WIN: Rect = Rect {
+            x: 100,
+            y: 100,
+            w: 300,
+            h: 200,
+        };
+        const MON: Rect = Rect {
+            x: 0,
+            y: 0,
+            w: W,
+            h: H,
+        };
+
+        fn p(x: i32, y: i32) -> Point {
+            Point { x, y }
+        }
+
+        fn shot(windows: Option<Vec<Rect>>) -> Screenshot {
+            Screenshot {
+                image: Image {
+                    width: W as u32,
+                    height: H as u32,
+                    bgra: vec![0x80; (W * H * 4) as usize],
+                },
+                origin: p(0, 0),
+                monitors: vec![MON],
+                // Góc dưới trái, xa viên nhắc.
+                cursor: p(10, H - 10),
+                windows,
+            }
+        }
+
+        fn state(shot: &Screenshot, initial: Option<Rect>) -> State {
+            State::new(shot, W, H, initial, &CustomColors::default(), false).unwrap()
+        }
+
+        fn click(s: &mut State, at: Point) {
+            s.on_move(at);
+            let fx = s.on_down(at);
+            assert!(fx.capture);
+            s.on_up(at);
+        }
+
+        #[test]
+        fn hover_then_click_selects_candidate() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            assert_eq!(s.snap_hover, Some(WIN));
+            assert!(s.toolbar().is_none());
+            click(&mut s, p(200, 150));
+            assert_eq!(s.sel.rect(), Some(WIN));
+            assert_eq!(s.snap_hover, None);
+            // Như khi kéo xong: có thanh công cụ.
+            assert!(s.toolbar().is_some());
+        }
+
+        #[test]
+        fn new_state_hovers_candidate_under_cursor() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            // Khung đầu tiên đã có ứng viên dưới con trỏ: không chớp tối trước lần di chuột đầu.
+            let mut sh = shot(Some(vec![WIN]));
+            sh.cursor = p(200, 150);
+            let s = state(&sh, None);
+            assert_eq!(s.snap_hover, Some(WIN));
+            assert_eq!(s.shown_rect(), Some(WIN));
+            // Tọa độ màn hình đổi sang tọa độ ảnh (gốc màn hình ảo âm).
+            let mut sh = shot(Some(vec![WIN]));
+            sh.origin = p(-1000, -50);
+            sh.cursor = p(200 - 1000, 150 - 50);
+            assert_eq!(state(&sh, None).snap_hover, Some(WIN));
+            // Ngoài cửa sổ: ứng viên là màn hình.
+            let mut sh = shot(Some(vec![WIN]));
+            sh.cursor = p(600, 500);
+            assert_eq!(state(&sh, None).snap_hover, Some(MON));
+            // Có khung nhớ sẵn hoặc gợi ý tắt: không xem trước.
+            let mut sh = shot(Some(vec![WIN]));
+            sh.cursor = p(200, 150);
+            let sel = Rect {
+                x: 500,
+                y: 400,
+                w: 100,
+                h: 80,
+            };
+            assert_eq!(state(&sh, Some(sel)).snap_hover, None);
+            let mut sh = shot(None);
+            sh.cursor = p(200, 150);
+            assert_eq!(state(&sh, None).snap_hover, None);
+        }
+
+        #[test]
+        fn click_on_background_selects_monitor() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(600, 500));
+            assert_eq!(s.snap_hover, Some(MON));
+            click(&mut s, p(600, 500));
+            assert_eq!(s.sel.rect(), Some(MON));
+        }
+
+        #[test]
+        fn small_jitter_still_counts_as_click() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            s.on_down(p(200, 150));
+            s.on_move(p(202, 151));
+            s.on_up(p(202, 151));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn jitter_selects_candidate_at_press_point() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            // Bấm trong WIN sát mép phải, nhả ngoài WIN 2 px: ứng viên lấy tại điểm bấm.
+            s.on_move(p(399, 150));
+            s.on_down(p(399, 150));
+            s.on_move(p(401, 151));
+            s.on_up(p(401, 151));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn flat_drag_selects_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            // Kéo 200 px ngang, lệch dọc 2 px: vùng dẹt bị bỏ như đợt 7, không chọn ứng viên.
+            let (a, b) = (p(150, 150), p(350, 152));
+            s.on_move(a);
+            s.on_down(a);
+            s.on_move(p(250, 151));
+            assert_eq!(s.snap_hover, None);
+            s.on_move(b);
+            s.on_up(b);
+            assert_eq!(s.sel.rect(), None);
+        }
+
+        #[test]
+        fn press_keeps_preview_without_zero_frame() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            s.on_down(p(200, 150));
+            // Trong lúc chưa rời điểm bấm: hiện khung xem trước, không hiện khung/nhãn 0 × 0.
+            assert_eq!(s.shown_rect(), Some(WIN));
+            let (_, text, _) = s.label().unwrap();
+            assert_eq!(text, wide("300 \u{d7} 200"));
+            assert!(s.toolbar().is_none());
+            s.on_up(p(200, 150));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn drag_50px_selects_region_not_candidate() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            let (a, b) = (p(150, 150), p(200, 200));
+            s.on_move(a);
+            assert_eq!(s.snap_hover, Some(WIN));
+            s.on_down(a);
+            // Vừa bấm: xem trước còn (không chớp tối); chuột rời điểm bấm >= MIN_SIZE mới thành kéo.
+            assert_eq!(s.snap_hover, Some(WIN));
+            s.on_move(p(152, 151));
+            assert_eq!(s.snap_hover, Some(WIN));
+            s.on_move(p(175, 175));
+            assert_eq!(s.snap_hover, None);
+            s.on_move(b);
+            s.on_up(b);
+            assert_eq!(s.sel.rect(), Some(Rect::from_points(a, b)));
+            assert_eq!(s.snap_hover, None);
+        }
+
+        #[test]
+        fn remembered_selection_disables_hover() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let sel = Rect {
+                x: 500,
+                y: 400,
+                w: 100,
+                h: 80,
+            };
+            let mut s = state(&sh, Some(sel));
+            s.on_move(p(200, 150));
+            assert_eq!(s.snap_hover, None);
+            s.on_key(VK_RETURN.0, false);
+            assert_eq!(s.sel.rect(), Some(sel));
+            assert!(s.hint().is_none());
+        }
+
+        #[test]
+        fn click_outside_selection_clears_it_and_hover_returns() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let sel = Rect {
+                x: 500,
+                y: 400,
+                w: 100,
+                h: 80,
+            };
+            let mut s = state(&sh, Some(sel));
+            click(&mut s, p(200, 150));
+            // Như hôm nay: bấm ra ngoài bỏ vùng chọn, không chọn ứng viên.
+            assert_eq!(s.sel.rect(), None);
+            assert_eq!(s.snap_hover, Some(WIN));
+            // Bấm lần nữa thì chọn ứng viên.
+            click(&mut s, p(200, 150));
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn windows_none_click_selects_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            assert!(s.cands.is_empty());
+            s.on_move(p(200, 150));
+            assert_eq!(s.snap_hover, None);
+            click(&mut s, p(200, 150));
+            assert_eq!(s.sel.rect(), None);
+            s.on_key(VK_RETURN.0, false);
+            assert_eq!(s.sel.rect(), None);
+            let (_, text, _) = s.hint().unwrap();
+            assert_eq!(text, wide(lang::tr(Msg::OverlayHintDrag)));
+        }
+
+        #[test]
+        fn enter_selects_hovered_candidate() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            s.on_key(VK_RETURN.0, false);
+            assert_eq!(s.sel.rect(), Some(WIN));
+            assert_eq!(s.snap_hover, None);
+            assert!(s.toolbar().is_some());
+        }
+
+        #[test]
+        fn enter_with_selection_keeps_it() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            click(&mut s, p(200, 150));
+            assert_eq!(s.sel.rect(), Some(WIN));
+            // Rê sang màn hình nền rồi Enter: vùng chọn không đổi.
+            s.on_move(p(600, 500));
+            assert_eq!(s.snap_hover, None);
+            s.on_key(VK_RETURN.0, false);
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
+        #[test]
+        fn hint_shown_hidden_near_cursor_and_with_selection() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            let (r, text, dpi) = s.hint().unwrap();
+            assert_eq!(text, wide(lang::tr(Msg::OverlayHintSnap)));
+            let size = s.text_size(&text, dpi);
+            assert_eq!(r, snap::hint_rect(MON, size, dpi));
+            // Con trỏ ngay dưới viên nhắc: ẩn.
+            s.on_move(p(r.x + r.w / 2, r.bottom() + 2));
+            assert!(s.hint().is_none());
+            s.on_move(p(600, 500));
+            assert!(s.hint().is_some());
+            // Đang kéo: ẩn.
+            s.on_down(p(600, 500));
+            s.on_move(p(650, 550));
+            assert!(s.hint().is_none());
+            s.on_up(p(650, 550));
+            // Có vùng chọn: ẩn.
+            assert!(s.sel.rect().is_some());
+            assert!(s.hint().is_none());
+        }
+
+        fn covered(log: &[Rect], r: Rect) -> bool {
+            log.iter().any(|c| {
+                c.x <= r.x && c.y <= r.y && c.right() >= r.right() && c.bottom() >= r.bottom()
+            })
+        }
+
+        #[test]
+        fn click_select_repaints_old_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            let (hint, _, _) = s.hint().unwrap();
+            s.inval_log.borrow_mut().clear();
+            let at = p(200, 150);
+            s.on_down(at);
+            s.on_up(at);
+            assert!(s.sel.rect().is_some());
+            let log = s.inval_log.borrow().clone();
+            assert!(covered(&log, hint), "{log:?}");
+        }
+
+        #[test]
+        fn enter_select_repaints_old_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            let (hint, _, _) = s.hint().unwrap();
+            s.inval_log.borrow_mut().clear();
+            s.on_key(VK_RETURN.0, false);
+            assert!(s.sel.rect().is_some());
+            let log = s.inval_log.borrow().clone();
+            assert!(covered(&log, hint), "{log:?}");
+        }
+
+        #[test]
+        fn chrome_covers_hover_and_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let mut s = state(&sh, None);
+            s.on_move(p(200, 150));
+            let (hint, _, _) = s.hint().unwrap();
+            let chrome = s.chrome();
+            let covers = |r: Rect| {
+                chrome.iter().any(|c| {
+                    c.x <= r.x && c.y <= r.y && c.right() >= r.right() && c.bottom() >= r.bottom()
+                })
+            };
+            assert!(covers(inflate(WIN, 1)), "{chrome:?}");
+            assert!(covers(hint), "{chrome:?}");
+            let (label, _, _) = s.label().unwrap();
+            assert!(covers(label), "{chrome:?}");
+        }
     }
 }

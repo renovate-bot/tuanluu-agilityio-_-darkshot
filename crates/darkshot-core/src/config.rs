@@ -254,6 +254,8 @@ pub struct Config {
     pub update_notified: Option<Version>,
     /// Lưu lịch sử ảnh chụp trên máy; mặc định tắt.
     pub history_enabled: bool,
+    /// Gợi ý khung cửa sổ/màn hình khi chọn vùng; mặc định bật.
+    pub snap_windows: bool,
 }
 
 impl Config {
@@ -274,6 +276,7 @@ impl Config {
             check_updates: true,
             update_notified: None,
             history_enabled: false,
+            snap_windows: true,
         }
     }
 }
@@ -384,6 +387,7 @@ struct FileConfig {
     check_updates: serde_json::Value,
     update_notified: serde_json::Value,
     history_enabled: serde_json::Value,
+    snap_windows: serde_json::Value,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -407,6 +411,7 @@ impl Default for FileConfig {
             check_updates: serde_json::Value::Bool(true),
             update_notified: serde_json::Value::Null,
             history_enabled: serde_json::Value::Bool(false),
+            snap_windows: serde_json::Value::Bool(true),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -515,6 +520,7 @@ pub fn load(
         check_updates: f.check_updates.as_bool().unwrap_or(true),
         update_notified: f.update_notified.as_str().and_then(Version::parse),
         history_enabled: f.history_enabled.as_bool().unwrap_or(false),
+        snap_windows: f.snap_windows.as_bool().unwrap_or(true),
     };
     Ok(Loaded {
         config,
@@ -562,6 +568,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
             None => serde_json::Value::Null,
         },
         history_enabled: serde_json::Value::Bool(cfg.history_enabled),
+        snap_windows: serde_json::Value::Bool(cfg.snap_windows),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
@@ -1241,6 +1248,39 @@ mod tests {
     }
 
     #[test]
+    fn snap_windows_default_and_missing_is_true() {
+        assert!(Config::defaults(Path::new("C:/pics"), Lang::Vi).snap_windows);
+        assert!(load_text(r#"{"language":"vi"}"#).config.snap_windows);
+    }
+
+    #[test]
+    fn snap_windows_false_and_wrong_type() {
+        assert!(!load_text(r#"{"snap_windows":false}"#).config.snap_windows);
+        for text in [
+            r#"{"snap_windows":"no"}"#,
+            r#"{"snap_windows":0}"#,
+            r#"{"snap_windows":null}"#,
+        ] {
+            assert!(load_text(text).config.snap_windows, "{text}");
+        }
+    }
+
+    #[test]
+    fn snap_windows_round_trip() {
+        for on in [true, false] {
+            let path = temp_dir().join("config.json");
+            let mut c = sample();
+            c.snap_windows = on;
+            save(&path, &c, &XorStore).unwrap();
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(v["snap_windows"], on);
+            let l = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap();
+            assert_eq!(l.config.snap_windows, on);
+        }
+    }
+
+    #[test]
     fn history_enabled_round_trip() {
         let d = Config::defaults(Path::new("C:/pics"), Lang::Vi);
         assert!(!d.history_enabled);
@@ -1322,12 +1362,15 @@ mod tests {
         std::fs::write(&path, old).unwrap();
         let l = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap();
         assert!(!l.config.history_enabled);
+        assert!(l.config.snap_windows);
         save(&path, &l.config, &XorStore).unwrap();
         let before: serde_json::Value = serde_json::from_str(old).unwrap();
         let mut after: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(after["history_enabled"], false);
         after.as_object_mut().unwrap().remove("history_enabled");
+        assert_eq!(after["snap_windows"], true);
+        after.as_object_mut().unwrap().remove("snap_windows");
         assert_eq!(after, before);
     }
 }

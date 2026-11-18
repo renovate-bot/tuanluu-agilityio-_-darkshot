@@ -340,6 +340,26 @@ Chạy bản demo cách ly: đặt `DARKSHOT_PROFILE_DIR` vào một thư mục 
 - [ ] Hồi quy: Annotation Pro (hoàn tác, chọn/dời, elip, đánh số, làm mờ), phím tắt chụp và tải lên R2 chạy như trước.
 - [ ] Chạy tay các kiểm thử `#[ignore]` của Lịch sử, từng cái với `--test-threads=1`: `history_window_opens_and_closes_without_leaks`, `history_window_with_entries_has_no_gdi_leak`, và bốn kiểm thử `history_*` mới của Task 57.
 
+## Đợt 8: gia cố Lịch sử và gợi ý cửa sổ
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\demo8\release\darkshot.exe` (thêm `-Lang en`, `-Snap off`). Chụp vùng: Ctrl+Alt+Shift+F9 hoặc menu khay. [x] = phiên điều phối đã thấy trên bản demo (2026-11-18, Windows 11, hai màn hình 3840×2160 và 2880×1800, DPI 200%; điều khiển bằng thông điệp gửi tới cửa sổ vì con trỏ thật không dời được); [ ] = chưa ai thử.
+
+- [x] Chưa có vùng chọn: rê lên cửa sổ Lịch sử thì khung sáng, viền xanh, nhãn "1924 × 1342", phần ngoài tối (ảnh `target/demo8/screens/01-…`).
+- [x] Rê lên thanh tác vụ: khung "2880 × 96" (`02-…`).
+- [x] Bấm không kéo chọn đúng khung cửa sổ, có tay nắm, thanh dọc, thanh ngang (`03-…`); Enter chọn khung đang gợi ý (`08-…`); Esc đóng lớp phủ.
+- [x] Viên nhắc tiếng Việt và English (bản rút gọn khi tắt ô) không bị cắt ở DPI 200% (`01-…`, `05-…`).
+- [x] Ô "Gợi ý cửa sổ khi chọn vùng" ở tab Thông thường, Việt và English, không cắt chữ (`06-…`, `07-…`); tắt ô thì không gợi ý, bấm không chọn gì.
+- [x] Lịch sử: thẻ "Xóa toàn bộ lịch sử?" mở thì thanh cuộn danh sách mờ (`04-…`).
+- [ ] Viên nhắc sau khi BẤM chọn: trên demo, viên nhắc còn hiện tới lần di chuột kế tiếp (Enter thì không). Kiểm thử trạng thái cho thấy vùng của nó đã được yêu cầu vẽ lại; chưa rõ nguyên nhân. Quan sát bằng chuột thật.
+- [ ] Chọn cửa sổ rồi Lưu, Chép, Tải lên: ảnh đúng khung, không lẫn nền (chưa thử được tự động: lớp phủ đóng khi tiến trình thử giành kích hoạt).
+- [ ] DPI 100%, 150%, DPI khác nhau giữa hai màn hình, màn hình có tọa độ âm (bên trái hoặc phía trên màn chính).
+- [ ] Bấm có rung tay và kéo ngắn 3–5 px; kéo một đường gần thẳng không bị bắt cửa sổ.
+- [ ] Mở lớp phủ khi chuột đang trên một cửa sổ: khung đầu đã có gợi ý, không chớp tối.
+- [ ] Máy có phần mềm tạo cửa sổ phủ vô hình (quay màn hình, làm mờ): gợi ý vẫn theo cửa sổ thật.
+- [ ] Windows 10.
+- [ ] Lịch sử: thoát ngay sau Lưu/Chép thấy mục khi mở lại; thoát lúc đang tải lên thì mục dự phòng nằm trên các mục Lưu/Chép vừa làm và chỉ có một mục cho lượt đó.
+- [ ] Chạy tay các kiểm thử `#[ignore]` mới, từng cái với `--test-threads=1`, khi không chạm chuột/bàn phím: `snap_overlay_round_trip_without_gdi_leaks`, `enumerate_timing` (thỉnh thoảng trượt do lớp phủ mất kích hoạt, như các kiểm thử lớp phủ cũ).
+
 ## Thanh gọn (Task 50)
 
 - [ ] Thanh dọc có 9 mục theo thứ tự Chọn | Bút vẽ, Hình, Bút dạ quang, Làm mờ, Chữ, Đánh số | Cỡ, Màu; vạch ngăn đúng chỗ; chú thích nút Hình là "Hình (L, A, R, E)" (English: "Shapes (L, A, R, E)").

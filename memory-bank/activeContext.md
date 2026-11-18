@@ -4,6 +4,21 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
+- **Đợt 8 (gia cố Lịch sử, gợi ý cửa sổ khi chọn vùng): XONG, chủ dự án đã duyệt demo (2026-11-18) và cho gộp `feature/window-snap` vào `main`, đẩy lên `origin`.** Duyệt dựa trên demo; các mục `[ ]` của "Đợt 8" trong checklist vẫn để ngỏ.
+- Bản demo: `target/demo8/release/darkshot.exe` (2.016.256 byte), chạy cách ly bằng `scripts/demo-snap.ps1`. Ảnh QA: `target/demo8/screens/`.
+- Thiết kế `docs/superpowers/specs/2026-11-18-window-snap-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`, quyết định 95–101.
+- Còn mở (nhỏ): viên nhắc còn đọng sau khi BẤM chọn tới lần di chuột kế (quyết định 100); chưa thử tay Lưu/Chép/Tải lên sau khi chọn cửa sổ bằng chuột thật, DPI 100/150%, màn hình tọa độ âm, Windows 10.
+- Quy trình: model chọn theo từng task (CLAUDE.md "Agent và model", quyết định 95).
+- Task đang làm: không.
+
+## Bước kế tiếp
+
+Không có task `chờ`. Đợt tiếp theo cần thiết kế mới (spec, kế hoạch có bảng agent/model, gói task từ số 64 trở đi; `64-docs-demo` của đợt 8 do phiên điều phối làm, không có gói riêng). Lỗi chủ dự án báo về đợt 8: nhánh `task/64b-…` từ `main`, agent/model theo độ khó.
+
+## Lưu trữ: ghi chép các đợt trước (giữ nguyên, không còn là bước kế tiếp)
+
+### Ghi chép giai đoạn xây dựng ban đầu
+
 - Giai đoạn: 5. Xây dựng.
 - Task vừa xong: Task 8 (chụp màn hình và lớp phủ), đã gộp vào `main`. Lõi 57 kiểm thử; lớp Windows 10 kiểm thử và 1 kiểm thử chạy tay (`overlay_round_trip_without_gdi_leaks`, `-- --ignored`). Rà soát hai lượt (lượt hai chỉ rà phần sửa).
 - Task 9 (DPAPI, clipboard, khởi động cùng Windows) đã gộp vào `main`; lớp Windows 16 kiểm thử, 3 kiểm thử chạy tay (2 clipboard, 1 lớp phủ).
@@ -23,7 +38,7 @@ Cập nhật: 2026-11-18
 
 Thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`, gói `docs/tasks/52-…` đến `57-…`, quyết định 86–93. `feature/screenshot-history` đã gộp vào `main`. Bản demo: `target/demo7/release/darkshot.exe`; chạy thử cách ly bằng `scripts/demo-history.ps1` (xem README). Ảnh chụp thật: `target/demo7/screens/`. Mục "Đợt 7" của `docs/testing/manual-checklist.md` chưa ai thử tay (DPI 100/150%, Windows 10, mở tệp/liên kết/clipboard thật, tooltip). Hạn chế còn mở: quyết định 92. Task đang làm: không.
 
-## Bước kế tiếp
+### Ghi chép đợt 6 và trước
 
 **Đợt 6 – Annotation Pro và Task 50 (2026-11-17): XONG, chủ dự án đã duyệt trên bản demo.** Thiết kế `docs/superpowers/specs/2026-11-17-annotation-pro-design.md` và `docs/superpowers/specs/2026-11-17-compact-toolbar-design.md`, kế hoạch `docs/superpowers/plans/2026-11-17-annotation-pro.md`, gói `docs/tasks/44-…` đến `51-…`, quyết định 75–85. Task đang làm: không.
 - Bản demo: `target/demo50/release/darkshot.exe` (1.806.336 byte; demo đợt 5 1.717.248). `target/demo6/` là bản trước Task 50 (thanh 14 mục), có thể bị khóa vì đang chạy.

@@ -70,7 +70,8 @@ pub struct Selection {
     drag: Option<Drag>,
 }
 
-const MIN_SIZE: i32 = 3;
+/// Cạnh nhỏ nhất của một vùng chọn (pixel); nhỏ hơn thì coi như không có.
+pub const MIN_SIZE: i32 = 3;
 
 fn clamp_point(p: Point, b: Rect) -> Point {
     Point {

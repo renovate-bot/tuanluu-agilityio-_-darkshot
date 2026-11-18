@@ -28,6 +28,8 @@ pub struct Screenshot {
     pub monitors: Vec<Rect>,
     /// Vị trí con trỏ chuột lúc chụp, tọa độ màn hình; không lấy được thì tâm màn hình ảo.
     pub cursor: Point,
+    /// Khung cửa sổ ở TỌA ĐỘ ẢNH (đã trừ origin); None = tắt gợi ý cửa sổ.
+    pub windows: Option<Vec<Rect>>,
 }
 
 /// Đổi một hình chữ nhật từ tọa độ màn hình sang tọa độ ảnh của màn hình ảo.
@@ -70,10 +72,10 @@ fn last_error() -> Error {
 
 /// Đặt luồng sang PerMonitorV2 trong lúc chụp (tiến trình đã khai báo qua manifest;
 /// với bản kiểm thử không có manifest thì nhờ đó vẫn lấy pixel vật lý). Trả lại khi drop.
-struct DpiScope(DPI_AWARENESS_CONTEXT);
+pub(crate) struct DpiScope(DPI_AWARENESS_CONTEXT);
 
 impl DpiScope {
-    fn per_monitor_v2() -> DpiScope {
+    pub(crate) fn per_monitor_v2() -> DpiScope {
         // SAFETY: chỉ đổi ngữ cảnh DPI của luồng hiện tại; giá trị cũ được trả lại trong Drop.
         DpiScope(unsafe {
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
@@ -362,6 +364,7 @@ pub fn capture_virtual_screen(include_cursor: bool) -> windows::core::Result<Scr
         origin,
         monitors,
         cursor,
+        windows: None,
     })
 }
 

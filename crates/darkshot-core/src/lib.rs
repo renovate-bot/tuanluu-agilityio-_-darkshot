@@ -11,6 +11,7 @@ pub mod image;
 pub mod migrate;
 pub mod naming;
 pub mod sigv4;
+pub mod snap;
 pub mod theme;
 pub mod thumb;
 pub mod update;

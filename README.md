@@ -32,7 +32,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
-5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel.
+5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel. Hoặc rê chuột lên một cửa sổ (hay nền của một màn hình) rồi bấm một lần, hoặc Enter, để chọn đúng khung đó (xem "Gợi ý cửa sổ").
 6. Chỉnh vùng chọn nếu cần: kéo 8 tay nắm ở góc và cạnh để đổi kích thước, kéo bên trong để di chuyển (khi không chọn công cụ đánh dấu), kéo ở ngoài khung để chọn lại từ đầu (khi chưa có nét vẽ).
 7. Chọn hành động bằng nút trên thanh công cụ hoặc phím tắt.
 
@@ -228,6 +228,17 @@ Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích b�
 - Con trỏ đang ẩn thì không được vẽ.
 - Con trỏ được vẽ ở cỡ mà Windows trả về lúc chụp. Trên màn hình có DPI khác 100%, hoặc khi con trỏ được phóng to trong Cài đặt Windows, con trỏ trong ảnh có thể nhỏ hơn trên màn hình.
 
+### Gợi ý cửa sổ
+
+Mặc định **bật** (Tùy chọn, tab Thông thường, ô "Gợi ý cửa sổ khi chọn vùng").
+
+- Khi lớp phủ chưa có vùng chọn, khung của cửa sổ dưới con trỏ sáng lên kèm nhãn kích thước; rê ra nền thì cả màn hình đó sáng lên. Bấm một lần (không kéo) hoặc Enter để chọn đúng khung, sau đó đánh dấu và Lưu/Chép/Tải lên như vùng kéo tay.
+- Kéo chuột vẫn chọn vùng tự do như trước; đã có vùng chọn (kể cả vùng nhớ từ lần trước) thì không có gợi ý.
+- Viên nhắc ở mép trên màn hình chứa con trỏ: "Bấm: chọn cửa sổ · Kéo: chọn vùng · Esc: thoát"; tự ẩn khi con trỏ tới gần, khi kéo và khi đã có vùng chọn. Viên nhắc không nằm trong ảnh.
+- Khung dùng biên DWM (không có viền đổi cỡ vô hình 7 px). Bỏ qua cửa sổ ẩn, thu nhỏ, ở màn hình ảo khác, cửa sổ trong suốt với chuột hoặc độ mờ 0, và nền màn hình.
+- darkshot chỉ đọc khung (tọa độ) và tên lớp cửa sổ lúc chụp, không đọc tiêu đề hay nội dung, không lưu, không gửi đi.
+- Tắt ô này thì lớp phủ chạy như bản trước, viên nhắc rút gọn "Kéo để chọn vùng · Esc để thoát".
+
 ### Lịch sử ảnh chụp
 
 Mặc định **tắt**. Bật ở Tùy chọn, tab Thông thường, ô "Bật lịch sử ảnh chụp". Khi bật, mỗi lần Lưu, Chép hoặc Tải lên (kể cả lưu dự phòng khi tải lên không được) thêm một mục vào lịch sử; khi tắt, không có gì được ghi thêm và các mục cũ giữ nguyên.
@@ -237,7 +248,8 @@ Mặc định **tắt**. Bật ở Tùy chọn, tab Thông thường, ô "Bật 
 - Tìm theo tên tệp, ngày, loại hoặc liên kết (không phân biệt hoa thường và dấu); lọc Tất cả, Đã lưu, Đã tải lên, Đã chép.
 - Giữ 50 mục gần nhất. Dữ liệu nằm ở `%LOCALAPPDATA%\darkshot\history\` (chỉ mục `index.json`, ảnh nhỏ, và bản sao PNG của ảnh đã tải lên hoặc đã chép). Ảnh đã lưu chỉ được tham chiếu, không chép lại. Không gửi đi đâu.
 - Xóa một mục hoặc "Xóa lịch sử" chỉ xóa phần do ứng dụng giữ. Ảnh bạn đã lưu và ảnh trên R2 không bị xóa.
-- Mục có thể mất nếu thoát ứng dụng ngay sau khi chụp (ghi lịch sử chạy nền); lưu dự phòng khi thoát được ghi ngay.
+- Ghi lịch sử chạy trên một luồng nền theo thứ tự; khi thoát (kể cả tắt máy), darkshot chờ tối đa 3 giây để ghi xong các mục còn dở, nên thoát ngay sau Lưu/Chép/Tải lên vẫn giữ được mục. Một lượt tải lên chỉ tạo đúng một mục, kể cả khi thoát đúng lúc nó vừa xong.
+- Hạn hiển thị của ảnh đã tải lên tính từ lúc tải xong (R2 tính vòng đời từ lúc tạo đối tượng) và là ngày "còn ít nhất tới": R2 có thể xóa trễ tới khoảng một ngày.
 
 ### Menu khay
 
