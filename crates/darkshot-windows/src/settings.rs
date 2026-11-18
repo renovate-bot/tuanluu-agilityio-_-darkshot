@@ -3579,6 +3579,119 @@ mod tests {
     }
 
     #[test]
+    fn hotkeys_layout_has_one_row_per_role_without_overlap() {
+        assert_eq!(HotkeyRole::ALL.len(), 4);
+        for label_w in [None, Some(100), Some(168), Some(250)] {
+            let l = Layout::from_label_width(label_w);
+            let h = hotkeys_layout(l);
+            assert_eq!(h.rows.len(), HotkeyRole::ALL.len());
+            for dpi in [96u32, 120, 144, 192] {
+                let px = |r: (i32, i32, i32, i32)| {
+                    let (x, y) = (scale(r.0, dpi), scale(r.1, dpi));
+                    (x, y, x + scale(r.2, dpi), y + scale(r.3, dpi))
+                };
+                let rects = h.rects();
+                assert_eq!(rects.len(), 3 * HotkeyRole::ALL.len());
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.0 >= LX && a.1 >= 0, "dpi {dpi}: {a:?}");
+                    assert!(a.0 + a.2 <= l.client_w - 36, "dpi {dpi}: {a:?}");
+                    assert!(a.1 + a.3 <= h.height, "dpi {dpi}: {a:?}");
+                    for b in &rects[i + 1..] {
+                        let (pa, pb) = (px(*a), px(*b));
+                        let apart = pa.2 <= pb.0 || pb.2 <= pa.0 || pa.3 <= pb.1 || pb.3 <= pa.1;
+                        assert!(apart, "dpi {dpi}: {a:?} overlaps {b:?}");
+                    }
+                }
+            }
+            // Dòng sau nằm dưới dòng trước.
+            for w in h.rows.windows(2) {
+                assert!(w[0].chk.1 + w[0].chk.3 <= w[1].chk.1);
+                assert!(w[0].btn.1 + w[0].btn.3 <= w[1].btn.1);
+            }
+        }
+    }
+
+    #[test]
+    fn hotkey_labels_fit_on_one_line_at_all_dpi() {
+        use darkshot_core::i18n::Msg;
+        let _ = Msg::BtnChange;
+        for dpi in [96u32, 120, 144, 192] {
+            let font = crate::winutil::system_font(dpi).expect("system font");
+            // Bề rộng nhãn như `build_controls` đo: dài nhất mọi dòng, mọi ngôn ngữ.
+            let one = text_height_px(font, "Ag", 10_000).unwrap();
+            let mut widest = 0;
+            for r in HotkeyRole::ALL {
+                for lang in Lang::ALL {
+                    let text = t(lang, r.label());
+                    // Tìm bề rộng nhỏ nhất để chữ vẫn một dòng.
+                    let mut w = 1;
+                    while text_height_px(font, text, w).unwrap() > one {
+                        w += 1;
+                    }
+                    widest = widest.max(w);
+                }
+            }
+            let widest_dip = (widest * 96 + dpi as i32 - 1) / dpi as i32;
+            let l = Layout::from_label_width(Some(widest_dip));
+            assert!(
+                scale(l.hk_chk_w - HK_BOX, dpi) >= widest,
+                "dpi {dpi}: {} < {widest}",
+                scale(l.hk_chk_w - HK_BOX, dpi)
+            );
+            // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn nó.
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(font.0));
+            }
+        }
+    }
+
+    #[test]
+    fn hotkeys_round_trip_four_rows_through_form() {
+        let c = base();
+        let mut src = base();
+        for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+            src.hotkeys.set(
+                r,
+                HotkeySlot {
+                    enabled: i % 2 == 0,
+                    key: Hotkey {
+                        ctrl: true,
+                        alt: false,
+                        shift: false,
+                        win: false,
+                        vk: 0x41 + i as u32,
+                    },
+                },
+            );
+        }
+        let f = form_of(&src);
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
+        for r in HotkeyRole::ALL {
+            assert_eq!(out.hotkeys.get(r), src.hotkeys.get(r), "{r:?}");
+        }
+        assert_eq!(out.hotkeys, src.hotkeys);
+    }
+
+    #[test]
+    fn repeat_last_conflict_with_region_is_reported_on_row_four() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.hotkeys.region.enabled = true;
+        f.hotkeys.repeat_last = HotkeySlot {
+            enabled: true,
+            key: f.hotkeys.region.key,
+        };
+        let e = apply_form(&c, &f, Lang::Vi).unwrap_err();
+        assert_eq!(e.field, Field::HotkeyRow(HotkeyRole::RepeatLast));
+        assert!(e.message.contains(t(Lang::Vi, HotkeyRole::Region.label())));
+        assert!(e
+            .message
+            .contains(t(Lang::Vi, HotkeyRole::RepeatLast.label())));
+        f.hotkeys.repeat_last.enabled = false;
+        assert!(apply_form(&c, &f, Lang::Vi).is_ok());
+    }
+
+    #[test]
     fn hotkey_rows_belong_to_hotkeys_tab() {
         for r in HotkeyRole::ALL {
             assert_eq!(tab_of(Field::HotkeyRow(r)), Tab::Hotkeys);
