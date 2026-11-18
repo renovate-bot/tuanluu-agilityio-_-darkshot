@@ -2,6 +2,22 @@
 
 Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên bản theo [SemVer](https://semver.org/lang/vi/): tăng số giữa khi có tính năng mới, số cuối khi chỉ sửa lỗi. Tải bản phát hành ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases).
 
+## [Chưa phát hành]
+
+### Mới
+
+- **Ghim ảnh lên màn hình.** Từ lớp phủ, bấm nút Ghim hoặc Ctrl+P để ghim vùng vừa chọn (đã đánh dấu) khít đúng chỗ của nó. Từ Lịch sử, nút Ghim mở ảnh giữa màn hình có chuột, không lớn hơn 80% vùng làm việc. Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn để phóng, Ctrl+cuộn để đổi độ mờ, bấm đúp để về 100%, chuột phải để mở menu, Esc để đóng. Phím: `+` `-` `0`, mũi tên, Ctrl+W, Ctrl+C, Ctrl+S. Tối đa 32 ảnh ghim; menu khay có "Đóng mọi ảnh ghim" khi đang có ảnh ghim. Thoát darkshot đóng mọi ảnh ghim.
+  - Phóng: mỗi cạnh hiển thị tối đa 16.384 px; trên 100%, diện tích hiển thị tối đa 40 triệu px (ảnh 4K phóng tối đa 200%).
+
+### Sửa lỗi
+
+- Không có sửa lỗi sản phẩm trong đợt này.
+
+### Đã biết
+
+- Sau khi bấm chọn một cửa sổ ở Gợi ý cửa sổ, viên nhắc có thể còn hiện tới lần di chuột kế tiếp. Đã điều tra (Task 66), không tái hiện được trên một màn hình 200%; cần thử bằng chuột thật trên nhiều màn hình.
+- Ảnh ghim chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, và trên màn hình có tọa độ âm. Xem mục "Đợt 9" trong `docs/testing/manual-checklist.md`.
+
 ## [0.3.0] - 2026-11-18
 
 ### Mới
@@ -55,6 +71,7 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tuanluu-agilityio/darkshot/releases/tag/v0.1.0

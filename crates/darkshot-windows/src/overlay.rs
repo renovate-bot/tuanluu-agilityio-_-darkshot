@@ -100,19 +100,21 @@ impl BarItem {
             BarItem::Act(Action::Save) => Msg::OverlaySave,
             BarItem::Act(Action::Copy) => Msg::OverlayCopy,
             BarItem::Act(Action::Cancel) => Msg::OverlayCancel,
+            BarItem::Act(Action::Pin) => Msg::OverlayPin,
         }
     }
 }
 
-/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Hủy; `None` là vạch
-/// ngăn.
-const BAR_CELLS: [Option<BarItem>; 7] = [
+/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Hủy; `None` là
+/// vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 8] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
     Some(BarItem::Act(Action::Upload)),
     Some(BarItem::Act(Action::Save)),
     Some(BarItem::Act(Action::Copy)),
+    Some(BarItem::Act(Action::Pin)),
     Some(BarItem::Act(Action::Cancel)),
 ];
 
@@ -248,7 +250,7 @@ enum Glyph {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BarLayout {
     size: (i32, i32),
-    cells: [(Option<BarItem>, Rect); 7],
+    cells: [(Option<BarItem>, Rect); BAR_CELLS.len()],
 }
 
 /// Thanh ngang: các nút vuông `BUTTON` xếp liền, vạch ngăn rộng `SIDE_SEP`.
@@ -2554,7 +2556,7 @@ impl State {
         true
     }
 
-    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C.
+    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C/P.
     fn text_key(&mut self, vk: u16) {
         if key_held(VK_CONTROL) {
             match vk {
@@ -2564,6 +2566,8 @@ impl State {
                 0x44 => self.finish(Action::Upload),
                 0x53 => self.finish(Action::Save),
                 0x43 => self.finish(Action::Copy),
+                // P: `finish` chốt ô chữ (cả chuỗi bộ gõ đang soạn) trước khi ghim.
+                0x50 => self.finish(Action::Pin),
                 _ => {}
             }
             return;
@@ -3325,6 +3329,7 @@ impl State {
             0x44 => Action::Upload, // D
             0x53 => Action::Save,   // S
             0x43 => Action::Copy,   // C
+            0x50 => Action::Pin,    // P
             _ => return,
         };
         self.finish(a);
@@ -4371,7 +4376,7 @@ impl Painter {
         );
     }
 
-    /// Thanh ngang `bar`: Hoàn tác, Làm lại (mờ khi không dùng được), vạch ngăn, bốn nút hành
+    /// Thanh ngang `bar`: Hoàn tác, Làm lại (mờ khi không dùng được), vạch ngăn, năm nút hành
     /// động ngăn bằng vạch 1 px.
     fn toolbar(&self, bar: Rect, dpi: u32, look: &BarLook, gdiplus: bool) {
         self.round_rect(bar, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
@@ -4445,6 +4450,31 @@ impl Painter {
             }
         }
     }
+}
+
+/// Một điểm trong lưới 24×24 của biểu tượng.
+type GridPt = (f32, f32);
+
+/// Đinh ghim trong lưới 24×24: viền đầu và thân (đường khép kín) và mũi kim (hai điểm: gốc, mũi).
+/// Dựng đứng (đầu hình thang trên thân thon, loe ra ở chân) rồi xoay 45° theo chiều kim đồng hồ
+/// quanh tâm lưới và dời cho cân: đầu đinh lên trên phải, mũi kim chéo xuống dưới trái.
+fn pin_glyph() -> ([GridPt; 6], [GridPt; 2]) {
+    const UPRIGHT: [GridPt; 6] = [
+        (9.0, 3.0),
+        (15.0, 3.0),
+        (14.0, 9.0),
+        (17.0, 13.0),
+        (7.0, 13.0),
+        (10.0, 9.0),
+    ];
+    const NEEDLE: [GridPt; 2] = [(12.0, 13.0), (12.0, 21.0)];
+    let s = std::f32::consts::FRAC_1_SQRT_2;
+    // Xoay (trục y hướng xuống) rồi dời (-1, +1) để khung bao cân giữa lưới.
+    let turn = |(x, y): GridPt| {
+        let (dx, dy) = (x - 12.0, y - 12.0);
+        (12.0 + (dx - dy) * s - 1.0, 12.0 + (dx + dy) * s + 1.0)
+    };
+    (UPRIGHT.map(turn), NEEDLE.map(turn))
 }
 
 /// Đường GDI+ đang dựng cho một biểu tượng: tọa độ trong lưới 24×24, gốc (`ox`, `oy`), hệ số `k`.
@@ -4633,6 +4663,12 @@ impl Gp {
                 p.poly(&[(5.0, 15.0), (5.0, 5.0)]);
                 p.arc(7.0, 5.0, 2.0, 180.0, 90.0);
                 p.line(7.0, 3.0, 15.0, 3.0);
+            }
+            Action::Pin => {
+                let (outline, needle) = pin_glyph();
+                p.poly(&outline);
+                p.close();
+                p.poly(&needle);
             }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
@@ -5247,11 +5283,11 @@ mod tests {
 
     #[test]
     fn toolbar_button_hit_testing() {
-        // 96 DPI: Hoàn tác, Làm lại (36 mỗi ô), vạch ngăn 9, rồi bốn nút hành động.
+        // 96 DPI: Hoàn tác, Làm lại (36 mỗi ô), vạch ngăn 9, rồi năm nút hành động.
         let bar = Rect {
             x: 100,
             y: 100,
-            w: 6 * 36 + 9,
+            w: 7 * 36 + 9,
             h: 36,
         };
         let at = |x, y| bar_item_at(bar, Point { x, y }, 96);
@@ -5262,13 +5298,14 @@ mod tests {
         assert_eq!(at(190, 110), Some(BarItem::Act(Action::Upload)));
         assert_eq!(at(230, 110), Some(BarItem::Act(Action::Save)));
         assert_eq!(at(260, 110), Some(BarItem::Act(Action::Copy)));
-        assert_eq!(at(300, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(325, 110), None);
+        assert_eq!(at(300, 110), Some(BarItem::Act(Action::Pin)));
+        assert_eq!(at(340, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(361, 110), None);
         assert_eq!(at(99, 110), None);
         assert_eq!(at(110, 136), None);
     }
 
-    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Hủy; các ô liền nhau, không
+    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Ghim, Hủy; các ô liền nhau, không
     /// chồng, nằm trong thanh; `bar_item_at` đúng ở tâm ô và `None` trên vạch ngăn.
     #[test]
     fn bar_layout_order() {
@@ -5281,14 +5318,16 @@ mod tests {
                 Some(BarItem::Act(Action::Upload)),
                 Some(BarItem::Act(Action::Save)),
                 Some(BarItem::Act(Action::Copy)),
+                Some(BarItem::Act(Action::Pin)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
         );
         for dpi in [96, 120, 144, 192] {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             let l = bar_layout(dpi);
-            assert_eq!(l.size, (6 * b + sep, b), "dpi {dpi}");
-            assert_eq!(l.cells.len(), 7);
+            // 7 nút và 1 vạch ngăn.
+            assert_eq!(l.size, (7 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.cells.len(), 8);
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, BAR_CELLS.to_vec());
             let mut x = 0;
@@ -5718,6 +5757,7 @@ mod tests {
         assert_eq!(BarItem::Redo.tip(), Msg::ToolRedo);
         assert_eq!(t(Lang::Vi, BarItem::Redo.tip()), "Làm lại (Ctrl+Y)");
         assert_eq!(BarItem::Act(Action::Save).tip(), Msg::OverlaySave);
+        assert_eq!(BarItem::Act(Action::Pin).tip(), Msg::OverlayPin);
         let tips: Vec<Msg> = SHAPE_TOOLS.iter().map(|t| shape_tip(*t)).collect();
         assert_eq!(
             tips,
@@ -6700,6 +6740,8 @@ mod tests {
             Shift(bool),
             /// Đặt con trỏ thật tại điểm (tọa độ ảnh chụp, cộng `origin` của ảnh) bằng `SetCursorPos`.
             Cursor(Point),
+            /// Chờ lớp phủ vẽ xong rồi chạy phép kiểm ở luồng phụ; `false` làm `drive` trả `false`.
+            Probe(Box<dyn FnOnce() -> bool + Send>),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -6933,6 +6975,10 @@ mod tests {
                                 let _ = SetCursorPos(origin.x + p.x, origin.y + p.y);
                             }
                             std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Step::Probe(f) => {
+                            std::thread::sleep(Duration::from_millis(400));
+                            ok &= f();
                         }
                     }
                     std::thread::sleep(Duration::from_millis(40));
@@ -8610,6 +8656,227 @@ mod tests {
         assert_eq!(p.action, Action::Save);
     }
 
+    /// Số điểm ảnh trong `r` (tọa độ ảnh) của màn hình thật có một kênh màu lệch quá 8 mức so với
+    /// ảnh `shot` (`bright`) hoặc nền tối của nó. Chạy ở luồng phụ của `live::drive`: không panic
+    /// (lớp phủ toàn màn hình sẽ treo), lỗi trả `Err`.
+    fn screen_diff(
+        shot: &crate::capture::Screenshot,
+        r: Rect,
+        bright: bool,
+    ) -> Result<usize, String> {
+        let now = crate::capture::capture_virtual_screen(false).map_err(|e| e.to_string())?;
+        let w = shot.image.width as i32;
+        let geo = |s: &crate::capture::Screenshot| (s.image.width, s.image.height, s.origin);
+        if geo(&now) != geo(shot) {
+            return Err("màn hình ảo đổi kích thước hoặc gốc".to_string());
+        }
+        let mut n = 0;
+        for y in r.y..r.bottom() {
+            for x in r.x..r.right() {
+                let i = ((y * w + x) * 4) as usize;
+                let differs = (0..3).any(|c| {
+                    let a = shot.image.bgra[i + c];
+                    let want = if bright { a } else { a >> 1 };
+                    want.abs_diff(now.image.bgra[i + c]) > 8
+                });
+                n += usize::from(differs);
+            }
+        }
+        Ok(n)
+    }
+
+    /// Bấm (không kéo) chọn ứng viên khi viên nhắc đang hiện: trên MÀN HÌNH THẬT ô viên nhắc phải
+    /// trở về nền tối ngay (không đợi lần di chuột kế), vùng ứng viên sáng. `real_cursor`: con trỏ
+    /// thật đặt tại điểm bấm (như chuột thật); `false`: con trỏ thật ở góc xa (như demo gửi thông
+    /// điệp).
+    fn click_clears_hint_on_screen(real_cursor: bool) {
+        use std::sync::{Arc, Mutex};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let mut shot = live_setup();
+        let m0 = shot.monitors[0];
+        let win = Rect {
+            x: m0.x + m0.w / 4,
+            y: m0.y + m0.h / 3,
+            w: m0.w / 2,
+            h: m0.h / 3,
+        };
+        shot.windows = Some(vec![win]);
+        let at = Point {
+            x: win.x + win.w / 2,
+            y: win.y + win.h / 2,
+        };
+        let hint = {
+            let (w, h) = (shot.image.width as i32, shot.image.height as i32);
+            let mut s = State::new(&shot, w, h, None, &CustomColors::default(), false).unwrap();
+            s.mouse = at;
+            s.hint().expect("viên nhắc hiện khi rê trên ứng viên").0
+        };
+        let far = Point {
+            x: m0.right() - 20,
+            y: m0.bottom() - 20,
+        };
+        let shot = Arc::new(shot);
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let probe = |label: &'static str, r: Rect, bright: bool| {
+            let (sh, lg) = (shot.clone(), log.clone());
+            live::Step::Probe(Box::new(move || match screen_diff(&sh, r, bright) {
+                Ok(n) => {
+                    if let Ok(mut l) = lg.lock() {
+                        l.push((label, n));
+                    }
+                    true
+                }
+                Err(e) => {
+                    eprintln!("probe {label}: {e}");
+                    false
+                }
+            }))
+        };
+        let inner = inflate(win, -40);
+        // Dải nền dưới ứng viên: tối khi lớp phủ đang hiện và xem trước ứng viên `win` (chỉ kiểm khi
+        // con trỏ thật ở điểm bấm; với con trỏ thật ở góc xa, WM_MOUSEMOVE hệ thống tại đó có thể đổi
+        // xem trước sang ứng viên cả màn hình, đúng kịch bản demo).
+        let below = Rect {
+            x: win.x,
+            y: win.bottom() + 40,
+            w: win.w,
+            h: 40,
+        };
+        let steps = vec![
+            live::Step::Cursor(if real_cursor { at } else { far }),
+            live::Step::Move(at),
+            probe("hint before", hint, false),
+            probe("hint before bright", hint, true),
+            probe("below before", below, false),
+            live::Step::Down(at),
+            live::Step::Up(at),
+            probe("hint after", hint, false),
+            probe("window after", inner, true),
+            probe("hint later", hint, false),
+            live::Step::Alive,
+            live::Step::Close,
+        ];
+        let (r, ok) = live::drive(&shot, None, steps);
+        let log = log.lock().unwrap().clone();
+        eprintln!("hint {hint:?} win {win:?} log {log:?}");
+        // `ok` sai: lớp phủ mất kích hoạt và tự đóng giữa chừng, hoặc một phép đo lỗi (chạy lại).
+        assert!(ok, "lớp phủ đóng giữa chừng hoặc phép đo lỗi: {log:?}");
+        assert!(matches!(r, Ok(None)));
+        let get = |l: &str| log.iter().find(|(k, _)| *k == l).unwrap().1;
+        // Tiền đề: lớp phủ đang hiện trên cùng với viên nhắc (ô viên nhắc khác cả ảnh gốc lẫn nền
+        // tối). Không thì do môi trường (cửa sổ khác che, chuột thật bị di): chạy lại.
+        assert!(
+            get("hint before bright") > 50,
+            "lớp phủ không hiện: {log:?}"
+        );
+        assert!(get("hint before") > 50, "{log:?}");
+        if real_cursor {
+            // Con trỏ thật ở điểm bấm: xem trước đúng ứng viên `win`.
+            assert_eq!(
+                get("below before"),
+                0,
+                "xem trước không phải `win`: {log:?}"
+            );
+        }
+        // Vùng ứng viên đã được chọn (sáng).
+        assert!(get("window after") < 50, "{log:?}");
+        // Viên nhắc đã biến mất ngay sau khi nhả chuột.
+        assert_eq!(get("hint after"), 0, "{log:?}");
+        assert_eq!(get("hint later"), 0, "{log:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_clears_hint_ --test-threads=1"]
+    fn click_clears_hint_real_cursor() {
+        click_clears_hint_on_screen(true);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_clears_hint_ --test-threads=1"]
+    fn click_clears_hint_posted_only() {
+        click_clears_hint_on_screen(false);
+    }
+
+    /// Đinh ghim: đầu, thân, mũi kim nghiêng 45° (đầu trên phải, mũi dưới trái), nằm gọn trong
+    /// lưới 24×24 với lề như các biểu tượng khác.
+    #[test]
+    fn pin_glyph_fits_grid_and_tilts() {
+        let (outline, needle) = pin_glyph();
+        for (x, y) in outline.iter().chain(needle.iter()) {
+            assert!(
+                (2.0..=22.0).contains(x) && (2.0..=22.0).contains(y),
+                "({x},{y})"
+            );
+        }
+        let [base, tip] = needle;
+        // Mũi kim chéo 45° xuống trái.
+        assert!(tip.0 < base.0 && tip.1 > base.1);
+        assert!(((base.0 - tip.0) - (tip.1 - base.1)).abs() < 0.01);
+        // Đầu đinh (điểm xa mũi nhất theo hướng kim) ở phía trên phải.
+        let reach = |q: (f32, f32)| (q.0 - tip.0) + (tip.1 - q.1);
+        let far = outline
+            .iter()
+            .copied()
+            .fold(tip, |a, q| if reach(q) > reach(a) { q } else { a });
+        assert!(far.0 > 12.0 && far.1 < 12.0, "{far:?}");
+        // Gần cân giữa lưới.
+        let all: Vec<(f32, f32)> = outline.iter().chain(needle.iter()).copied().collect();
+        let (x0, x1) = all
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), q| (a.min(q.0), b.max(q.0)));
+        let (y0, y1) = all
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), q| (a.min(q.1), b.max(q.1)));
+        assert!(((x0 + x1) / 2.0 - 12.0).abs() < 1.0, "{x0} {x1}");
+        assert!(((y0 + y1) / 2.0 - 12.0).abs() < 1.0, "{y0} {y1}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật và một ảnh ghim; chạy tay: cargo test -p darkshot-windows -- --ignored ctrl_p_pins_selection_at_its_corner --test-threads=1"]
+    fn ctrl_p_pins_selection_at_its_corner() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let shot = live_setup();
+        let sel = live::test_sel(&shot);
+        let inside = |dx, dy| Point {
+            x: sel.x + dx,
+            y: sel.y + dy,
+        };
+        // Có hình đánh dấu, rồi Ctrl+P đang gõ chữ: ô được chốt, ảnh ghim có cả hai hình.
+        let mut steps = vec![live::Step::Key(u16::from(b'R'))];
+        steps.extend(live::drag(inside(20, 20), inside(120, 90)));
+        steps.push(live::Step::Key(u16::from(b'T')));
+        steps.extend(live::click(inside(150, 120)));
+        steps.extend(live::chars("ab"));
+        steps.push(live::Step::Ctrl(0x50));
+        let (r, ok) = live::drive(&shot, Some(sel), steps);
+        assert!(ok);
+        let p = r.unwrap().unwrap();
+        assert_eq!((p.action, p.rect, p.shapes.len()), (Action::Pin, sel, 2));
+        assert!(matches!(p.shapes[1], Shape::Text { .. }));
+        let image = crate::picked_image(&shot.image, p.rect, &p.shapes).unwrap();
+        assert_eq!((image.width, image.height), (sel.w as u32, sel.h as u32));
+        let at = crate::pin_origin(p.rect, shot.origin);
+        assert_eq!(
+            at,
+            Point {
+                x: sel.x + shot.origin.x,
+                y: sel.y + shot.origin.y
+            }
+        );
+        crate::pin::close_all();
+        crate::pin::open(image, crate::pin::PinPlace::At(at)).unwrap();
+        let rects = crate::pin::image_rects();
+        crate::pin::close_all();
+        assert_eq!(crate::pin::count(), 0);
+        assert_eq!(rects.len(), 1);
+        assert_eq!((rects[0].x, rects[0].y), (at.x, at.y));
+        assert_eq!((rects[0].w, rects[0].h), (sel.w, sel.h));
+        // Không vùng chọn: Ctrl+P không làm gì, lớp phủ vẫn mở.
+        let steps = vec![live::Step::Ctrl(0x50), live::Step::Alive];
+        let (r, _) = live::drive(&shot, None, steps);
+        assert!(r.is_ok_and(|p| p.is_none()));
+    }
+
     /// Trạng thái lớp phủ dựng không cần cửa sổ: gợi ý cửa sổ (Task 62).
     mod snap_state {
         use super::*;
@@ -8941,6 +9208,170 @@ mod tests {
             assert!(covered(&log, hint), "{log:?}");
         }
 
+        /// Một thông điệp tới lớp phủ trong mô hình vẽ của `screen_hint_follows_state`.
+        #[derive(Clone, Copy, Debug)]
+        enum Ev {
+            Move(Point),
+            Down(Point),
+            /// WM_LBUTTONUP rồi WM_CAPTURECHANGED (wndproc trả chuột sau khi nhả).
+            Up(Point),
+            Enter,
+        }
+
+        /// Mọi điểm của `r` nằm trong hợp các ô của `log`.
+        fn union_covers(log: &[Rect], r: Rect) -> bool {
+            (r.y..r.bottom())
+                .all(|y| (r.x..r.right()).all(|x| log.iter().any(|c| c.contains(p(x, y)))))
+        }
+
+        /// Mô hình màn hình: sau mỗi thông điệp, nếu viên nhắc (theo trạng thái) khác viên nhắc
+        /// đang vẽ trên màn hình thì cả ô cũ và ô mới phải nằm trong vùng đã invalidate; khi đó
+        /// màn hình theo trạng thái. Trả mô tả bước đầu tiên để lại viên nhắc cũ (đọng) hay thiếu.
+        fn screen_hint_follows_state(s: &mut State, evs: &[Ev]) -> Result<(), String> {
+            let mut screen = s.hint().map(|h| h.0);
+            for (i, ev) in evs.iter().enumerate() {
+                s.inval_log.borrow_mut().clear();
+                match *ev {
+                    Ev::Move(at) => s.on_move(at),
+                    Ev::Down(at) => {
+                        s.on_down(at);
+                    }
+                    Ev::Up(at) => {
+                        s.on_up(at);
+                        s.lost_capture();
+                    }
+                    Ev::Enter => s.on_key(VK_RETURN.0, false),
+                }
+                let now = s.hint().map(|h| h.0);
+                if now != screen {
+                    let log = s.inval_log.borrow().clone();
+                    for r in [screen, now].into_iter().flatten() {
+                        if !union_covers(&log, r) {
+                            return Err(format!("bước {i} {ev:?}: ô {r:?} không vẽ lại; {log:?}"));
+                        }
+                    }
+                    screen = now;
+                }
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn click_paths_never_leave_hint_on_screen() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let at = p(200, 150);
+            let (hint, _, _) = state(&sh, None).hint().unwrap();
+            let far = p(600, 500);
+            // Con trỏ thật ngay dưới viên nhắc (viên nhắc ẩn khi chuột gần).
+            let near = p(hint.x + hint.w / 2, hint.bottom() + 2);
+            let cases: Vec<(&str, Vec<Ev>)> = vec![
+                // WM_MOUSEMOVE hệ thống tại con trỏ thật (xa) chen giữa bấm và nhả: thành kéo, nhả
+                // tại điểm bấm thì không chọn gì và viên nhắc hiện lại.
+                (
+                    "demo, chuột thật xa chen giữa bấm và nhả",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Down(at),
+                        Ev::Move(far),
+                        Ev::Up(at),
+                        Ev::Move(far),
+                    ],
+                ),
+                (
+                    "chuột thật",
+                    vec![Ev::Move(at), Ev::Down(at), Ev::Up(at), Ev::Move(at)],
+                ),
+                (
+                    "rung tay",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Down(at),
+                        Ev::Move(p(202, 151)),
+                        Ev::Up(p(202, 151)),
+                    ],
+                ),
+                // Demo gửi thông điệp: hệ thống chen WM_MOUSEMOVE tại con trỏ thật (xa) giữa các
+                // thông điệp đã gửi, nên lúc bấm `mouse` không phải điểm bấm.
+                (
+                    "demo, con trỏ thật xa",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Move(far),
+                        Ev::Down(at),
+                        Ev::Up(at),
+                        Ev::Move(far),
+                    ],
+                ),
+                (
+                    "demo, con trỏ thật sát viên nhắc",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Move(near),
+                        Ev::Down(at),
+                        Ev::Up(at),
+                        Ev::Move(near),
+                    ],
+                ),
+                (
+                    "demo, bấm khi chưa có WM_MOUSEMOVE nào",
+                    vec![Ev::Down(at), Ev::Up(at), Ev::Move(far)],
+                ),
+                ("Enter", vec![Ev::Move(at), Ev::Enter, Ev::Move(at)]),
+            ];
+            for (name, evs) in cases {
+                let mut s = state(&sh, None);
+                assert!(s.hint().is_some(), "{name}");
+                screen_hint_follows_state(&mut s, &evs).unwrap_or_else(|e| panic!("{name}: {e}"));
+                if name.contains("chen giữa") {
+                    assert_eq!(s.sel.rect(), None, "{name}");
+                    assert!(s.hint().is_some(), "{name}");
+                } else {
+                    assert_eq!(s.sel.rect(), Some(WIN), "{name}");
+                    assert!(s.hint().is_none(), "{name}");
+                }
+            }
+        }
+
+        #[test]
+        fn click_with_cursor_on_other_monitor_never_leaves_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            // Hai màn hình khác DPI (96 và 192): viên nhắc theo màn hình chứa `mouse`, nên con trỏ
+            // thật ở màn bên kia làm viên nhắc nhảy màn giữa các thông điệp đã gửi.
+            let mon2 = Rect {
+                x: W,
+                y: 0,
+                w: W,
+                h: H,
+            };
+            let mut sh = shot(Some(vec![WIN]));
+            sh.image.width = (2 * W) as u32;
+            sh.image.bgra = vec![0x80; (2 * W * H * 4) as usize];
+            sh.monitors = vec![MON, mon2];
+            let mut s = State::new(&sh, 2 * W, H, None, &CustomColors::default(), false).unwrap();
+            s.dpis = vec![96, 192];
+            let at = p(200, 150);
+            let other = p(W + 400, 500);
+            // Viên nhắc có ở cả hai màn và nhảy màn theo con trỏ.
+            s.on_move(other);
+            let on_other = s.hint().expect("viên nhắc ở màn 2").0;
+            s.on_move(at);
+            let on_at = s.hint().expect("viên nhắc ở màn 1").0;
+            assert!(mon2.contains(p(on_other.x, on_other.y)), "{on_other:?}");
+            assert!(MON.contains(p(on_at.x, on_at.y)), "{on_at:?}");
+            assert_ne!(on_other, on_at);
+            let evs = [
+                Ev::Move(other),
+                Ev::Move(at),
+                Ev::Move(other),
+                Ev::Down(at),
+                Ev::Up(at),
+                Ev::Move(other),
+            ];
+            screen_hint_follows_state(&mut s, &evs).unwrap();
+            assert_eq!(s.sel.rect(), Some(WIN));
+        }
+
         #[test]
         fn chrome_covers_hover_and_hint() {
             let _gdi = GDI_TEST_LOCK.lock();
@@ -8958,6 +9389,77 @@ mod tests {
             assert!(covers(hint), "{chrome:?}");
             let (label, _, _) = s.label().unwrap();
             assert!(covers(label), "{chrome:?}");
+        }
+
+        /// Ctrl giả (`TEST_MODS`) trong một khối; nhả cả khi khẳng định trượt.
+        struct CtrlHeld;
+        impl CtrlHeld {
+            fn hold() -> CtrlHeld {
+                TEST_MODS.store(1, std::sync::atomic::Ordering::SeqCst);
+                CtrlHeld
+            }
+        }
+        impl Drop for CtrlHeld {
+            fn drop(&mut self) {
+                TEST_MODS.store(0, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        const SEL: Rect = Rect {
+            x: 120,
+            y: 90,
+            w: 200,
+            h: 150,
+        };
+
+        #[test]
+        fn ctrl_p_pins_selection() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            assert_eq!(s.sel.rect(), Some(SEL));
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x50, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Pin, SEL));
+            assert!(r.shapes.is_empty());
+        }
+
+        #[test]
+        fn ctrl_p_without_selection_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x50, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_p_while_typing_commits_text_then_pins() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x50, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Pin, SEL));
+            assert_eq!(r.shapes.len(), 1);
+            assert!(matches!(r.shapes[0], Shape::Text { .. }));
         }
     }
 }

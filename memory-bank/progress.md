@@ -83,6 +83,15 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 64 Tài liệu, demo, QA giao diện đợt 8 | feature/window-snap | phiên chính | opus | xong | không đo | | | |
 | 64b Kiểm thử lớp phủ không phụ thuộc DPI màn hình thật (phát hiện khi gộp) | task/64b-snap-test-dpi | phiên chính | opus | xong | không đo | | | |
 | 65 Phát hành v0.3.0, CHANGELOG, README | task/65-release-0.3.0 | phiên chính | opus | xong | không đo | | | |
+| 66 Viên nhắc Bắt cửa sổ đọng sau khi bấm (Giai đoạn 3, đợt 9; không tái hiện, chỉ thêm kiểm thử) | task/66-snap-hint-click | specialist | opus | xong | 175.869 | 104.415 (reviewer fable) | 11.659 | 291.943 |
+| 67 Ghim ảnh: lõi, Action::Pin, i18n | task/67-pin-core | builder | sonnet | xong | 85.295 | 34.367 (reviewer sonnet) | 4.738 | 124.400 |
+| 68 Ghim ảnh: cửa sổ Win32 | task/68-pin-window | specialist | opus | xong | 198.601 | 102.591 (reviewer fable) | 22.882 | 324.074 |
+| 69 Ghim ảnh: lớp phủ, luồng chụp, khay | task/69-pin-entry-points | specialist | opus | xong | 151.757 | 95.848 (reviewer fable) | 2.972 | 250.577 |
+| 70 Ghim ảnh: nút Ghim trong Lịch sử | task/70-pin-history | builder | sonnet | xong | 115.689 | 87.320 (reviewer opus) | 3.646 | 206.655 |
+| 71 Ghim ảnh: tài liệu, demo | task/71-pin-docs-demo | scaffolder | haiku | xong | 131.646 | phiên điều phối đọc diff | 0 | 131.646 |
+| 71b Website: mục Ghim, ảnh Lịch sử mới (luật website mới trong CLAUDE.md) | task/71b-pin-website | builder | sonnet | xong | 64.267 | phiên điều phối đọc diff | 2.660 | 66.927 |
+| Rà soát toàn đợt 9 | feature/pin-screenshot | specialist | fable | xong | | 182.216 | | 182.216 |
+| 72 Sửa sau rà soát toàn đợt 9 | task/72-pin-review-fixes | specialist | opus | xong | 82.058 | 61.304 (reviewer fable) | 3.937 | 147.299 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

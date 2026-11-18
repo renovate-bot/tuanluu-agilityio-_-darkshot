@@ -13,18 +13,20 @@ use crate::history_layout::{
     explorer_select_args, filter_chip, layout, menu_items, preview_target, search_parts,
     select_after_remove, step_selection, url_openable, visible_indices, Avail, CardRects, ChipKey,
     Confirm, ConfirmBtn, ConfirmKey, ConfirmOutcome, Generation, Layout, Nav, SearchParts, Status,
-    ThumbCache, ThumbSlot, MAX_THUMBS,
+    ThumbCache, ThumbSlot, BTN_PIN, MAX_THUMBS,
 };
 use crate::history_paint::{self as hp, Bmp, Fonts, PreviewView, RowView, ThumbView, Tip};
 use crate::history_service::{self, WM_HISTORY_CHANGED};
 use crate::lang;
 use crate::paths;
+use crate::pin;
 use crate::theme::{self, ButtonKind};
 use crate::winutil::{self, scale};
 use darkshot_core::actions::Clipboard;
 use darkshot_core::history::{Entry, Filter, Kind};
 use darkshot_core::history_store::Store;
 use darkshot_core::i18n::Msg;
+use darkshot_core::image::Image;
 use darkshot_core::theme::{BG, INPUT, SURFACE, TEXT, TEXT_DISABLED};
 use darkshot_core::thumb::{decode_png_file, downscale};
 use std::cell::{Cell, RefCell};
@@ -108,12 +110,16 @@ pub const WM_HISTORY_THUMB: u32 = WM_APP + 8;
 pub const WM_HISTORY_PREVIEW: u32 = WM_APP + 9;
 /// Kết quả một hành động (`WPARAM` = `history_layout::Status`, không có `LPARAM`).
 pub const WM_HISTORY_STATUS: u32 = WM_APP + 10;
+/// Ảnh đã giải mã cho nút Ghim (`LPARAM` = `Box<Image>`).
+pub const WM_HISTORY_PIN: u32 = WM_APP + 11;
 
 const ID_LIST: i32 = 200;
-/// Nút hành động: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục chứa ảnh, Xóa khỏi lịch sử.
-const ACTION_IDS: [i32; 5] = [201, 202, 203, 204, 205];
+/// Nút hành động theo thứ tự nút (và thứ tự Tab): Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục
+/// chứa ảnh, Ghim, Xóa khỏi lịch sử.
+const ACTION_IDS: [i32; 6] = [201, 202, 203, 204, 206, 205];
 const ID_OPEN: i32 = 201;
 const ID_REMOVE: i32 = 205;
+const ID_PIN: i32 = 206;
 /// Nút "Mở Tùy chọn" (trạng thái tắt và dải thông báo).
 const ID_OPEN_OPTIONS: i32 = 210;
 /// Nút "Xóa bộ lọc" (trạng thái không khớp), "Xóa lịch sử" (thanh trên).
@@ -154,6 +160,15 @@ thread_local! {
     /// Những gì `NM_CUSTOMDRAW` và ô tìm cần, giữ ngoài `STATE` để vẽ điều khiển không bao giờ đụng
     /// khóa của nó.
     static DRAW: Cell<DrawInfo> = const { Cell::new(DrawInfo::new()) };
+    /// Menu chuột phải của Lịch sử đang mở (vòng lặp modal của `TrackPopupMenu`).
+    static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
+    /// Ảnh ghim tới lúc lớp phủ đang mở: chờ tới khi lớp phủ đóng (ảnh mới thay ảnh cũ).
+    static PENDING_PIN: RefCell<pin::PendingPin<Image>> = const { RefCell::new(pin::PendingPin::new()) };
+}
+
+/// Menu chuột phải của Lịch sử đang mở.
+pub fn menu_open() -> bool {
+    MENU_OPEN.with(|m| m.get())
 }
 
 /// Thông tin vẽ điều khiển con (xem `DRAW`).
@@ -600,7 +615,7 @@ impl Drop for FontSet {
 #[derive(Clone, Copy)]
 struct Controls {
     list: HWND,
-    buttons: [HWND; 5],
+    buttons: [HWND; 6],
     options: HWND,
     search: HWND,
     search_clear: HWND,
@@ -957,6 +972,7 @@ pub fn show_with_root(owner: HWND, root: PathBuf) {
         Msg::HistoryCopyImage,
         Msg::HistoryCopyLink,
         Msg::HistoryShowInFolder,
+        Msg::HistoryPin,
         Msg::HistoryRemove,
     ];
     for (b, m) in buttons.iter().zip(labels) {
@@ -1184,7 +1200,7 @@ fn button_width(font: Option<HFONT>, text: &str, dpi: u32) -> i32 {
 struct ChildPlan {
     ctl: Controls,
     list: (RECT, bool),
-    buttons: [(RECT, Avail); 5],
+    buttons: [(RECT, Avail); 6],
     open_label: Msg,
     options: Option<(RECT, bool)>,
     search: SearchParts,
@@ -1224,13 +1240,14 @@ fn relayout(hwnd: HWND) {
             Msg::HistoryCopyImage,
             Msg::HistoryCopyLink,
             Msg::HistoryShowInFolder,
+            Msg::HistoryPin,
             Msg::HistoryRemove,
         ];
-        let widths: [i32; 5] = std::array::from_fn(|k| {
+        let widths: [i32; 6] = std::array::from_fn(|k| {
             let f = if k == 0 { bold } else { normal };
             button_width(f, tr(labels[k]), dpi)
         });
-        let avail = acts.map_or([Avail::Hidden; 5], |a| a.as_array());
+        let avail = acts.map_or([Avail::Hidden; 6], |a| a.as_array());
         let shown = avail.map(|a| a != Avail::Hidden && s.has_detail());
         l.place_buttons(widths, shown);
         s.layout = l;
@@ -1737,6 +1754,20 @@ fn drain_results(hwnd: HWND) {
                 _ => {}
             }
         }
+        // Ảnh ghim chưa nhận: giải phóng.
+        while PeekMessageW(
+            &mut msg,
+            Some(hwnd),
+            WM_HISTORY_PIN,
+            WM_HISTORY_PIN,
+            PM_REMOVE,
+        )
+        .as_bool()
+        {
+            if msg.lParam.0 != 0 {
+                drop(Box::from_raw(msg.lParam.0 as *mut Image));
+            }
+        }
     }
 }
 
@@ -1812,6 +1843,56 @@ fn post_status(hwnd: isize, st: Status) {
     }
 }
 
+/// Trao ảnh đã giải mã cho cửa sổ để ghim (`LPARAM` = `Box<Image>`); không gửi được thì báo lỗi.
+fn post_pin_image(hwnd: isize, img: Image) {
+    post_box(hwnd, WM_HISTORY_PIN, Box::new(img));
+}
+
+/// Ảnh đã giải mã của nút Ghim, trên luồng giao diện: mở ảnh ghim giữa màn hình chứa con trỏ.
+/// Cửa sổ Lịch sử giữ nguyên. Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).
+/// Lớp phủ chọn vùng đang mở thì không mở ngay: giữ ảnh, `open_pending_pin` mở sau khi lớp phủ đóng.
+fn on_pin_image(img: Image) {
+    if crate::overlay_open() {
+        // Ảnh chờ cũ (nếu có) bị bỏ ở đây, ngoài khóa.
+        let old = PENDING_PIN.with(|p| p.try_borrow_mut().ok().and_then(|mut p| p.put(img)));
+        drop(old);
+        return;
+    }
+    open_pin(img);
+}
+
+fn open_pin(img: Image) {
+    if let Err(e) = pin::open(img, pin::PinPlace::CenterOnCursorMonitor) {
+        notify_pin_error(&e);
+    }
+}
+
+/// Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).
+fn notify_pin_error(e: &pin::PinError) {
+    let (kind, title, body) = crate::pin_failure_notice(lang::current(), e);
+    if let Some(tray) = crate::current_tray() {
+        use darkshot_core::actions::Notifier;
+        tray.notifier().notify(kind, title, &body);
+    }
+}
+
+/// Mở ảnh ghim đang chờ (nếu có). Gọi trên luồng giao diện ngay sau khi lớp phủ đóng.
+pub fn open_pending_pin() {
+    let img = PENDING_PIN.with(|p| p.try_borrow_mut().ok().and_then(|mut p| p.take()));
+    if let Some(img) = img {
+        open_pin(img);
+    }
+}
+
+/// Bỏ ảnh ghim đang chờ (thoát ứng dụng).
+pub fn drop_pending_pin() {
+    PENDING_PIN.with(|p| {
+        if let Ok(mut p) = p.try_borrow_mut() {
+            p.clear();
+        }
+    });
+}
+
 /// Chạy `f` trên một luồng nền rồi báo kết quả; không tạo được luồng thì báo lỗi.
 fn spawn_task(hwnd: HWND, f: impl FnOnce() -> Status + Send + 'static) {
     let h = hwnd.0 as isize;
@@ -1855,7 +1936,7 @@ fn windows_dir() -> Option<String> {
     (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]))
 }
 
-/// Hành động thứ `id` (201–205) cho mục đang chọn, nếu nó dùng được.
+/// Hành động của nút/lệnh `id` (một phần tử của `ACTION_IDS`) cho mục đang chọn, nếu nó dùng được.
 fn on_action(id: i32) {
     let Some((hwnd, e, ok, root)) = with_state(|s| {
         let (e, ok) = s.sel_entry()?;
@@ -1864,7 +1945,9 @@ fn on_action(id: i32) {
     .flatten() else {
         return;
     };
-    let k = (id - ACTION_IDS[0]) as usize;
+    let Some(k) = ACTION_IDS.iter().position(|&x| x == id) else {
+        return;
+    };
     let a = actions_for(&e, ok);
     if a.as_array().get(k) != Some(&Avail::Enabled) {
         return;
@@ -1930,6 +2013,27 @@ fn on_action(id: i32) {
             // Đường dẫn lạ (không tuyệt đối, có `"` hay ký tự điều khiển): không gọi explorer.
             None => on_status(hwnd, Status::Failed),
         },
+        // Ghim: giải mã PNG ở luồng nền (như Sao chép ảnh), mở ảnh ghim trên luồng giao diện.
+        BTN_PIN => {
+            // Đã đủ ảnh ghim: báo ngay, không giải mã (`pin::open` vẫn tự kiểm lần nữa).
+            if !darkshot_core::pin::can_add(pin::count()) {
+                notify_pin_error(&pin::PinError::Limit);
+                return;
+            }
+            if let Some(p) = e.image_path(&root) {
+                let h = hwnd.0 as isize;
+                let spawned = std::thread::Builder::new()
+                    .name("darkshot-history-pin".into())
+                    .spawn(move || match decode_png_file(&p) {
+                        Ok(img) => post_pin_image(h, img),
+                        Err(_) => post_status(h, Status::Failed),
+                    })
+                    .is_ok();
+                if !spawned {
+                    on_status(hwnd, Status::Failed);
+                }
+            }
+        }
         // Xóa khỏi lịch sử (không xác nhận; không đụng tệp của người dùng).
         _ => {
             let id = e.id.clone();
@@ -1998,6 +2102,7 @@ fn show_context_menu(hwnd: HWND, pt: POINT) {
                 &HSTRING::from(label),
             );
         }
+        MENU_OPEN.with(|m| m.set(true));
         let cmd = TrackPopupMenu(
             menu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -2007,6 +2112,7 @@ fn show_context_menu(hwnd: HWND, pt: POINT) {
             hwnd,
             None,
         );
+        MENU_OPEN.with(|m| m.set(false));
         let _ = DestroyMenu(menu);
         cmd.0
     };
@@ -2948,7 +3054,7 @@ fn custom_draw(id: i32, cd: &windows::Win32::UI::Controls::NMCUSTOMDRAW) -> Opti
     let d = draw_info();
     let r = match id {
         201 => theme::custom_draw_button(cd, ButtonKind::Primary, BG, d.dpi, d.bold),
-        202..=204 | ID_CLEAR_FILTERS => {
+        202..=204 | ID_PIN | ID_CLEAR_FILTERS => {
             theme::custom_draw_button(cd, ButtonKind::Normal, BG, d.dpi, None)
         }
         ID_REMOVE => hp::custom_draw_danger(cd, BG, d.dpi, false),
@@ -3140,6 +3246,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // SAFETY: con trỏ do post_box cấp phát cho đúng mã thông điệp này, chuyển quyền cho ta.
             let m = unsafe { Box::from_raw(lp.0 as *mut LoadMsg) };
             on_loaded(hwnd, *m);
+            LRESULT(0)
+        }
+        WM_HISTORY_PIN => {
+            // SAFETY: Box<Image> do post_pin_image cấp phát, chuyển quyền cho ta.
+            let img = unsafe { Box::from_raw(lp.0 as *mut Image) };
+            on_pin_image(*img);
             LRESULT(0)
         }
         WM_HISTORY_THUMB => {

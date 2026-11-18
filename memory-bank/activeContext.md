@@ -4,6 +4,22 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
+- **Giai đoạn 3 sản phẩm (Mở rộng năng suất), đợt 9 nội bộ: Ghim ảnh lên màn hình. XONG, chủ dự án đã duyệt demo (2026-11-18) và cho gộp `feature/pin-screenshot` vào `main`, đẩy `origin` (quyết định 112).** Chưa phát hành: v0.3.0 vẫn là bản mới nhất; Ghim nằm ở mục "Chưa phát hành" của CHANGELOG. Duyệt dựa trên demo; các mục `[ ]` của "Đợt 9" trong checklist vẫn để ngỏ.
+- Lộ trình sản phẩm tách khỏi số đợt/task/phiên bản (quyết định 105). Thiết kế `docs/superpowers/specs/2026-11-18-pin-screenshot-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-pin-screenshot.md`, gói `docs/tasks/66-…` đến `72-…`, quyết định 105–111.
+- Bản demo: `target/demo9/release/darkshot.exe` trong worktree `D:\2026 - Tuan\shotme-pin` (build từ nhánh đợt). Chạy cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`); chụp vùng Ctrl+Alt+Shift+F10. Ảnh QA: `target/demo9/screens/` (cùng worktree).
+- Worktree tạm của đợt (`shotme-pin`, `shotme-task`, `shotme-docs`) có thể gỡ sau khi gộp; bản demo nằm trong `shotme-pin/target/demo9`.
+- Còn mở: mục "Đợt 9" của `docs/testing/manual-checklist.md` (chưa ai thử tay: DPI 100/125/150%, nhiều màn hình, tọa độ âm, Windows 10, IME + Ctrl+P, thoát khi còn ảnh ghim); viên nhắc Bắt cửa sổ (quyết định 109); QA đầu vào thật bị dừng giữa chừng (quyết định 111).
+- Nhánh `task/67-website` (worktree `shotme-website`) là của phiên trang giới thiệu, trùng tiền tố số 67 với `task/67-pin-core`; không phải task của đợt 9.
+- Task đang làm: không (sau Task 72).
+
+## Bước kế tiếp
+
+Không có task `chờ`. Đợt tiếp theo của Giai đoạn 3 cần thiết kế mới (gói task từ số 73; ứng viên còn lại ở thiết kế đợt 9 mục 2). Lỗi chủ dự án báo về Ghim: nhánh `task/72b-…` từ `main`, agent/model theo độ khó. Phát hành (0.4.0) chỉ khi họ yêu cầu; khi phát hành: CHANGELOG "Chưa phát hành" → 0.4.0, README "Tải về" và kích thước, rà website.
+
+## Lưu trữ: đợt 8 (đã gộp `main`, v0.3.0)
+
+### Đang ở đâu (đợt 8)
+
 - **Đợt 8 (gia cố Lịch sử, gợi ý cửa sổ khi chọn vùng): XONG, chủ dự án đã duyệt demo (2026-11-18) và cho gộp `feature/window-snap` vào `main`, đẩy lên `origin`.** Duyệt dựa trên demo; các mục `[ ]` của "Đợt 8" trong checklist vẫn để ngỏ.
 - Bản demo: `target/demo8/release/darkshot.exe` (2.016.256 byte), chạy cách ly bằng `scripts/demo-snap.ps1`. Ảnh QA: `target/demo8/screens/`.
 - Thiết kế `docs/superpowers/specs/2026-11-18-window-snap-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`, quyết định 95–101.
@@ -13,7 +29,7 @@ Cập nhật: 2026-11-18
 - **Phát hành v0.3.0** (2026-11-18, chủ dự án yêu cầu): tag `v0.3.0`, GitHub release kèm `darkshot-v0.3.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Nội dung từ `CHANGELOG.md` (mới, quyết định 103). Exe chưa ký số.
 - Task đang làm: không.
 
-## Bước kế tiếp
+### Bước kế tiếp (đợt 8, cũ)
 
 Không có task `chờ`. Đợt tiếp theo cần thiết kế mới (spec, kế hoạch có bảng agent/model, gói task từ số 64 trở đi; `64-docs-demo` của đợt 8 do phiên điều phối làm, không có gói riêng). Lỗi chủ dự án báo về đợt 8: nhánh `task/64b-…` từ `main`, agent/model theo độ khó.
 
@@ -90,7 +106,7 @@ Task 38 đã gộp (rà soát DUYỆT). **Đợt 5 đã xong theo mã (2026-11-1
 - Thiết kế mục 7.1 ghi tỉ lệ tương phản cao hơn thực tế và màu nút chính khi trỏ `#3D7BF0` chỉ đạt 3,97:1; kế hoạch dùng `#2563EB` (5,17:1). Số đúng ở mục "Bảng màu đã kiểm" của kế hoạch.
 - Task 28: cấu hình darkshot hỏng hoặc không đọc được thì khóa Run giữ nguyên cả `darkshot` lẫn `shotme` (chặt hơn thiết kế 6.3 "luôn xóa shotme"), để không ai mất khởi động cùng Windows; hệ quả: trong trường hợp hiếm đó, shotme cũ có thể vẫn tự chạy. Đổi tên exe darkshot thành tên cũ thì không gỡ WER cũ.
 - Task 28: hành vi mới so với trước: `autostart` tắt mà khóa Run còn giá trị `darkshot` thì giá trị bị xóa (trước đây giữ). Lỗi ghi/xóa Run cũng hiện thông báo "Chưa chuyển xong thiết lập".
-- Repo GitHub đã được đổi tên thành `tuanluu-agilityio/darkshot` (GitHub báo khi đẩy, 2026-11-17). Phiên điều phối định chạy `git remote set-url origin https://github.com/tuanluu-agilityio/darkshot.git` nhưng bị chặn quyền; đẩy vẫn chạy nhờ chuyển hướng. Chủ dự án tự chạy lệnh đó nếu muốn. Thư mục `D:6 - Tuan\shotme` vẫn tên cũ.
+- Repo GitHub đã được đổi tên thành `tuanluu-agilityio/darkshot` (GitHub báo khi đẩy, 2026-11-17). Phiên điều phối định chạy `git remote set-url origin https://github.com/tuanluu-agilityio/darkshot.git` nhưng bị chặn quyền; đẩy vẫn chạy nhờ chuyển hướng. Chủ dự án tự chạy lệnh đó nếu muốn. Thư mục `D:\2026 - Tuan\shotme` vẫn tên cũ.
 - Task 30, khác gói task (rà soát chấp nhận): tab khi trỏ chữ `TEXT` (không phải `TEXT_MUTED`); khoảng hộp ô tích tới chữ 6 DIP (prototype 10) để vừa bố cục cũ; rủi ro còn lại: gạch dưới tab sát chân chữ, mục đang chọn trong danh sách thả xuống dùng màu nhấn của hệ thống, hộp chọn có thể nháy một nhịp khi đổi lựa chọn, chữ ô tích có thể bị cắt; chưa nhìn ở DPI 100%, English, Windows 10.
 - Task 30b (2026-11-17, chủ dự án báo ô tích và nút chọn không như mong đợi): ô tích, nút chọn, núm thanh trượt nay vẽ khử răng cưa bằng hàm khoảng cách có dấu vào bộ đệm BGRA rồi `AlphaBlend` (không GDI+ vì GDI+ chỉ khởi động khi lớp phủ mở; lỗi thì rơi về GDI cũ); lòng nút chọn trong suốt như prototype. Khoảng hộp tới chữ vẫn 6 DIP: 10 DIP cắt chữ "Tải lên nhanh (toàn màn hình)" vì `HK_BOX = 24` ở `settings.rs`; muốn 10 thì đổi bố cục (`HK_BOX` 28). `options_no_gdi_leak` chập chờn (tăng 1–3 đối tượng một lần rồi đứng yên), có từ trước Task 30b; chưa tìm nguyên nhân. Mới xem ở DPI 200%; chưa xem 100%, 150%, trạng thái trỏ và vô hiệu.
 - Chủ dự án xem kết quả Task 30b và 30c và báo "đã reviewed. Duyệt" (2026-11-17). Bản build: `target/fix30c/release/darkshot.exe`.
