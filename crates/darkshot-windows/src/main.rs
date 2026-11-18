@@ -1173,6 +1173,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
             if info_windows_stale(&config, &new) {
                 about::close();
                 help::close();
+                // Cửa sổ Nhận dạng chữ không đóng (giữ chữ người dùng đang sửa): đổi chữ giao diện.
+                ocr_window::relabel();
             }
             if history_window_stale(&config, &new) {
                 history_window::close_if_open();
@@ -2142,6 +2144,15 @@ mod tests {
         assert_eq!(
             last_capture_after(Some(prev), Some(prev), Action::Cancel, rc(9, 9, 50, 50)),
             (Some(prev), false)
+        );
+        // Nhận dạng chữ: như Hủy, giữ nguyên lần chụp trước, không ghi.
+        assert_eq!(
+            last_capture_after(Some(prev), Some(prev), Action::Ocr, rc(9, 9, 50, 50)),
+            (Some(prev), false)
+        );
+        assert_eq!(
+            last_capture_after(None, None, Action::Ocr, r),
+            (None, false)
         );
         // Giống hệt giá trị đã ghi: không ghi lại.
         assert_eq!(
