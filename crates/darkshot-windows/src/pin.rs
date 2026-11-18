@@ -64,6 +64,12 @@ const ID_COPY: u32 = 1;
 const ID_SAVE: u32 = 2;
 const ID_CLOSE: u32 = 3;
 const ID_CLOSE_ALL: u32 = 4;
+const ID_OCR: u32 = 5;
+/// Đầu menu ngữ cảnh: mục hành động trên ảnh, theo thứ tự (chưa có Nhận dạng chữ).
+const MENU_ACTIONS: [(u32, Msg, Action); 2] = [
+    (ID_COPY, Msg::PinMenuCopy, Action::Copy),
+    (ID_SAVE, Msg::PinMenuSave, Action::Save),
+];
 const ID_ZOOM_BASE: u32 = 1000;
 const ID_OPACITY_BASE: u32 = 2000;
 
@@ -958,6 +964,11 @@ fn on_dpi_changed(hwnd: HWND, dpi: u32) {
     });
 }
 
+/// Hành động của mục menu `id` trong `MENU_ACTIONS` (chưa làm).
+fn menu_action(_id: u32) -> Option<Action> {
+    None
+}
+
 fn copy_or_save(hwnd: HWND, action: Action) {
     let Some(img) = with_pin(hwnd, |p| p.image_copy()) else {
         return;
@@ -1569,6 +1580,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Menu ngữ cảnh: Sao chép, Lưu ảnh, rồi Nhận dạng chữ; mỗi mục một ID riêng, gửi đúng hành động.
+    #[test]
+    fn menu_actions_copy_save_then_ocr() {
+        assert_eq!(
+            MENU_ACTIONS.to_vec(),
+            vec![
+                (ID_COPY, Msg::PinMenuCopy, Action::Copy),
+                (ID_SAVE, Msg::PinMenuSave, Action::Save),
+                (ID_OCR, Msg::PinMenuOcr, Action::Ocr),
+            ]
+        );
+        for id in [ID_COPY, ID_SAVE, ID_OCR, ID_CLOSE, ID_CLOSE_ALL] {
+            assert!(id < ID_ZOOM_BASE);
+        }
+        assert_eq!(menu_action(ID_OCR), Some(Action::Ocr));
+        assert_eq!(menu_action(ID_SAVE), Some(Action::Save));
+        assert_eq!(menu_action(ID_CLOSE), None);
+    }
 
     fn r(x: i32, y: i32, w: i32, h: i32) -> Rect {
         Rect { x, y, w, h }

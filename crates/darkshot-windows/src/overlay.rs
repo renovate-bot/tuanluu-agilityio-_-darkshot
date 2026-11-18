@@ -4478,6 +4478,11 @@ fn pin_glyph() -> ([GridPt; 6], [GridPt; 2]) {
     (UPRIGHT.map(turn), NEEDLE.map(turn))
 }
 
+/// Biểu tượng Nhận dạng chữ (chưa làm).
+fn ocr_glyph() -> ([[GridPt; 3]; 4], [GridPt; 2], [GridPt; 2]) {
+    ([[(0.0, 0.0); 3]; 4], [(0.0, 0.0); 2], [(0.0, 0.0); 2])
+}
+
 /// Đường GDI+ đang dựng cho một biểu tượng: tọa độ trong lưới 24×24, gốc (`ox`, `oy`), hệ số `k`.
 struct IconPath {
     path: *mut GpPath,
@@ -5286,11 +5291,11 @@ mod tests {
 
     #[test]
     fn toolbar_button_hit_testing() {
-        // 96 DPI: Hoàn tác, Làm lại (36 mỗi ô), vạch ngăn 9, rồi năm nút hành động.
+        // 96 DPI: Hoàn tác, Làm lại (36 mỗi ô), vạch ngăn 9, rồi sáu nút hành động.
         let bar = Rect {
             x: 100,
             y: 100,
-            w: 7 * 36 + 9,
+            w: 8 * 36 + 9,
             h: 36,
         };
         let at = |x, y| bar_item_at(bar, Point { x, y }, 96);
@@ -5302,19 +5307,24 @@ mod tests {
         assert_eq!(at(230, 110), Some(BarItem::Act(Action::Save)));
         assert_eq!(at(260, 110), Some(BarItem::Act(Action::Copy)));
         assert_eq!(at(300, 110), Some(BarItem::Act(Action::Pin)));
-        assert_eq!(at(340, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(361, 110), None);
+        assert_eq!(at(325, 110), Some(BarItem::Act(Action::Ocr)));
+        assert_eq!(at(340, 110), Some(BarItem::Act(Action::Ocr)));
+        assert_eq!(at(360, 110), Some(BarItem::Act(Action::Ocr)));
+        assert_eq!(at(361, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(396, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(397, 110), None);
         assert_eq!(at(99, 110), None);
         assert_eq!(at(110, 136), None);
     }
 
-    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Ghim, Hủy; các ô liền nhau, không
+    /// Thanh ngang: Hoàn tác, Làm lại, vạch ngăn, Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy; các ô
+    /// liền nhau, không
     /// chồng, nằm trong thanh; `bar_item_at` đúng ở tâm ô và `None` trên vạch ngăn.
     #[test]
     fn bar_layout_order() {
         assert_eq!(
-            BAR_CELLS,
-            [
+            BAR_CELLS.to_vec(),
+            vec![
                 Some(BarItem::Undo),
                 Some(BarItem::Redo),
                 None,
@@ -5322,15 +5332,16 @@ mod tests {
                 Some(BarItem::Act(Action::Save)),
                 Some(BarItem::Act(Action::Copy)),
                 Some(BarItem::Act(Action::Pin)),
+                Some(BarItem::Act(Action::Ocr)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
         );
         for dpi in [96, 120, 144, 192] {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             let l = bar_layout(dpi);
-            // 7 nút và 1 vạch ngăn.
-            assert_eq!(l.size, (7 * b + sep, b), "dpi {dpi}");
-            assert_eq!(l.cells.len(), 8);
+            // 8 nút và 1 vạch ngăn.
+            assert_eq!(l.size, (8 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.cells.len(), 9);
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, BAR_CELLS.to_vec());
             let mut x = 0;
@@ -5761,6 +5772,7 @@ mod tests {
         assert_eq!(t(Lang::Vi, BarItem::Redo.tip()), "Làm lại (Ctrl+Y)");
         assert_eq!(BarItem::Act(Action::Save).tip(), Msg::OverlaySave);
         assert_eq!(BarItem::Act(Action::Pin).tip(), Msg::OverlayPin);
+        assert_eq!(BarItem::Act(Action::Ocr).tip(), Msg::OverlayOcr);
         let tips: Vec<Msg> = SHAPE_TOOLS.iter().map(|t| shape_tip(*t)).collect();
         assert_eq!(
             tips,
@@ -8834,6 +8846,45 @@ mod tests {
         assert!(((y0 + y1) / 2.0 - 12.0).abs() < 1.0, "{y0} {y1}");
     }
 
+    /// Nhận dạng chữ: bốn góc khung (mỗi góc hai nét vuông góc) và chữ "T" ở giữa, trong lưới 24×24
+    /// với lề như các biểu tượng khác; khung và chữ không chạm nhau.
+    #[test]
+    fn ocr_glyph_corners_and_t() {
+        let (corners, t_bar, t_stem) = ocr_glyph();
+        let inside = |(x, y): GridPt| (2.0..=22.0).contains(&x) && (2.0..=22.0).contains(&y);
+        for c in &corners {
+            assert!(c.iter().all(|q| inside(*q)), "{c:?}");
+            // Góc: hai đoạn, một ngang một dọc, gặp nhau ở điểm giữa.
+            let [a, m, b] = *c;
+            assert!((a.0 - m.0).abs() < 0.01 || (a.1 - m.1).abs() < 0.01);
+            assert!((b.0 - m.0).abs() < 0.01 || (b.1 - m.1).abs() < 0.01);
+            assert!(((a.0 - m.0).abs() < 0.01) != ((b.0 - m.0).abs() < 0.01));
+        }
+        // Bốn góc ở bốn phía của tâm lưới.
+        let mut quads: Vec<(bool, bool)> = corners
+            .iter()
+            .map(|c| (c[1].0 > 12.0, c[1].1 > 12.0))
+            .collect();
+        quads.sort();
+        quads.dedup();
+        assert_eq!(quads.len(), 4);
+        // Chữ T: gạch ngang trên, thân dọc từ giữa gạch, cân giữa lưới, nằm trong khung.
+        assert!((t_bar[0].1 - t_bar[1].1).abs() < 0.01);
+        assert!((t_stem[0].0 - t_stem[1].0).abs() < 0.01);
+        assert!(((t_bar[0].0 + t_bar[1].0) / 2.0 - t_stem[0].0).abs() < 0.01);
+        assert!((t_stem[0].0 - 12.0).abs() < 0.01);
+        assert!((t_stem[0].1 - t_bar[0].1).abs() < 0.01 && t_stem[1].1 > t_stem[0].1);
+        let (lo, hi) = corners
+            .iter()
+            .flatten()
+            .fold((f32::MAX, f32::MIN), |(a, b), q| {
+                (a.min(q.0.min(q.1)), b.max(q.0.max(q.1)))
+            });
+        for q in t_bar.iter().chain(t_stem.iter()) {
+            assert!(q.0 > lo + 1.0 && q.0 < hi - 1.0 && q.1 > lo + 1.0 && q.1 < hi - 1.0);
+        }
+    }
+
     #[test]
     #[ignore = "mở lớp phủ thật và một ảnh ghim; chạy tay: cargo test -p darkshot-windows -- --ignored ctrl_p_pins_selection_at_its_corner --test-threads=1"]
     fn ctrl_p_pins_selection_at_its_corner() {
@@ -9430,6 +9481,55 @@ mod tests {
                 .expect("không phải Hủy");
             assert_eq!((r.action, r.rect), (Action::Pin, SEL));
             assert!(r.shapes.is_empty());
+        }
+
+        #[test]
+        fn ctrl_t_recognizes_selection() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x54, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Ocr, SEL));
+            assert!(r.shapes.is_empty());
+        }
+
+        #[test]
+        fn ctrl_t_without_selection_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x54, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_t_while_typing_commits_text_then_recognizes() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x54, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::Ocr, SEL));
+            assert_eq!(r.shapes.len(), 1);
+            assert!(matches!(r.shapes[0], Shape::Text { .. }));
         }
 
         #[test]

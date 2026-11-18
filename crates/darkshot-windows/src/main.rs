@@ -16,6 +16,7 @@ mod hotkey;
 mod lang;
 mod legacy;
 mod ocr;
+mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
