@@ -268,34 +268,26 @@ pub fn set_on_capture(f: fn()) {
     ON_CAPTURE.with(|c| c.set(f));
 }
 
-/// Hàm mở cửa sổ Xem lại (Task 86); mặc định không làm gì.
-#[allow(dead_code)] // Task 86 (cửa sổ Xem lại) đăng ký.
+/// Hàm mở cửa sổ Xem lại (main: `steps_window::open`); mặc định không làm gì.
 pub fn set_on_review(f: fn()) {
     ON_REVIEW.with(|c| c.set(f));
 }
 
-/// Hàm mở Xem lại ở chế độ xác nhận kết thúc (Task 86); mặc định không làm gì.
-#[allow(dead_code)] // Task 86 (cửa sổ Xem lại) đăng ký.
+/// Hàm mở Xem lại ở chế độ xác nhận kết thúc (main: `steps_window::open_confirm_end`); mặc định
+/// không làm gì.
 pub fn set_on_confirm_end(f: fn()) {
     ON_CONFIRM_END.with(|c| c.set(f));
 }
 
-/// Mở cửa sổ Xem lại (thanh phiên và menu khay dùng chung).
+/// Mở cửa sổ Xem lại (nút Xem lại của thanh phiên).
 pub fn review() {
     ON_REVIEW.with(|c| c.get())();
 }
 
-/// Kết thúc phiên như nút Kết thúc: còn bước chưa xuất thì hỏi qua cửa sổ Xem lại, không thì
-/// kết thúc ngay.
+/// Kết thúc phiên như nút Kết thúc: luôn qua cửa sổ Xem lại (`steps_window::open_confirm_end`),
+/// nơi lưu ghi chú đang sửa, giữ chốt đang xuất, rồi hỏi (còn bước chưa xuất) hay kết thúc ngay.
 pub fn finish() {
-    if crate::steps_store::dirty() && crate::steps_store::count() > 0 {
-        ON_CONFIRM_END.with(|c| c.get())();
-    } else {
-        // Không xóa được `session.json`: phiên giữ nguyên. Xóa được json mà còn sót tệp: phiên đã
-        // kết thúc; phần sót được đổi tên (giữ lại) ở lần bắt đầu phiên sau. Lỗi được báo qua
-        // `steps_store::set_on_error`.
-        crate::steps_store::end();
-    }
+    ON_CONFIRM_END.with(|c| c.get())();
 }
 
 pub fn hwnd() -> Option<HWND> {
@@ -1001,6 +993,34 @@ mod tests {
         assert_eq!(recentered_x(100, 400, 500), 50);
         assert_eq!(recentered_x(100, 400, 300), 150);
         assert_eq!(recentered_x(100, 400, 400), 100);
+    }
+
+    thread_local! {
+        static ENDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn count_end() {
+        ENDS.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Nút Kết thúc luôn đi qua cửa sổ Xem lại (nó lưu ghi chú đang sửa và giữ chốt đang xuất),
+    /// kể cả khi phiên đã xuất: không tự kết thúc phiên.
+    #[test]
+    fn finish_always_goes_through_review_window() {
+        let base = std::env::temp_dir().join(format!("darkshot_bar_finish_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        crate::steps_store::use_root_for_test(base.join("current"));
+        assert!(crate::steps_store::start());
+        assert!(!crate::steps_store::dirty());
+        set_on_confirm_end(count_end);
+        finish();
+        assert_eq!(ENDS.with(|c| c.get()), 1);
+        assert!(
+            crate::steps_store::active(),
+            "thanh phiên không tự kết thúc"
+        );
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
