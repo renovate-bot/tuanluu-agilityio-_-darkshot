@@ -24,8 +24,9 @@ use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontIndirectW, DeleteObject, EndPaint, GetDC, GetMonitorInfoW,
-    GetTextExtentPoint32W, InvalidateRect, MonitorFromPoint, ReleaseDC, SelectObject, HDC, HFONT,
-    HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
+    GetTextExtentPoint32W, InvalidateRect, MonitorFromPoint, MonitorFromRect, ReleaseDC,
+    SelectObject, HDC, HFONT, HGDIOBJ, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -314,13 +315,24 @@ fn drain(hwnd: HWND) {
 
 /// Mở cửa sổ kết quả cho `image` và bắt đầu nhận dạng trên luồng nền.
 pub fn open(image: Image) -> Result<(), String> {
-    open_with(image, ocr::start)
+    open_avoiding(image, None)
 }
 
+/// Như `open`, nhưng đặt cửa sổ tránh khung `avoid` (tọa độ màn hình, ví dụ ảnh ghim luôn ở trên
+/// cùng) trên màn hình chứa khung đó.
+pub fn open_avoiding(image: Image, avoid: Option<Rect>) -> Result<(), String> {
+    open_inner(image, avoid, ocr::start)
+}
+
+#[cfg(test)]
 fn open_with(image: Image, start: Starter) -> Result<(), String> {
+    open_inner(image, None, start)
+}
+
+fn open_inner(image: Image, avoid: Option<Rect>, start: Starter) -> Result<(), String> {
     close_oldest_over(MAX_WINDOWS - 1);
     let lang = lang::current();
-    let hwnd = create(lang).ok_or_else(|| "CreateWindowExW failed".to_string())?;
+    let hwnd = create(lang, avoid).ok_or_else(|| "CreateWindowExW failed".to_string())?;
     let token = WINS.with(|v| v.borrow().iter().find(|w| w.hwnd == hwnd).map(|w| w.token));
     let Some(token) = token else {
         destroy(hwnd);
@@ -380,15 +392,6 @@ pub fn close_all() {
     prune();
 }
 
-fn is_ocr_window(hwnd: HWND) -> bool {
-    WINS.with(|v| {
-        v.try_borrow()
-            .map(|v| v.iter().any(|w| w.hwnd == hwnd))
-            // Sổ đang bận (không xảy ra ở vòng lặp chính): để thủ tục cửa sổ tự lo.
-            .unwrap_or(true)
-    })
-}
-
 fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
     // SAFETY: chỉ đọc trạng thái phím của luồng này.
     unsafe { GetKeyState(i32::from(vk.0)) < 0 }
@@ -398,10 +401,10 @@ fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> boo
 /// con của nó), cộng `WM_OCR_RESULT` tới handle không còn là cửa sổ kết quả (giải phóng rồi bỏ).
 pub fn pre_translate(msg: &MSG) -> bool {
     if msg.message == WM_OCR_RESULT {
-        if !msg.hwnd.is_invalid() && !is_ocr_window(msg.hwnd) {
-            drop(consume(msg.lParam));
-            return true;
-        }
+        // Để thủ tục cửa sổ lấy lại Box. Không bao giờ đụng LPARAM của thông điệp gửi tới cửa sổ
+        // khác: thành phần khác trên luồng có thể dùng cùng mã WM_APP + 12. Kết quả tới cửa sổ đã
+        // hủy được vét ở WM_DESTROY/WM_NCDESTROY; nếu luồng nền đăng đúng lúc sau lần vét cuối mà
+        // handle chưa kịp chết thì một Box nhỏ bị rò (chấp nhận được, rất hiếm).
         return false;
     }
     let owner = WINS.with(|v| {
@@ -461,19 +464,35 @@ pub fn pre_translate(msg: &MSG) -> bool {
     unsafe { IsDialogMessageW(hwnd, msg).as_bool() }
 }
 
-/// DPI hiệu dụng của màn hình chứa điểm `pt`.
-fn dpi_at(pt: POINT) -> u32 {
+/// DPI hiệu dụng của màn hình `mon`.
+fn monitor_dpi(mon: HMONITOR) -> u32 {
     let (mut x, mut y) = (0u32, 0u32);
     // SAFETY: các tham số ra là biến cục bộ.
-    let ok = unsafe {
-        let m = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-        GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &mut x, &mut y).is_ok()
-    };
+    let ok = unsafe { GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &mut x, &mut y).is_ok() };
     if ok && x > 0 {
         x
     } else {
         96
     }
+}
+
+/// Vùng làm việc của màn hình `mon` (tọa độ màn hình).
+fn work_area(mon: HMONITOR) -> Option<Rect> {
+    let mut mi = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: mi là biến cục bộ có cbSize đúng.
+    if !unsafe { GetMonitorInfoW(mon, &mut mi) }.as_bool() {
+        return None;
+    }
+    let a = mi.rcWork;
+    Some(Rect {
+        x: a.left,
+        y: a.top,
+        w: a.right - a.left,
+        h: a.bottom - a.top,
+    })
 }
 
 /// Cỡ cửa sổ (pixel) cho vùng client `w`×`h` DIP ở `dpi`.
@@ -559,16 +578,26 @@ fn child(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id: i32) 
 }
 
 /// Tạo, đăng ký vào sổ và hiện cửa sổ ở trạng thái "đang nhận dạng". Lỗi thì không còn gì sót.
-fn create(lang: Lang) -> Option<HWND> {
-    let mut pt = POINT::default();
-    // SAFETY: tham số ra là biến cục bộ.
-    unsafe {
-        let _ = GetCursorPos(&mut pt);
-    }
-    // Tạo thẳng trên màn hình có con trỏ, theo DPI của nó: không có WM_DPICHANGED lúc mở.
-    let dpi = dpi_at(pt);
+fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
+    // Màn hình chứa khung cần tránh, không có thì màn hình có con trỏ.
+    // SAFETY: tham số ra là biến cục bộ; MonitorFromRect/Point chỉ đọc.
+    let mon = unsafe {
+        match avoid {
+            Some(a) => MonitorFromRect(&rect_of(a), MONITOR_DEFAULTTONEAREST),
+            None => {
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+                MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+            }
+        }
+    };
+    // Tạo thẳng trên màn hình đó, theo DPI của nó: không có WM_DPICHANGED lúc mở.
+    let dpi = monitor_dpi(mon);
     let (ww, wh) = window_size(DEFAULT_W, DEFAULT_H, dpi);
-    let (x, y) = centered(pt, ww, wh);
+    let (x, y) = match work_area(mon) {
+        Some(work) => place_avoiding(work, ww, wh, avoid, scale(GAP, dpi)),
+        None => (100, 100),
+    };
     let title = HSTRING::from(t(lang, Msg::OcrWindowTitle));
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; đăng ký lại lần hai báo lỗi vô hại.
     let hwnd = unsafe {
@@ -684,26 +713,6 @@ fn create(lang: Lang) -> Option<HWND> {
     Some(hwnd)
 }
 
-/// Góc trên trái để cửa sổ `w`×`h` nằm giữa vùng làm việc của màn hình chứa `pt` (kẹp vào vùng đó).
-fn centered(pt: POINT, w: i32, h: i32) -> (i32, i32) {
-    let mut mi = MONITORINFO {
-        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    // SAFETY: mi là biến cục bộ có cbSize đúng.
-    let ok = unsafe {
-        let mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-        GetMonitorInfoW(mon, &mut mi).as_bool()
-    };
-    if !ok {
-        return (100, 100);
-    }
-    let a = mi.rcWork;
-    let x = a.left + ((a.right - a.left) - w) / 2;
-    let y = a.top + ((a.bottom - a.top) - h) / 2;
-    (x.max(a.left), y.max(a.top))
-}
-
 /// Đưa `view` lên cửa sổ: chữ ô, chỉ đọc hay không, dòng trạng thái, nút Chép.
 fn apply_view(hwnd: HWND, view: &View) {
     let Some((edit, status, copy, close)) = with_win(hwnd, |w| {
@@ -790,8 +799,8 @@ fn copy_and_close(hwnd: HWND) {
         }
         Err(e) => notify(
             NoticeKind::Error,
-            t(lang, Msg::CopyFailedTitle),
-            &i18n::copy_failed_body(lang, &e),
+            t(lang, Msg::OcrCopyFailedTitle),
+            &i18n::ocr_copy_failed_body(lang, &e),
         ),
     }
 }
@@ -1088,9 +1097,40 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
-/// Vi tri cua so (chua lam).
-fn place_avoiding(_work: Rect, _w: i32, _h: i32, _avoid: Option<Rect>, _gap: i32) -> (i32, i32) {
-    (0, 0)
+/// Góc trên trái cho cửa sổ `w`×`h` trong vùng làm việc `work` (tọa độ màn hình), tránh khung
+/// `avoid` (ảnh ghim, luôn ở trên cùng): thử bên phải, rồi trái, dưới, trên khung, cách khung `gap`;
+/// không chỗ nào đủ (hay không có khung) thì giữa vùng làm việc. Luôn kẹp góc vào vùng làm việc.
+fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> (i32, i32) {
+    let clamp = |v: i32, lo: i32, hi: i32| v.min(hi).max(lo);
+    let center = (
+        (work.x + (work.w - w) / 2).max(work.x),
+        (work.y + (work.h - h) / 2).max(work.y),
+    );
+    let Some(a) = avoid else {
+        return center;
+    };
+    let (fits_w, fits_h) = (w <= work.w, h <= work.h);
+    let y_beside = clamp(a.y, work.y, work.bottom() - h);
+    let x_beside = clamp(a.x, work.x, work.right() - w);
+    if fits_w && fits_h {
+        let right = a.right() + gap;
+        if right >= work.x && right + w <= work.right() {
+            return (right, y_beside);
+        }
+        let left = a.x - gap - w;
+        if left >= work.x && left + w <= work.right() {
+            return (left, y_beside);
+        }
+        let below = a.bottom() + gap;
+        if below >= work.y && below + h <= work.bottom() {
+            return (x_beside, below);
+        }
+        let above = a.y - gap - h;
+        if above >= work.y && above + h <= work.bottom() {
+            return (x_beside, above);
+        }
+    }
+    center
 }
 
 #[cfg(test)]

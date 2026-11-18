@@ -374,7 +374,7 @@ messages! {
     OcrCopy => ("Chép", "Copy"),
     OcrClose => ("Đóng", "Close"),
     OcrCopiedTitle => ("Đã chép chữ", "Text copied"),
-    OcrCopyFailedTitle => ("Chưa có", "Not yet"),
+    OcrCopyFailedTitle => ("Không chép được chữ", "Couldn't copy the text"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
     PinFailedBody => (
@@ -427,6 +427,8 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::OptionsSaveFailedTitle,
     Msg::HotkeysNotWorkingTitle,
     Msg::AnnotateFailedTitle,
+    Msg::OcrCopiedTitle,
+    Msg::OcrCopyFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -465,8 +467,11 @@ pub fn copy_failed_body(lang: Lang, err: &str) -> String {
     }
 }
 
-pub fn ocr_copy_failed_body(_lang: Lang, _err: &str) -> String {
-    String::new()
+pub fn ocr_copy_failed_body(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không đưa được chữ vào clipboard: {err}"),
+        Lang::En => format!("Could not put the text on the clipboard: {err}"),
+    }
 }
 
 pub fn ocr_status(lang: Lang, name: &str, lines: usize) -> String {

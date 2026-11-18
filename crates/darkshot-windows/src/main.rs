@@ -877,7 +877,7 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     }
     if action == Action::Ocr {
         // Nhận dạng chữ: cửa sổ kết quả, luồng nền; không lưu, không ghi Lịch sử.
-        open_ocr(image, &notify);
+        open_ocr(image, None, &notify);
         return;
     }
     let Some(notifier) = notifier else {
@@ -932,8 +932,16 @@ pub fn pin_failure_notice(lang: Lang, e: &pin::PinError) -> (NoticeKind, &'stati
 }
 
 /// Mở cửa sổ Nhận dạng chữ cho `image`; không mở được thì báo lỗi (không hiện lý do kỹ thuật).
-fn open_ocr(image: darkshot_core::image::Image, notify: &dyn Fn(NoticeKind, &str, &str)) {
-    if ocr_window::open(image).is_err() {
+fn open_ocr(
+    image: darkshot_core::image::Image,
+    avoid: Option<Rect>,
+    notify: &dyn Fn(NoticeKind, &str, &str),
+) {
+    let opened = match avoid {
+        Some(_) => ocr_window::open_avoiding(image, avoid),
+        None => ocr_window::open(image),
+    };
+    if opened.is_err() {
         notify(
             NoticeKind::Error,
             lang::tr(Msg::OcrWindowTitle),
@@ -952,9 +960,10 @@ fn ocr_notify(kind: NoticeKind, title: &str, body: &str) {
 
 /// Lưu/Chép từ menu hay phím của ảnh ghim: đúng đường `run_on_image` (thông báo, Lịch sử);
 /// Nhận dạng chữ mở cửa sổ kết quả với ảnh gốc của ảnh ghim.
-fn pin_action(action: Action, image: darkshot_core::image::Image) {
+fn pin_action(action: Action, image: darkshot_core::image::Image, pin_rect: Option<Rect>) {
     if action == Action::Ocr {
-        open_ocr(image, &ocr_notify);
+        // Ảnh ghim luôn ở trên cùng: đặt cửa sổ kết quả cạnh nó, không bị nó che.
+        open_ocr(image, pin_rect, &ocr_notify);
         return;
     }
     let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
