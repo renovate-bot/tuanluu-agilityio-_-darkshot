@@ -1690,6 +1690,45 @@ mod tests {
         assert_eq!(badge_text(Lang::En, Some(125), 100), "125%");
         assert_eq!(badge_text(Lang::En, None, 60), "Opacity 60%");
         assert_eq!(badge_text(Lang::Vi, None, 60), "Độ mờ 60%");
+        for l in Lang::ALL {
+            for o in [10u8, 55, 100] {
+                assert_eq!(
+                    badge_text(l, None, o),
+                    darkshot_core::i18n::pin_opacity_badge(l, o)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pending_pin_put_replace_take_once() {
+        let mut q: PendingPin<u32> = PendingPin::new();
+        assert!(!q.is_waiting());
+        assert_eq!(q.take(), None);
+        assert_eq!(q.put(1), None);
+        assert!(q.is_waiting());
+        // Ảnh mới thay ảnh cũ; ảnh cũ trả về để bỏ.
+        assert_eq!(q.put(2), Some(1));
+        assert_eq!(q.take(), Some(2));
+        // Lấy ra đúng một lần.
+        assert_eq!(q.take(), None);
+        assert!(!q.is_waiting());
+        q.put(3);
+        q.clear();
+        assert_eq!(q.take(), None);
+    }
+
+    #[test]
+    fn too_large_has_own_variant() {
+        assert!(matches!(too_large(), PinError::TooLarge));
+    }
+
+    #[test]
+    fn menu_open_flag() {
+        assert!(!menu_open());
+        MENU_OPEN.with(|m| m.set(true));
+        assert!(menu_open());
+        MENU_OPEN.with(|m| m.set(false));
     }
 
     #[test]
@@ -1945,7 +1984,7 @@ mod live {
         for place in [PinPlace::At(p(10, 10)), PinPlace::CenterOnCursorMonitor] {
             assert!(matches!(
                 open(image(200_000, 10), place),
-                Err(PinError::Create(_))
+                Err(PinError::TooLarge)
             ));
         }
         assert_eq!(count(), 0);

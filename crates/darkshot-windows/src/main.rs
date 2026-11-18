@@ -1950,6 +1950,20 @@ mod tests {
             assert_eq!(title, i18n::t(lang, Msg::PinFailedTitle));
             assert_eq!(body, i18n::t(lang, Msg::PinFailedBody));
             assert!(!body.contains("CreateWindowExW"));
+            let (kind, title, body) = pin_failure_notice(lang, &pin::PinError::TooLarge);
+            assert_eq!(kind, NoticeKind::Error);
+            assert_eq!(title, i18n::t(lang, Msg::PinFailedTitle));
+            assert_eq!(body, i18n::t(lang, Msg::PinTooLargeBody));
+            assert_ne!(body, i18n::t(lang, Msg::PinFailedBody));
         }
+    }
+
+    /// Phím chụp khi một menu (khay, ảnh ghim hay Lịch sử) đang mở: đóng menu rồi chụp hoãn.
+    #[test]
+    fn hotkey_defers_when_any_menu_open() {
+        assert!(!hotkey_defers(false, false));
+        assert!(hotkey_defers(true, false));
+        assert!(hotkey_defers(false, true));
+        assert!(hotkey_defers(true, true));
     }
 }

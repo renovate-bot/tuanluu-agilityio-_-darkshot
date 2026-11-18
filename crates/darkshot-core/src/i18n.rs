@@ -1133,6 +1133,11 @@ mod tests {
         assert!(pin_limit_body(Lang::Vi, 32).contains("32"));
         assert_eq!(pin_opacity_badge(Lang::Vi, 60), "Độ mờ 60%");
         assert_eq!(pin_opacity_badge(Lang::En, 60), "Opacity 60%");
+        assert_eq!(t(Lang::Vi, Msg::PinTooLargeBody), "Ảnh quá lớn để ghim.");
+        assert_eq!(
+            t(Lang::En, Msg::PinTooLargeBody),
+            "The image is too large to pin."
+        );
     }
 
     #[test]
