@@ -15,6 +15,7 @@ mod history_window;
 mod hotkey;
 mod lang;
 mod legacy;
+mod ocr;
 mod overlay;
 mod paths;
 mod pin;
