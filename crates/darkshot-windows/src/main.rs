@@ -218,12 +218,15 @@ pub fn repeat_plan(
 }
 
 /// Lần chụp trước mới sau một lượt chụp vùng kết thúc bằng `action` với vùng `screen` (tọa độ
-/// màn hình), và có phải ghi tệp không (chỉ khi giá trị đổi; Hủy không bao giờ ghi).
+/// màn hình), và có phải ghi tệp không: chỉ khi giá trị mới khác giá trị đã ghi thành công lên đĩa
+/// (`on_disk`), để lần ghi lỗi trước được thử lại; Hủy không bao giờ ghi.
 pub fn last_capture_after(
     prev: Option<LastCapture>,
+    on_disk: Option<LastCapture>,
     action: Action,
     screen: Rect,
 ) -> (Option<LastCapture>, bool) {
+    let _ = on_disk;
     let next = last_capture::remember(prev, action, screen);
     (next, next != prev)
 }
@@ -276,7 +279,7 @@ pub fn write_last_capture(path: &Path, l: &LastCapture) -> std::io::Result<()> {
 /// thì ghi tệp. Lỗi ghi bị nuốt: không bao giờ làm hỏng luồng chụp.
 fn remember_last_capture(action: Action, screen: Rect) {
     let prev = LAST_CAPTURE.with(|l| l.get());
-    let (next, write) = last_capture_after(prev, action, screen);
+    let (next, write) = last_capture_after(prev, prev, action, screen);
     LAST_CAPTURE.with(|l| l.set(next));
     if let (true, Some(l)) = (write, next) {
         let _ = write_last_capture(&paths::last_capture_path(), &l);
@@ -2050,24 +2053,52 @@ mod tests {
         let r = rc(1, 2, 30, 40);
         let prev = lc(r, Action::Save);
         // Hủy: giữ nguyên, không ghi.
-        assert_eq!(last_capture_after(None, Action::Cancel, r), (None, false));
         assert_eq!(
-            last_capture_after(Some(prev), Action::Cancel, rc(9, 9, 50, 50)),
+            last_capture_after(None, None, Action::Cancel, r),
+            (None, false)
+        );
+        assert_eq!(
+            last_capture_after(Some(prev), Some(prev), Action::Cancel, rc(9, 9, 50, 50)),
             (Some(prev), false)
         );
-        // Giống hệt: không ghi lại.
+        // Giống hệt giá trị đã ghi: không ghi lại.
         assert_eq!(
-            last_capture_after(Some(prev), Action::Save, r),
+            last_capture_after(Some(prev), Some(prev), Action::Save, r),
             (Some(prev), false)
         );
         // Đổi vùng hoặc hành động: ghi.
         assert_eq!(
-            last_capture_after(Some(prev), Action::Pin, r),
+            last_capture_after(Some(prev), Some(prev), Action::Pin, r),
             (Some(lc(r, Action::Pin)), true)
         );
         assert_eq!(
-            last_capture_after(None, Action::Copy, rc(5, 5, 60, 60)),
+            last_capture_after(None, None, Action::Copy, rc(5, 5, 60, 60)),
             (Some(lc(rc(5, 5, 60, 60), Action::Copy)), true)
+        );
+    }
+
+    #[test]
+    fn last_capture_after_retries_failed_write() {
+        let r = rc(1, 2, 30, 40);
+        let cur = lc(r, Action::Save);
+        // Lần ghi trước lỗi: trên đĩa chưa có gì (hoặc giá trị cũ), chụp lại cùng vùng phải ghi.
+        assert_eq!(
+            last_capture_after(Some(cur), None, Action::Save, r),
+            (Some(cur), true)
+        );
+        let old = lc(rc(9, 9, 50, 50), Action::Copy);
+        assert_eq!(
+            last_capture_after(Some(cur), Some(old), Action::Save, r),
+            (Some(cur), true)
+        );
+        // Hủy vẫn không bao giờ ghi, kể cả khi trên đĩa đang cũ.
+        assert_eq!(
+            last_capture_after(Some(cur), None, Action::Cancel, r),
+            (Some(cur), false)
+        );
+        assert_eq!(
+            last_capture_after(Some(cur), Some(old), Action::Cancel, r),
+            (Some(cur), false)
         );
     }
 
