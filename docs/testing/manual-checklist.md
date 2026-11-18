@@ -474,3 +474,42 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-ocr.ps1 -Exe target\d
 - [ ] English: nút "Recognize text (Ctrl+T)", tiêu đề "Recognized text", nút Copy và Close, thông báo "Text copied" và dòng "Language: …" đều tiếng Anh; không cắt chữ.
 - [ ] Windows 10: nút, phím và menu nhận dạng hoạt động như trên Windows 11.
 - [ ] Chạy tay kiểm thử `#[ignore]` của nhận dạng (khi không chạm chuột hoặc bàn phím): `cargo test -p darkshot-windows ocr::tests::manual -- --ignored --nocapture --test-threads=1` (3 kiểm thử) và `cargo test -p darkshot-windows ocr_window::tests::manual -- --ignored --test-threads=1` (5 kiểm thử; mở cửa sổ thật).
+
+## Đợt 12: Chụp từng bước
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-steps.ps1 -Exe target\demo12\release\darkshot.exe` (thêm `-Lang en`). Demo tạo sẵn một phiên 3 bước tổng hợp trong hồ sơ cách ly và mở darkshot: thanh phiên hiện ngay với "3 bước". [x] = phiên điều phối đã thấy; [ ] = chưa ai thử.
+
+- [ ] Menu khay: mục "Chụp từng bước" nằm ngay sau "Lịch sử ảnh chụp"; khi có phiên mục đổi thành "Xem lại các bước (N)" với N đúng số bước.
+- [ ] Bấm "Chụp từng bước": thanh phiên hiện, có chấm đỏ, "Chụp từng bước · 0 bước" và các nút Chụp bước, Xem lại, Kết thúc; mặc định giữa mép trên màn hình chính, cách mép khoảng 12 DIP.
+- [ ] Thanh phiên không lấy tiêu điểm (gõ chữ ở ứng dụng khác vẫn vào ứng dụng đó), luôn nằm trên cùng, không hiện trên thanh tác vụ, kéo được ở vùng chữ.
+- [ ] Chụp bước (hoặc phím chụp vùng): chọn vùng, đánh dấu, rồi bấm Ctrl+N hoặc nút Thêm bước; lớp phủ đóng và thanh phiên tăng số bước.
+- [ ] Lớp phủ khi có phiên: thanh ngang có nút "Thêm bước (Ctrl+N)" ngay trước Hủy; rê chuột thấy đúng tên.
+- [ ] Lớp phủ khi không có phiên: thanh ngang như đợt 11 (không có nút Thêm bước), Ctrl+N không làm gì.
+- [ ] Ảnh bước có nét đánh dấu đã vẽ; Lịch sử ảnh chụp không có mục mới; Chụp lại vùng trước vẫn chụp đúng vùng cũ.
+- [ ] Thanh phiên không xuất hiện trong ảnh chụp (chụp màn hình có thanh phiên, kiểm tra ảnh không có thanh).
+- [ ] Windows cũ hơn 2004 (nếu có máy thử): thanh tự ẩn trong lúc chụp và hiện lại sau đó.
+- [ ] Xem lại: cửa sổ "Các bước" hiện danh sách ảnh nhỏ, "Bước k" và dòng đầu ghi chú; xem trước đúng bước đang chọn.
+- [ ] Lên, Xuống đổi thứ tự; số "Bước k" và tên tệp 001.png… không đổi khi sắp xếp.
+- [ ] Ô Ghi chú: ghi chú được lưu khi rời ô, đổi bước hoặc đóng; nhập quá 2000 ký tự thì bị cắt đúng 2000.
+- [ ] Xóa bước (nút hoặc Delete): bước biến mất ngay, không hỏi, tệp ảnh của bước bị xóa khỏi `current`.
+- [ ] Danh sách trống (xóa hết bước): hiện "Chưa có bước nào. Bấm Chụp bước trên thanh phiên."
+- [ ] Đóng bằng Esc hoặc nút Đóng; cửa sổ mở lại vẫn đủ bước.
+- [ ] Xuất…: chọn thư mục; tạo thư mục `darkshot-steps-YYYY-MM-DD_HH-mm` có `01.png`, `02.png`… đúng thứ tự hiển thị và `steps.md` đúng tiêu đề, ngày, "Bước k", ghi chú và liên kết ảnh.
+- [ ] Xuất hai lần trong cùng một phút: thư mục thứ hai là `…_2`; không ghi vào thư mục đã có.
+- [ ] Ghi chú có ký tự Markdown (`*`, `#`, `[`, `]`): `steps.md` thoát đúng, không vỡ định dạng.
+- [ ] Sau khi xuất: thông báo "Đã xuất N bước", thư mục mở trong Explorer, và phiên vẫn còn đủ bước.
+- [ ] Xuất vào thư mục không ghi được: hiện thông báo lỗi, phiên giữ nguyên.
+- [ ] Thoát darkshot rồi mở lại: phiên tiếp tục, đủ bước, thứ tự và ghi chú.
+- [ ] Tệp `session.json` bị hỏng (sửa tay): khởi động không có phiên; thư mục được đổi tên thành `current.corrupt-<thời gian>` và ảnh còn trong đó.
+- [ ] Tệp PNG của một bước bị xóa tay: khởi động bỏ bước đó khỏi danh sách, các bước còn lại đúng.
+- [ ] Kết thúc khi còn bước chưa xuất: hiện thẻ "Kết thúc mà không xuất? N bước sẽ bị xóa." với Hủy và Kết thúc; Hủy giữ phiên, Kết thúc xóa thư mục `current`.
+- [ ] Kết thúc sau khi đã xuất và không đổi gì: kết thúc ngay, không hỏi.
+- [ ] Kết thúc từ cửa sổ Các bước cũng hỏi như trên.
+- [ ] Đủ 99 bước, thêm bước thứ 100: hiện thông báo "Đã đủ 99 bước", không thêm.
+- [ ] Phiên không ghi vào Lịch sử và không đổi "lần chụp trước" (đo bằng thời gian sửa `last_capture.json`).
+- [ ] DPI 100%, 150% và 200%: thanh phiên, cửa sổ Các bước và nút không bị cắt chữ.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): thanh phiên và chụp bước đúng trên màn đó.
+- [ ] English: tên mục menu, thanh phiên, nút, thẻ xác nhận, thông báo và `steps.md` đều tiếng Anh; không cắt chữ.
+- [ ] Tiếng Việt: tên mục, nút, thẻ xác nhận, thông báo và `steps.md` đều tiếng Việt.
+- [ ] Tắt mạng rồi thực hiện cả luồng: vẫn chạy đủ.
+- [ ] Windows 10: thanh phiên, lớp phủ và cửa sổ Các bước hoạt động như trên Windows 11.
