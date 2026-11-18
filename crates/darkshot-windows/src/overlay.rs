@@ -102,6 +102,7 @@ impl BarItem {
             BarItem::Act(Action::Cancel) => Msg::OverlayCancel,
             BarItem::Act(Action::Pin) => Msg::OverlayPin,
             BarItem::Act(Action::Ocr) => Msg::OverlayOcr,
+            BarItem::Act(Action::AddStep) => Msg::OverlayAddStep,
         }
     }
 }
@@ -4697,6 +4698,8 @@ impl Gp {
                 p.poly(&bar);
                 p.poly(&stem);
             }
+            // Ô thêm bước chưa có trên thanh ngang (Task 85).
+            Action::AddStep => {}
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
