@@ -4,16 +4,16 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
-- **Giai đoạn 3 sản phẩm, đợt 10 nội bộ: Lặp lại lần chụp trước. XONG, đã gộp `main` và đẩy `origin` (quyết định 113: chủ dự án cho phiên điều phối tự gộp sau mỗi đợt rồi làm tiếp).** Chưa phát hành: v0.3.0 vẫn là bản mới nhất; Ghim (đợt 9) và Lặp lại (đợt 10) nằm ở mục "Chưa phát hành" của CHANGELOG.
-- Thiết kế `docs/superpowers/specs/2026-11-18-repeat-capture-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-repeat-capture.md`, gói `docs/tasks/73-…` đến `77-…`, quyết định 113–116. Demo chạy cách ly: `scripts/demo-repeat.ps1` (build `--target-dir target/demo10`; phím vùng Ctrl+Alt+Shift+F10, phím lặp Ctrl+Alt+Shift+F11).
-- Còn mở: mục "Đợt 10" và "Đợt 9" của `docs/testing/manual-checklist.md` (đa số `[ ]`); kiểm thử chưa giữ khóa GDI (quyết định 116); viên nhắc Bắt cửa sổ (quyết định 109).
-- Cách làm: mỗi đợt một tính năng, worktree riêng (`shotme-bNN` cho nhánh đợt, `shotme-task` cho nhánh task, `shotme-docs` cho tài liệu), thư mục chính `D:/2026 - Tuan/shotme` để ở `main` (chủ dự án và phiên website dùng). QA không giả lập chuột/phím thật (quyết định 111, 113).
+- **Giai đoạn 3 sản phẩm, đợt 10 nội bộ: Lặp lại lần chụp trước. XONG, đã gộp `main` và đẩy `origin` (quyết định 114: chủ dự án cho phiên điều phối tự gộp sau mỗi đợt rồi làm tiếp).** Bản mới nhất là v0.4.0 (gồm Ghim, đợt 9; phiên khác phát hành theo yêu cầu chủ dự án, quyết định 113). Lặp lại (đợt 10) nằm ở mục "Chưa phát hành" của CHANGELOG. Lưu ý: nhánh phát hành của phiên đó tên `task/73-release-0.4.0`, trùng số 73 với `task/73-repeat-core` của đợt 10.
+- Thiết kế `docs/superpowers/specs/2026-11-18-repeat-capture-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-repeat-capture.md`, gói `docs/tasks/73-…` đến `77-…`, quyết định 114–117. Demo chạy cách ly: `scripts/demo-repeat.ps1` (build `--target-dir target/demo10`; phím vùng Ctrl+Alt+Shift+F10, phím lặp Ctrl+Alt+Shift+F11).
+- Còn mở: mục "Đợt 10" và "Đợt 9" của `docs/testing/manual-checklist.md` (đa số `[ ]`); kiểm thử chưa giữ khóa GDI (quyết định 117); viên nhắc Bắt cửa sổ (quyết định 109).
+- Cách làm: mỗi đợt một tính năng, worktree riêng (`shotme-bNN` cho nhánh đợt, `shotme-task` cho nhánh task, `shotme-docs` cho tài liệu), thư mục chính `D:/2026 - Tuan/shotme` để ở `main` (chủ dự án và phiên website dùng). QA không giả lập chuột/phím thật (quyết định 111, 114).
 - Phiên trang giới thiệu từng tạo nhánh `task/67-website`, `task/68-website-sync-rule` trùng tiền tố số với đợt 9; task của đợt mới dùng số kế tiếp sau số lớn nhất trong `docs/tasks/`.
 - Task đang làm: không.
 
 ## Bước kế tiếp
 
-Đợt 11 (Giai đoạn 3): **OCR cục bộ** (Windows.Media.Ocr, không mạng), rồi Chụp từng bước, rồi Chụp cuộn (quyết định 113). Mỗi đợt: thiết kế mới, kế hoạch có bảng agent/model, gói task từ số 78, rà soát độc lập, rà soát toàn đợt, cập nhật website, gộp `main`, đẩy `origin`. Phát hành chỉ khi chủ dự án yêu cầu.
+Đợt 11 (Giai đoạn 3): **OCR cục bộ** (Windows.Media.Ocr, không mạng), rồi Chụp từng bước, rồi Chụp cuộn (quyết định 114). Mỗi đợt: thiết kế mới, kế hoạch có bảng agent/model, gói task từ số 78, rà soát độc lập, rà soát toàn đợt, cập nhật website, gộp `main`, đẩy `origin`. Phát hành chỉ khi chủ dự án yêu cầu.
 
 ## Lưu trữ: đợt 9 (đã gộp `main`)
 
@@ -28,6 +28,7 @@ Cập nhật: 2026-11-18
 - Task đang làm: không (sau Task 72).
 
 ### Bước kế tiếp (đợt 9, cũ)
+- **Phát hành v0.4.0** (2026-11-18, chủ dự án yêu cầu): gồm Ghim ảnh (đợt 9) và website. Tag `v0.4.0`, release kèm `darkshot-v0.4.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`; nội dung từ `CHANGELOG.md` (quyết định 113). Exe chưa ký số. Task đang làm: không.
 
 Không có task `chờ`. Đợt tiếp theo của Giai đoạn 3 cần thiết kế mới (gói task từ số 73; ứng viên còn lại ở thiết kế đợt 9 mục 2). Lỗi chủ dự án báo về Ghim: nhánh `task/72b-…` từ `main`, agent/model theo độ khó. Phát hành (0.4.0) chỉ khi họ yêu cầu; khi phát hành: CHANGELOG "Chưa phát hành" → 0.4.0, README "Tải về" và kích thước, rà website.
 

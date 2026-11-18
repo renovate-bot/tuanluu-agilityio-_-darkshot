@@ -6,10 +6,19 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ### Mới
 
-- **Ghim ảnh lên màn hình.** Từ lớp phủ, bấm nút Ghim hoặc Ctrl+P để ghim vùng vừa chọn (đã đánh dấu) khít đúng chỗ của nó. Từ Lịch sử, nút Ghim mở ảnh giữa màn hình có chuột, không lớn hơn 80% vùng làm việc. Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn để phóng, Ctrl+cuộn để đổi độ mờ, bấm đúp để về 100%, chuột phải để mở menu, Esc để đóng. Phím: `+` `-` `0`, mũi tên, Ctrl+W, Ctrl+C, Ctrl+S. Tối đa 32 ảnh ghim; menu khay có "Đóng mọi ảnh ghim" khi đang có ảnh ghim. Thoát darkshot đóng mọi ảnh ghim.
-  - Phóng: mỗi cạnh hiển thị tối đa 16.384 px; trên 100%, diện tích hiển thị tối đa 40 triệu px (ảnh 4K phóng tối đa 200%).
 - **Chụp lại vùng trước.** Phím mới (mặc định tắt, `Ctrl+Shift+PrintScreen`, bật ở Tùy chọn → Phím tắt) và mục menu khay cùng tên, ngay sau Chụp màn hình. Chụp lại đúng vùng của lần chụp vùng gần nhất (cùng tọa độ màn hình) và làm lại đúng hành động đã chọn (Lưu, Chép, Tải lên hoặc Ghim), không mở lớp phủ, không lặp nét đánh dấu. Lần chụp lặp lại không đổi "lần chụp trước". Chưa có lần chụp vùng nào thì mở lớp phủ như phím chụp vùng. Vùng không còn trên màn hình thì mở lớp phủ để chọn lại, kèm thông báo sau khi đóng. Nhớ qua khởi động lại trong `%APPDATA%\darkshot\last_capture.json`, tệp chỉ chứa tọa độ và hành động.
 - **Giữ vị trí vùng chọn** nay nhớ qua khởi động lại (cùng tệp `last_capture.json`).
+
+### Đã biết
+
+- Chụp lại vùng trước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, trên màn hình có tọa độ âm, và khi rút màn hình. Xem mục "Đợt 10" trong `docs/testing/manual-checklist.md`.
+
+## [0.4.0] - 2026-11-18
+
+### Mới
+
+- **Ghim ảnh lên màn hình.** Từ lớp phủ, bấm nút Ghim hoặc Ctrl+P để ghim vùng vừa chọn (đã đánh dấu) khít đúng chỗ của nó. Từ Lịch sử, nút Ghim mở ảnh giữa màn hình có chuột, không lớn hơn 80% vùng làm việc. Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn để phóng, Ctrl+cuộn để đổi độ mờ, bấm đúp để về 100%, chuột phải để mở menu, Esc để đóng. Phím: `+` `-` `0`, mũi tên, Ctrl+W, Ctrl+C, Ctrl+S. Tối đa 32 ảnh ghim; menu khay có "Đóng mọi ảnh ghim" khi đang có ảnh ghim. Thoát darkshot đóng mọi ảnh ghim.
+  - Phóng: mỗi cạnh hiển thị tối đa 16.384 px; trên 100%, diện tích hiển thị tối đa 40 triệu px (ảnh 4K phóng tối đa 200%).
 
 ### Sửa lỗi
 
@@ -19,7 +28,6 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 - Sau khi bấm chọn một cửa sổ ở Gợi ý cửa sổ, viên nhắc có thể còn hiện tới lần di chuột kế tiếp. Đã điều tra (Task 66), không tái hiện được trên một màn hình 200%; cần thử bằng chuột thật trên nhiều màn hình.
 - Ảnh ghim chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, và trên màn hình có tọa độ âm. Xem mục "Đợt 9" trong `docs/testing/manual-checklist.md`.
-- Chụp lại vùng trước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, trên màn hình có tọa độ âm, và khi rút màn hình. Xem mục "Đợt 10" trong `docs/testing/manual-checklist.md`.
 
 ## [0.3.0] - 2026-11-18
 
@@ -74,7 +82,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tuanluu-agilityio/darkshot/releases/tag/v0.1.0
