@@ -8,6 +8,8 @@ Bản mới nhất: **0.4.0** ở [trang Releases](https://github.com/tuanluu-ag
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
+Chụp lại vùng trước đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
+
 
 ## Build
 
@@ -17,7 +19,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11). Bản build từ `main` có thêm Chụp lại vùng trước (đo ngày 2026-11-18): **2.051.584 byte** (khoảng 1,96 MiB).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
@@ -40,7 +42,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 ## Cách dùng
 
 1. Chạy `darkshot.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "darkshot".
-2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Lịch sử ảnh chụp**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
+2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Chụp lại vùng trước**, **Lịch sử ảnh chụp**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel. Hoặc rê chuột lên một cửa sổ (hay nền của một màn hình) rồi bấm một lần, hoặc Enter, để chọn đúng khung đó (xem "Gợi ý cửa sổ").
@@ -182,7 +184,7 @@ Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạ
 Cửa sổ Tùy chọn có bốn tab:
 
 - **Thông thường:** **Khởi động cùng Windows**, bốn ô tích **Hiện các thông báo lưu và sao chép**, **Tự kiểm tra bản mới**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
-- **Phím tắt:** ba dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
+- **Phím tắt:** bốn dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
 - **Định dạng:** hai nút chọn **PNG** (mặc định) và **JPEG**, thanh trượt **Chất lượng JPEG** từ 50 đến 100 (mặc định 90). Thanh trượt và số mờ khi chọn PNG. Chỉ áp dụng cho ảnh tải lên; ảnh lưu vào máy luôn là PNG. JPEG vẫn là nén có mất mát, kể cả ở mức 100.
 - **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
 
@@ -202,18 +204,19 @@ Giao diện có hai ngôn ngữ: Tiếng Việt và English. Đổi ở Tùy ch�
 
 ### Phím tắt chụp
 
-Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…**.
+Tab **Phím tắt** của Tùy chọn có bốn dòng. Mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…**.
 
 | Dòng | Mặc định | Việc làm |
 |---|---|---|
 | Chụp vùng màn hình | Bật, `PrintScreen` | Mở lớp phủ để chọn vùng. |
 | Lưu ảnh (toàn màn hình) | Tắt, `Shift+PrintScreen` | Lưu PNG của màn hình đang có con trỏ chuột, không mở lớp phủ. |
 | Tải lên nhanh (toàn màn hình) | Tắt, `Ctrl+PrintScreen` | Tải lên ảnh của màn hình đang có con trỏ chuột và chép link, không mở lớp phủ. |
+| Chụp lại vùng trước | Tắt, `Ctrl+Shift+PrintScreen` | Chụp lại đúng vùng của lần chụp vùng trước và làm lại hành động đã chọn (Lưu, Chép, Tải lên hoặc Ghim), không mở lớp phủ. Xem "Chụp lại vùng trước". |
 
 - "Toàn màn hình" là màn hình đang có con trỏ chuột lúc bấm phím. Nếu con trỏ không nằm trên màn hình nào thì lấy màn hình gần nhất. Ảnh là cả màn hình: không có vùng chọn và không có thanh công cụ.
-- Hai phím toàn màn hình không đổi vùng đã nhớ của mục "Giữ vị trí vùng chọn".
+- Hai phím toàn màn hình không đổi vùng đã nhớ của mục "Giữ vị trí vùng chọn", và không đổi lần chụp trước của "Chụp lại vùng trước".
 - Bỏ tích một dòng thì phím của dòng đó không còn được đăng ký; ô phím và nút **Đổi…** mờ đi. Tổ hợp của dòng vẫn được giữ, tích lại là dùng được.
-- Hai dòng đang bật không được trùng tổ hợp: bấm OK khi trùng thì cửa sổ báo lỗi và không đóng. Dòng đang tắt có thể trùng với dòng khác.
+- Các dòng đang bật không được trùng tổ hợp: bấm OK khi trùng thì cửa sổ báo lỗi và không đóng. Dòng đang tắt có thể trùng với dòng khác.
 - Để đổi: bấm **Đổi…** rồi nhấn tổ hợp mới. Bấm **Esc** để bỏ qua việc đổi.
 - Phím thường phải kèm **Ctrl**, **Alt** hoặc **Win**. Ví dụ `Ctrl+Shift+S` được nhận, còn chữ `S` một mình thì không.
 - Các phím được đứng riêng: `PrintScreen`, `Pause`, `ScrollLock`, `F1` đến `F24`.
@@ -229,11 +232,24 @@ Tab **Phím tắt** của Tùy chọn có ba dòng. Mỗi dòng có ô tích b�
 ### Giữ vị trí vùng chọn
 
 - Bật **Giữ vị trí vùng đã chọn** (mặc định tắt): lần chụp vùng sau mở lớp phủ với khung của lần trước, đã chọn sẵn, có tay nắm, nhãn kích thước và thanh công cụ.
-- Khung được nhớ khi lượt chụp vùng kết thúc bằng Lưu, Chép hoặc Tải lên. Bấm Esc thì giữ khung cũ.
+- Khung được nhớ khi lượt chụp vùng kết thúc bằng Lưu, Chép, Tải lên hoặc Ghim. Bấm Esc thì giữ khung cũ.
 - Khung vẫn được nhớ khi ô đang tắt, nên bật ô lên là dùng được ngay.
 - Khung chỉ dùng lại khi nằm trọn trong ảnh chụp hiện tại và chạm ít nhất một màn hình đang có. Nếu không, lớp phủ mở trống.
-- Chỉ nhớ tọa độ, không lưu ảnh. Vị trí chỉ nhớ trong lúc ứng dụng chạy: thoát rồi mở lại thì lớp phủ mở trống.
+- Chỉ nhớ tọa độ, không lưu ảnh. Vị trí được nhớ qua khởi động lại, cùng tệp với mục "Chụp lại vùng trước": thoát rồi mở lại vẫn chọn sẵn khung cũ (nếu khung còn nằm trên màn hình).
 
+### Chụp lại vùng trước
+
+Phím **Chụp lại vùng trước** (mặc định tắt, `Ctrl+Shift+PrintScreen`; bật ở Tùy chọn, tab Phím tắt) hoặc mục **Chụp lại vùng trước** ở menu khay (ngay sau Chụp màn hình) chụp lại đúng vùng của lần chụp vùng gần nhất và làm lại đúng hành động đã chọn: Lưu, Chép, Tải lên hoặc Ghim.
+
+- Không mở lớp phủ và không chọn lại vùng. Không lặp các nét đánh dấu: ảnh chỉ là vùng màn hình, không có hình đã vẽ.
+- Vùng là tọa độ trên màn hình. Lần chụp lặp lại không đổi "lần chụp trước": lần sau vẫn lặp vùng cũ.
+- Chụp toàn màn hình (`Shift+PrintScreen`, `Ctrl+PrintScreen`) không đổi lần chụp trước.
+- Mục ở menu khay mờ khi chưa có lần chụp vùng nào. Khi phím được bấm mà chưa có lần chụp, lớp phủ mở như phím chụp vùng (kể cả gợi ý cửa sổ).
+- Lần chụp được nhớ khi lượt chụp vùng kết thúc bằng Lưu, Chép, Tải lên hoặc Ghim. Bấm Esc (hủy) thì không ghi gì.
+- Nhớ qua khởi động lại: tệp `%APPDATA%\darkshot\last_capture.json` chỉ chứa tọa độ vùng và tên hành động (`save`, `copy`, `upload` hoặc `pin`). Tệp không chứa ảnh, nhãn hay nét vẽ. Tệp hỏng thì được coi như chưa có lần chụp, và không bị ghi đè cho đến lần chụp vùng kết thúc bằng hành động.
+- Nếu vùng không còn trên màn hình (ví dụ đã rút màn hình hoặc đổi độ phân giải), lớp phủ mở trên ảnh chụp hiện tại để chọn lại. Sau khi lớp phủ đóng, darkshot báo "Vùng trước không còn trên màn hình. Hãy chọn lại."
+
+### Con trỏ chuột trong ảnh
 ### Con trỏ chuột trong ảnh
 
 - Bật **Bao gồm con trỏ chuột vào ảnh chụp màn hình** (mặc định tắt): con trỏ được vẽ vào ảnh ngay lúc chụp, nên ảnh nền của lớp phủ cũng có con trỏ đứng yên.
@@ -302,6 +318,7 @@ Thêm `-Lang en` để chạy giao diện English. Chụp vùng: `Ctrl+Alt+Shift
 | Mục | Việc làm |
 |---|---|
 | Chụp màn hình | Mở lớp phủ chụp. |
+| Chụp lại vùng trước | Chụp lại đúng vùng của lần chụp vùng gần nhất và làm lại hành động đã chọn, không mở lớp phủ. Mờ khi chưa có lần chụp vùng nào. Xem "Chụp lại vùng trước". |
 | Lịch sử ảnh chụp | Mở cửa sổ Lịch sử (xem mục "Lịch sử ảnh chụp"). Nếu đã mở thì đưa ra trước. |
 | Tùy chọn... | Mở cửa sổ Tùy chọn. Nếu đã mở thì đưa cửa sổ đó ra trước. |
 | Thông tin... | Mở cửa sổ Thông tin: biểu tượng, tên, phiên bản và mô tả ngắn. |

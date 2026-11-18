@@ -2,6 +2,17 @@
 
 Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên bản theo [SemVer](https://semver.org/lang/vi/): tăng số giữa khi có tính năng mới, số cuối khi chỉ sửa lỗi. Tải bản phát hành ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases).
 
+## [Chưa phát hành]
+
+### Mới
+
+- **Chụp lại vùng trước.** Phím mới (mặc định tắt, `Ctrl+Shift+PrintScreen`, bật ở Tùy chọn → Phím tắt) và mục menu khay cùng tên, ngay sau Chụp màn hình. Chụp lại đúng vùng của lần chụp vùng gần nhất (cùng tọa độ màn hình) và làm lại đúng hành động đã chọn (Lưu, Chép, Tải lên hoặc Ghim), không mở lớp phủ, không lặp nét đánh dấu. Lần chụp lặp lại không đổi "lần chụp trước". Chưa có lần chụp vùng nào thì mở lớp phủ như phím chụp vùng. Vùng không còn trên màn hình thì mở lớp phủ để chọn lại, kèm thông báo sau khi đóng. Nhớ qua khởi động lại trong `%APPDATA%\darkshot\last_capture.json`, tệp chỉ chứa tọa độ và hành động.
+- **Giữ vị trí vùng chọn** nay nhớ qua khởi động lại (cùng tệp `last_capture.json`).
+
+### Đã biết
+
+- Chụp lại vùng trước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, trên màn hình có tọa độ âm, và khi rút màn hình. Xem mục "Đợt 10" trong `docs/testing/manual-checklist.md`.
+
 ## [0.4.0] - 2026-11-18
 
 ### Mới
@@ -71,7 +82,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tuanluu-agilityio/darkshot/releases/tag/v0.1.0

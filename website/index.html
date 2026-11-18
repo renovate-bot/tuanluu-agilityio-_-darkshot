@@ -421,7 +421,8 @@
               <ul class="ticks">
                 <li data-i18n-html="fg.x1"><kbd>Shift</kbd>+<kbd>PrintScreen</kbd> saves the whole screen with no overlay (off by default).</li>
                 <li data-i18n-html="fg.x2"><kbd>Ctrl</kbd>+<kbd>PrintScreen</kbd> uploads the whole screen and copies the link (off by default).</li>
-                <li data-i18n="fg.x3">All three capture shortcuts can be re-assigned or turned off in Options.</li>
+                <li data-i18n="fg.x3">All four capture shortcuts can be re-assigned or turned off in Options.</li>
+                <li data-i18n-html="fg.x4"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>PrintScreen</kbd> repeats the last region capture: same area, same action, no overlay (off by default).</li>
               </ul>
               <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C and Ctrl+P work once you have a selection.</p>
             </div>
@@ -591,7 +592,7 @@
           <details><summary data-i18n="faq.q4">Does darkshot require installation?</summary><p data-i18n="faq.a4">No traditional installer. Run the portable darkshot.exe directly.</p></details>
           <details><summary data-i18n="faq.q5">Where are my screenshots stored?</summary><p data-i18n-html="faq.a5">Saved screenshots go to your save folder, by default <code>Pictures\darkshot</code>, and you can change it in Options. If you turn on history, its index and thumbnails live in <code>%LOCALAPPDATA%\darkshot\history</code>. A screenshot only exists in memory until you save or upload it.</p></details>
           <details><summary data-i18n="faq.q6">Are screenshots uploaded automatically?</summary><p data-i18n="faq.a6">No. Nothing is uploaded unless you choose Upload (or use the optional quick-upload shortcut you enabled yourself). Uploads go only to the R2 bucket you configured.</p></details>
-          <details><summary data-i18n="faq.q7">Can I customize keyboard shortcuts?</summary><p data-i18n="faq.a7">Yes. The three capture shortcuts (region, quick save, quick upload) can be changed or turned off in Options → Hotkeys. Shortcuts inside the overlay, such as Ctrl+S, are fixed.</p></details>
+          <details><summary data-i18n="faq.q7">Can I customize keyboard shortcuts?</summary><p data-i18n="faq.a7">Yes. The four capture shortcuts (region, quick save, quick upload, repeat last region) can be changed or turned off in Options → Hotkeys. Shortcuts inside the overlay, such as Ctrl+S, are fixed.</p></details>
           <details><summary data-i18n="faq.q8">Is darkshot available on macOS or Linux?</summary><p data-i18n="faq.a8">No. darkshot is a Windows-only app and there are no macOS or Linux builds.</p></details>
           <details><summary data-i18n="faq.q9">Why does Windows SmartScreen show a warning?</summary><p data-i18n="faq.a9">The executable is not yet digitally signed, so SmartScreen has no publisher reputation to check. Verify the file against SHA256SUMS.txt, then choose More info → Run anyway if you're comfortable.</p></details>
           <details><summary data-i18n="faq.q10">How can I verify the download?</summary><p data-i18n-html="faq.a10">Each release includes <code>SHA256SUMS.txt</code>. Run <code>Get-FileHash .\darkshot.exe -Algorithm SHA256</code> in PowerShell and compare the result with the matching line.</p></details>

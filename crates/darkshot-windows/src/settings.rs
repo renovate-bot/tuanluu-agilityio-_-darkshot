@@ -486,7 +486,7 @@ const ID_SNAP_WINDOWS: i32 = 155;
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
 const ID_HK_CHANGE0: i32 = 130;
-const ID_HK_CHECK0: i32 = 133;
+const ID_HK_CHECK0: i32 = 134;
 /// Khung của tab thứ i có ID `ID_FRAME0 + i` (120 đến 123).
 const ID_FRAME0: i32 = 120;
 const FRAME_CLASS: PCWSTR = w!("darkshot-settings-frame");
@@ -522,9 +522,9 @@ struct Ctl {
     expiry: HWND,
     dir: HWND,
     /// Ô tích, ô chỉ đọc và nút "Đổi…" của từng dòng phím tắt, theo `HotkeyRole::ALL`.
-    hk_chk: [HWND; 3],
-    hk_edit: [HWND; 3],
-    hk_btn: [HWND; 3],
+    hk_chk: [HWND; HotkeyRole::ALL.len()],
+    hk_edit: [HWND; HotkeyRole::ALL.len()],
+    hk_btn: [HWND; HotkeyRole::ALL.len()],
     autostart: HWND,
     notices: HWND,
     check_updates: HWND,
@@ -1650,7 +1650,7 @@ fn on_help() {
 }
 
 /// Bấm "Đổi…" của dòng `r`: dòng khác đang bắt thì thoát (giữ phím cũ của nó), rồi dòng `r` vào
-/// chế độ bắt. Lần đầu trong phiên mở cửa sổ: hủy đăng ký cả ba dòng (Hủy sẽ đăng ký lại).
+/// chế độ bắt. Lần đầu trong phiên mở cửa sổ: hủy đăng ký mọi dòng (Hủy sẽ đăng ký lại).
 fn on_change_hotkey(r: HotkeyRole) {
     let Some(c) = ctl() else { return };
     if with_st(|s| s.capturing == Some(r)).unwrap_or(true) {
@@ -2427,9 +2427,9 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
 }
 
 struct HotkeysCtl {
-    chk: [HWND; 3],
-    edit: [HWND; 3],
-    btn: [HWND; 3],
+    chk: [HWND; HotkeyRole::ALL.len()],
+    edit: [HWND; HotkeyRole::ALL.len()],
+    btn: [HWND; HotkeyRole::ALL.len()],
     height: i32,
 }
 
@@ -2457,44 +2457,92 @@ fn max_text_width_dip(b: &Builder, texts: &[&str]) -> Option<i32> {
     }
 }
 
+/// Hình chữ nhật (x, y, w, h) tính bằng DIP, tương đối với khung của tab.
+type Rect4 = (i32, i32, i32, i32);
+
+/// Ba ô của một dòng phím tắt.
+#[derive(Clone, Copy, Debug)]
+struct HotkeyRow {
+    chk: Rect4,
+    edit: Rect4,
+    btn: Rect4,
+}
+
+/// Bố cục tab Phím tắt: một dòng cho mỗi phần tử của `HotkeyRole::ALL`, cách nhau `HK_ROW_STEP`.
+#[derive(Clone, Debug)]
+struct HotkeysLayout {
+    rows: [HotkeyRow; HotkeyRole::ALL.len()],
+    height: i32,
+}
+
+impl HotkeysLayout {
+    #[cfg(test)]
+    /// Mọi ô, theo thứ tự dòng rồi (ô tích, ô chỉ đọc, nút): cũng là thứ tự Tab.
+    fn rects(&self) -> Vec<Rect4> {
+        self.rows
+            .iter()
+            .flat_map(|r| [r.chk, r.edit, r.btn])
+            .collect()
+    }
+}
+
+/// Khoảng cách dọc giữa hai dòng phím tắt (DIP).
+const HK_ROW_STEP: i32 = 34;
+
+fn hotkeys_layout(l: Layout) -> HotkeysLayout {
+    let right = EX + l.ew;
+    let edit_x = LX + l.hk_chk_w + HK_GAP;
+    let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
+    let mut y = 12;
+    let mut rows = [HotkeyRow {
+        chk: (0, 0, 0, 0),
+        edit: (0, 0, 0, 0),
+        btn: (0, 0, 0, 0),
+    }; HotkeyRole::ALL.len()];
+    for row in rows.iter_mut() {
+        *row = HotkeyRow {
+            chk: (LX, y + 1, l.hk_chk_w, 22),
+            edit: (edit_x, y, edit_w, 24),
+            btn: (right - HK_BTN_W, y - 1, HK_BTN_W, 26),
+        };
+        y += HK_ROW_STEP;
+    }
+    HotkeysLayout {
+        rows,
+        height: y + 4,
+    }
+}
+
 /// Ô của tab Phím tắt: mỗi dòng theo `HotkeyRole::ALL` có ô tích (nhãn của dòng), ô chỉ đọc, nút "Đổi…".
 /// Cột nhãn đủ rộng cho nhãn dài nhất của mọi ngôn ngữ; ô phím lấy phần còn lại.
 fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
-    let right = EX + b.layout.ew;
-    let chk_w = b.layout.hk_chk_w;
-    let edit_x = LX + chk_w + HK_GAP;
-    let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
-    let mut y = 12;
+    let lay = hotkeys_layout(b.layout);
     let (mut chk, mut edit, mut btn) = (
-        [HWND::default(); 3],
-        [HWND::default(); 3],
-        [HWND::default(); 3],
+        [HWND::default(); HotkeyRole::ALL.len()],
+        [HWND::default(); HotkeyRole::ALL.len()],
+        [HWND::default(); HotkeyRole::ALL.len()],
     );
     for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+        let row = lay.rows[i];
         chk[i] = b.button(
             lang::tr(r.label()),
             ws(BS_AUTOCHECKBOX),
-            (LX, y + 1, chk_w, 22),
+            row.chk,
             ID_HK_CHECK0 + i as i32,
         );
-        edit[i] = b.edit(
-            WINDOW_STYLE(ES_READONLY as u32),
-            (edit_x, y, edit_w, 24),
-            -1,
-        );
+        edit[i] = b.edit(WINDOW_STYLE(ES_READONLY as u32), row.edit, -1);
         btn[i] = b.button(
             lang::tr(Msg::BtnChange),
             ws(BS_PUSHBUTTON),
-            (right - HK_BTN_W, y - 1, HK_BTN_W, 26),
+            row.btn,
             ID_HK_CHANGE0 + i as i32,
         );
-        y += 34;
     }
     HotkeysCtl {
         chk,
         edit,
         btn,
-        height: y + 4,
+        height: lay.height,
     }
 }
 
@@ -3382,6 +3430,8 @@ mod tests {
     /// nhất (đo thật bằng phông hệ thống) ở 100/150/200%; không ô nào đè ô nào và tất cả trong khung.
     #[test]
     fn general_tab_fits_history_note_at_common_dpis() {
+        // Tạo phông và DC: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let texts = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
         for label_w in [None, Some(250)] {
             for dpi in [96u32, 144, 192] {
@@ -3576,6 +3626,119 @@ mod tests {
         // Nhãn ngắn: giữ bố cục cũ 480 DIP, ô nhập 270 DIP.
         let l = Layout::from_label_width(Some(50));
         assert_eq!((l.client_w, l.ew), (CLIENT_MIN_W, 270));
+    }
+
+    #[test]
+    fn hotkeys_layout_has_one_row_per_role_without_overlap() {
+        assert_eq!(HotkeyRole::ALL.len(), 4);
+        for label_w in [None, Some(100), Some(168), Some(250)] {
+            let l = Layout::from_label_width(label_w);
+            let h = hotkeys_layout(l);
+            assert_eq!(h.rows.len(), HotkeyRole::ALL.len());
+            for dpi in [96u32, 120, 144, 192] {
+                let px = |r: (i32, i32, i32, i32)| {
+                    let (x, y) = (scale(r.0, dpi), scale(r.1, dpi));
+                    (x, y, x + scale(r.2, dpi), y + scale(r.3, dpi))
+                };
+                let rects = h.rects();
+                assert_eq!(rects.len(), 3 * HotkeyRole::ALL.len());
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.0 >= LX && a.1 >= 0, "dpi {dpi}: {a:?}");
+                    assert!(a.0 + a.2 <= l.client_w - 36, "dpi {dpi}: {a:?}");
+                    assert!(a.1 + a.3 <= h.height, "dpi {dpi}: {a:?}");
+                    for b in &rects[i + 1..] {
+                        let (pa, pb) = (px(*a), px(*b));
+                        let apart = pa.2 <= pb.0 || pb.2 <= pa.0 || pa.3 <= pb.1 || pb.3 <= pa.1;
+                        assert!(apart, "dpi {dpi}: {a:?} overlaps {b:?}");
+                    }
+                }
+            }
+            // Dòng sau nằm dưới dòng trước.
+            for w in h.rows.windows(2) {
+                assert!(w[0].chk.1 + w[0].chk.3 <= w[1].chk.1);
+                assert!(w[0].btn.1 + w[0].btn.3 <= w[1].btn.1);
+            }
+        }
+    }
+
+    #[test]
+    fn hotkey_labels_fit_on_one_line_at_all_dpi() {
+        // Tạo phông và DC: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        for dpi in [96u32, 120, 144, 192] {
+            let font = crate::winutil::system_font(dpi).expect("system font");
+            // Bề rộng nhãn như `build_controls` đo: dài nhất mọi dòng, mọi ngôn ngữ.
+            let one = text_height_px(font, "Ag", 10_000).unwrap();
+            let mut widest = 0;
+            for r in HotkeyRole::ALL {
+                for lang in Lang::ALL {
+                    let text = t(lang, r.label());
+                    // Tìm bề rộng nhỏ nhất để chữ vẫn một dòng.
+                    let mut w = 1;
+                    while text_height_px(font, text, w).unwrap() > one {
+                        w += 1;
+                    }
+                    widest = widest.max(w);
+                }
+            }
+            let widest_dip = (widest * 96 + dpi as i32 - 1) / dpi as i32;
+            let l = Layout::from_label_width(Some(widest_dip));
+            assert!(
+                scale(l.hk_chk_w - HK_BOX, dpi) >= widest,
+                "dpi {dpi}: {} < {widest}",
+                scale(l.hk_chk_w - HK_BOX, dpi)
+            );
+            // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn nó.
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(font.0));
+            }
+        }
+    }
+
+    #[test]
+    fn hotkeys_round_trip_four_rows_through_form() {
+        let c = base();
+        let mut src = base();
+        for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+            src.hotkeys.set(
+                r,
+                HotkeySlot {
+                    enabled: i % 2 == 0,
+                    key: Hotkey {
+                        ctrl: true,
+                        alt: false,
+                        shift: false,
+                        win: false,
+                        vk: 0x41 + i as u32,
+                    },
+                },
+            );
+        }
+        let f = form_of(&src);
+        let out = apply_form(&c, &f, Lang::Vi).unwrap();
+        for r in HotkeyRole::ALL {
+            assert_eq!(out.hotkeys.get(r), src.hotkeys.get(r), "{r:?}");
+        }
+        assert_eq!(out.hotkeys, src.hotkeys);
+    }
+
+    #[test]
+    fn repeat_last_conflict_with_region_is_reported_on_row_four() {
+        let c = base();
+        let mut f = form_of(&c);
+        f.hotkeys.region.enabled = true;
+        f.hotkeys.repeat_last = HotkeySlot {
+            enabled: true,
+            key: f.hotkeys.region.key,
+        };
+        let e = apply_form(&c, &f, Lang::Vi).unwrap_err();
+        assert_eq!(e.field, Field::HotkeyRow(HotkeyRole::RepeatLast));
+        assert!(e.message.contains(t(Lang::Vi, HotkeyRole::Region.label())));
+        assert!(e
+            .message
+            .contains(t(Lang::Vi, HotkeyRole::RepeatLast.label())));
+        f.hotkeys.repeat_last.enabled = false;
+        assert!(apply_form(&c, &f, Lang::Vi).is_ok());
     }
 
     #[test]

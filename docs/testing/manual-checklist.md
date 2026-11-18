@@ -420,3 +420,28 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\d
 - [ ] Phím chụp khi menu chuột phải của ảnh ghim hoặc của Lịch sử đang mở: menu đóng rồi lớp phủ mới hiện, cú kéo đầu tiên chọn vùng (Task 72).
 - [ ] Bấm Ghim trong Lịch sử rồi mở lớp phủ ngay: ảnh ghim chỉ hiện sau khi lớp phủ đóng (Task 72).
 - [ ] Đủ 32 ảnh ghim, bấm Ghim trong Lịch sử: thông báo hiện ngay (Task 72).
+
+## Đợt 10: Lặp lại lần chụp trước
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-repeat.ps1 -Exe target\demo10\release\darkshot.exe` (thêm `-Lang en`). Chụp vùng: Ctrl+Alt+Shift+F10 hoặc menu khay. Lặp lại: Ctrl+Alt+Shift+F11 hoặc menu khay > Chụp lại vùng trước. Demo có sẵn một lần chụp vùng (200, 200, 640 × 360, hành động Lưu) trong `last_capture.json`. [x] = phiên điều phối đã thấy trên bản demo; [ ] = chưa ai thử.
+
+- [x] (Phiên điều phối, 2026-11-18, Windows 11, một màn hình 2880×1800 DPI 200%, tiếng Việt, không giả lập chuột/phím thật) Tab Phím tắt hiện đủ bốn dòng, dòng "Chụp lại vùng trước" không cắt chữ (`target/demo10/screens/01-…`). Gửi `WM_HOTKEY` id 4 tới cửa sổ ẩn với `last_capture.json` tổng hợp (640 × 360, Lưu): một PNG 640 × 360 được lưu, không mở lớp phủ, Lịch sử có mục "Đã lưu". Kiểm thử `repeat_last_saves_png_of_region` qua một lượt (người làm Task 74).
+
+- [ ] Tab Phím tắt có bốn dòng, dòng "Chụp lại vùng trước" đứng dưới ba dòng cũ, mặc định tắt, phím Ctrl+Shift+PrintScreen; ô tích bật/tắt và nút Đổi… của dòng này hoạt động như ba dòng kia.
+- [ ] Bật dòng "Chụp lại vùng trước" rồi bấm OK: Ctrl+Shift+PrintScreen chụp lại ngay, không mở lớp phủ. Tắt dòng đó: phím không còn phản ứng, mục menu vẫn dùng được.
+- [ ] Đặt dòng "Chụp lại vùng trước" trùng tổ hợp với dòng đang bật khác rồi bấm OK: cửa sổ báo lỗi và không đóng. Dòng đang tắt có thể trùng.
+- [ ] Menu khay: mục "Chụp lại vùng trước" nằm ngay sau "Chụp màn hình"; mờ khi chưa có lần chụp vùng nào (xóa `last_capture.json` để thử), sáng sau khi có.
+- [ ] Lặp lại Lưu: ảnh PNG đúng vùng (đúng pixel, không lệch), không có nét đánh dấu của lần trước; không mở lớp phủ.
+- [ ] Lặp lại Chép, Tải lên (có R2), Ghim: làm đúng hành động đã chọn lần trước; Ghim lặp tạo thêm một ảnh ghim mới ở đúng vùng.
+- [ ] Lặp lại không đổi lần chụp trước: sau hai lần lặp, vẫn lặp đúng vùng cũ; Chụp toàn màn hình (Shift+PrintScreen) cũng không đổi.
+- [ ] Hủy (Esc) ở lớp phủ không ghi `last_capture.json` (đo bằng thời gian sửa tệp).
+- [ ] Chưa có lần chụp (xóa tệp hoặc cài mới): phím lặp mở lớp phủ như phím chụp vùng, kể cả gợi ý cửa sổ.
+- [ ] Khởi động lại: chụp vùng, Lưu, thoát darkshot, mở lại, bấm phím lặp: chụp đúng vùng cũ. Giữ vị trí vùng (tùy chọn bật) cũng chọn sẵn khung cũ sau khi mở lại.
+- [ ] Tệp hỏng (sửa tay `last_capture.json` thành JSON sai hoặc có action lạ): phím lặp mở lớp phủ như chưa có lần chụp, không báo lỗi, không thoát app; chụp vùng mới ghi đè tệp.
+- [ ] Vùng không còn trên màn hình (rút màn hình chứa vùng, hoặc đổi độ phân giải làm vùng nằm ngoài): lớp phủ mở trên ảnh chụp hiện tại; sau khi đóng lớp phủ có thông báo "Không lặp lại được" với nội dung "Vùng trước không còn trên màn hình. Hãy chọn lại."
+- [ ] Hành động Tải lên khi chưa điền R2: báo lỗi như Tải lên thường và ảnh được lưu dự phòng vào thư mục lưu, không mất ảnh.
+- [ ] DPI 100%, 150% và 200%: vùng lặp đúng pixel ở cả ba mức.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): lặp đúng vùng nằm trên màn đó.
+- [ ] English: nhãn tab, mục menu "Repeat last capture" và thông báo đều tiếng Anh; không cắt chữ ở tab Phím tắt.
+- [ ] Windows 10: phím và menu lặp hoạt động như trên Windows 11.
+- [ ] Chạy tay kiểm thử `#[ignore]` mới `repeat_last_saves_png_of_region` (`crates/darkshot-windows/src/main.rs`) với `--test-threads=1`, khi không chạm chuột/bàn phím: `cargo test -p darkshot-windows -- --ignored repeat_last_saves_png_of_region --test-threads=1`.

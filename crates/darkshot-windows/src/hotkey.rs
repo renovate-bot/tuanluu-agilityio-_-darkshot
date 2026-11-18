@@ -8,12 +8,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_SHIFT, MOD_WIN,
 };
 
-/// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3.
+/// Mã đăng ký với Windows của một dòng: Region = 1, SaveFull = 2, UploadFull = 3, RepeatLast = 4.
 pub fn id_of(role: HotkeyRole) -> i32 {
     match role {
         HotkeyRole::Region => 1,
         HotkeyRole::SaveFull => 2,
         HotkeyRole::UploadFull => 3,
+        HotkeyRole::RepeatLast => 4,
     }
 }
 
@@ -22,7 +23,7 @@ pub fn role_of(id: i32) -> Option<HotkeyRole> {
     HotkeyRole::ALL.into_iter().find(|r| id_of(*r) == id)
 }
 
-/// Hủy đăng ký cả ba dòng; dòng chưa đăng ký thì bỏ qua.
+/// Hủy đăng ký mọi dòng; dòng chưa đăng ký thì bỏ qua.
 pub fn unregister_all(hwnd: HWND) {
     for r in HotkeyRole::ALL {
         // SAFETY: hủy phím đã đăng ký cho cửa sổ này; lỗi (chưa đăng ký) được bỏ qua.
@@ -32,7 +33,7 @@ pub fn unregister_all(hwnd: HWND) {
     }
 }
 
-/// Hủy cả ba dòng rồi đăng ký các dòng đang bật theo `HotkeyRole::ALL`; dòng tắt không bao giờ
+/// Hủy mọi dòng rồi đăng ký các dòng đang bật theo `HotkeyRole::ALL`; dòng tắt không bao giờ
 /// được đăng ký. Trả về các dòng đang bật mà không đăng ký được.
 pub fn register_enabled(hwnd: HWND, keys: &Hotkeys) -> Vec<HotkeyRole> {
     // RegisterHotKey với cùng hwnd và id không thay phím cũ mà giữ cả hai: luôn hủy trước.
@@ -56,6 +57,7 @@ pub fn help_keys(keys: &Hotkeys) -> HelpKeys {
         region: on(HotkeyRole::Region),
         save_full: on(HotkeyRole::SaveFull),
         upload_full: on(HotkeyRole::UploadFull),
+        repeat_last: on(HotkeyRole::RepeatLast),
     }
 }
 
@@ -172,12 +174,12 @@ mod tests {
     fn ids_round_trip() {
         assert_eq!(id_of(HotkeyRole::Region), 1);
         let ids: Vec<i32> = HotkeyRole::ALL.iter().map(|r| id_of(*r)).collect();
-        assert_eq!(ids, vec![1, 2, 3]);
+        assert_eq!(ids, vec![1, 2, 3, 4]);
         for r in HotkeyRole::ALL {
             assert_eq!(role_of(id_of(r)), Some(r));
         }
         assert_eq!(role_of(0), None);
-        assert_eq!(role_of(4), None);
+        assert_eq!(role_of(5), None);
     }
 
     #[test]
@@ -188,7 +190,8 @@ mod tests {
             HelpKeys {
                 region: Some("PrintScreen".into()),
                 save_full: None,
-                upload_full: None
+                upload_full: None,
+                repeat_last: None
             }
         );
         h.upload_full.enabled = true;
@@ -198,7 +201,8 @@ mod tests {
             HelpKeys {
                 region: None,
                 save_full: None,
-                upload_full: Some("Ctrl+PrintScreen".into())
+                upload_full: Some("Ctrl+PrintScreen".into()),
+                repeat_last: None
             }
         );
     }

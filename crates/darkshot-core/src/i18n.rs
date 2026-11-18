@@ -231,6 +231,13 @@ messages! {
     AutostartDisableFailed => ("Không tắt được khởi động cùng Windows", "Could not disable starting with Windows"),
     LabelHotkeySaveFull => ("Lưu ảnh (toàn màn hình)", "Save screenshot (full screen)"),
     LabelHotkeyUploadFull => ("Tải lên nhanh (toàn màn hình)", "Quick upload (full screen)"),
+    LabelHotkeyRepeatLast => ("Chụp lại vùng trước", "Repeat last capture"),
+    MenuRepeatLast => ("Chụp lại vùng trước", "Repeat last capture"),
+    RepeatRegionGoneTitle => ("Không lặp lại được", "Couldn't repeat"),
+    RepeatRegionGoneBody => (
+        "Vùng trước không còn trên màn hình. Hãy chọn lại.",
+        "The previous region is no longer on screen. Select it again."
+    ),
     ChkShowSuccessNotices => (
         "Hiện các thông báo lưu và sao chép",
         "Show save and copy notifications"
@@ -561,6 +568,7 @@ pub struct HelpKeys {
     pub region: Option<String>,
     pub save_full: Option<String>,
     pub upload_full: Option<String>,
+    pub repeat_last: Option<String>,
 }
 
 /// Nội dung cửa sổ Trợ giúp: văn bản thuần, các dòng ngăn bằng `\n`, không có địa chỉ web.
@@ -572,6 +580,8 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
     let region_label = t(lang, Msg::LabelHotkey);
     let save_label = t(lang, Msg::LabelHotkeySaveFull);
     let upload_label = t(lang, Msg::LabelHotkeyUploadFull);
+    let repeat_label = t(lang, Msg::LabelHotkeyRepeatLast);
+    let repeat_menu = t(lang, Msg::MenuRepeatLast);
     let notices = t(lang, Msg::ChkShowSuccessNotices);
     let keep = t(lang, Msg::ChkKeepSelection);
     let cursor = t(lang, Msg::ChkIncludeCursor);
@@ -618,6 +628,20 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
         ),
         (_, None) => off(upload_label),
     };
+    let repeat_last = match (lang, &keys.repeat_last) {
+        (Lang::Vi, Some(k)) => format!(
+            "- {repeat_label}: bấm {k} hoặc chọn \"{repeat_menu}\" ở menu khay để chụp lại đúng vùng của lần chụp vùng trước và làm lại hành động đã chọn, không cần chọn vùng."
+        ),
+        (Lang::En, Some(k)) => format!(
+            "- {repeat_label}: press {k} or choose \"{repeat_menu}\" in the tray menu to capture the same region as the previous region capture and repeat the action you chose, without selecting a region."
+        ),
+        (Lang::Vi, None) => format!(
+            "- {repeat_label}: mặc định tắt; bật ở {options}, tab {hotkeys_tab}. Mục \"{repeat_menu}\" ở menu khay dùng được sau lần chụp vùng đầu tiên (trước đó mục này mờ)."
+        ),
+        (Lang::En, None) => format!(
+            "- {repeat_label}: off by default; turn it on in {options}, {hotkeys_tab} tab. The \"{repeat_menu}\" tray menu item becomes available after your first region capture (until then it is grayed out)."
+        ),
+    };
     match lang {
         Lang::Vi => format!(
             "1. Chụp màn hình\n\
@@ -625,6 +649,7 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
 Chụp cả màn hình bằng phím tắt:\n\
 {save_full}\n\
 {upload_full}\n\
+{repeat_last}\n\
 \n\
 2. Thanh công cụ và phím tắt\n\
 Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
@@ -638,9 +663,9 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
 - Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ và ba ô tích:\n\
 \x20\x20+ {notices}: bỏ tích thì không hiện các thông báo \"{saved}\", \"{copied}\", \"{link}\". Thông báo lỗi luôn hiện.\n\
-\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát darkshot.\n\
+\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, kể cả sau khi khởi động lại darkshot.\n\
 \x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
-- Phím tắt: ba dòng \"{region_label}\", \"{save_label}\" và \"{upload_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- Phím tắt: bốn dòng \"{region_label}\", \"{save_label}\", \"{upload_label}\" và \"{repeat_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - {format_tab}: chọn định dạng cho ảnh tải lên, PNG (mặc định) hoặc JPEG, và chất lượng JPEG từ 50 đến 100. Ảnh lưu vào máy luôn là PNG. Chất lượng càng cao thì file càng nặng.\n\
 - Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
 \n\
@@ -665,6 +690,7 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Full-screen captures with a hotkey:\n\
 {save_full}\n\
 {upload_full}\n\
+{repeat_last}\n\
 \n\
 2. Toolbar and keys\n\
 Once a region is selected, use the toolbar buttons or the keys:\n\
@@ -678,9 +704,9 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
 - General: start with Windows, save folder, language and three check boxes:\n\
 \x20\x20+ {notices}: when unchecked, the \"{saved}\", \"{copied}\" and \"{link}\" notifications are not shown. Error notifications always appear.\n\
-\x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit darkshot.\n\
+\x20\x20+ {keep}: the next region capture starts with the previously selected region, even after darkshot restarts.\n\
 \x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
-- Hotkeys: three rows, \"{region_label}\", \"{save_label}\" and \"{upload_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
+- Hotkeys: four rows, \"{region_label}\", \"{save_label}\", \"{upload_label}\" and \"{repeat_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
 - {format_tab}: choose the format for uploaded images, PNG (the default) or JPEG, and the JPEG quality from 50 to 100. Images saved to disk are always PNG. Higher quality means a larger file.\n\
 - R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
 \n\
@@ -1000,6 +1026,7 @@ mod tests {
             region: Some("A".into()),
             save_full: Some("B".into()),
             upload_full: Some("C".into()),
+            repeat_last: Some("D".into()),
         };
         for l in Lang::ALL {
             for m in Msg::ALL {
@@ -1050,17 +1077,18 @@ mod tests {
                 region: Some("KEY_A".into()),
                 save_full: Some("KEY_B".into()),
                 upload_full: Some("KEY_C".into()),
+                repeat_last: Some("KEY_D".into()),
             };
             let s = help_text(l, &all);
             for k in [
-                "KEY_A", "KEY_B", "KEY_C", "Ctrl+D", "Ctrl+S", "Ctrl+C", "Esc",
+                "KEY_A", "KEY_B", "KEY_C", "KEY_D", "Ctrl+D", "Ctrl+S", "Ctrl+C", "Esc",
             ] {
                 assert!(s.contains(k), "{l:?} thiếu {k}");
             }
             assert!(!s.contains("http"));
             assert!(s.contains(t(l, Msg::BtnChange)));
             let none = help_text(l, &HelpKeys::default());
-            for k in ["KEY_A", "KEY_B", "KEY_C"] {
+            for k in ["KEY_A", "KEY_B", "KEY_C", "KEY_D"] {
                 assert!(!none.contains(k));
             }
             assert_ne!(none, s);
@@ -1095,6 +1123,40 @@ mod tests {
                 ),
                 s
             );
+        }
+    }
+
+    #[test]
+    fn repeat_last_strings_and_help() {
+        for m in [
+            Msg::LabelHotkeyRepeatLast,
+            Msg::MenuRepeatLast,
+            Msg::RepeatRegionGoneTitle,
+            Msg::RepeatRegionGoneBody,
+        ] {
+            assert!(!t(Lang::Vi, m).is_empty() && !t(Lang::En, m).is_empty());
+            assert_ne!(t(Lang::Vi, m), t(Lang::En, m));
+        }
+        for l in Lang::ALL {
+            let label = t(l, Msg::LabelHotkeyRepeatLast);
+            assert!(help_text(l, &HelpKeys::default()).contains(label), "{l:?}");
+            // Đoạn tab Phím tắt của mục Tùy chọn nêu cả bốn dòng.
+            let h = help_text(l, &HelpKeys::default());
+            let line = h
+                .lines()
+                .find(|x| x.starts_with("- Phím tắt:") || x.starts_with("- Hotkeys:"))
+                .expect("hotkeys tab line");
+            assert!(line.contains(label), "{l:?}");
+            assert!(
+                !line.contains("ba dòng") && !line.contains("three rows"),
+                "{l:?}"
+            );
+            let on = HelpKeys {
+                repeat_last: Some("KEY_D".into()),
+                ..HelpKeys::default()
+            };
+            assert!(help_text(l, &on).contains("KEY_D"));
+            assert_ne!(help_text(l, &on), help_text(l, &HelpKeys::default()));
         }
     }
 
@@ -1138,6 +1200,30 @@ mod tests {
             t(Lang::En, Msg::PinTooLargeBody),
             "The image is too large to pin."
         );
+    }
+
+    #[test]
+    fn help_text_keep_selection_and_repeat_menu_are_accurate() {
+        let on = HelpKeys {
+            repeat_last: Some("Ctrl+Shift+PrintScreen".into()),
+            ..HelpKeys::default()
+        };
+        for keys in [HelpKeys::default(), on] {
+            let vi = help_text(Lang::Vi, &keys);
+            let en = help_text(Lang::En, &keys);
+            // "Giữ vị trí vùng" nhớ cả sau khi khởi động lại.
+            assert!(!vi.contains("cho tới khi thoát darkshot"));
+            assert!(!en.contains("until you exit darkshot"));
+            assert!(vi.contains("kể cả sau khi khởi động lại darkshot"));
+            assert!(en.contains("even after darkshot restarts"));
+            // Mục menu khay lặp lại mờ khi chưa có lần chụp vùng.
+            assert!(!vi.contains("luôn dùng được"));
+            assert!(!en.contains("always available"));
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("dùng được sau lần chụp vùng đầu tiên"));
+        assert!(en.contains("becomes available after your first region capture"));
     }
 
     #[test]

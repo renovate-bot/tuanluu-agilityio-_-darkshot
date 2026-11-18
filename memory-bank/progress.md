@@ -92,6 +92,12 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 71b Website: mục Ghim, ảnh Lịch sử mới (luật website mới trong CLAUDE.md) | task/71b-pin-website | builder | sonnet | xong | 64.267 | phiên điều phối đọc diff | 2.660 | 66.927 |
 | Rà soát toàn đợt 9 | feature/pin-screenshot | specialist | fable | xong | | 182.216 | | 182.216 |
 | 72 Sửa sau rà soát toàn đợt 9 | task/72-pin-review-fixes | specialist | opus | xong | 82.058 | 61.304 (reviewer fable) | 3.937 | 147.299 |
+| 73 Lặp lại lần chụp: lõi (Giai đoạn 3, đợt 10) | task/73-repeat-core | builder | sonnet | xong | 111.210 | 36.123 (reviewer sonnet) | 0 | 147.333 |
+| 74 Lặp lại lần chụp: luồng chụp, tệp, phím, khay | task/74-repeat-flow | specialist | opus | xong | 127.411 | 79.456 (reviewer fable) | 10.373 | 217.240 |
+| 75 Lặp lại lần chụp: dòng phím trong Tùy chọn | task/75-repeat-options | builder | sonnet | xong | 73.537 | 50.322 (reviewer opus) | 7.808 | 131.667 |
+| 76 Lặp lại lần chụp: tài liệu, website, demo | task/76-repeat-docs | scaffolder | haiku | xong | 118.101 | phiên điều phối đọc diff | 0 | 118.101 |
+| Rà soát toàn đợt 10 | feature/repeat-capture | specialist | fable | xong | | 110.020 | | 110.020 |
+| 77 Sửa sau rà soát toàn đợt 10 (khóa GDI kiểm thử, chữ Trợ giúp, gợi ý cửa sổ ở lớp phủ dự phòng) | task/77-repeat-review-fixes | specialist (agent Task 74, còn ngữ cảnh) | opus | xong | 32.868 | phiên điều phối đọc diff | 0 | 32.868 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
