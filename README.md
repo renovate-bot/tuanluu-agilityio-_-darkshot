@@ -8,7 +8,7 @@ Bản mới nhất: **0.4.0** ở [trang Releases](https://github.com/tuanluu-ag
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
-Chụp lại vùng trước và Nhận dạng chữ cục bộ đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
+Chụp lại vùng trước và Nhận dạng chữ cục bộ đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Chụp từng bước chưa có trong bản 0.4.0 và chưa gộp vào `main`. Xem mục "Chưa phát hành" của CHANGELOG.
 
 
 ## Build
@@ -42,7 +42,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 ## Cách dùng
 
 1. Chạy `darkshot.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "darkshot".
-2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Chụp lại vùng trước**, **Lịch sử ảnh chụp**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
+2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Chụp lại vùng trước**, **Lịch sử ảnh chụp**, **Chụp từng bước**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel. Hoặc rê chuột lên một cửa sổ (hay nền của một màn hình) rồi bấm một lần, hoặc Enter, để chọn đúng khung đó (xem "Gợi ý cửa sổ").
@@ -51,7 +51,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi sáu nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy). Rê chuột vào nút để xem tên và phím tắt.
+Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi sáu nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy). Khi đang có phiên chụp từng bước, thanh có thêm nút **Thêm bước** ngay trước Hủy. Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
@@ -62,9 +62,11 @@ Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một v�
 | Chép ảnh | `Ctrl+C` | Chép ảnh vào clipboard. |
 | Ghim lên màn hình | `Ctrl+P` | Ghim vùng chọn lên màn hình thành một ảnh ghim. Xem "Ghim ảnh lên màn hình". |
 | Nhận dạng chữ | `Ctrl+T` | Nhận dạng chữ trong vùng đã chọn và mở cửa sổ "Chữ nhận dạng". Xem mục "Nhận dạng chữ". |
+| Thêm bước (chỉ khi có phiên) | `Ctrl+N` | Thêm vùng chọn (đã đánh dấu nếu có) làm một bước của phiên chụp từng bước. Lớp phủ đóng. Xem "Chụp từng bước". |
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
 - `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
+- `Ctrl+N` chỉ có tác dụng khi đã có vùng chọn và đang có phiên chụp từng bước. Khi không có phiên, phím này không làm gì và nút Thêm bước không hiện.
 - `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo khung chọn vùng. Khi đang có bảng mở, ô chữ, lần kéo hình hoặc hình được chọn, `Esc` chỉ lùi một bước (xem "Đánh dấu ảnh").
 
 ### Đánh dấu ảnh
@@ -339,6 +341,27 @@ powershell -File scripts/demo-ocr.ps1 -Exe target\demo11\release\darkshot.exe
 
 Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó bằng `Ctrl+Alt+Shift+F10`, rồi bấm `Ctrl+T`. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 11".
 
+### Chụp từng bước
+
+Gom nhiều lần chụp vùng thành một **phiên**: mỗi bước là một ảnh có hình đánh dấu, được đánh số tự động, có thể ghi chú rồi xuất cả bộ ra một thư mục gồm ảnh đánh số và tệp `steps.md`. Tối đa 99 bước. Phiên chạy hoàn toàn trên máy, không dùng mạng.
+
+- **Bắt đầu:** menu khay, mục **Chụp từng bước** (ngay sau Lịch sử ảnh chụp). Khi đã có phiên, mục này đổi thành **Xem lại các bước (N)**, với N là số bước.
+- **Thanh phiên:** cửa sổ nhỏ, tối, luôn nằm trên cùng, không lấy tiêu điểm, mặc định ở giữa mép trên của màn hình chính. Kéo được bằng vùng chữ. Thanh hiện chấm đỏ và "Chụp từng bước · N bước", kèm ba nút: **Chụp bước** (chụp vùng như phím chụp), **Xem lại** và **Kết thúc**. Trên Windows 10 2004 trở lên, thanh không xuất hiện trong ảnh chụp. Máy cũ hơn thì thanh tự ẩn trong lúc chụp rồi hiện lại.
+- **Thêm bước:** khi có phiên, lớp phủ có thêm nút **Thêm bước** (`Ctrl+N`) ngay trước Hủy. Ảnh bước là vùng chọn có hình đánh dấu. Lớp phủ đóng và thanh phiên cập nhật số bước. Bước không ghi vào Lịch sử ảnh chụp và không đổi "lần chụp trước".
+- **Nơi lưu:** `%LOCALAPPDATA%\darkshot\steps\current\`, gồm `001.png`, `002.png`… (tên theo thứ tự thêm, không đổi khi sắp xếp lại) và `session.json`. Ảnh bước chỉ nằm trên máy này cho đến khi bạn xuất.
+- **Khôi phục:** thoát darkshot rồi mở lại thì phiên tiếp tục, đủ bước và ghi chú. Nếu `session.json` hỏng, thư mục được đổi tên thành `current.corrupt-<thời gian>` để giữ lại ảnh, và darkshot bắt đầu không có phiên. Tệp PNG bị thiếu thì bước đó bị bỏ khỏi danh sách.
+- **Cửa sổ Các bước** (nút **Xem lại** trên thanh phiên, hoặc mục menu): bên trái là danh sách bước (ảnh nhỏ, "Bước k", dòng đầu của ghi chú); bên phải là xem trước và ô **Ghi chú** (tối đa 2000 ký tự, lưu khi rời ô, đổi bước hoặc đóng). Nút **Lên**, **Xuống**, **Xóa bước** (phím Delete; xóa ngay, không hỏi, và xóa tệp ảnh của bước đó), **Xuất…**, **Kết thúc phiên**, **Đóng** (phím Esc). Khi chưa có bước nào, cửa sổ hiện "Chưa có bước nào. Bấm Chụp bước trên thanh phiên."
+- **Xuất…:** hộp chọn thư mục hiện ra, mặc định là thư mục lưu ảnh. darkshot tạo thư mục con `darkshot-steps-YYYY-MM-DD_HH-mm` (thêm `_2`, `_3`… nếu trùng; không ghi vào thư mục đã có). Trong đó có `01.png`, `02.png`… theo thứ tự hiển thị và `steps.md` gồm tiêu đề, ngày, "Bước k", ghi chú và ảnh của từng bước. Ký tự Markdown trong ghi chú được thoát. Xong thì hiện "Đã xuất N bước" và mở thư mục trong Explorer. Xuất không kết thúc phiên, và phiên giữ nguyên nếu ghi thất bại.
+- **Kết thúc phiên** (trên thanh phiên hoặc trong cửa sổ Các bước): nếu còn bước chưa xuất, hoặc đã đổi gì sau lần xuất cuối, darkshot hỏi "Kết thúc mà không xuất? N bước sẽ bị xóa." Bấm **Kết thúc** để xóa thư mục phiên, hoặc **Hủy** để giữ lại. Đã xuất rồi và không đổi gì sau đó, hoặc không có bước nào, thì kết thúc ngay.
+
+Chạy thử cách ly (dữ liệu tổng hợp 3 bước, không dùng cấu hình hay khóa R2 thật, không mạng):
+
+```powershell
+powershell -File scripts/demo-steps.ps1 -Exe target\demo12\release\darkshot.exe
+```
+
+Thêm `-Lang en` để chạy giao diện English. Khi darkshot khởi động, thanh phiên hiện ngay với 3 bước mẫu (phiên được khôi phục từ thư mục cách ly). Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 12".
+
 ### Menu khay
 
 | Mục | Việc làm |
@@ -346,6 +369,7 @@ Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một file 
 | Chụp màn hình | Mở lớp phủ chụp. |
 | Chụp lại vùng trước | Chụp lại đúng vùng của lần chụp vùng gần nhất và làm lại hành động đã chọn, không mở lớp phủ. Mờ khi chưa có lần chụp vùng nào. Xem "Chụp lại vùng trước". |
 | Lịch sử ảnh chụp | Mở cửa sổ Lịch sử (xem mục "Lịch sử ảnh chụp"). Nếu đã mở thì đưa ra trước. |
+| Chụp từng bước | Bắt đầu một phiên và mở thanh phiên (xem "Chụp từng bước"). Khi đã có phiên, mục là **Xem lại các bước (N)**: mở cửa sổ Các bước. |
 | Tùy chọn... | Mở cửa sổ Tùy chọn. Nếu đã mở thì đưa cửa sổ đó ra trước. |
 | Thông tin... | Mở cửa sổ Thông tin: biểu tượng, tên, phiên bản và mô tả ngắn. |
 | Trợ giúp | Mở cửa sổ Trợ giúp: các bước dùng darkshot và chuẩn bị Cloudflare R2, theo phím tắt đang đặt. |
@@ -475,6 +499,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 - Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng. Ứng dụng chỉ mở trình duyệt khi bạn bấm mục hoặc thông báo "Có bản mới", và chỉ tới trang release của repo darkshot trên GitHub.
 - Ứng dụng không ghi log ra file. Không gửi thống kê. Việc kiểm tra bản mới chỉ gửi tên và phiên bản ứng dụng (xem mục "Cập nhật") và tắt được.
 - Nhận dạng chữ (Ctrl+T) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử.
+- Chụp từng bước: ảnh bước nằm trong `%LOCALAPPDATA%\darkshot\steps\current` cho đến khi bạn xuất ra thư mục bạn chọn. Không gửi đi đâu, không vào Lịch sử. Kết thúc phiên sẽ xóa các ảnh này.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.
 - **Ứng dụng không xóa được ảnh chụp đã tải lên.** (Nó chỉ xóa file thử của nút Kiểm tra kết nối.) Muốn xóa, vào trang Cloudflare R2, mở bucket và xóa đối tượng đó.
