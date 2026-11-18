@@ -455,6 +455,8 @@ messages! {
     ScrollDone => ("Xong", "Done"),
     ScrollCancel => ("Hủy", "Cancel"),
     ScrollLimitTitle => ("Đã đạt giới hạn chiều cao", "Height limit reached"),
+    ScrollNoRoomTitle => ("Không có chỗ cho thanh chụp cuộn", "No room for the scrolling capture bar"),
+    ScrollNoRoomBody => ("Chọn vùng nhỏ hơn màn hình.", "Select a region smaller than the screen."),
     ScrollResultTitle => ("Ảnh chụp cuộn", "Scrolling capture"),
     ScrollSave => ("Lưu", "Save"),
     ScrollCopy => ("Chép", "Copy"),
@@ -488,6 +490,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::StepsSessionSaveFailedTitle,
     Msg::StepsEndFailedTitle,
     Msg::ScrollLimitTitle,
+    Msg::ScrollNoRoomTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`

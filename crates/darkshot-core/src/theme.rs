@@ -58,6 +58,8 @@ pub const ACCENT_BUTTON_HOVER: Rgb = Rgb::hex(0x2563EB);
 pub const ACCENT_BUTTON_PRESSED: Rgb = Rgb::hex(0x1D4ED8);
 pub const DANGER: Rgb = Rgb::hex(0xFF7B72);
 pub const SUCCESS: Rgb = Rgb::hex(0x4ADE80);
+/// Chữ cảnh báo vàng ("Cuộn chậm hơn", cảnh báo ghép không chắc chắn) trên nền tối.
+pub const WARNING: Rgb = Rgb::hex(0xF5C04A);
 /// Nút nguy hiểm (xác nhận xóa): nền đỏ đậm, chữ trắng; trỏ và nhấn đậm dần như nút chính.
 pub const DANGER_BUTTON: Rgb = Rgb::hex(0xD13438);
 pub const DANGER_BUTTON_HOVER: Rgb = Rgb::hex(0xC42B1C);
@@ -86,6 +88,8 @@ pub const TEXT_PAIRS: &[(Rgb, Rgb)] = &[
     (DANGER, SURFACE),
     (SUCCESS, BG),
     (SUCCESS, SURFACE),
+    (WARNING, BG),
+    (WARNING, SURFACE),
     (WHITE, ACCENT_BUTTON),
     (WHITE, ACCENT_BUTTON_HOVER),
     (WHITE, ACCENT_BUTTON_PRESSED),

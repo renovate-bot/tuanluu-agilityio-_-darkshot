@@ -17,7 +17,7 @@ use darkshot_core::geometry::{Point, Rect};
 use darkshot_core::i18n::{self, Msg};
 use darkshot_core::image::Image;
 use darkshot_core::scroll_stitch::{Push, Stitcher, MAX_HEIGHT};
-use darkshot_core::theme::{Rgb, ACCENT, BG, DANGER_BUTTON, LINE, SURFACE, TEXT, TEXT_MUTED};
+use darkshot_core::theme::{ACCENT, BG, DANGER_BUTTON, LINE, SURFACE, TEXT, TEXT_MUTED, WARNING};
 use std::cell::{Cell, RefCell};
 use std::time::Instant;
 use windows::core::{w, BOOL, HSTRING, PCWSTR};
@@ -37,13 +37,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, KillTimer, LoadCursorW,
-    RegisterClassW, SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity, SetWindowPos,
-    ShowWindow, HTTRANSPARENT, IDC_ARROW, LWA_ALPHA, MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_SHOWNA, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_CAPTURECHANGED,
-    WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE,
-    WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowRect, KillTimer,
+    LoadCursorW, RegisterClassW, SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity,
+    SetWindowPos, ShowWindow, HTTRANSPARENT, IDC_ARROW, LWA_ALPHA, MA_NOACTIVATE, SWP_NOACTIVATE,
+    SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNA, WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE,
+    WM_CAPTURECHANGED, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WM_TIMER, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 const HOST_CLASS: PCWSTR = w!("darkshot.scroll-host");
@@ -68,9 +68,6 @@ const TEXT_GAP: i32 = 12;
 const BTN_PAD: i32 = 12;
 const BTN_H: i32 = 28;
 const BTN_GAP: i32 = 6;
-
-/// Màu chữ trạng thái "Cuộn chậm hơn" (vàng cảnh báo, đọc rõ trên nền tối).
-const WARNING: Rgb = Rgb::hex(0xF5C04A);
 
 /// Hẹn giờ chụp của cửa sổ chủ.
 const TIMER_ID: usize = 1;
@@ -223,6 +220,21 @@ fn bar_origin(
         };
         (!overlaps(bar, region)).then_some(p)
     })
+}
+
+/// Như `bar_origin` trong vùng làm việc `work`; không có chỗ thì thử cả màn hình `mon` (đè lên
+/// thanh tác vụ), vẫn không bao giờ trong vùng khi không loại được khỏi ảnh chụp.
+fn bar_spot(
+    region: Rect,
+    size: (i32, i32),
+    gap: i32,
+    work: Rect,
+    mon: Rect,
+    others: &[Rect],
+    excluded: bool,
+) -> Option<Point> {
+    bar_origin(region, size, gap, work, others, excluded)
+        .or_else(|| bar_origin(region, size, gap, mon, &[], excluded))
 }
 
 /// Vùng còn nằm trọn trên các màn hình `monitors` (tọa độ màn hình, không chồng nhau).
@@ -481,6 +493,31 @@ struct BarUi {
     warn: bool,
 }
 
+impl Drop for BarUi {
+    fn drop(&mut self) {
+        if let Some(f) = self.font.take() {
+            // SAFETY: phông do thanh tạo; chỉ được chọn vào DC trong lúc vẽ, nên lúc này không DC
+            // nào giữ nó (BarUi bị thay hay Session đã hủy cửa sổ thanh).
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(f.0));
+            }
+        }
+    }
+}
+
+/// Vì sao không bắt đầu được phiên.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartError {
+    /// Đã có phiên đang chạy.
+    Busy,
+    /// Vùng rỗng.
+    Empty,
+    /// Không có chỗ cho thanh điều khiển ngoài vùng chụp (thanh không loại khỏi ảnh chụp được).
+    NoRoom,
+    /// Không tạo được cửa sổ hoặc hẹn giờ.
+    Failed,
+}
+
 /// Một phiên chụp cuộn đang chạy (một phiên cho cả tiến trình, trên luồng giao diện). Drop dọn
 /// hẹn giờ, phím Esc tạm, mọi cửa sổ và phông, nên mọi đường kết thúc đều dọn sạch.
 struct Session {
@@ -493,6 +530,8 @@ struct Session {
     host: HWND,
     frames: Vec<HWND>,
     bar: Option<HWND>,
+    /// Thanh đang được loại khỏi ảnh chụp (được phép nằm trong vùng).
+    bar_excluded: bool,
     ui: BarUi,
     esc: bool,
 }
@@ -513,22 +552,28 @@ impl Drop for Session {
                 let _ = DestroyWindow(f);
             }
             let _ = DestroyWindow(self.host);
-            if let Some(f) = self.ui.font.take() {
-                // Phông chỉ được chọn vào DC trong lúc vẽ; cửa sổ thanh đã hủy.
-                let _ = DeleteObject(HGDIOBJ(f.0));
-            }
         }
+        // Phông của thanh được xóa sau thân hàm này, khi `ui` drop (cửa sổ thanh đã hủy).
     }
 }
 
 fn noop_result(_: Image, _: u32) {}
 fn noop_limit(_: u32) {}
+fn noop() {}
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
     static CLASSES_DONE: Cell<bool> = const { Cell::new(false) };
     static ON_RESULT: Cell<fn(Image, u32)> = const { Cell::new(noop_result) };
     static ON_LIMIT: Cell<fn(u32)> = const { Cell::new(noop_limit) };
+    static ON_END: Cell<fn()> = const { Cell::new(noop) };
+}
+
+/// Hàm chạy mỗi khi một phiên đã bắt đầu kết thúc (mọi đường: Xong, Hủy, Esc, giới hạn, vùng mất,
+/// thoát), sau khi cửa sổ của phiên đã hủy và trước hàm kết quả (main: hiện lại thanh phiên Chụp
+/// từng bước đã ẩn).
+pub fn set_on_end(f: fn()) {
+    ON_END.with(|c| c.set(f));
 }
 
 /// Hàm nhận ảnh ghép và số chỗ ghép không chắc chắn khi phiên kết thúc bằng Xong, giới hạn hay
@@ -603,8 +648,17 @@ fn monitors() -> Vec<(Rect, Rect)> {
     v
 }
 
-/// Vùng làm việc và DPI của màn hình gần `region` nhất, cùng vùng làm việc các màn hình khác.
-fn placement(region: Rect) -> (Rect, u32, Vec<Rect>) {
+/// Màn hình gần một hình chữ nhật nhất: vùng làm việc, cả màn hình, DPI; vùng làm việc các màn
+/// hình khác.
+struct Place {
+    work: Rect,
+    mon: Rect,
+    dpi: u32,
+    others: Vec<Rect>,
+}
+
+/// Thông tin màn hình gần `region` nhất (xem `Place`).
+fn placement(region: Rect) -> Place {
     // SAFETY: chỉ hỏi thông tin màn hình; các biến là cục bộ.
     let (work, mon, dpi) = unsafe {
         let m = MonitorFromRect(&to_rect(region), MONITOR_DEFAULTTONEAREST);
@@ -630,7 +684,39 @@ fn placement(region: Rect) -> (Rect, u32, Vec<Rect>) {
         .filter(|(m, _)| *m != mon)
         .map(|(_, w)| w)
         .collect();
-    (work, dpi, others)
+    Place {
+        work,
+        mon,
+        dpi,
+        others,
+    }
+}
+
+/// Góc trên trái của thanh cỡ `size` (DPI `dpi`) cho vùng `region` (xem `bar_spot`).
+fn place(region: Rect, size: (i32, i32), dpi: u32, excluded: bool) -> Option<Point> {
+    let p = placement(region);
+    let gap = scale(BAR_GAP, dpi);
+    bar_spot(region, size, gap, p.work, p.mon, &p.others, excluded)
+}
+
+/// Thanh cỡ `ui` đặt cho `region`, dựng lại theo DPI của màn hình chứa thanh nếu khác `ui.dpi`.
+fn place_ui(region: Rect, ui: BarUi, excluded: bool) -> Option<(Point, BarUi)> {
+    let at = place(region, ui.layout.size, ui.dpi, excluded)?;
+    let r = Rect {
+        x: at.x,
+        y: at.y,
+        w: ui.layout.size.0,
+        h: ui.layout.size.1,
+    };
+    let dpi = placement(r).dpi;
+    if dpi == ui.dpi {
+        return Some((at, ui));
+    }
+    let other = build_ui(dpi);
+    match place(region, other.layout.size, dpi, excluded) {
+        Some(p) => Some((p, other)),
+        None => Some((at, ui)),
+    }
 }
 
 /// Dòng tiêu đề: "Chụp cuộn · Cuộn xuống từ từ".
@@ -788,12 +874,11 @@ fn create_frames(region: Rect, dpi: u32, supported: bool) -> Vec<HWND> {
     out
 }
 
-/// Thanh điều khiển ở chỗ hợp lệ; `None` khi không có chỗ nào ngoài vùng (không loại được).
-fn create_bar(region: Rect, ui: &BarUi, supported: bool) -> Option<HWND> {
-    let (work, _, others) = placement(region);
-    let gap = scale(BAR_GAP, ui.dpi);
+/// Thanh điều khiển ở chỗ hợp lệ, cùng chữ và bố cục theo DPI của màn hình chứa nó, và cờ đang
+/// loại khỏi ảnh chụp; `None` khi không có chỗ nào ngoài vùng (không loại được) hoặc lỗi tạo.
+fn create_bar(region: Rect, dpi: u32, supported: bool) -> Option<(HWND, BarUi, bool)> {
+    let (at, ui) = place_ui(region, build_ui(dpi), supported)?;
     let size = ui.layout.size;
-    let at = bar_origin(region, size, gap, work, &others, supported)?;
     let ex = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
     let r = Rect {
         x: at.x,
@@ -804,10 +889,10 @@ fn create_bar(region: Rect, ui: &BarUi, supported: bool) -> Option<HWND> {
     let h = create(ex, BAR_CLASS, r)?;
     // Windows cũ hơn 2004 coi giá trị này như WDA_MONITOR: không đặt.
     if supported && exclude(h) {
-        return Some(h);
+        return Some((h, ui, true));
     }
     // Không loại được khỏi ảnh chụp: thanh phải nằm ngoài vùng.
-    match bar_origin(region, size, gap, work, &others, false) {
+    match place(region, size, ui.dpi, false) {
         Some(p) => {
             // SAFETY: dời cửa sổ vừa tạo (chưa hiện, chưa thuộc phiên), không kích hoạt.
             unsafe {
@@ -821,7 +906,7 @@ fn create_bar(region: Rect, ui: &BarUi, supported: bool) -> Option<HWND> {
                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
                 );
             }
-            Some(h)
+            Some((h, ui, false))
         }
         None => {
             destroy(h);
@@ -830,30 +915,33 @@ fn create_bar(region: Rect, ui: &BarUi, supported: bool) -> Option<HWND> {
     }
 }
 
-/// Bắt đầu phiên chụp cuộn trên `region` (tọa độ màn hình, pixel vật lý). `false` khi đã có phiên,
-/// vùng rỗng, hoặc không tạo được cửa sổ chủ/hẹn giờ.
-pub fn start(region: Rect) -> bool {
-    if active() || region.w <= 0 || region.h <= 0 {
-        return false;
+/// Bắt đầu phiên chụp cuộn trên `region` (tọa độ màn hình, pixel vật lý). Từ chối khi đã có
+/// phiên, vùng rỗng, không có chỗ cho thanh ngoài vùng chụp (`NoRoom`: không có thanh thì không
+/// bấm Xong được), hoặc không tạo được cửa sổ chủ/hẹn giờ.
+pub fn start(region: Rect) -> Result<(), StartError> {
+    if active() {
+        return Err(StartError::Busy);
+    }
+    if region.w <= 0 || region.h <= 0 {
+        return Err(StartError::Empty);
     }
     register_classes();
-    let Some(host) = create(
-        WS_EX_TOOLWINDOW,
-        HOST_CLASS,
-        Rect {
-            x: 0,
-            y: 0,
-            w: 0,
-            h: 0,
-        },
-    ) else {
-        return false;
+    let empty = Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    let Some(host) = create(WS_EX_TOOLWINDOW, HOST_CLASS, empty) else {
+        return Err(StartError::Failed);
     };
     let supported = exclude_supported(os_build());
-    let (_, dpi, _) = placement(region);
+    let dpi = placement(region).dpi;
+    let Some((bar, ui, bar_excluded)) = create_bar(region, dpi, supported) else {
+        destroy(host);
+        return Err(StartError::NoRoom);
+    };
     let frames = create_frames(region, dpi, supported);
-    let ui = build_ui(dpi);
-    let bar = create_bar(region, &ui, supported);
     // SAFETY: phím tắt gắn với cửa sổ chủ của luồng này; gỡ trong Drop của Session.
     let esc = unsafe {
         RegisterHotKey(
@@ -871,14 +959,15 @@ pub fn start(region: Rect) -> bool {
         started: Instant::now(),
         host,
         frames,
-        bar,
+        bar: Some(bar),
+        bar_excluded,
         ui,
         esc,
     };
     // SAFETY: hẹn giờ gắn với cửa sổ chủ của luồng này; KillTimer trong Drop của Session.
     if unsafe { SetTimer(Some(host), TIMER_ID, INTERVAL_MS, None) } == 0 {
         drop(session);
-        return false;
+        return Err(StartError::Failed);
     }
     let shown: Vec<HWND> = session.frames.iter().copied().chain(session.bar).collect();
     SESSION.with(|s| *s.borrow_mut() = Some(session));
@@ -888,7 +977,59 @@ pub fn start(region: Rect) -> bool {
             let _ = ShowWindow(h, SW_SHOWNA);
         }
     }
-    true
+    Ok(())
+}
+
+/// Ngôn ngữ đổi: dựng lại chữ và cỡ của thanh.
+pub fn relabel() {
+    relayout_bar(None);
+}
+
+/// Dựng lại chữ, phông và bố cục của thanh ở `dpi` (hoặc DPI hiện tại), giữ chiều cao và trạng
+/// thái đang hiện, rồi đặt lại thanh theo vùng.
+fn relayout_bar(dpi: Option<u32>) {
+    let Some((region, cur, bar, excluded, warn, px)) = with(|s| {
+        let px = s.stitcher.as_ref().map_or(0, |st| st.height());
+        (s.region, s.ui.dpi, s.bar, s.bar_excluded, s.ui.warn, px)
+    }) else {
+        return;
+    };
+    let Some(bar) = bar else {
+        return;
+    };
+    let mut ui = build_ui(dpi.unwrap_or(cur));
+    ui.height = height_text(px);
+    ui.warn = warn;
+    if warn {
+        ui.status = wide(lang::tr(Msg::ScrollSlowDown));
+    }
+    let size = ui.layout.size;
+    let at = place(region, size, ui.dpi, excluded);
+    let mut slot = Some(ui);
+    let old = with(|s| slot.take().map(|ui| std::mem::replace(&mut s.ui, ui))).flatten();
+    // Phông cũ được xóa ở đây (không DC nào giữ nó ngoài lúc vẽ).
+    drop(old);
+    drop(slot);
+    let mut wr = RECT::default();
+    // SAFETY: bar là cửa sổ của phiên trên luồng này; đổi cỡ/dời không kích hoạt, không giữ mượn
+    // `SESSION`.
+    unsafe {
+        let _ = GetWindowRect(bar, &mut wr);
+        let p = at.unwrap_or(Point {
+            x: wr.left,
+            y: wr.top,
+        });
+        let _ = SetWindowPos(
+            bar,
+            None,
+            p.x,
+            p.y,
+            size.0,
+            size.1,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    invalidate(bar);
 }
 
 /// Xong: kết thúc phiên và giao ảnh ghép. Chưa có khung nào (bấm rất sớm) thì chụp một khung.
@@ -935,6 +1076,7 @@ fn finish_ended() {
     let phase = s.machine.phase();
     let stitcher = s.stitcher.take();
     drop(s);
+    ON_END.with(|c| c.get())();
     let Some(st) = stitcher.filter(|_| phase.delivers()) else {
         return;
     };
@@ -1254,6 +1396,14 @@ unsafe extern "system" fn bar_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
         WM_CAPTURECHANGED => {
             with(|s| s.ui.pressed = None);
             invalidate(h);
+            LRESULT(0)
+        }
+        WM_DPICHANGED => {
+            // Thanh sang màn hình có DPI khác (hoặc đổi tỉ lệ): dựng lại chữ và cỡ.
+            let dpi = u32::from((wp.0 & 0xFFFF) as u16);
+            if with(|s| s.ui.dpi) != Some(dpi) {
+                relayout_bar(Some(dpi));
+            }
             LRESULT(0)
         }
         WM_DISPLAYCHANGE => {

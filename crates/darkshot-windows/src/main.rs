@@ -760,7 +760,7 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi có thể mở lớp phủ (chọn vùng, hoặc lặp
     // lại mà vùng trước có thể đã mất) và ô gợi ý đang bật.
     // Thanh phiên không loại khỏi ảnh chụp được (Windows cũ): ẩn nó tới hết lượt chụp.
-    let _bar = BarHiddenForCapture(steps_bar::hide_for_capture());
+    let mut bar_hidden = BarHiddenForCapture(steps_bar::hide_for_capture());
     // Thanh phiên không có trong ảnh: không gợi ý nó như một cửa sổ.
     let frames = enumerates_windows(kind, snap_windows)
         .then(snap::enumerate_windows)
@@ -861,6 +861,33 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             (action, rect, Vec::new())
         }
     };
+    if action == Action::Scroll {
+        // Chụp cuộn: không cắt ảnh tĩnh, không vẽ hình đánh dấu (không khớp nội dung cuộn), nên lỗi
+        // vẽ hình không chặn chụp cuộn.
+        let region = scroll_region(rect, shot.origin, img_w, img_h);
+        drop(shot);
+        drop(shapes);
+        let Some(region) = region else {
+            return;
+        };
+        match scroll_session::start(region) {
+            Ok(()) => {
+                // Thanh phiên Chụp từng bước không loại khỏi ảnh chụp được (Windows cũ) đang ẩn: giữ
+                // ẩn tới khi phiên chụp cuộn kết thúc (`on_scroll_end`), để nó không vào ảnh ghép.
+                if bar_hidden.0 {
+                    bar_hidden.0 = false;
+                    STEPS_BAR_HELD.with(|h| h.set(true));
+                }
+            }
+            Err(scroll_session::StartError::NoRoom) => notify(
+                NoticeKind::Info,
+                lang::tr(Msg::ScrollNoRoomTitle),
+                lang::tr(Msg::ScrollNoRoomBody),
+            ),
+            Err(_) => {}
+        }
+        return;
+    }
     let image = match picked_image(&shot.image, rect, &shapes) {
         Ok(image) => image,
         Err(_) => {
@@ -873,15 +900,6 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             return;
         }
     };
-    if action == Action::Scroll {
-        // Chụp cuộn: hình đánh dấu bị bỏ (không khớp nội dung cuộn); không cắt ảnh tĩnh.
-        let region = scroll_region(rect, shot.origin, img_w, img_h);
-        drop(shot);
-        if let Some(region) = region {
-            scroll_session::start(region);
-        }
-        return;
-    }
     let pin_at = pin_origin(rect, shot.origin);
     // Giải phóng ảnh chụp ngay khi đã cắt xong.
     drop(shot);
@@ -950,6 +968,18 @@ fn on_scroll_result(image: darkshot_core::image::Image, _uncertain: u32) {
         return;
     };
     run_on_image(hwnd, Action::Save, image, notifier);
+}
+
+thread_local! {
+    /// Thanh phiên Chụp từng bước đang được giữ ẩn trong lúc phiên chụp cuộn chạy.
+    static STEPS_BAR_HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Phiên chụp cuộn kết thúc (mọi đường): hiện lại thanh phiên Chụp từng bước đã giữ ẩn.
+fn on_scroll_end() {
+    if STEPS_BAR_HELD.with(|h| h.replace(false)) {
+        steps_bar::show_after_capture();
+    }
 }
 
 /// Phiên chụp cuộn dừng vì đạt giới hạn chiều cao hoặc bộ nhớ.
@@ -1372,6 +1402,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 // Cửa sổ Nhận dạng chữ không đóng (giữ chữ người dùng đang sửa): đổi chữ giao diện.
                 ocr_window::relabel();
                 steps_bar::relabel();
+                scroll_session::relabel();
                 steps_window::relabel();
             }
             if history_window_stale(&config, &new) {
@@ -1833,6 +1864,7 @@ fn main() {
     steps_bar::set_on_confirm_end(steps_window::open_confirm_end);
     scroll_session::set_on_result(on_scroll_result);
     scroll_session::set_on_limit(on_scroll_limit);
+    scroll_session::set_on_end(on_scroll_end);
     steps_window::set_main_window(hwnd);
     steps_window::set_notifier(ocr_notify);
     steps_window::set_default_dir(steps_export_dir);
