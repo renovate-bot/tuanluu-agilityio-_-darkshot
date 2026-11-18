@@ -678,6 +678,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 - Ctrl+C: chép ảnh vào clipboard.\n\
 - Esc lùi một bước (đóng bảng, hủy chữ, bỏ chọn) rồi đóng lớp phủ.\n\
 - Ctrl+P: ghim ảnh lên màn hình (hoặc bấm nút Ghim trong Lịch sử ảnh chụp). Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn chuột để phóng, Ctrl+cuộn để làm mờ, chuột phải để mở menu, Esc để đóng.\n\
+- Ctrl+T: nhận dạng chữ trong vùng đã chọn rồi chép ra (ảnh ghim có mục \"Nhận dạng chữ\" trong menu chuột phải).\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
@@ -719,6 +720,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 - Ctrl+C: copy the image to the clipboard.\n\
 - Esc steps back (closes a panel, cancels text, deselects), then closes the overlay.\n\
 - Ctrl+P: pin the image to the screen (or click Pin in Screenshot History). A pinned image stays on top: drag to move, scroll to zoom, Ctrl+scroll to change opacity, right-click for a menu, Esc to close.\n\
+- Ctrl+T: recognize the text in the selected region and copy it (a pinned image has \"Recognize text\" in its right-click menu).\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
@@ -1259,7 +1261,10 @@ mod tests {
     #[test]
     fn help_text_mentions_ocr_hotkey() {
         for l in Lang::ALL {
-            assert!(help_text(l, &HelpKeys::default()).contains("Ctrl+T"), "{l:?}");
+            assert!(
+                help_text(l, &HelpKeys::default()).contains("Ctrl+T"),
+                "{l:?}"
+            );
         }
     }
 
