@@ -1650,7 +1650,7 @@ fn on_help() {
 }
 
 /// Bấm "Đổi…" của dòng `r`: dòng khác đang bắt thì thoát (giữ phím cũ của nó), rồi dòng `r` vào
-/// chế độ bắt. Lần đầu trong phiên mở cửa sổ: hủy đăng ký cả ba dòng (Hủy sẽ đăng ký lại).
+/// chế độ bắt. Lần đầu trong phiên mở cửa sổ: hủy đăng ký mọi dòng (Hủy sẽ đăng ký lại).
 fn on_change_hotkey(r: HotkeyRole) {
     let Some(c) = ctl() else { return };
     if with_st(|s| s.capturing == Some(r)).unwrap_or(true) {
