@@ -6700,6 +6700,8 @@ mod tests {
             Shift(bool),
             /// Đặt con trỏ thật tại điểm (tọa độ ảnh chụp, cộng `origin` của ảnh) bằng `SetCursorPos`.
             Cursor(Point),
+            /// Chờ lớp phủ vẽ xong rồi chạy phép kiểm ở luồng phụ; `false` làm `drive` trả `false`.
+            Probe(Box<dyn FnOnce() -> bool + Send>),
         }
 
         pub fn drag(a: Point, b: Point) -> Vec<Step> {
@@ -6933,6 +6935,10 @@ mod tests {
                                 let _ = SetCursorPos(origin.x + p.x, origin.y + p.y);
                             }
                             std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Step::Probe(f) => {
+                            std::thread::sleep(Duration::from_millis(400));
+                            ok &= f();
                         }
                     }
                     std::thread::sleep(Duration::from_millis(40));
@@ -8610,6 +8616,122 @@ mod tests {
         assert_eq!(p.action, Action::Save);
     }
 
+    /// Số điểm ảnh trong `r` (tọa độ ảnh) của màn hình thật có một kênh màu lệch quá 8 mức so với
+    /// ảnh `shot` (`bright`) hoặc nền tối của nó.
+    fn screen_diff(shot: &crate::capture::Screenshot, r: Rect, bright: bool) -> usize {
+        let now = crate::capture::capture_virtual_screen(false).unwrap();
+        let w = shot.image.width as i32;
+        assert_eq!(
+            (now.image.width, now.origin),
+            (shot.image.width, shot.origin)
+        );
+        let mut n = 0;
+        for y in r.y..r.bottom() {
+            for x in r.x..r.right() {
+                let i = ((y * w + x) * 4) as usize;
+                let differs = (0..3).any(|c| {
+                    let a = shot.image.bgra[i + c];
+                    let want = if bright { a } else { a >> 1 };
+                    want.abs_diff(now.image.bgra[i + c]) > 8
+                });
+                n += usize::from(differs);
+            }
+        }
+        n
+    }
+
+    /// Bấm (không kéo) chọn ứng viên khi viên nhắc đang hiện: trên MÀN HÌNH THẬT ô viên nhắc phải
+    /// trở về nền tối ngay (không đợi lần di chuột kế), vùng ứng viên sáng. `real_cursor`: con trỏ
+    /// thật đặt tại điểm bấm (như chuột thật); `false`: con trỏ thật ở góc xa (như demo gửi thông
+    /// điệp).
+    fn click_clears_hint_on_screen(real_cursor: bool) {
+        use std::sync::{Arc, Mutex};
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let mut shot = live_setup();
+        let m0 = shot.monitors[0];
+        let win = Rect {
+            x: m0.x + m0.w / 4,
+            y: m0.y + m0.h / 3,
+            w: m0.w / 2,
+            h: m0.h / 3,
+        };
+        shot.windows = Some(vec![win]);
+        let at = Point {
+            x: win.x + win.w / 2,
+            y: win.y + win.h / 2,
+        };
+        let hint = {
+            let (w, h) = (shot.image.width as i32, shot.image.height as i32);
+            let mut s = State::new(&shot, w, h, None, &CustomColors::default(), false).unwrap();
+            s.mouse = at;
+            s.hint().expect("viên nhắc hiện khi rê trên ứng viên").0
+        };
+        let far = Point {
+            x: m0.right() - 20,
+            y: m0.bottom() - 20,
+        };
+        let shot = Arc::new(shot);
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let probe = |label: &'static str, r: Rect, bright: bool| {
+            let (sh, lg) = (shot.clone(), log.clone());
+            live::Step::Probe(Box::new(move || {
+                let n = screen_diff(&sh, r, bright);
+                lg.lock().unwrap().push((label, n));
+                true
+            }))
+        };
+        let inner = inflate(win, -40);
+        // Dải nền dưới ứng viên, xa con trỏ: tối khi lớp phủ đang hiện và xem trước đúng ứng viên.
+        let below = Rect {
+            x: win.x,
+            y: win.bottom() + 40,
+            w: win.w,
+            h: 40,
+        };
+        let steps = vec![
+            live::Step::Cursor(if real_cursor { at } else { far }),
+            live::Step::Move(at),
+            probe("hint before", hint, false),
+            probe("below before", below, false),
+            live::Step::Down(at),
+            live::Step::Up(at),
+            probe("hint after", hint, false),
+            probe("window after", inner, true),
+            probe("hint later", hint, false),
+            live::Step::Alive,
+            live::Step::Close,
+        ];
+        let (r, ok) = live::drive(&shot, None, steps);
+        let log = log.lock().unwrap().clone();
+        eprintln!("hint {hint:?} win {win:?} log {log:?}");
+        // `ok` sai: lớp phủ mất kích hoạt và tự đóng giữa chừng (chạy lại).
+        assert!(ok, "lớp phủ đóng giữa chừng: {log:?}");
+        assert!(matches!(r, Ok(None)));
+        let get = |l: &str| log.iter().find(|(k, _)| *k == l).unwrap().1;
+        // Tiền đề: lớp phủ đang hiện trên cùng, xem trước đúng ứng viên (không thì do môi trường:
+        // cửa sổ khác che, chuột thật bị di; chạy lại).
+        assert_eq!(get("below before"), 0, "lớp phủ không hiện đúng: {log:?}");
+        // Trước khi bấm viên nhắc thật sự hiện (phép đo có nghĩa).
+        assert!(get("hint before") > 50, "{log:?}");
+        // Vùng ứng viên đã được chọn (sáng).
+        assert!(get("window after") < 50, "{log:?}");
+        // Viên nhắc đã biến mất ngay sau khi nhả chuột.
+        assert_eq!(get("hint after"), 0, "{log:?}");
+        assert_eq!(get("hint later"), 0, "{log:?}");
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_clears_hint_ --test-threads=1"]
+    fn click_clears_hint_real_cursor() {
+        click_clears_hint_on_screen(true);
+    }
+
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored click_clears_hint_ --test-threads=1"]
+    fn click_clears_hint_posted_only() {
+        click_clears_hint_on_screen(false);
+    }
+
     /// Trạng thái lớp phủ dựng không cần cửa sổ: gợi ý cửa sổ (Task 62).
     mod snap_state {
         use super::*;
@@ -8939,6 +9061,145 @@ mod tests {
             assert!(s.sel.rect().is_some());
             let log = s.inval_log.borrow().clone();
             assert!(covered(&log, hint), "{log:?}");
+        }
+
+        /// Một thông điệp tới lớp phủ trong mô hình vẽ của `screen_hint_follows_state`.
+        #[derive(Clone, Copy, Debug)]
+        enum Ev {
+            Move(Point),
+            Down(Point),
+            /// WM_LBUTTONUP rồi WM_CAPTURECHANGED (wndproc trả chuột sau khi nhả).
+            Up(Point),
+            Enter,
+        }
+
+        /// Mọi điểm của `r` nằm trong hợp các ô của `log`.
+        fn union_covers(log: &[Rect], r: Rect) -> bool {
+            (r.y..r.bottom())
+                .all(|y| (r.x..r.right()).all(|x| log.iter().any(|c| c.contains(p(x, y)))))
+        }
+
+        /// Mô hình màn hình: sau mỗi thông điệp, nếu viên nhắc (theo trạng thái) khác viên nhắc
+        /// đang vẽ trên màn hình thì cả ô cũ và ô mới phải nằm trong vùng đã invalidate; khi đó
+        /// màn hình theo trạng thái. Trả mô tả bước đầu tiên để lại viên nhắc cũ (đọng) hay thiếu.
+        fn screen_hint_follows_state(s: &mut State, evs: &[Ev]) -> Result<(), String> {
+            let mut screen = s.hint().map(|h| h.0);
+            for (i, ev) in evs.iter().enumerate() {
+                s.inval_log.borrow_mut().clear();
+                match *ev {
+                    Ev::Move(at) => s.on_move(at),
+                    Ev::Down(at) => {
+                        s.on_down(at);
+                    }
+                    Ev::Up(at) => {
+                        s.on_up(at);
+                        s.lost_capture();
+                    }
+                    Ev::Enter => s.on_key(VK_RETURN.0, false),
+                }
+                let now = s.hint().map(|h| h.0);
+                if now != screen {
+                    let log = s.inval_log.borrow().clone();
+                    for r in [screen, now].into_iter().flatten() {
+                        if !union_covers(&log, r) {
+                            return Err(format!("bước {i} {ev:?}: ô {r:?} không vẽ lại; {log:?}"));
+                        }
+                    }
+                    screen = now;
+                }
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn click_paths_never_leave_hint_on_screen() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(Some(vec![WIN]));
+            let at = p(200, 150);
+            let (hint, _, _) = state(&sh, None).hint().unwrap();
+            let far = p(600, 500);
+            // Con trỏ thật ngay dưới viên nhắc (viên nhắc ẩn khi chuột gần).
+            let near = p(hint.x + hint.w / 2, hint.bottom() + 2);
+            let cases: Vec<(&str, Vec<Ev>)> = vec![
+                (
+                    "chuột thật",
+                    vec![Ev::Move(at), Ev::Down(at), Ev::Up(at), Ev::Move(at)],
+                ),
+                (
+                    "rung tay",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Down(at),
+                        Ev::Move(p(202, 151)),
+                        Ev::Up(p(202, 151)),
+                    ],
+                ),
+                // Demo gửi thông điệp: hệ thống chen WM_MOUSEMOVE tại con trỏ thật (xa) giữa các
+                // thông điệp đã gửi, nên lúc bấm `mouse` không phải điểm bấm.
+                (
+                    "demo, con trỏ thật xa",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Move(far),
+                        Ev::Down(at),
+                        Ev::Up(at),
+                        Ev::Move(far),
+                    ],
+                ),
+                (
+                    "demo, con trỏ thật sát viên nhắc",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Move(near),
+                        Ev::Down(at),
+                        Ev::Up(at),
+                        Ev::Move(near),
+                    ],
+                ),
+                (
+                    "demo, bấm khi chưa có WM_MOUSEMOVE nào",
+                    vec![Ev::Down(at), Ev::Up(at), Ev::Move(far)],
+                ),
+                ("Enter", vec![Ev::Move(at), Ev::Enter, Ev::Move(at)]),
+            ];
+            for (name, evs) in cases {
+                let mut s = state(&sh, None);
+                assert!(s.hint().is_some(), "{name}");
+                screen_hint_follows_state(&mut s, &evs).unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert_eq!(s.sel.rect(), Some(WIN), "{name}");
+                assert!(s.hint().is_none(), "{name}");
+            }
+        }
+
+        #[test]
+        fn click_with_cursor_on_other_monitor_never_leaves_hint() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            // Hai màn hình khác DPI (96 và 192): viên nhắc theo màn hình chứa `mouse`, nên con trỏ
+            // thật ở màn bên kia làm viên nhắc nhảy màn giữa các thông điệp đã gửi.
+            let mon2 = Rect {
+                x: W,
+                y: 0,
+                w: W,
+                h: H,
+            };
+            let mut sh = shot(Some(vec![WIN]));
+            sh.image.width = (2 * W) as u32;
+            sh.image.bgra = vec![0x80; (2 * W * H * 4) as usize];
+            sh.monitors = vec![MON, mon2];
+            let mut s = State::new(&sh, 2 * W, H, None, &CustomColors::default(), false).unwrap();
+            s.dpis = vec![96, 192];
+            let at = p(200, 150);
+            let other = p(W + 400, 500);
+            let evs = [
+                Ev::Move(other),
+                Ev::Move(at),
+                Ev::Move(other),
+                Ev::Down(at),
+                Ev::Up(at),
+                Ev::Move(other),
+            ];
+            screen_hint_follows_state(&mut s, &evs).unwrap();
+            assert_eq!(s.sel.rect(), Some(WIN));
         }
 
         #[test]
