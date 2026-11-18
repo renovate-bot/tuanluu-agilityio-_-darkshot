@@ -747,13 +747,11 @@ pub fn flush(timeout: Duration) {
 }
 
 /// Các bước theo thứ tự hiển thị (cho cửa sổ Xem lại).
-#[allow(dead_code)]
 pub fn steps() -> Vec<Step> {
     with(|s| s.steps().to_vec())
 }
 
 /// Đường dẫn ảnh của bước `i` (cho cửa sổ Xem lại).
-#[allow(dead_code)]
 pub fn image_path(i: usize) -> Option<PathBuf> {
     with(|s| s.image_path(i))
 }
@@ -763,7 +761,6 @@ pub fn dirty() -> bool {
 }
 
 /// Đã xuất: kết thúc phiên sau đó không cần hỏi lại (tới khi có thay đổi mới).
-#[allow(dead_code)]
 pub fn mark_exported() {
     with(|s| s.mark_exported());
     changed();
@@ -778,22 +775,18 @@ fn edit_and_notify(f: impl FnOnce(&mut Store) -> bool) -> bool {
     r
 }
 
-#[allow(dead_code)]
 pub fn remove(i: usize) -> bool {
     edit_and_notify(|s| s.remove(i))
 }
 
-#[allow(dead_code)]
 pub fn move_up(i: usize) -> bool {
     edit_and_notify(|s| s.move_up(i))
 }
 
-#[allow(dead_code)]
 pub fn move_down(i: usize) -> bool {
     edit_and_notify(|s| s.move_down(i))
 }
 
-#[allow(dead_code)]
 pub fn set_caption(i: usize, text: &str) -> bool {
     edit_and_notify(|s| s.set_caption(i, text))
 }

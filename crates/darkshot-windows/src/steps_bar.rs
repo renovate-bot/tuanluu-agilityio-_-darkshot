@@ -268,19 +268,18 @@ pub fn set_on_capture(f: fn()) {
     ON_CAPTURE.with(|c| c.set(f));
 }
 
-/// Hàm mở cửa sổ Xem lại (Task 86); mặc định không làm gì.
-#[allow(dead_code)] // Task 86 (cửa sổ Xem lại) đăng ký.
+/// Hàm mở cửa sổ Xem lại (main: `steps_window::open`); mặc định không làm gì.
 pub fn set_on_review(f: fn()) {
     ON_REVIEW.with(|c| c.set(f));
 }
 
-/// Hàm mở Xem lại ở chế độ xác nhận kết thúc (Task 86); mặc định không làm gì.
-#[allow(dead_code)] // Task 86 (cửa sổ Xem lại) đăng ký.
+/// Hàm mở Xem lại ở chế độ xác nhận kết thúc (main: `steps_window::open_confirm_end`); mặc định
+/// không làm gì.
 pub fn set_on_confirm_end(f: fn()) {
     ON_CONFIRM_END.with(|c| c.set(f));
 }
 
-/// Mở cửa sổ Xem lại (thanh phiên và menu khay dùng chung).
+/// Mở cửa sổ Xem lại (nút Xem lại của thanh phiên).
 pub fn review() {
     ON_REVIEW.with(|c| c.get())();
 }

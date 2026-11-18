@@ -936,6 +936,15 @@ fn on_steps_changed() {
     }
 }
 
+/// Thư mục mặc định của hộp chọn thư mục khi xuất các bước: thư mục lưu ảnh của cấu hình.
+fn steps_export_dir() -> Option<std::path::PathBuf> {
+    APP.with(|a| {
+        a.try_borrow()
+            .ok()
+            .and_then(|a| a.as_ref().map(|s| s.config.save_dir.clone()))
+    })
+}
+
 /// Nút Chụp bước của thanh phiên: nhờ cửa sổ chính chụp vùng (không chạy lớp phủ trong thủ tục
 /// cửa sổ của thanh).
 fn post_steps_capture() {
@@ -971,6 +980,8 @@ fn notify_step_errors(errors: &[steps_store::StepError]) {
 
 /// Lúc thoát: chờ ảnh bước đang ghi (tối đa 3 s) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
 fn finish_steps_on_exit() {
+    // Cửa sổ Xem lại lưu ghi chú đang sửa khi bị hủy (trước khi chờ ghi ảnh).
+    steps_window::close();
     steps_store::flush(HISTORY_FLUSH_TIMEOUT);
     steps_bar::close();
 }
@@ -1282,6 +1293,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 // Cửa sổ Nhận dạng chữ không đóng (giữ chữ người dùng đang sửa): đổi chữ giao diện.
                 ocr_window::relabel();
                 steps_bar::relabel();
+                steps_window::relabel();
             }
             if history_window_stale(&config, &new) {
                 history_window::close_if_open();
@@ -1444,6 +1456,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             steps_store::drain_saved();
             LRESULT(0)
         }
+        steps_window::WM_STEPS_EXPORTED => {
+            steps_window::on_exported();
+            LRESULT(0)
+        }
         WM_TRAY => {
             let ev = (lp.0 & 0xFFFF) as u32;
             if ev == NIN_BALLOONUSERCLICK {
@@ -1498,7 +1514,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::StepsStart) => {
                         steps_store::start();
                     }
-                    Some(MenuCommand::StepsReview) => steps_bar::review(),
+                    Some(MenuCommand::StepsReview) => steps_window::open(),
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
                         if let Some(keys) = with_app(|a| hotkey::help_keys(&a.config.hotkeys)) {
@@ -1610,6 +1626,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
+            steps_window::close();
             steps_bar::close();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
@@ -1726,7 +1743,13 @@ fn main() {
     steps_store::set_window(hwnd);
     steps_store::set_on_error(notify_step_errors);
     steps_store::on_change(on_steps_changed);
+    steps_store::on_change(steps_window::on_store_changed);
     steps_bar::set_on_capture(post_steps_capture);
+    steps_bar::set_on_review(steps_window::open);
+    steps_bar::set_on_confirm_end(steps_window::open_confirm_end);
+    steps_window::set_main_window(hwnd);
+    steps_window::set_notifier(ocr_notify);
+    steps_window::set_default_dir(steps_export_dir);
     steps_store::restore();
     if mode.update_timer && with_app(|a| a.config.check_updates).unwrap_or(false) {
         start_update_timer(hwnd);
@@ -1758,6 +1781,7 @@ fn main() {
                 || help::pre_translate(&msg)
                 || history_window::pre_translate(&msg)
                 || ocr_window::pre_translate(&msg)
+                || steps_window::pre_translate(&msg)
             {
                 continue;
             }

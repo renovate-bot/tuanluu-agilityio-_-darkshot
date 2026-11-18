@@ -31,14 +31,72 @@ pub struct ExportJob {
 /// Tạo thư mục con mới `base` (hoặc `base_2`, `base_3`…) trong `parent`; không bao giờ dùng tên đã
 /// có. Trả đường dẫn thư mục vừa tạo.
 pub fn create_unique_dir(parent: &Path, base: &str) -> std::io::Result<PathBuf> {
-    let _ = (parent, base, MAX_SUFFIX);
-    todo!()
+    let mut last = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
+    for k in 1..=MAX_SUFFIX {
+        let name = if k == 1 {
+            base.to_string()
+        } else {
+            format!("{base}_{k}")
+        };
+        let dir = parent.join(name);
+        // `create_dir` không tạo thư mục cha và lỗi `AlreadyExists` khi tên đã có (thư mục hay tệp):
+        // kiểm và tạo là một bước, không có kẽ hở giữa hai lần.
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
+/// Chép `src` sang tệp mới `dst` (lỗi nếu `dst` đã có).
+fn copy_new(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let mut from = std::fs::File::open(src)?;
+    let mut to = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
+    std::io::copy(&mut from, &mut to)?;
+    to.sync_all()
+}
+
+/// Ghi `bytes` vào tệp mới `path` (lỗi nếu đã có).
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+/// Chép ảnh và ghi `steps.md` vào thư mục `dir` (vừa tạo, rỗng).
+fn fill(dir: &Path, job: &ExportJob) -> std::io::Result<()> {
+    let names = export_names(job.steps.len());
+    for (src, name) in job.sources.iter().zip(&names) {
+        copy_new(src, &dir.join(name))?;
+    }
+    let md = markdown(job.lang, job.when, &job.steps);
+    write_new(&dir.join(MARKDOWN_FILE), md.as_bytes())
 }
 
 /// Xuất `job`; trả thư mục vừa tạo, hay lý do lỗi (chữ của hệ thống). Lỗi thì không để lại gì.
 pub fn export(job: &ExportJob) -> Result<PathBuf, String> {
-    let _ = (job, export_dir_name, export_names, markdown);
-    todo!()
+    if job.steps.len() != job.sources.len() {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).to_string());
+    }
+    let dir =
+        create_unique_dir(&job.parent, &export_dir_name(job.when)).map_err(|e| e.to_string())?;
+    match fill(&dir, job) {
+        Ok(()) => Ok(dir),
+        Err(e) => {
+            // Không nửa vời: bỏ cả thư mục vừa tạo (chỉ chứa tệp của lượt này).
+            let _ = std::fs::remove_dir_all(&dir);
+            Err(e.to_string())
+        }
+    }
 }
 
 #[cfg(test)]
