@@ -361,6 +361,19 @@ messages! {
     PinMenuClose => ("Đóng\tEsc", "Close\tEsc"),
     PinMenuCloseAll => ("Đóng mọi ảnh ghim", "Close all pinned images"),
     HistoryPin => ("Ghim", "Pin"),
+    OverlayOcr => ("Nhận dạng chữ (Ctrl+T)", "Recognize text (Ctrl+T)"),
+    PinMenuOcr => ("Nhận dạng chữ", "Recognize text"),
+    OcrWindowTitle => ("Chữ nhận dạng", "Recognized text"),
+    OcrBusy => ("Đang nhận dạng chữ…", "Recognizing text…"),
+    OcrEmpty => ("Không tìm thấy chữ trong ảnh.", "No text found in the image."),
+    OcrNoLanguage => (
+        "Windows chưa có gói nhận dạng chữ cho ngôn ngữ của bạn. Thêm ngôn ngữ trong Cài đặt > Thời gian & ngôn ngữ > Ngôn ngữ & khu vực.",
+        "Windows has no text recognition pack for your languages. Add a language in Settings > Time & language > Language & region."
+    ),
+    OcrFailed => ("Không nhận dạng được chữ. Thử lại.", "Couldn't recognize text. Try again."),
+    OcrCopy => ("Chép", "Copy"),
+    OcrClose => ("Đóng", "Close"),
+    OcrCopiedTitle => ("Đã chép chữ", "Text copied"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
     PinFailedBody => (
@@ -448,6 +461,13 @@ pub fn copy_failed_body(lang: Lang, err: &str) -> String {
     match lang {
         Lang::Vi => format!("Không đưa được ảnh vào clipboard: {err}"),
         Lang::En => format!("Could not put the image on the clipboard: {err}"),
+    }
+}
+
+pub fn ocr_status(lang: Lang, name: &str, lines: usize) -> String {
+    match lang {
+        Lang::Vi => format!("Ngôn ngữ: {name} · {lines} dòng"),
+        Lang::En => format!("Language: {name} · {lines} lines"),
     }
 }
 
@@ -1234,6 +1254,22 @@ mod tests {
                 "{l:?}"
             );
         }
+    }
+
+    #[test]
+    fn help_text_mentions_ocr_hotkey() {
+        for l in Lang::ALL {
+            assert!(help_text(l, &HelpKeys::default()).contains("Ctrl+T"), "{l:?}");
+        }
+    }
+
+    #[test]
+    fn ocr_status_has_name_and_count() {
+        for l in Lang::ALL {
+            let s = ocr_status(l, "vi-VN", 7);
+            assert!(s.contains("vi-VN") && s.contains('7'), "{l:?}");
+        }
+        assert_ne!(ocr_status(Lang::Vi, "x", 1), ocr_status(Lang::En, "x", 1));
     }
 
     #[test]

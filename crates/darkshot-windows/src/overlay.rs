@@ -101,6 +101,7 @@ impl BarItem {
             BarItem::Act(Action::Copy) => Msg::OverlayCopy,
             BarItem::Act(Action::Cancel) => Msg::OverlayCancel,
             BarItem::Act(Action::Pin) => Msg::OverlayPin,
+            BarItem::Act(Action::Ocr) => Msg::OverlayOcr,
         }
     }
 }
@@ -4670,6 +4671,8 @@ impl Gp {
                 p.close();
                 p.poly(&needle);
             }
+            // Ô Ocr thêm ở Task 80; chưa có trên thanh ngang nên không vẽ gì.
+            Action::Ocr => {}
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
