@@ -106,9 +106,9 @@ impl BarItem {
     }
 }
 
-/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Hủy; `None` là
-/// vạch ngăn.
-const BAR_CELLS: [Option<BarItem>; 8] = [
+/// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ,
+/// Hủy; `None` là vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 9] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
@@ -116,6 +116,7 @@ const BAR_CELLS: [Option<BarItem>; 8] = [
     Some(BarItem::Act(Action::Save)),
     Some(BarItem::Act(Action::Copy)),
     Some(BarItem::Act(Action::Pin)),
+    Some(BarItem::Act(Action::Ocr)),
     Some(BarItem::Act(Action::Cancel)),
 ];
 
@@ -2557,7 +2558,7 @@ impl State {
         true
     }
 
-    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C/P.
+    /// Phím khi đang gõ (WM_KEYDOWN, trừ Esc): sửa, di con trỏ, Ctrl+Z/V/D/S/C/P/T.
     fn text_key(&mut self, vk: u16) {
         if key_held(VK_CONTROL) {
             match vk {
@@ -2569,6 +2570,8 @@ impl State {
                 0x43 => self.finish(Action::Copy),
                 // P: `finish` chốt ô chữ (cả chuỗi bộ gõ đang soạn) trước khi ghim.
                 0x50 => self.finish(Action::Pin),
+                // T: như P, chốt ô chữ trước khi nhận dạng (chữ vừa gõ có trong ảnh nhận dạng).
+                0x54 => self.finish(Action::Ocr),
                 _ => {}
             }
             return;
@@ -3331,6 +3334,7 @@ impl State {
             0x53 => Action::Save,   // S
             0x43 => Action::Copy,   // C
             0x50 => Action::Pin,    // P
+            0x54 => Action::Ocr,    // T
             _ => return,
         };
         self.finish(a);
@@ -4478,9 +4482,18 @@ fn pin_glyph() -> ([GridPt; 6], [GridPt; 2]) {
     (UPRIGHT.map(turn), NEEDLE.map(turn))
 }
 
-/// Biểu tượng Nhận dạng chữ (chưa làm).
+/// Nhận dạng chữ trong lưới 24×24: bốn góc khung (mỗi góc một đường gãy: đầu, góc, đầu) và chữ "T"
+/// (gạch ngang, thân dọc) ở giữa khung.
 fn ocr_glyph() -> ([[GridPt; 3]; 4], [GridPt; 2], [GridPt; 2]) {
-    ([[(0.0, 0.0); 3]; 4], [(0.0, 0.0); 2], [(0.0, 0.0); 2])
+    const CORNERS: [[GridPt; 3]; 4] = [
+        [(4.0, 9.0), (4.0, 4.0), (9.0, 4.0)],
+        [(15.0, 4.0), (20.0, 4.0), (20.0, 9.0)],
+        [(20.0, 15.0), (20.0, 20.0), (15.0, 20.0)],
+        [(9.0, 20.0), (4.0, 20.0), (4.0, 15.0)],
+    ];
+    const BAR: [GridPt; 2] = [(8.5, 8.5), (15.5, 8.5)];
+    const STEM: [GridPt; 2] = [(12.0, 8.5), (12.0, 16.0)];
+    (CORNERS, BAR, STEM)
 }
 
 /// Đường GDI+ đang dựng cho một biểu tượng: tọa độ trong lưới 24×24, gốc (`ox`, `oy`), hệ số `k`.
@@ -4676,8 +4689,14 @@ impl Gp {
                 p.close();
                 p.poly(&needle);
             }
-            // Ô Ocr thêm ở Task 80; chưa có trên thanh ngang nên không vẽ gì.
-            Action::Ocr => {}
+            Action::Ocr => {
+                let (corners, bar, stem) = ocr_glyph();
+                for c in &corners {
+                    p.poly(c);
+                }
+                p.poly(&bar);
+                p.poly(&stem);
+            }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
@@ -5323,8 +5342,8 @@ mod tests {
     #[test]
     fn bar_layout_order() {
         assert_eq!(
-            BAR_CELLS.to_vec(),
-            vec![
+            BAR_CELLS,
+            [
                 Some(BarItem::Undo),
                 Some(BarItem::Redo),
                 None,

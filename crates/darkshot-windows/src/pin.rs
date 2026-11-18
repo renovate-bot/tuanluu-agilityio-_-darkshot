@@ -65,10 +65,11 @@ const ID_SAVE: u32 = 2;
 const ID_CLOSE: u32 = 3;
 const ID_CLOSE_ALL: u32 = 4;
 const ID_OCR: u32 = 5;
-/// Đầu menu ngữ cảnh: mục hành động trên ảnh, theo thứ tự (chưa có Nhận dạng chữ).
-const MENU_ACTIONS: [(u32, Msg, Action); 2] = [
+/// Đầu menu ngữ cảnh: mục hành động trên ảnh gốc, theo thứ tự (ID, chữ, hành động gửi cho sink).
+const MENU_ACTIONS: [(u32, Msg, Action); 3] = [
     (ID_COPY, Msg::PinMenuCopy, Action::Copy),
     (ID_SAVE, Msg::PinMenuSave, Action::Save),
+    (ID_OCR, Msg::PinMenuOcr, Action::Ocr),
 ];
 const ID_ZOOM_BASE: u32 = 1000;
 const ID_OPACITY_BASE: u32 = 2000;
@@ -419,7 +420,8 @@ pub fn close_all() {
     });
 }
 
-/// Hàm `main` đăng ký để Lưu/Chép từ ảnh ghim đi đúng đường `run_on_image` (thông báo, Lịch sử).
+/// Hàm `main` đăng ký để Lưu/Chép từ ảnh ghim đi đúng đường `run_on_image` (thông báo, Lịch sử), và
+/// Nhận dạng chữ mở cửa sổ kết quả.
 pub fn set_action_sink(f: fn(Action, Image)) {
     SINK.with(|s| s.set(Some(f)));
 }
@@ -964,11 +966,15 @@ fn on_dpi_changed(hwnd: HWND, dpi: u32) {
     });
 }
 
-/// Hành động của mục menu `id` trong `MENU_ACTIONS` (chưa làm).
-fn menu_action(_id: u32) -> Option<Action> {
-    None
+/// Hành động của mục menu `id` trong `MENU_ACTIONS`.
+fn menu_action(id: u32) -> Option<Action> {
+    MENU_ACTIONS
+        .iter()
+        .find(|(i, _, _)| *i == id)
+        .map(|(_, _, a)| *a)
 }
 
+/// Chép, Lưu hay Nhận dạng chữ trên bản sao ảnh gốc: gửi cho sink của `main`.
 fn copy_or_save(hwnd: HWND, action: Action) {
     let Some(img) = with_pin(hwnd, |p| p.image_copy()) else {
         return;
@@ -1029,8 +1035,9 @@ fn context_menu(hwnd: HWND, lp: LPARAM) {
     let Some(menu) = root.0 else {
         return;
     };
-    append(menu, MF_STRING, ID_COPY as usize, t(lang, Msg::PinMenuCopy));
-    append(menu, MF_STRING, ID_SAVE as usize, t(lang, Msg::PinMenuSave));
+    for (id, text, _) in MENU_ACTIONS {
+        append(menu, MF_STRING, id as usize, t(lang, text));
+    }
     append(menu, MF_SEPARATOR, 0, "");
     let zm = new_menu();
     if let Some(m) = zm.0 {
@@ -1098,9 +1105,11 @@ fn context_menu(hwnd: HWND, lp: LPARAM) {
     if cmd == 0 || !unsafe { IsWindow(Some(hwnd)) }.as_bool() || pin_ptr(hwnd).is_null() {
         return;
     }
+    if let Some(action) = menu_action(cmd) {
+        copy_or_save(hwnd, action);
+        return;
+    }
     match cmd {
-        ID_COPY => copy_or_save(hwnd, Action::Copy),
-        ID_SAVE => copy_or_save(hwnd, Action::Save),
         ID_CLOSE => destroy(hwnd),
         // Sau khi TrackPopupMenu đã trả về: không hủy cửa sổ đang giữ menu.
         ID_CLOSE_ALL => close_all(),
@@ -1585,8 +1594,8 @@ mod tests {
     #[test]
     fn menu_actions_copy_save_then_ocr() {
         assert_eq!(
-            MENU_ACTIONS.to_vec(),
-            vec![
+            MENU_ACTIONS,
+            [
                 (ID_COPY, Msg::PinMenuCopy, Action::Copy),
                 (ID_SAVE, Msg::PinMenuSave, Action::Save),
                 (ID_OCR, Msg::PinMenuOcr, Action::Ocr),

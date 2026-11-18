@@ -1,7 +1,5 @@
 //! Nhận dạng chữ cục bộ bằng Windows.Media.Ocr (WinRT), chạy trên luồng nền `darkshot-ocr`.
 //! Ảnh chỉ ở bộ nhớ; không ghi tệp, không nhật ký chữ, không mạng.
-// Task 80 nối module này vào cửa sổ kết quả; tới lúc đó các mục công khai chưa có ai dùng.
-#![allow(dead_code)]
 
 use std::ffi::c_void;
 use std::sync::Once;
