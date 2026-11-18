@@ -353,7 +353,6 @@ messages! {
     PinMenuOpacity => ("Độ mờ", "Opacity"),
     PinMenuClose => ("Đóng\tEsc", "Close\tEsc"),
     PinMenuCloseAll => ("Đóng mọi ảnh ghim", "Close all pinned images"),
-    PinClose => ("Đóng", "Close"),
     HistoryPin => ("Ghim", "Pin"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
@@ -361,6 +360,7 @@ messages! {
         "Không tạo được cửa sổ ảnh ghim. Thử lại.",
         "Couldn't create the pinned image window. Try again."
     ),
+    PinTooLargeBody => ("Ảnh quá lớn để ghim.", "The image is too large to pin."),
     HistoryFileMissingHint => (
         "Tệp đã bị di chuyển hoặc xóa. Vẫn có thể xóa mục này khỏi lịch sử.",
         "The file was moved or deleted. You can still remove this entry from history."
@@ -1133,6 +1133,11 @@ mod tests {
         assert!(pin_limit_body(Lang::Vi, 32).contains("32"));
         assert_eq!(pin_opacity_badge(Lang::Vi, 60), "Độ mờ 60%");
         assert_eq!(pin_opacity_badge(Lang::En, 60), "Opacity 60%");
+        assert_eq!(t(Lang::Vi, Msg::PinTooLargeBody), "Ảnh quá lớn để ghim.");
+        assert_eq!(
+            t(Lang::En, Msg::PinTooLargeBody),
+            "The image is too large to pin."
+        );
     }
 
     #[test]

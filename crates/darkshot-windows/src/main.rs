@@ -541,6 +541,16 @@ fn with_app<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
     APP.with(|a| a.borrow_mut().as_mut().map(f))
 }
 
+/// Lớp phủ chọn vùng đang mở. Trạng thái đang bận (không xảy ra ngoài `with_app`) thì coi là đóng.
+pub fn overlay_open() -> bool {
+    APP.with(|a| {
+        a.try_borrow()
+            .ok()
+            .and_then(|g| g.as_ref().map(|s| s.overlay_open))
+            .unwrap_or(false)
+    })
+}
+
 /// Lịch sử đang bật theo cấu hình hiện hành (`Config.history_enabled`). Cấu hình đang bận hoặc chưa
 /// nạp thì theo cờ của dịch vụ ghi lịch sử (luôn khớp cấu hình).
 pub fn history_enabled_now() -> bool {
@@ -645,6 +655,8 @@ fn capture_flow(hwnd: HWND) {
             let mut custom = before;
             let picked = overlay::pick_region(&shot, initial, &mut custom);
             with_app(|a| a.overlay_open = false);
+            // Ảnh ghim từ Lịch sử tới lúc lớp phủ mở: mở bây giờ, trước mọi nhánh của kết quả.
+            history_window::open_pending_pin();
             if custom != before {
                 let write = CONFIG_WRITABLE.with(|w| w.get());
                 store_custom_colors(custom, custom_colors_need_save(&before, &custom, write));
@@ -706,6 +718,17 @@ fn capture_flow(hwnd: HWND) {
     run_on_image(hwnd, action, image, notifier);
 }
 
+/// Phím chụp tới khi một menu đang mở (menu khay, hoặc menu ngữ cảnh của ảnh ghim/Lịch sử): đóng
+/// menu rồi chụp hoãn qua `GateEvent::MenuCapture`, không chạy lớp phủ lồng trong vòng lặp modal.
+pub fn hotkey_defers(tray_menu_open: bool, pin_menu_open: bool) -> bool {
+    tray_menu_open || pin_menu_open
+}
+
+/// Hẹn giờ chụp sau menu khay tới khi menu ngữ cảnh của ảnh ghim hay Lịch sử đang mở: chờ thêm.
+pub fn timer_should_wait(pin_menu_open: bool, history_menu_open: bool) -> bool {
+    pin_menu_open || history_menu_open
+}
+
 /// Góc trên trái của ảnh ghim (tọa độ màn hình) cho vùng `rect` (tọa độ ảnh chụp): góc sau khi kẹp
 /// vào ảnh như `picked_image`/`crop`, cộng gốc `origin` của màn hình ảo đúng một lần.
 pub fn pin_origin(rect: Rect, origin: Point) -> Point {
@@ -718,7 +741,7 @@ pub fn pin_origin(rect: Rect, origin: Point) -> Point {
     Point { x: r.x, y: r.y }
 }
 
-/// Thông báo khi không ghim được: đủ ảnh thì Info, lỗi tạo cửa sổ thì Error. Lý do kỹ thuật của
+/// Thông báo khi không ghim được: đủ ảnh thì Info, ảnh quá lớn hay lỗi tạo cửa sổ thì Error. Lý do của
 /// `PinError::Create` (tiếng Anh, chữ của hệ thống) không bao giờ hiện cho người dùng.
 pub fn pin_failure_notice(lang: Lang, e: &pin::PinError) -> (NoticeKind, &'static str, String) {
     match e {
@@ -726,6 +749,11 @@ pub fn pin_failure_notice(lang: Lang, e: &pin::PinError) -> (NoticeKind, &'stati
             NoticeKind::Info,
             i18n::t(lang, Msg::PinLimitTitle),
             i18n::pin_limit_body(lang, darkshot_core::pin::MAX_PINS),
+        ),
+        pin::PinError::TooLarge => (
+            NoticeKind::Error,
+            i18n::t(lang, Msg::PinFailedTitle),
+            i18n::t(lang, Msg::PinTooLargeBody).to_string(),
         ),
         pin::PinError::Create(_) => (
             NoticeKind::Error,
@@ -1058,7 +1086,8 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             gate(hwnd, GateEvent::OpenSettings);
         }
         AppEvent::Quit => {
-            // Đóng mọi ảnh ghim trước (đồng bộ, không chờ gì).
+            // Đóng mọi ảnh ghim trước (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
+            history_window::drop_pending_pin();
             pin::close_all();
             // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng.
             save_pending_uploads();
@@ -1091,8 +1120,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let kind = hotkey::role_of(wp.0 as i32)
                 .map(kind_of)
                 .unwrap_or(CaptureKind::Region);
-            if MENU_OPEN.with(|m| m.get()) {
-                // Menu khay đang mở: đóng nó rồi chụp sau khi menu tắt hẳn, như chọn từ menu.
+            let other_menu = pin::menu_open() || history_window::menu_open();
+            if hotkey_defers(MENU_OPEN.with(|m| m.get()), other_menu) {
+                // Một menu (khay, ảnh ghim, Lịch sử) đang mở: đóng nó rồi chụp sau khi menu tắt
+                // hẳn, như chọn từ menu khay; lớp phủ không chạy trong vòng lặp modal của menu.
                 // SAFETY: đóng menu đang hiện của luồng này.
                 unsafe {
                     let _ = EndMenu();
@@ -1198,6 +1229,24 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe {
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
             }
+            if timer_should_wait(pin::menu_open(), history_window::menu_open()) {
+                // Người dùng vừa mở menu ảnh ghim/Lịch sử trong lúc chờ: đóng nó và chờ thêm một
+                // lượt, để lớp phủ không chạy trong vòng lặp modal của menu.
+                // SAFETY: đóng menu đang hiện của luồng này; hẹn giờ gắn với chính cửa sổ này.
+                let timer = unsafe {
+                    let _ = EndMenu();
+                    SetTimer(
+                        Some(hwnd),
+                        MENU_CAPTURE_TIMER_ID,
+                        MENU_CAPTURE_DELAY_MS,
+                        None,
+                    )
+                };
+                if timer != 0 {
+                    return LRESULT(0);
+                }
+                // Không đặt được hẹn giờ: giữ hành vi sẵn có (chụp ngay) để cổng không kẹt.
+            }
             gate(hwnd, GateEvent::TimerFired);
             LRESULT(0)
         }
@@ -1236,6 +1285,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             help::close();
             history_window::close_if_open();
             // Lưới an toàn cho mọi đường thoát: ảnh ghim không sống quá cửa sổ chính.
+            history_window::drop_pending_pin();
             pin::close_all();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
@@ -1950,6 +2000,29 @@ mod tests {
             assert_eq!(title, i18n::t(lang, Msg::PinFailedTitle));
             assert_eq!(body, i18n::t(lang, Msg::PinFailedBody));
             assert!(!body.contains("CreateWindowExW"));
+            let (kind, title, body) = pin_failure_notice(lang, &pin::PinError::TooLarge);
+            assert_eq!(kind, NoticeKind::Error);
+            assert_eq!(title, i18n::t(lang, Msg::PinFailedTitle));
+            assert_eq!(body, i18n::t(lang, Msg::PinTooLargeBody));
+            assert_ne!(body, i18n::t(lang, Msg::PinFailedBody));
         }
+    }
+
+    /// Phím chụp khi một menu (khay, ảnh ghim hay Lịch sử) đang mở: đóng menu rồi chụp hoãn.
+    #[test]
+    fn hotkey_defers_when_any_menu_open() {
+        assert!(!hotkey_defers(false, false));
+        assert!(hotkey_defers(true, false));
+        assert!(hotkey_defers(false, true));
+        assert!(hotkey_defers(true, true));
+    }
+
+    /// Hẹn giờ chụp sau menu: menu ảnh ghim hay Lịch sử còn mở thì chờ thêm, không chụp.
+    #[test]
+    fn timer_waits_while_pin_or_history_menu_open() {
+        assert!(!timer_should_wait(false, false));
+        assert!(timer_should_wait(true, false));
+        assert!(timer_should_wait(false, true));
+        assert!(timer_should_wait(true, true));
     }
 }
