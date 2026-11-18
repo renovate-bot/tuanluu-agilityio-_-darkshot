@@ -11,6 +11,7 @@ pub mod image;
 pub mod last_capture;
 pub mod migrate;
 pub mod naming;
+pub mod ocr_text;
 pub mod pin;
 pub mod sigv4;
 pub mod snap;
