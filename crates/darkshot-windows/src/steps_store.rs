@@ -666,6 +666,12 @@ fn with<R>(f: impl FnOnce(&mut Store) -> R) -> R {
     })
 }
 
+/// Kiểm thử: phiên của luồng này dùng thư mục `root` (tạm) thay cho thư mục thật của người dùng.
+#[cfg(test)]
+pub fn use_root_for_test(root: PathBuf) {
+    STORE.with(|s| *s.borrow_mut() = Some(Store::new(root, Box::new(|| {}))));
+}
+
 /// Đăng ký hàm được gọi sau mỗi thay đổi của phiên (bắt đầu, thêm, sửa, kết thúc).
 pub fn on_change(f: fn()) {
     LISTENERS.with(|l| l.borrow_mut().push(f));
