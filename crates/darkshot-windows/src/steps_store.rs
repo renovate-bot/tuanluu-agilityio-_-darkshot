@@ -744,7 +744,7 @@ mod tests {
         let root = tmp("add3");
         let mut s = store(&root);
         assert!(!s.active());
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         assert!(s.active());
         assert_eq!(s.count(), 0);
         assert!(json(&root).steps.is_empty());
@@ -770,7 +770,7 @@ mod tests {
     fn json_updates_only_after_png_result() {
         let root = tmp("order");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         s.add(img(1)).unwrap();
         assert!(s.flush(WAIT));
         // Ảnh đã ghi, kết quả chưa áp: json và danh sách chưa có bước.
@@ -789,7 +789,7 @@ mod tests {
         let root = tmp("restore");
         {
             let mut s = store(&root);
-            s.start().unwrap();
+            s.start_at(now()).unwrap();
             add_wait(&mut s, 1);
             add_wait(&mut s, 2);
             assert!(s.set_caption(1, "Bấm Lưu"));
@@ -845,7 +845,7 @@ mod tests {
         let kept2 = root.with_file_name("current.corrupt-20261118-140559-2");
         assert_eq!(std::fs::read(kept2.join(SESSION_FILE)).unwrap(), b"[]");
         // Sau đó bắt đầu phiên mới được bình thường.
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         assert!(s.active() && root.join(SESSION_FILE).is_file());
         cleanup(&root);
     }
@@ -877,7 +877,7 @@ mod tests {
     fn remove_and_move_update_json() {
         let root = tmp("edit");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         for v in [1, 2, 3] {
             add_wait(&mut s, v);
         }
@@ -901,7 +901,7 @@ mod tests {
     fn dirty_tracks_changes_since_export() {
         let root = tmp("dirty");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         assert!(!s.dirty());
         add_wait(&mut s, 1);
         assert!(s.dirty());
@@ -919,7 +919,7 @@ mod tests {
     fn end_removes_folder() {
         let root = tmp("end");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         add_wait(&mut s, 1);
         s.end().unwrap();
         assert!(!s.active());
@@ -935,7 +935,7 @@ mod tests {
     fn end_with_write_in_flight_leaves_nothing() {
         let root = tmp("endflight");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         s.add(img(9)).unwrap();
         s.end().unwrap();
         assert!(!root.exists());
@@ -949,7 +949,7 @@ mod tests {
     fn full_counts_writes_in_flight() {
         let root = tmp("full");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         let mut sess = StepSession::default();
         for k in 1..MAX_STEPS {
             sess.add(format!("{k:03}.png")).unwrap();
@@ -969,10 +969,9 @@ mod tests {
     #[test]
     fn new_names_skip_files_already_on_disk() {
         let root = tmp("orphan");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("001.png"), b"orphan").unwrap();
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
+        std::fs::write(root.join("001.png"), b"orphan").unwrap();
         add_wait(&mut s, 1);
         add_wait(&mut s, 2);
         let got: Vec<&str> = s.steps().iter().map(|x| x.file.as_str()).collect();
@@ -986,7 +985,7 @@ mod tests {
     fn png_write_failure_reports_error_and_adds_nothing() {
         let root = tmp("fail");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         // Thư mục phiên bị thay bằng một tệp: không tạo được ảnh.
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::write(&root, b"not a dir").unwrap();
@@ -1021,7 +1020,7 @@ mod tests {
     fn writes_leave_no_temp_files() {
         let root = tmp("notmp");
         let mut s = store(&root);
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         for v in [1, 2] {
             add_wait(&mut s, v);
         }
@@ -1046,11 +1045,183 @@ mod tests {
                 h.fetch_add(1, Ordering::SeqCst);
             }),
         );
-        s.start().unwrap();
+        s.start_at(now()).unwrap();
         add_wait(&mut s, 1);
         add_wait(&mut s, 2);
         assert_eq!(hits.load(Ordering::SeqCst), 2);
         cleanup(&root);
+    }
+
+    /// Mở `path` không chia sẻ (đọc, ghi, xóa đều bị chặn) tới khi thả.
+    fn lock(path: &Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(path)
+            .unwrap()
+    }
+
+    fn session_errors(e: &[StepError]) -> usize {
+        e.iter()
+            .filter(|x| matches!(x, StepError::Session(_)))
+            .count()
+    }
+
+    /// Kết thúc: xóa `session.json` trước; không xóa được thì phiên giữ nguyên, ảnh còn.
+    #[test]
+    fn end_keeps_session_when_json_cannot_be_removed() {
+        let root = tmp("endlock");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        add_wait(&mut s, 1);
+        let held = lock(&root.join(SESSION_FILE));
+        assert!(s.end().is_err());
+        assert!(s.active());
+        assert_eq!(s.count(), 1);
+        assert!(root.join("001.png").is_file());
+        drop(held);
+        s.end().unwrap();
+        assert!(!s.active() && !root.exists());
+        cleanup(&root);
+    }
+
+    /// Ghi json lỗi: báo lỗi, nhớ là chưa ghi; lần thay đổi sau hay lúc thoát ghi lại.
+    #[test]
+    fn json_write_failure_is_reported_and_retried() {
+        let root = tmp("jsonlock");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        add_wait(&mut s, 1);
+        add_wait(&mut s, 2);
+        let held = lock(&root.join(SESSION_FILE));
+        // Sửa ghi chú: đổi trong bộ nhớ, báo lỗi ghi phiên.
+        assert!(s.set_caption(0, "a"));
+        assert_eq!(session_errors(&s.take_errors()), 1);
+        assert!(s.json_stale());
+        // Xóa bước: json không ghi được thì không xóa ảnh, bước còn nguyên.
+        assert!(!s.remove(1));
+        assert_eq!(session_errors(&s.take_errors()), 1);
+        assert_eq!(s.count(), 2);
+        assert!(root.join("002.png").is_file());
+        // Thêm bước: ảnh ghi được, json thì không: bước có trong bộ nhớ, lỗi phiên được báo.
+        s.add(img(3)).unwrap();
+        assert!(s.flush(WAIT));
+        let d = s.drain();
+        assert_eq!(d.added, 1);
+        assert_eq!(session_errors(&d.errors), 1);
+        drop(held);
+        // Lúc thoát: ghi lại json đang trễ.
+        let errs = s.finish(WAIT);
+        assert!(errs.is_empty(), "{errs:?}");
+        assert!(!s.json_stale());
+        let j = json(&root);
+        assert_eq!(files(&j), ["001.png", "002.png", "003.png"]);
+        assert_eq!(j.steps[0].caption, "a");
+        assert!(names(&root).iter().all(|n| !n.ends_with(".tmp")));
+        cleanup(&root);
+    }
+
+    /// Lần thay đổi sau ghi lại json đang trễ.
+    #[test]
+    fn next_change_rewrites_stale_json() {
+        let root = tmp("jsonretry");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        add_wait(&mut s, 1);
+        add_wait(&mut s, 2);
+        let held = lock(&root.join(SESSION_FILE));
+        assert!(s.set_caption(0, "x"));
+        drop(held);
+        assert!(s.move_down(0));
+        assert!(s.take_errors().is_empty());
+        assert!(!s.json_stale());
+        let j = json(&root);
+        assert_eq!(files(&j), ["002.png", "001.png"]);
+        assert_eq!(j.steps[1].caption, "x");
+        cleanup(&root);
+    }
+
+    /// Bắt đầu phiên trên thư mục còn json chưa khôi phục: không ghi đè, đổi tên thư mục để giữ.
+    #[test]
+    fn start_keeps_unrecovered_folder() {
+        let root = tmp("startkeep");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(SESSION_FILE), b"{rac").unwrap();
+        std::fs::write(root.join("001.png"), b"img").unwrap();
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        assert!(s.active());
+        let kept = root.with_file_name("current.corrupt-20261118-140559");
+        assert_eq!(std::fs::read(kept.join(SESSION_FILE)).unwrap(), b"{rac");
+        assert_eq!(std::fs::read(kept.join("001.png")).unwrap(), b"img");
+        assert!(json(&root).steps.is_empty());
+        assert_eq!(names(&root), ["session.json"]);
+        // Thư mục chỉ có ảnh (không json) cũng được giữ.
+        s.end().unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("005.png"), b"five").unwrap();
+        s.start_at(now()).unwrap();
+        let kept2 = root.with_file_name("current.corrupt-20261118-140559-2");
+        assert_eq!(std::fs::read(kept2.join("005.png")).unwrap(), b"five");
+        cleanup(&root);
+    }
+
+    /// Thư mục chưa khôi phục mà không đổi tên được (tệp đang bị giữ): không bắt đầu, không
+    /// ghi đè, `end` không xóa gì.
+    #[test]
+    fn start_refuses_when_unrecovered_folder_cannot_be_moved() {
+        let root = tmp("startlock");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut sess = StepSession::default();
+        sess.add("001.png".to_string()).unwrap();
+        let body = sess.to_json();
+        std::fs::write(root.join(SESSION_FILE), &body).unwrap();
+        std::fs::write(root.join("001.png"), b"img").unwrap();
+        let held = lock(&root.join(SESSION_FILE));
+        let mut s = store(&root);
+        // Đọc lỗi (không phải NotFound): không có phiên, không đụng gì.
+        s.restore_at(now());
+        assert!(!s.active());
+        assert!(s.start_at(now()).is_err());
+        assert!(!s.active());
+        s.end().unwrap();
+        drop(held);
+        assert_eq!(
+            std::fs::read_to_string(root.join(SESSION_FILE)).unwrap(),
+            body
+        );
+        assert!(root.join("001.png").is_file());
+        // Hết bị giữ: khôi phục bình thường.
+        s.restore_at(now());
+        assert!(s.active());
+        assert_eq!(s.count(), 1);
+        cleanup(&root);
+    }
+
+    /// Json hỏng mà không đổi tên được lúc khởi động: thư mục giữ nguyên, bắt đầu phiên bị từ chối.
+    #[test]
+    fn corrupt_json_that_cannot_be_moved_blocks_start() {
+        let root = tmp("corruptlock");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(SESSION_FILE), b"{rac").unwrap();
+        std::fs::write(root.join("001.png"), b"img").unwrap();
+        let held = lock(&root.join("001.png"));
+        let mut s = store(&root);
+        s.restore_at(now());
+        assert!(!s.active());
+        assert!(root.join(SESSION_FILE).is_file());
+        assert!(s.start_at(now()).is_err());
+        drop(held);
+        assert_eq!(std::fs::read(root.join(SESSION_FILE)).unwrap(), b"{rac");
+        cleanup(&root);
+    }
+
+    #[test]
+    fn worker_failure_text_is_localized() {
+        use darkshot_core::i18n::{t, Msg};
+        assert_eq!(worker_failed(Lang::En), t(Lang::En, Msg::StepsWorkerFailed));
+        assert_eq!(worker_failed(Lang::Vi), t(Lang::Vi, Msg::StepsWorkerFailed));
     }
 
     #[test]
