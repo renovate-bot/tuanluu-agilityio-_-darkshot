@@ -665,7 +665,7 @@ Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy đ�
 \x20\x20+ {notices}: bỏ tích thì không hiện các thông báo \"{saved}\", \"{copied}\", \"{link}\". Thông báo lỗi luôn hiện.\n\
 \x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát darkshot.\n\
 \x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
-- Phím tắt: ba dòng \"{region_label}\", \"{save_label}\" và \"{upload_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
+- Phím tắt: bốn dòng \"{region_label}\", \"{save_label}\", \"{upload_label}\" và \"{repeat_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - {format_tab}: chọn định dạng cho ảnh tải lên, PNG (mặc định) hoặc JPEG, và chất lượng JPEG từ 50 đến 100. Ảnh lưu vào máy luôn là PNG. Chất lượng càng cao thì file càng nặng.\n\
 - Lưu trữ R2: thông tin kho Cloudflare R2, hạn của link và nút Kiểm tra kết nối.\n\
 \n\
@@ -706,7 +706,7 @@ Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard 
 \x20\x20+ {notices}: when unchecked, the \"{saved}\", \"{copied}\" and \"{link}\" notifications are not shown. Error notifications always appear.\n\
 \x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit darkshot.\n\
 \x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
-- Hotkeys: three rows, \"{region_label}\", \"{save_label}\" and \"{upload_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
+- Hotkeys: four rows, \"{region_label}\", \"{save_label}\", \"{upload_label}\" and \"{repeat_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
 - {format_tab}: choose the format for uploaded images, PNG (the default) or JPEG, and the JPEG quality from 50 to 100. Images saved to disk are always PNG. Higher quality means a larger file.\n\
 - R2 storage: your Cloudflare R2 bucket details, the link expiry and the Test connection button.\n\
 \n\
@@ -1140,6 +1140,17 @@ mod tests {
         for l in Lang::ALL {
             let label = t(l, Msg::LabelHotkeyRepeatLast);
             assert!(help_text(l, &HelpKeys::default()).contains(label), "{l:?}");
+            // Đoạn tab Phím tắt của mục Tùy chọn nêu cả bốn dòng.
+            let h = help_text(l, &HelpKeys::default());
+            let line = h
+                .lines()
+                .find(|x| x.starts_with("- Phím tắt:") || x.starts_with("- Hotkeys:"))
+                .expect("hotkeys tab line");
+            assert!(line.contains(label), "{l:?}");
+            assert!(
+                !line.contains("ba dòng") && !line.contains("three rows"),
+                "{l:?}"
+            );
             let on = HelpKeys {
                 repeat_last: Some("KEY_D".into()),
                 ..HelpKeys::default()
