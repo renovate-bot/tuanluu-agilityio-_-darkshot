@@ -91,7 +91,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 71 Ghim ảnh: tài liệu, demo | task/71-pin-docs-demo | scaffolder | haiku | xong | 131.646 | phiên điều phối đọc diff | 0 | 131.646 |
 | 71b Website: mục Ghim, ảnh Lịch sử mới (luật website mới trong CLAUDE.md) | task/71b-pin-website | builder | sonnet | xong | 64.267 | phiên điều phối đọc diff | 2.660 | 66.927 |
 | Rà soát toàn đợt 9 | feature/pin-screenshot | specialist | fable | xong | | 182.216 | | 182.216 |
-| 72 Sửa sau rà soát toàn đợt 9 | task/72-pin-review-fixes | specialist | opus | đang làm | | | | |
+| 72 Sửa sau rà soát toàn đợt 9 | task/72-pin-review-fixes | specialist | opus | xong | 82.058 | 61.304 (reviewer fable) | 3.937 | 147.299 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

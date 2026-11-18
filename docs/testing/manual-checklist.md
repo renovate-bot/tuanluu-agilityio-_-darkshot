@@ -386,28 +386,37 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\
 
 ## Đợt 9: Ghim ảnh lên màn hình
 
-Chạy bản demo cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`). Chụp vùng: Ctrl+Alt+Shift+F10 hoặc menu khay. Cửa sổ Lịch sử mở sẵn. [ ] = chưa ai thử.
+Chạy bản demo cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`). Chụp vùng: Ctrl+Alt+Shift+F10 hoặc menu khay. Cửa sổ Lịch sử mở sẵn. [x] = phiên điều phối đã thấy trên bản demo (2026-11-18, Windows 11, một màn hình 2880×1800 DPI 200%, tiếng Việt; ảnh `target/demo9/screens/`); [ ] = chưa ai thử. QA bằng chuột/phím giả lập bị dừng giữa chừng vì chủ dự án đang dùng máy (quyết định 111).
 
-- [ ] Từ lớp phủ, nút Ghim (biểu tượng ghim, rê chuột thấy "Ghim lên màn hình (Ctrl+P)") và Ctrl+P đều ghim vùng chọn; ảnh ghim khít đúng vị trí vùng chọn và có các nét đã vẽ; lớp phủ đóng.
-- [ ] Từ Lịch sử, nút Ghim ở khung chi tiết: ảnh hiện giữa màn hình có chuột, không lớn hơn 80% vùng làm việc; ảnh lớn hơn được thu cho vừa.
+- [x] Từ lớp phủ: nút Ghim giữa Chép và Hủy, rê chuột thấy "Ghim lên màn hình (Ctrl+P)"; Ctrl+P ghim vùng chọn, ảnh ghim khít đúng vị trí, lớp phủ đóng (`01-…`, `02-…`, `03-…`).
+- [ ] Ảnh ghim có các nét đã vẽ; bấm nút Ghim bằng chuột (mới thử Ctrl+P).
+- [x] Từ Lịch sử, nút Ghim ở khung chi tiết (Mở, Sao chép ảnh, Ghim, Xóa khỏi lịch sử với mục Đã chép): ảnh 800×1000 hiện 100% giữa màn hình, Lịch sử giữ tiêu điểm (`07-…`, `08-…`, `09-…`, `10-…`).
+- [ ] Ảnh lớn hơn 80% vùng làm việc được thu cho vừa.
 - [ ] Kéo ảnh ghim để dời; ảnh luôn còn một phần trên một màn hình.
-- [ ] Cuộn chuột quanh con trỏ: điểm dưới con trỏ đứng yên khi phóng và thu; nhãn mức (ví dụ "125%") hiện khoảng 1,2 giây rồi tắt.
-- [ ] Ctrl+cuộn: đổi độ mờ, nhãn "Độ mờ 60%" hiện; không xuống dưới 20%.
+- [x] Cuộn chuột thu về 75%, nhãn "75%" hiện (`04-…`). Kéo ảnh ghim: dời được, viền xanh khi kích hoạt (`04-…`).
+- [ ] Điểm dưới con trỏ đứng yên khi phóng và thu (đo bằng mắt); nhãn tắt sau khoảng 1,2 giây.
+- [x] Ctrl+cuộn: độ mờ 70%, nhãn "Độ mờ 70%" hiện (`05-…`).
+- [ ] Không xuống dưới 20%.
 - [ ] Bấm đúp (ngoài nút ×): về 100%. Bấm đúp trên nút × thì ảnh không phóng.
 - [ ] Phím: `+` và `-` phóng, thu theo bậc (10% đến 400%); `0` về 100%; mũi tên dời 1 px, Shift+mũi tên 10 px; Esc và Ctrl+W đóng; Ctrl+C chép; Ctrl+S lưu.
-- [ ] Chuột phải: menu có Sao chép ảnh, Lưu ảnh, Thu phóng, Độ mờ, Đóng; mức đang dùng có dấu tích; Sao chép và Lưu từ menu cho ảnh đúng.
-- [ ] Rê chuột vào ảnh hiện nút ×; bấm × đóng đúng ảnh đó; rê ra thì nút × ẩn.
+- [x] Chuột phải: menu tối có Sao chép ảnh, Lưu ảnh, Thu phóng, Độ mờ, Đóng, Đóng mọi ảnh ghim; menu con Thu phóng có dấu tích ở 100% (`06-…`).
+- [ ] Sao chép và Lưu từ menu/phím cho ảnh gốc đúng cỡ, có thông báo và mục Lịch sử (chưa thử: không ghi đè clipboard thật; lượt Ctrl+S bị dừng).
+- [x] Rê chuột vào ảnh hiện nút × (`03-…`).
+- [ ] Bấm × đóng đúng ảnh đó; rê ra thì nút × ẩn.
 - [ ] Phóng quá giới hạn: ảnh 4K (3840×2160) phóng tới 200% được, 250% không; mỗi cạnh không quá 16.384 px.
 - [ ] Menu khay: không có ảnh ghim thì không có mục "Đóng mọi ảnh ghim"; có ảnh ghim thì mục hiện đúng số, bấm thì đóng hết.
 - [ ] Giới hạn 32: ghim thêm khi đủ 32 ảnh thì hiện "Đã đủ ảnh ghim" với "Đã đủ 32 ảnh ghim. Đóng bớt rồi thử lại."; không tạo cửa sổ thừa.
 - [ ] Không tạo được cửa sổ ảnh ghim (khó tái hiện bằng tay): thông báo "Không ghim được ảnh" không kèm lý do kỹ thuật.
 - [ ] DPI 100%, 125%, 150% và 200%: ảnh ghim, nhãn mức và nút × đúng cỡ, không cắt chữ.
-- [ ] Hai màn hình có DPI khác nhau: kéo ảnh ghim qua lại giữa hai màn hình, ảnh đổi cỡ theo DPI của màn hình mới, không nhòe.
+- [ ] Hai màn hình có DPI khác nhau: kéo ảnh ghim qua lại giữa hai màn hình, ảnh GIỮ nguyên cỡ điểm ảnh (100% = 1:1, không phóng theo DPI), viền vẫn 1 DIP, không nhòe.
 - [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): ghim và kéo ảnh đúng vị trí.
 - [ ] Kéo ảnh ghim sang màn hình khác rồi rút màn hình đó: ảnh được đưa về màn hình còn lại, không mất hẳn.
 - [ ] Thoát darkshot khi còn ảnh ghim: mọi ảnh đóng, biểu tượng khay biến mất, không còn tiến trình darkshot (Task Manager).
 - [ ] Ghim và đóng nhiều lần liên tiếp: số đối tượng GDI của darkshot trong Task Manager không tăng dần.
 - [ ] English: nút Ghim, menu ảnh ghim, nhãn "Close all pinned images (n)" và thông báo đều tiếng Anh; không cắt chữ.
 - [ ] Windows 10: ghim, kéo, phóng, đóng ảnh hoạt động như trên Windows 11.
-- [ ] Chạy tay các kiểm thử `#[ignore]` mới, từng cái với `--test-threads=1`, khi không chạm chuột/bàn phím: `pin_round_trip_without_gdi_leaks`, `pin_close_all_destroys_every_window`, `pin_limit`, `pin_close_all_during_context_menu`, `pin_rejects_invalid_image`, `pin_zoom_keeps_anchor`, `pin_at_places_image_exactly` (trong `crates/darkshot-windows/src/pin.rs`).
+- [x] Chạy tay các kiểm thử `#[ignore]` mới (phiên điều phối, 2026-11-18, sau Task 72: 7/7 qua, GDI 12 → 12, USER 5 → 5), từng cái với `--test-threads=1`, khi không chạm chuột/bàn phím: `pin_round_trip_without_gdi_leaks`, `pin_close_all_destroys_every_window`, `pin_limit`, `pin_close_all_during_context_menu`, `pin_rejects_invalid_image`, `pin_zoom_keeps_anchor`, `pin_at_places_image_exactly` (trong `crates/darkshot-windows/src/pin.rs`).
 - [ ] Chạy tay các kiểm thử `#[ignore]` của lớp phủ: `ctrl_p_pins_selection_at_its_corner`, `click_clears_hint_real_cursor`, `click_clears_hint_posted_only` (trong `crates/darkshot-windows/src/overlay.rs`), mỗi cái với `--test-threads=1`.
+- [ ] Phím chụp khi menu chuột phải của ảnh ghim hoặc của Lịch sử đang mở: menu đóng rồi lớp phủ mới hiện, cú kéo đầu tiên chọn vùng (Task 72).
+- [ ] Bấm Ghim trong Lịch sử rồi mở lớp phủ ngay: ảnh ghim chỉ hiện sau khi lớp phủ đóng (Task 72).
+- [ ] Đủ 32 ảnh ghim, bấm Ghim trong Lịch sử: thông báo hiện ngay (Task 72).
