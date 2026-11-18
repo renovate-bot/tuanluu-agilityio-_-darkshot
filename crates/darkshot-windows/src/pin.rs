@@ -38,15 +38,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    EndMenu, GetClientRect, GetCursorPos, GetWindowLongPtrW, IsWindow, KillTimer, LoadCursorW,
-    RegisterClassW, SetCursor, SetForegroundWindow, SetLayeredWindowAttributes, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu, CS_DBLCLKS, GWLP_USERDATA, HMENU,
-    HTCLIENT, IDC_ARROW, IDC_SIZEALL, LWA_ALPHA, MENU_ITEM_FLAGS, MF_CHECKED, MF_GRAYED, MF_POPUP,
-    MF_SEPARATOR, MF_STRING, MINMAXINFO, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNA, TPM_RETURNCMD, TPM_RIGHTBUTTON, WA_INACTIVE, WINDOWPOS,
-    WM_ACTIVATE, WM_CAPTURECHANGED, WM_CONTEXTMENU, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_NCACTIVATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_TIMER,
+    EndMenu, GetClientRect, GetCursorPos, GetWindowLongPtrW, GetWindowRect, IsWindow, KillTimer,
+    LoadCursorW, RegisterClassW, SetCursor, SetForegroundWindow, SetLayeredWindowAttributes,
+    SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, TrackPopupMenu, CS_DBLCLKS,
+    GWLP_USERDATA, HMENU, HTCLIENT, IDC_ARROW, IDC_SIZEALL, LWA_ALPHA, MENU_ITEM_FLAGS, MF_CHECKED,
+    MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MINMAXINFO, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNA, TPM_RETURNCMD, TPM_RIGHTBUTTON, WA_INACTIVE,
+    WINDOWPOS, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CONTEXTMENU, WM_DISPLAYCHANGE, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCACTIVATE, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_TIMER,
     WM_WINDOWPOSCHANGED, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
@@ -64,6 +64,13 @@ const ID_COPY: u32 = 1;
 const ID_SAVE: u32 = 2;
 const ID_CLOSE: u32 = 3;
 const ID_CLOSE_ALL: u32 = 4;
+const ID_OCR: u32 = 5;
+/// Đầu menu ngữ cảnh: mục hành động trên ảnh gốc, theo thứ tự (ID, chữ, hành động gửi cho sink).
+const MENU_ACTIONS: [(u32, Msg, Action); 3] = [
+    (ID_COPY, Msg::PinMenuCopy, Action::Copy),
+    (ID_SAVE, Msg::PinMenuSave, Action::Save),
+    (ID_OCR, Msg::PinMenuOcr, Action::Ocr),
+];
 const ID_ZOOM_BASE: u32 = 1000;
 const ID_OPACITY_BASE: u32 = 2000;
 
@@ -118,7 +125,8 @@ impl<T> Default for PendingPin<T> {
 }
 
 /// Hàm nhận hành động Lưu/Chép từ ảnh ghim.
-type ActionSink = fn(Action, Image);
+/// Hành động, bản sao ảnh gốc, khung cửa sổ ảnh ghim (tọa độ màn hình) để cửa sổ mới tránh che.
+type ActionSink = fn(Action, Image, Option<Rect>);
 
 thread_local! {
     /// Sổ ảnh ghim của luồng giao diện.
@@ -413,8 +421,9 @@ pub fn close_all() {
     });
 }
 
-/// Hàm `main` đăng ký để Lưu/Chép từ ảnh ghim đi đúng đường `run_on_image` (thông báo, Lịch sử).
-pub fn set_action_sink(f: fn(Action, Image)) {
+/// Hàm `main` đăng ký để Lưu/Chép từ ảnh ghim đi đúng đường `run_on_image` (thông báo, Lịch sử), và
+/// Nhận dạng chữ mở cửa sổ kết quả.
+pub fn set_action_sink(f: ActionSink) {
     SINK.with(|s| s.set(Some(f)));
 }
 
@@ -958,12 +967,34 @@ fn on_dpi_changed(hwnd: HWND, dpi: u32) {
     });
 }
 
+/// Hành động của mục menu `id` trong `MENU_ACTIONS`.
+fn menu_action(id: u32) -> Option<Action> {
+    MENU_ACTIONS
+        .iter()
+        .find(|(i, _, _)| *i == id)
+        .map(|(_, _, a)| *a)
+}
+
+/// Khung cửa sổ `hwnd` (tọa độ màn hình).
+fn screen_rect_of(hwnd: HWND) -> Option<Rect> {
+    let mut rc = RECT::default();
+    // SAFETY: rc là biến cục bộ; hwnd là ảnh ghim của luồng này.
+    unsafe { GetWindowRect(hwnd, &mut rc) }.ok()?;
+    Some(Rect {
+        x: rc.left,
+        y: rc.top,
+        w: rc.right - rc.left,
+        h: rc.bottom - rc.top,
+    })
+}
+
+/// Chép, Lưu hay Nhận dạng chữ trên bản sao ảnh gốc: gửi cho sink của `main`.
 fn copy_or_save(hwnd: HWND, action: Action) {
     let Some(img) = with_pin(hwnd, |p| p.image_copy()) else {
         return;
     };
     match SINK.with(|s| s.get()) {
-        Some(f) => f(action, img),
+        Some(f) => f(action, img, screen_rect_of(hwnd)),
         None => {
             if action == Action::Copy {
                 let _ = WinClipboard.set_image(&img);
@@ -1018,8 +1049,9 @@ fn context_menu(hwnd: HWND, lp: LPARAM) {
     let Some(menu) = root.0 else {
         return;
     };
-    append(menu, MF_STRING, ID_COPY as usize, t(lang, Msg::PinMenuCopy));
-    append(menu, MF_STRING, ID_SAVE as usize, t(lang, Msg::PinMenuSave));
+    for (id, text, _) in MENU_ACTIONS {
+        append(menu, MF_STRING, id as usize, t(lang, text));
+    }
     append(menu, MF_SEPARATOR, 0, "");
     let zm = new_menu();
     if let Some(m) = zm.0 {
@@ -1087,9 +1119,11 @@ fn context_menu(hwnd: HWND, lp: LPARAM) {
     if cmd == 0 || !unsafe { IsWindow(Some(hwnd)) }.as_bool() || pin_ptr(hwnd).is_null() {
         return;
     }
+    if let Some(action) = menu_action(cmd) {
+        copy_or_save(hwnd, action);
+        return;
+    }
     match cmd {
-        ID_COPY => copy_or_save(hwnd, Action::Copy),
-        ID_SAVE => copy_or_save(hwnd, Action::Save),
         ID_CLOSE => destroy(hwnd),
         // Sau khi TrackPopupMenu đã trả về: không hủy cửa sổ đang giữ menu.
         ID_CLOSE_ALL => close_all(),
@@ -1569,6 +1603,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Menu ngữ cảnh: Sao chép, Lưu ảnh, rồi Nhận dạng chữ; mỗi mục một ID riêng, gửi đúng hành động.
+    #[test]
+    fn menu_actions_copy_save_then_ocr() {
+        assert_eq!(
+            MENU_ACTIONS,
+            [
+                (ID_COPY, Msg::PinMenuCopy, Action::Copy),
+                (ID_SAVE, Msg::PinMenuSave, Action::Save),
+                (ID_OCR, Msg::PinMenuOcr, Action::Ocr),
+            ]
+        );
+        for id in [ID_COPY, ID_SAVE, ID_OCR, ID_CLOSE, ID_CLOSE_ALL] {
+            assert!(id < ID_ZOOM_BASE);
+        }
+        assert_eq!(menu_action(ID_OCR), Some(Action::Ocr));
+        assert_eq!(menu_action(ID_SAVE), Some(Action::Save));
+        assert_eq!(menu_action(ID_CLOSE), None);
+    }
 
     fn r(x: i32, y: i32, w: i32, h: i32) -> Rect {
         Rect { x, y, w, h }

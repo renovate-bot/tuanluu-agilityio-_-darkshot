@@ -3236,8 +3236,12 @@ fn run_loop(hwnd: HWND, c: Ctl) {
             cancel();
             break;
         }
-        // Thông tin và Trợ giúp dùng được cả khi Tùy chọn đang mở: chúng xử lý phím của chính chúng trước.
-        if crate::about::pre_translate(&msg) || crate::help::pre_translate(&msg) {
+        // Thông tin, Trợ giúp và cửa sổ Nhận dạng chữ dùng được cả khi Tùy chọn đang mở: chúng xử lý
+        // phím của chính chúng trước.
+        if crate::about::pre_translate(&msg)
+            || crate::help::pre_translate(&msg)
+            || crate::ocr_window::pre_translate(&msg)
+        {
             continue;
         }
         // SAFETY: IsChild chỉ đọc quan hệ cửa sổ.

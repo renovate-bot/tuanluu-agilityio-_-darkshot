@@ -16,6 +16,7 @@ mod hotkey;
 mod lang;
 mod legacy;
 mod ocr;
+mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
@@ -874,6 +875,11 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
         }
         return;
     }
+    if action == Action::Ocr {
+        // Nhận dạng chữ: cửa sổ kết quả, luồng nền; không lưu, không ghi Lịch sử.
+        open_ocr(image, None, &notify);
+        return;
+    }
     let Some(notifier) = notifier else {
         return;
     };
@@ -925,8 +931,41 @@ pub fn pin_failure_notice(lang: Lang, e: &pin::PinError) -> (NoticeKind, &'stati
     }
 }
 
-/// Lưu/Chép từ menu hay phím của ảnh ghim: đúng đường `run_on_image` (thông báo, Lịch sử).
-fn pin_action(action: Action, image: darkshot_core::image::Image) {
+/// Mở cửa sổ Nhận dạng chữ cho `image`; không mở được thì báo lỗi (không hiện lý do kỹ thuật).
+fn open_ocr(
+    image: darkshot_core::image::Image,
+    avoid: Option<Rect>,
+    notify: &dyn Fn(NoticeKind, &str, &str),
+) {
+    let opened = match avoid {
+        Some(_) => ocr_window::open_avoiding(image, avoid),
+        None => ocr_window::open(image),
+    };
+    if opened.is_err() {
+        notify(
+            NoticeKind::Error,
+            lang::tr(Msg::OcrWindowTitle),
+            lang::tr(Msg::OcrFailed),
+        );
+    }
+}
+
+/// Thông báo của cửa sổ Nhận dạng chữ (Đã chép chữ, lỗi clipboard) qua khay; Success được lọc ở
+/// `WM_NOTICE` theo ô "hiện thông báo lưu và sao chép".
+fn ocr_notify(kind: NoticeKind, title: &str, body: &str) {
+    if let Some(t) = current_tray() {
+        t.notifier().notify(kind, title, body);
+    }
+}
+
+/// Lưu/Chép từ menu hay phím của ảnh ghim: đúng đường `run_on_image` (thông báo, Lịch sử);
+/// Nhận dạng chữ mở cửa sổ kết quả với ảnh gốc của ảnh ghim.
+fn pin_action(action: Action, image: darkshot_core::image::Image, pin_rect: Option<Rect>) {
+    if action == Action::Ocr {
+        // Ảnh ghim luôn ở trên cùng: đặt cửa sổ kết quả cạnh nó, không bị nó che.
+        open_ocr(image, pin_rect, &ocr_notify);
+        return;
+    }
     let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
         return;
     };
@@ -1251,6 +1290,7 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             // Đóng mọi ảnh ghim trước (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
             history_window::drop_pending_pin();
             pin::close_all();
+            ocr_window::close_all();
             // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng.
             save_pending_uploads();
             // SAFETY: hwnd là cửa sổ của luồng này.
@@ -1442,6 +1482,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // Phiên sắp kết thúc (tắt máy, đăng xuất): đóng ảnh ghim, ghi file ảnh của các lượt
                 // còn dở.
                 pin::close_all();
+                ocr_window::close_all();
                 save_pending_uploads();
             }
             LRESULT(0)
@@ -1454,6 +1495,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // Lưới an toàn cho mọi đường thoát: ảnh ghim không sống quá cửa sổ chính.
             history_window::drop_pending_pin();
             pin::close_all();
+            ocr_window::close_all();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -1518,6 +1560,7 @@ fn main() {
     let Ok(hwnd) = create_window() else { return };
     MAIN_HWND.with(|h| h.set(Some(hwnd)));
     pin::set_action_sink(pin_action);
+    ocr_window::set_notifier(ocr_notify);
     // SAFETY: chuỗi hằng kết thúc bằng 0.
     TASKBAR_CREATED.with(|c| c.set(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }));
 
@@ -1593,6 +1636,7 @@ fn main() {
             if about::pre_translate(&msg)
                 || help::pre_translate(&msg)
                 || history_window::pre_translate(&msg)
+                || ocr_window::pre_translate(&msg)
             {
                 continue;
             }

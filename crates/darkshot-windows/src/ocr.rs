@@ -1,7 +1,5 @@
 //! Nhận dạng chữ cục bộ bằng Windows.Media.Ocr (WinRT), chạy trên luồng nền `darkshot-ocr`.
 //! Ảnh chỉ ở bộ nhớ; không ghi tệp, không nhật ký chữ, không mạng.
-// Task 80 nối module này vào cửa sổ kết quả; tới lúc đó các mục công khai chưa có ai dùng.
-#![allow(dead_code)]
 
 use std::ffi::c_void;
 use std::sync::Once;
@@ -234,7 +232,7 @@ fn post_result(hwnd: isize, msg: u32, token: usize, res: Result<OcrResult, OcrEr
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::ffi::c_void;
     use std::time::{Duration, Instant};
@@ -385,7 +383,7 @@ mod tests {
     }
 
     /// Ảnh trắng `w×h`, có `text` đen (phông 32 px) vẽ bằng GDI vào DIB trong bộ nhớ.
-    fn text_image(w: i32, h: i32, text: Option<&str>) -> Image {
+    pub(crate) fn text_image(w: i32, h: i32, text: Option<&str>) -> Image {
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
