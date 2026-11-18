@@ -357,6 +357,10 @@ messages! {
     HistoryPin => ("Ghim", "Pin"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
+    PinFailedBody => (
+        "Không tạo được cửa sổ ảnh ghim. Thử lại.",
+        "Couldn't create the pinned image window. Try again."
+    ),
     HistoryFileMissingHint => (
         "Tệp đã bị di chuyển hoặc xóa. Vẫn có thể xóa mục này khỏi lịch sử.",
         "The file was moved or deleted. You can still remove this entry from history."
@@ -459,10 +463,6 @@ pub fn pin_opacity_badge(lang: Lang, p: u8) -> String {
         Lang::Vi => format!("Độ mờ {p}%"),
         Lang::En => format!("Opacity {p}%"),
     }
-}
-
-pub fn pin_failed_body(lang: Lang, reason: &str) -> String {
-    reason_try_again(lang, reason)
 }
 
 pub fn encode_failed(lang: Lang, err: &str) -> String {
@@ -1133,7 +1133,6 @@ mod tests {
         assert!(pin_limit_body(Lang::Vi, 32).contains("32"));
         assert_eq!(pin_opacity_badge(Lang::Vi, 60), "Độ mờ 60%");
         assert_eq!(pin_opacity_badge(Lang::En, 60), "Opacity 60%");
-        assert!(pin_failed_body(Lang::En, "x").contains("x"));
     }
 
     #[test]
