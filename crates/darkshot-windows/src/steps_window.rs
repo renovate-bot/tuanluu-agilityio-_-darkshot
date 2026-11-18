@@ -1567,9 +1567,15 @@ fn on_dpi_changed(dpi: u32) {
 // Hành động
 // ---------------------------------------------------------------------------
 
+/// Kết thúc lúc này có cần hỏi: trước hết chờ ảnh bước đang ghi (có hạn) và áp vào phiên, để bước
+/// vừa chụp không bị bỏ qua; còn ảnh đang ghi sau đó cũng tính là cần hỏi.
 fn needs_confirm() -> bool {
-    steps_store::dirty() && steps_store::count() > 0
+    steps_store::settle(SETTLE_TIMEOUT);
+    steps_store::needs_end_confirm()
 }
+
+/// Thời gian chờ ảnh bước đang ghi trước khi quyết định hỏi khi kết thúc.
+const SETTLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 fn on_button(h: HWND, b: Btn) {
     let Some((sel, count, modal)) = with_state(|s| (s.sel, s.steps.len(), s.confirm.is_open()))

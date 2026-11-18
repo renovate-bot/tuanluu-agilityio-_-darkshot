@@ -153,13 +153,15 @@ fn escape_line(line: &str) -> String {
     let mut out = String::with_capacity(body.len() + 4);
     // Vị trí (theo ký tự) cần thêm `\` ở đầu dòng; chỉ ký tự ASCII nên so khớp theo chỉ số.
     let digits = chars.iter().take_while(|c| c.is_ascii_digit()).count();
+    // Dấu danh sách `-`/`+`/`*` theo sau bởi khoảng trắng (cách hay tab) hoặc đứng một mình.
+    let list_marker = matches!(chars.first(), Some('-' | '+' | '*'))
+        && chars.get(1).is_none_or(|c| c.is_whitespace());
     let block_at = if body.starts_with('#')
         || body.starts_with("---")
-        || body.starts_with("- ")
-        || body.starts_with("+ ")
-        || body == "-"
-        || body == "+"
+        || body.starts_with('~')
+        || list_marker
         || (!chars.is_empty() && chars.iter().all(|&c| c == '='))
+        || (!chars.is_empty() && chars.iter().all(|&c| c == '-'))
     {
         Some(0)
     } else if (1..=9).contains(&digits)
@@ -481,6 +483,27 @@ mod tests {
         assert_eq!(rendered_caption("1. a"), "1\\. a\n");
         assert_eq!(rendered_caption("12) a"), "12\\) a\n");
         assert_eq!(rendered_caption("> a"), "\\> a\n");
+    }
+
+    #[test]
+    fn markdown_escapes_more_block_markers() {
+        // Dòng chỉ gồm `-` (từ hai ký tự): gạch ngang/tiêu đề setext.
+        assert_eq!(rendered_caption("--"), "\\--\n");
+        assert_eq!(rendered_caption("a\n--"), "a\\\n\\--\n");
+        assert_eq!(rendered_caption("-----"), "\\-----\n");
+        // `~` đầu dòng (khối mã `~~~`).
+        assert_eq!(rendered_caption("~~~"), "\\~~~\n");
+        assert_eq!(rendered_caption("~ a"), "\\~ a\n");
+        // Dấu danh sách theo sau bởi tab.
+        assert_eq!(rendered_caption("-\ta"), "\\-\ta\n");
+        assert_eq!(rendered_caption("+\tb"), "\\+\tb\n");
+        assert_eq!(rendered_caption("*\tc"), "\\*\tc\n");
+        // `*` đầu dòng theo sau bởi khoảng trắng: thoát đúng một lần.
+        assert_eq!(rendered_caption("* a"), "\\* a\n");
+        // Chữ thường không bị thoát thừa.
+        assert_eq!(rendered_caption("a~b"), "a~b\n");
+        assert_eq!(rendered_caption("-a"), "-a\n");
+        assert_eq!(rendered_caption("a -- b"), "a -- b\n");
     }
 
     #[test]
