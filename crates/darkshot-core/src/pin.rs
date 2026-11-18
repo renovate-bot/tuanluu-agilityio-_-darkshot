@@ -26,11 +26,20 @@ pub fn display_size(w: u32, h: u32, zoom: u16) -> (i32, i32) {
     (scale(w, zoom), scale(h, zoom))
 }
 
-/// Bậc kế tiếp lớn hơn trong ZOOM_STEPS mà cỡ hiển thị mỗi chiều ≤ MAX_SIDE.
+/// Diện tích hiển thị tối đa (px²) khi phóng trên 100%.
+pub const MAX_AREA: i64 = 40_000_000;
+
+/// Mức `zoom` dùng được cho ảnh w×h: mỗi cạnh hiển thị ≤ MAX_SIDE, và khi phóng trên 100%
+/// thì diện tích hiển thị ≤ MAX_AREA.
+pub fn zoom_allowed(w: u32, h: u32, zoom: u16) -> bool {
+    let (dw, dh) = display_size(w, h, zoom);
+    dw <= MAX_SIDE && dh <= MAX_SIDE && (zoom <= 100 || dw as i64 * dh as i64 <= MAX_AREA)
+}
+
+/// Bậc kế tiếp lớn hơn trong ZOOM_STEPS mà `zoom_allowed`.
 pub fn zoom_in(w: u32, h: u32, zoom: u16) -> Option<u16> {
     let next = ZOOM_STEPS.iter().copied().find(|&s| s > zoom)?;
-    let (dw, dh) = display_size(w, h, next);
-    (dw <= MAX_SIDE && dh <= MAX_SIDE).then_some(next)
+    zoom_allowed(w, h, next).then_some(next)
 }
 
 /// Bậc kế tiếp nhỏ hơn trong ZOOM_STEPS.
@@ -322,6 +331,24 @@ mod tests {
         assert_eq!(opacity_alpha(100), 255);
         assert_eq!(opacity_alpha(20), 51);
         assert_eq!(opacity_alpha(60), 153);
+    }
+
+    #[test]
+    fn zoom_allowed_limits_side_and_area() {
+        // 4K 200% = 7680×4320 ≈ 33,2 triệu px².
+        assert!(zoom_allowed(3840, 2160, 200));
+        assert!(zoom_allowed(1920, 1080, 400));
+        // 4K 250% = 9600×5400 ≈ 51,8 triệu px².
+        assert!(!zoom_allowed(3840, 2160, 250));
+        // Cạnh vừa MAX_SIDE nhưng diện tích quá lớn.
+        assert!(!zoom_allowed(4096, 4096, 400));
+        // ≤ 100% chỉ xét cạnh.
+        assert!(zoom_allowed(8000, 6000, 100));
+        assert!(!zoom_allowed(8000, 6000, 110));
+        assert!(!zoom_allowed(20000, 10, 100));
+        assert_eq!(zoom_in(3840, 2160, 200), None);
+        assert_eq!(zoom_in(8000, 6000, 100), None);
+        assert_eq!(zoom_in(3840, 2160, 175), Some(200));
     }
 
     #[test]

@@ -17,6 +17,7 @@ mod lang;
 mod legacy;
 mod overlay;
 mod paths;
+mod pin;
 mod secret;
 mod settings;
 mod snap;
