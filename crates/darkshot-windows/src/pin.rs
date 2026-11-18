@@ -72,8 +72,6 @@ pub enum PinPlace {
     /// Ảnh hiện 100% với góc trên trái của ẢNH tại điểm màn hình này (cửa sổ = ảnh nới một viền ra ngoài).
     At(Point),
     /// Căn giữa vùng làm việc của màn hình chứa con trỏ, mức `pin::fit_zoom`.
-    // Nút Ghim của Lịch sử (Task 70) là nơi gọi; đến lúc đó chỉ kiểm thử dùng.
-    #[allow(dead_code)]
     CenterOnCursorMonitor,
 }
 
