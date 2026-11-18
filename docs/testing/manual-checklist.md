@@ -383,3 +383,31 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-snap.ps1 -Exe target\
 - [ ] Rút mạng (hoặc chặn `api.github.com`): không có lỗi hay thông báo nào hiện ra, ứng dụng vẫn chụp và mở Tùy chọn bình thường.
 - [ ] Bấm vào một thông báo khác (ví dụ "Đã lưu ảnh") không mở trình duyệt.
 - [ ] Tab Thông thường của Tùy chọn: ô "Tự kiểm tra bản mới" nằm ngay dưới ô thông báo lưu và sao chép, màu tối đúng như các ô tích khác; Tab đi qua ô theo thứ tự.
+
+## Đợt 9: Ghim ảnh lên màn hình
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`). Chụp vùng: Ctrl+Alt+Shift+F10 hoặc menu khay. Cửa sổ Lịch sử mở sẵn. [ ] = chưa ai thử.
+
+- [ ] Từ lớp phủ, nút Ghim (biểu tượng ghim, rê chuột thấy "Ghim lên màn hình (Ctrl+P)") và Ctrl+P đều ghim vùng chọn; ảnh ghim khít đúng vị trí vùng chọn và có các nét đã vẽ; lớp phủ đóng.
+- [ ] Từ Lịch sử, nút Ghim ở khung chi tiết: ảnh hiện giữa màn hình có chuột, không lớn hơn 80% vùng làm việc; ảnh lớn hơn được thu cho vừa.
+- [ ] Kéo ảnh ghim để dời; ảnh luôn còn một phần trên một màn hình.
+- [ ] Cuộn chuột quanh con trỏ: điểm dưới con trỏ đứng yên khi phóng và thu; nhãn mức (ví dụ "125%") hiện khoảng 1,2 giây rồi tắt.
+- [ ] Ctrl+cuộn: đổi độ mờ, nhãn "Độ mờ 60%" hiện; không xuống dưới 20%.
+- [ ] Bấm đúp (ngoài nút ×): về 100%. Bấm đúp trên nút × thì ảnh không phóng.
+- [ ] Phím: `+` và `-` phóng, thu theo bậc (10% đến 400%); `0` về 100%; mũi tên dời 1 px, Shift+mũi tên 10 px; Esc và Ctrl+W đóng; Ctrl+C chép; Ctrl+S lưu.
+- [ ] Chuột phải: menu có Sao chép ảnh, Lưu ảnh, Thu phóng, Độ mờ, Đóng; mức đang dùng có dấu tích; Sao chép và Lưu từ menu cho ảnh đúng.
+- [ ] Rê chuột vào ảnh hiện nút ×; bấm × đóng đúng ảnh đó; rê ra thì nút × ẩn.
+- [ ] Phóng quá giới hạn: ảnh 4K (3840×2160) phóng tới 200% được, 250% không; mỗi cạnh không quá 16.384 px.
+- [ ] Menu khay: không có ảnh ghim thì không có mục "Đóng mọi ảnh ghim"; có ảnh ghim thì mục hiện đúng số, bấm thì đóng hết.
+- [ ] Giới hạn 32: ghim thêm khi đủ 32 ảnh thì hiện "Đã đủ ảnh ghim" với "Đã đủ 32 ảnh ghim. Đóng bớt rồi thử lại."; không tạo cửa sổ thừa.
+- [ ] Không tạo được cửa sổ ảnh ghim (khó tái hiện bằng tay): thông báo "Không ghim được ảnh" không kèm lý do kỹ thuật.
+- [ ] DPI 100%, 125%, 150% và 200%: ảnh ghim, nhãn mức và nút × đúng cỡ, không cắt chữ.
+- [ ] Hai màn hình có DPI khác nhau: kéo ảnh ghim qua lại giữa hai màn hình, ảnh đổi cỡ theo DPI của màn hình mới, không nhòe.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): ghim và kéo ảnh đúng vị trí.
+- [ ] Kéo ảnh ghim sang màn hình khác rồi rút màn hình đó: ảnh được đưa về màn hình còn lại, không mất hẳn.
+- [ ] Thoát darkshot khi còn ảnh ghim: mọi ảnh đóng, biểu tượng khay biến mất, không còn tiến trình darkshot (Task Manager).
+- [ ] Ghim và đóng nhiều lần liên tiếp: số đối tượng GDI của darkshot trong Task Manager không tăng dần.
+- [ ] English: nút Ghim, menu ảnh ghim, nhãn "Close all pinned images (n)" và thông báo đều tiếng Anh; không cắt chữ.
+- [ ] Windows 10: ghim, kéo, phóng, đóng ảnh hoạt động như trên Windows 11.
+- [ ] Chạy tay các kiểm thử `#[ignore]` mới, từng cái với `--test-threads=1`, khi không chạm chuột/bàn phím: `pin_round_trip_without_gdi_leaks`, `pin_close_all_destroys_every_window`, `pin_limit`, `pin_close_all_during_context_menu`, `pin_rejects_invalid_image`, `pin_zoom_keeps_anchor`, `pin_at_places_image_exactly` (trong `crates/darkshot-windows/src/pin.rs`).
+- [ ] Chạy tay các kiểm thử `#[ignore]` của lớp phủ: `ctrl_p_pins_selection_at_its_corner`, `click_clears_hint_real_cursor`, `click_clears_hint_posted_only` (trong `crates/darkshot-windows/src/overlay.rs`), mỗi cái với `--test-threads=1`.

@@ -48,7 +48,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có sáu nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi bốn nút hành động. Rê chuột vào nút để xem tên và phím tắt.
+Thanh có bảy nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi năm nút hành động (Tải lên, Lưu, Chép, Ghim, Hủy). Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
@@ -57,9 +57,10 @@ Thanh có sáu nút chỉ có biểu tượng: Hoàn tác, Làm lại, một v�
 | Tải lên và chép link | `Ctrl+D` | Tải ảnh lên kho R2, chép link vào clipboard, hiện thông báo "Đã chép link". |
 | Lưu vào máy | `Ctrl+S` | Lưu PNG vào thư mục lưu, không hỏi lại. |
 | Chép ảnh | `Ctrl+C` | Chép ảnh vào clipboard. |
+| Ghim lên màn hình | `Ctrl+P` | Ghim vùng chọn lên màn hình thành một ảnh ghim. Xem "Ghim ảnh lên màn hình". |
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
-- `Ctrl+D`, `Ctrl+S`, `Ctrl+C` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
+- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
 - `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo khung chọn vùng. Khi đang có bảng mở, ô chữ, lần kéo hình hoặc hình được chọn, `Esc` chỉ lùi một bước (xem "Đánh dấu ảnh").
 
 ### Đánh dấu ảnh
@@ -254,12 +255,46 @@ Mặc định **bật** (Tùy chọn, tab Thông thường, ô "Gợi ý cửa s
 Mặc định **tắt**. Bật ở Tùy chọn, tab Thông thường, ô "Bật lịch sử ảnh chụp". Khi bật, mỗi lần Lưu, Chép hoặc Tải lên (kể cả lưu dự phòng khi tải lên không được) thêm một mục vào lịch sử; khi tắt, không có gì được ghi thêm và các mục cũ giữ nguyên.
 
 - Mở từ menu khay, mục "Lịch sử ảnh chụp". Danh sách bên trái (ảnh nhỏ, ngày giờ, loại, kích thước), khung xem trước và hành động bên phải.
-- Hành động: Mở (ảnh đã lưu mở bằng trình xem ảnh; ảnh đã tải lên mở liên kết `https://` trên trình duyệt), Sao chép ảnh, Sao chép liên kết (ảnh đã tải lên), Mở thư mục chứa ảnh (ảnh đã lưu), Xóa khỏi lịch sử. Chuột phải trên một dòng cho cùng các mục. Phím: Enter mở, Delete xóa mục, Ctrl+C chép ảnh, Ctrl+Shift+C chép liên kết, Ctrl+F tìm, Esc đóng.
+- Hành động: Mở (ảnh đã lưu mở bằng trình xem ảnh; ảnh đã tải lên mở liên kết `https://` trên trình duyệt), Sao chép ảnh, Sao chép liên kết (ảnh đã tải lên), Mở thư mục chứa ảnh (ảnh đã lưu), Ghim (mở ảnh ghim giữa màn hình, xem "Ghim ảnh lên màn hình"), Xóa khỏi lịch sử. Chuột phải trên một dòng cho cùng các mục. Phím: Enter mở, Delete xóa mục, Ctrl+C chép ảnh, Ctrl+Shift+C chép liên kết, Ctrl+F tìm, Esc đóng.
 - Tìm theo tên tệp, ngày, loại hoặc liên kết (không phân biệt hoa thường và dấu); lọc Tất cả, Đã lưu, Đã tải lên, Đã chép.
 - Giữ 50 mục gần nhất. Dữ liệu nằm ở `%LOCALAPPDATA%\darkshot\history\` (chỉ mục `index.json`, ảnh nhỏ, và bản sao PNG của ảnh đã tải lên hoặc đã chép). Ảnh đã lưu chỉ được tham chiếu, không chép lại. Không gửi đi đâu.
 - Xóa một mục hoặc "Xóa lịch sử" chỉ xóa phần do ứng dụng giữ. Ảnh bạn đã lưu và ảnh trên R2 không bị xóa.
 - Ghi lịch sử chạy trên một luồng nền theo thứ tự; khi thoát (kể cả tắt máy), darkshot chờ tối đa 3 giây để ghi xong các mục còn dở, nên thoát ngay sau Lưu/Chép/Tải lên vẫn giữ được mục. Một lượt tải lên chỉ tạo đúng một mục, kể cả khi thoát đúng lúc nó vừa xong.
 - Hạn hiển thị của ảnh đã tải lên tính từ lúc tải xong (R2 tính vòng đời từ lúc tạo đối tượng) và là ngày "còn ít nhất tới": R2 có thể xóa trễ tới khoảng một ngày.
+
+### Ghim ảnh lên màn hình
+
+Ghim đặt một ảnh chụp lên trên các cửa sổ khác. Mỗi ảnh ghim là một cửa sổ riêng, luôn nằm trên cùng. Tối đa 32 ảnh ghim cùng lúc.
+
+Có hai cách ghim:
+
+- **Từ lớp phủ:** sau khi chọn vùng (và đánh dấu nếu cần), bấm nút **Ghim** (biểu tượng ghim) trên thanh công cụ ngang, hoặc `Ctrl+P`. Ảnh ghim đặt khít đúng vị trí vùng chọn trên màn hình và có các nét đã vẽ. Lớp phủ đóng như khi Lưu hoặc Chép.
+- **Từ Lịch sử:** chọn một ảnh trong Lịch sử ảnh chụp rồi bấm **Ghim** ở khung chi tiết. Ảnh hiện giữa màn hình đang có con trỏ chuột, và không lớn hơn 80% vùng làm việc của màn hình đó.
+
+Thao tác trên ảnh ghim:
+
+- **Kéo** để dời ảnh. Ảnh luôn còn một phần nằm trên một màn hình.
+- **Cuộn chuột** để phóng hoặc thu quanh con trỏ: điểm dưới con trỏ đứng yên. Nhãn mức (ví dụ `125%`) hiện khoảng 1,2 giây.
+- **Ctrl+cuộn** để đổi độ mờ (từ 20% trở lên). Nhãn "Độ mờ 60%" hiện khoảng 1,2 giây.
+- **Bấm đúp** để về 100%. Bấm đúp trên nút × thì ảnh không phóng.
+- **Chuột phải** mở menu: Sao chép ảnh, Lưu ảnh, Thu phóng, Độ mờ, Đóng. Mức đang dùng có dấu tích.
+- **Rê chuột vào ảnh** để hiện nút ×; bấm nút × để đóng ảnh đó.
+- **Phím:** `+` và `-` phóng hoặc thu theo bậc (từ 10% đến 400%); `0` về 100%; mũi tên dời ảnh 1 px, Shift+mũi tên 10 px; `Esc` hoặc `Ctrl+W` đóng ảnh; `Ctrl+C` chép ảnh; `Ctrl+S` lưu ảnh.
+
+Giới hạn phóng: mỗi cạnh hiển thị tối đa 16.384 px. Khi phóng trên 100%, diện tích hiển thị tối đa 40 triệu px; ví dụ ảnh 4K (3840×2160) phóng tối đa 200%.
+
+- **Menu khay:** khi đang có ảnh ghim, menu khay có mục "Đóng mọi ảnh ghim (n)" với n là số ảnh đang ghim; bấm để đóng hết. Khi không có ảnh ghim, mục này không hiện.
+- **Đủ 32 ảnh:** ghim thêm thì hiện "Đã đủ ảnh ghim" và nêu số 32. Đóng bớt ảnh rồi thử lại.
+- **Không tạo được cửa sổ:** hiện "Không ghim được ảnh", không kèm lý do kỹ thuật. Thử lại.
+- Thoát darkshot đóng mọi ảnh ghim.
+
+Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay khóa R2 thật, không mạng):
+
+```powershell
+powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe
+```
+
+Thêm `-Lang en` để chạy giao diện English. Chụp vùng: `Ctrl+Alt+Shift+F10`. Cửa sổ Lịch sử mở sẵn. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 9".
 
 ### Menu khay
 
