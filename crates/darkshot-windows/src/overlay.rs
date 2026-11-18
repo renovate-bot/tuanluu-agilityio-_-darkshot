@@ -8797,7 +8797,6 @@ mod tests {
         click_clears_hint_on_screen(false);
     }
 
-    /// Trạng thái lớp phủ dựng không cần cửa sổ: gợi ý cửa sổ (Task 62).
     /// Đinh ghim: đầu, thân, mũi kim nghiêng 45° (đầu trên phải, mũi dưới trái), nằm gọn trong
     /// lưới 24×24 với lề như các biểu tượng khác.
     #[test]
@@ -8878,6 +8877,7 @@ mod tests {
         assert!(r.is_ok_and(|p| p.is_none()));
     }
 
+    /// Trạng thái lớp phủ dựng không cần cửa sổ: gợi ý cửa sổ (Task 62).
     mod snap_state {
         use super::*;
         use crate::capture::{Screenshot, GDI_TEST_LOCK};

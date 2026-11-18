@@ -465,10 +465,6 @@ pub fn pin_opacity_badge(lang: Lang, p: u8) -> String {
     }
 }
 
-pub fn pin_failed_body(lang: Lang, reason: &str) -> String {
-    reason_try_again(lang, reason)
-}
-
 pub fn encode_failed(lang: Lang, err: &str) -> String {
     match lang {
         Lang::Vi => format!("Không mã hóa được ảnh: {err}"),
@@ -1137,7 +1133,6 @@ mod tests {
         assert!(pin_limit_body(Lang::Vi, 32).contains("32"));
         assert_eq!(pin_opacity_badge(Lang::Vi, 60), "Độ mờ 60%");
         assert_eq!(pin_opacity_badge(Lang::En, 60), "Opacity 60%");
-        assert!(pin_failed_body(Lang::En, "x").contains("x"));
     }
 
     #[test]
