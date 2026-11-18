@@ -2476,6 +2476,7 @@ struct HotkeysLayout {
 }
 
 impl HotkeysLayout {
+    #[cfg(test)]
     /// Mọi ô, theo thứ tự dòng rồi (ô tích, ô chỉ đọc, nút): cũng là thứ tự Tab.
     fn rects(&self) -> Vec<Rect4> {
         self.rows
