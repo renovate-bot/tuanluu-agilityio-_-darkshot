@@ -20,10 +20,10 @@ mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
+mod scroll_session;
 mod secret;
 mod settings;
 mod snap;
-mod scroll_session;
 mod steps_bar;
 mod steps_export;
 mod steps_store;
@@ -873,6 +873,15 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             return;
         }
     };
+    if action == Action::Scroll {
+        // Chụp cuộn: hình đánh dấu bị bỏ (không khớp nội dung cuộn); không cắt ảnh tĩnh.
+        let region = scroll_region(rect, shot.origin, img_w, img_h);
+        drop(shot);
+        if let Some(region) = region {
+            scroll_session::start(region);
+        }
+        return;
+    }
     let pin_at = pin_origin(rect, shot.origin);
     // Giải phóng ảnh chụp ngay khi đã cắt xong.
     drop(shot);
@@ -904,6 +913,54 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
         return;
     };
     run_on_image(hwnd, action, image, notifier);
+}
+
+/// Trong lúc phiên chụp cuộn chạy, cổng coi như đang chụp: yêu cầu chụp (phím tắt, nút Chụp bước,
+/// mục Chụp của menu khay) bị bỏ qua. Bấm khay (mở menu), hẹn giờ menu và Tùy chọn đi như thường.
+pub fn scroll_blocks(scrolling: bool, ev: GateEvent) -> bool {
+    scrolling && matches!(ev, GateEvent::MenuCapture | GateEvent::Hotkey)
+}
+
+/// Vùng chụp cuộn ở tọa độ màn hình: vùng `rect` (tọa độ ảnh) kẹp vào ảnh `img_w`×`img_h` rồi cộng
+/// gốc `origin` của màn hình ảo đúng một lần; rỗng thì `None`.
+pub fn scroll_region(rect: Rect, origin: Point, img_w: i32, img_h: i32) -> Option<Rect> {
+    let x0 = rect.x.max(0);
+    let y0 = rect.y.max(0);
+    let x1 = rect.right().min(img_w);
+    let y1 = rect.bottom().min(img_h);
+    (x1 > x0 && y1 > y0).then(|| {
+        capture::to_screen_coords(
+            Rect {
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+            },
+            origin,
+        )
+    })
+}
+
+/// Kết quả của phiên chụp cuộn (tạm thời, tới khi có cửa sổ kết quả): lưu như Lưu thường.
+fn on_scroll_result(image: darkshot_core::image::Image, _uncertain: u32) {
+    let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
+        return;
+    };
+    let Some(notifier) = current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>) else {
+        return;
+    };
+    run_on_image(hwnd, Action::Save, image, notifier);
+}
+
+/// Phiên chụp cuộn dừng vì đạt giới hạn chiều cao hoặc bộ nhớ.
+fn on_scroll_limit(height: u32) {
+    if let Some(t) = current_tray() {
+        t.notifier().notify(
+            NoticeKind::Info,
+            lang::tr(Msg::ScrollLimitTitle),
+            &i18n::scroll_height(lang::current(), height),
+        );
+    }
 }
 
 /// Khung cửa sổ `frames` (tọa độ màn hình) bỏ khung `skip` (nếu có).
@@ -979,6 +1036,8 @@ fn remaining(deadline: std::time::Instant, now: std::time::Instant) -> Duration 
 /// lượt xuất, tất cả trong một hạn chót chung `EXIT_BUDGET`. Cửa sổ Xem lại đóng trước tiên để
 /// ghi chú đang sửa được lưu trước mọi lần chờ.
 fn exit_cleanup() {
+    // Phiên chụp cuộn đang chạy: bỏ (hẹn giờ, cửa sổ, phím Esc tạm).
+    scroll_session::cancel();
     steps_window::close();
     let deadline = std::time::Instant::now() + EXIT_BUDGET;
     save_pending_uploads(remaining(deadline, std::time::Instant::now()));
@@ -1372,6 +1431,9 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
 /// yêu cầu `requested` được nhận), rồi làm việc mà cổng yêu cầu. Mọi yêu cầu chụp (ba phím tắt,
 /// "Chụp màn hình" ở menu) gọi thẳng hàm này với loại của mình.
 fn request(hwnd: HWND, ev: GateEvent, requested: CaptureKind) -> GateAction {
+    if scroll_blocks(scroll_session::active(), ev) {
+        return GateAction::Ignore;
+    }
     let (next, act) = gate_step(GATE.with(|g| g.get()), ev);
     GATE.with(|g| g.set(next));
     CAPTURE_KIND.with(|k| k.set(next_kind(k.get(), requested, act)));
@@ -1649,6 +1711,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             ocr_window::close_all();
             steps_window::close();
             steps_bar::close();
+            scroll_session::cancel();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -1768,6 +1831,8 @@ fn main() {
     steps_bar::set_on_capture(post_steps_capture);
     steps_bar::set_on_review(steps_window::open);
     steps_bar::set_on_confirm_end(steps_window::open_confirm_end);
+    scroll_session::set_on_result(on_scroll_result);
+    scroll_session::set_on_limit(on_scroll_limit);
     steps_window::set_main_window(hwnd);
     steps_window::set_notifier(ocr_notify);
     steps_window::set_default_dir(steps_export_dir);

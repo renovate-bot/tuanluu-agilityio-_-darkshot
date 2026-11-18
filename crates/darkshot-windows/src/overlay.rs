@@ -109,8 +109,8 @@ impl BarItem {
 }
 
 /// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ,
-/// Hủy; `None` là vạch ngăn.
-const BAR_CELLS: [Option<BarItem>; 9] = [
+/// Chụp cuộn, Hủy; `None` là vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 10] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
@@ -119,8 +119,21 @@ const BAR_CELLS: [Option<BarItem>; 9] = [
     Some(BarItem::Act(Action::Copy)),
     Some(BarItem::Act(Action::Pin)),
     Some(BarItem::Act(Action::Ocr)),
+    Some(BarItem::Act(Action::Scroll)),
     Some(BarItem::Act(Action::Cancel)),
 ];
+
+/// Chữ chú thích của ô thanh ngang `item`: Chụp cuộn thêm ghi chú hình đánh dấu không đi kèm.
+fn tip_text(lang: i18n::Lang, item: BarItem) -> String {
+    let base = i18n::t(lang, item.tip());
+    match item {
+        BarItem::Act(Action::Scroll) => format!(
+            "{base} \u{00B7} {}",
+            i18n::t(lang, Msg::ScrollNoAnnotations)
+        ),
+        _ => base.to_string(),
+    }
+}
 
 // Kích thước ở 96 DPI (100%); nhân theo DPI của màn hình chứa phần tử.
 const BUTTON: i32 = 36;
@@ -1884,7 +1897,7 @@ impl State {
         let item = self.hover?;
         let (bar, dpi) = self.toolbar()?;
         let btn = bar_item_rect_with(bar, dpi, self.steps, item)?;
-        let text = wide(lang::tr(item.tip()));
+        let text = wide(&tip_text(lang::current(), item));
         let (tw, th) = self.text_size(&text, dpi);
         let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
         let btn_right = btn.right();
@@ -2620,6 +2633,8 @@ impl State {
                 0x54 => self.finish(Action::Ocr),
                 // N: thêm bước (chỉ khi có phiên chụp từng bước), chốt ô chữ như P.
                 0x4E if self.steps => self.finish(Action::AddStep),
+                // L: chụp cuộn; ô chữ được chốt nhưng hình đánh dấu không đi kèm.
+                0x4C => self.finish(Action::Scroll),
                 _ => {}
             }
             return;
@@ -3385,6 +3400,7 @@ impl State {
             0x54 => Action::Ocr,    // T
             // N: thêm bước, chỉ khi có phiên chụp từng bước.
             0x4E if self.steps => Action::AddStep,
+            0x4C => Action::Scroll, // L
             _ => return,
         };
         self.finish(a);
@@ -4761,8 +4777,17 @@ impl Gp {
                 p.poly(&[(12.0, 8.0), (12.0, 16.0)]);
                 p.poly(&[(8.0, 12.0), (16.0, 12.0)]);
             }
-            // Biểu tượng Chụp cuộn vẽ ở Task 90 (chưa có ô trên thanh ngang).
-            Action::Scroll => {}
+            Action::Scroll => {
+                // Mũi tên xuống trong khung bo góc (4,3)-(20,21), bán kính 2.
+                p.start();
+                p.arc(6.0, 5.0, 2.0, 180.0, 90.0);
+                p.arc(18.0, 5.0, 2.0, 270.0, 90.0);
+                p.arc(18.0, 19.0, 2.0, 0.0, 90.0);
+                p.arc(6.0, 19.0, 2.0, 90.0, 90.0);
+                p.close();
+                p.poly(&[(12.0, 7.0), (12.0, 16.5)]);
+                p.poly(&[(8.5, 13.0), (12.0, 16.5), (15.5, 13.0)]);
+            }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
@@ -9850,7 +9875,11 @@ mod tests {
             let mut s = state(&sh, Some(SEL));
             s.steps = true;
             s.on_key(0x4C, false);
-            let r = s.result.take().expect("đã kết thúc").expect("không phải Hủy");
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
             assert_eq!(r.action, Action::Scroll);
         }
 
@@ -9896,8 +9925,7 @@ mod tests {
                 s.steps = steps;
                 let (bar, dpi) = s.toolbar().unwrap();
                 assert_eq!((bar.w, bar.h), bar_layout_with(dpi, steps).size);
-                let r =
-                    bar_item_rect_with(bar, dpi, steps, BarItem::Act(Action::Scroll)).unwrap();
+                let r = bar_item_rect_with(bar, dpi, steps, BarItem::Act(Action::Scroll)).unwrap();
                 let at = p(r.x + r.w / 2, r.y + r.h / 2);
                 assert_eq!(s.bar_item_at(at), Some(BarItem::Act(Action::Scroll)));
                 s.on_move(at);
