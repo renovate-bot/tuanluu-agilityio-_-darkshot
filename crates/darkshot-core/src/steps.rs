@@ -145,17 +145,43 @@ pub fn export_names(n: usize) -> Vec<String> {
     (1..=n).map(|k| format!("{k:0width$}.png")).collect()
 }
 
-/// Thoát dòng ghi chú để Markdown không hiểu là tiêu đề: chèn `\` trước dấu `#` đầu dòng.
+/// Thoát một dòng ghi chú để Markdown giữ nó là chữ thường: bỏ thụt đầu dòng, thoát ký tự
+/// cú pháp ở mọi vị trí và dấu hiệu khối (tiêu đề, danh sách, trích dẫn, gạch ngang) ở đầu dòng.
 fn escape_line(line: &str) -> String {
     let body = line.trim_start();
-    if body.starts_with('#') {
-        let indent = line.len() - body.len();
-        format!("{}\\{}", &line[..indent], body)
+    let chars: Vec<char> = body.chars().collect();
+    let mut out = String::with_capacity(body.len() + 4);
+    // Vị trí (theo ký tự) cần thêm `\` ở đầu dòng; chỉ ký tự ASCII nên so khớp theo chỉ số.
+    let digits = chars.iter().take_while(|c| c.is_ascii_digit()).count();
+    let block_at = if body.starts_with('#')
+        || body.starts_with("---")
+        || body.starts_with("- ")
+        || body.starts_with("+ ")
+        || body == "-"
+        || body == "+"
+    {
+        Some(0)
+    } else if !chars.is_empty() && chars.iter().all(|&c| c == '=') {
+        Some(0)
+    } else if (1..=9).contains(&digits)
+        && matches!(chars.get(digits), Some('.') | Some(')'))
+        && chars.get(digits + 1).is_none_or(|c| c.is_whitespace())
+    {
+        Some(digits)
     } else {
-        line.to_string()
+        None
+    };
+    for (k, &c) in chars.iter().enumerate() {
+        let inline = matches!(c, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '|')
+            || (c == '!' && chars.get(k + 1) == Some(&'['));
+        // `>` đã thuộc nhóm inline nên dòng trích dẫn cũng được thoát ở đây.
+        if inline || block_at == Some(k) {
+            out.push('\\');
+        }
+        out.push(c);
     }
+    out
 }
-
 /// Nội dung `steps.md` cho các bước (đã theo thứ tự hiển thị).
 pub fn markdown(lang: Lang, when: LocalTime, steps: &[Step]) -> String {
     let names = export_names(steps.len());
@@ -174,8 +200,14 @@ pub fn markdown(lang: Lang, when: LocalTime, steps: &[Step]) -> String {
         let caption = step.caption.replace("\r\n", "\n").replace('\r', "\n");
         let caption = caption.trim_matches('\n');
         if !caption.trim().is_empty() {
-            for line in caption.split('\n') {
-                out.push_str(&escape_line(line));
+            let lines: Vec<String> = caption.split('\n').map(escape_line).collect();
+            for (n, line) in lines.iter().enumerate() {
+                out.push_str(line);
+                // Ngắt dòng cứng CommonMark, sau bước thoát: chỉ giữa hai dòng có chữ.
+                let next_has_text = lines.get(n + 1).is_some_and(|l| !l.is_empty());
+                if !line.is_empty() && next_has_text {
+                    out.push('\\');
+                }
                 out.push('\n');
             }
         }
