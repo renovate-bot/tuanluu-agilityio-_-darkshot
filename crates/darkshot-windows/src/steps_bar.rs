@@ -284,17 +284,10 @@ pub fn review() {
     ON_REVIEW.with(|c| c.get())();
 }
 
-/// Kết thúc phiên như nút Kết thúc: còn bước chưa xuất thì hỏi qua cửa sổ Xem lại, không thì
-/// kết thúc ngay.
+/// Kết thúc phiên như nút Kết thúc: luôn qua cửa sổ Xem lại (`steps_window::open_confirm_end`),
+/// nơi lưu ghi chú đang sửa, giữ chốt đang xuất, rồi hỏi (còn bước chưa xuất) hay kết thúc ngay.
 pub fn finish() {
-    if crate::steps_store::dirty() && crate::steps_store::count() > 0 {
-        ON_CONFIRM_END.with(|c| c.get())();
-    } else {
-        // Không xóa được `session.json`: phiên giữ nguyên. Xóa được json mà còn sót tệp: phiên đã
-        // kết thúc; phần sót được đổi tên (giữ lại) ở lần bắt đầu phiên sau. Lỗi được báo qua
-        // `steps_store::set_on_error`.
-        crate::steps_store::end();
-    }
+    ON_CONFIRM_END.with(|c| c.get())();
 }
 
 pub fn hwnd() -> Option<HWND> {

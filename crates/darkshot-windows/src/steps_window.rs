@@ -517,11 +517,16 @@ type PreviewSlot = Arc<(Mutex<Option<PreviewJob>>, Condvar)>;
 type Results = Arc<Mutex<Vec<WorkResult>>>;
 
 /// Giải mã PNG `path` và thu nhỏ vừa `max` (không phóng to), trộn lên nền `INPUT`.
+/// Panic khi giải mã (bản debug) thành ảnh vỡ để luồng nạp sống tiếp; bản phát hành `panic =
+/// "abort"` nên giải mã vốn báo lỗi bằng `Err`.
 fn decode_fit(path: &Path, max: (u32, u32)) -> Pixels {
-    let img = decode_png_file(path).ok()?;
-    let small = downscale(&img, max.0.max(1), max.1.max(1));
-    drop(img);
-    Some((small.width, small.height, compose_over(&small, INPUT)))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let img = decode_png_file(path).ok()?;
+        let small = downscale(&img, max.0.max(1), max.1.max(1));
+        drop(img);
+        Some((small.width, small.height, compose_over(&small, INPUT)))
+    }))
+    .unwrap_or(None)
 }
 
 /// Hai luồng nền sống cùng cửa sổ. Bỏ `Workers` thì hai luồng dừng sau việc đang làm.
@@ -744,11 +749,15 @@ thread_local! {
     static DEFAULT_DIR: Cell<fn() -> Option<PathBuf>> = const { Cell::new(no_dir) };
     /// Đang có một lượt xuất chạy nền.
     static EXPORTING: Cell<bool> = const { Cell::new(false) };
+    /// Hộp chọn thư mục của nút Xuất… đang mở (vòng lặp modal).
+    static PICKING: Cell<bool> = const { Cell::new(false) };
+    /// Luồng xuất đang chạy (để lúc thoát chờ có hạn).
+    static EXPORT_THREAD: RefCell<Option<std::thread::JoinHandle<()>>> = const { RefCell::new(None) };
 }
 
-#[cfg(test)]
-thread_local! {
-    static EXPORT_THREAD: RefCell<Option<std::thread::JoinHandle<()>>> = const { RefCell::new(None) };
+/// Đang xuất hay đang chọn thư mục để xuất: không kết thúc phiên.
+fn busy() -> bool {
+    EXPORTING.with(|e| e.get()) || PICKING.with(|p| p.get())
 }
 
 fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
@@ -862,11 +871,17 @@ pub fn open_confirm_end() {
     if !steps_store::active() {
         return;
     }
-    if EXPORTING.with(|e| e.get()) {
-        // Ảnh đang được chép: không kết thúc giữa chừng; cho người dùng thấy cửa sổ.
-        open();
+    if busy() {
+        // Ảnh đang được chép hay hộp chọn thư mục đang mở: không kết thúc giữa chừng; cửa sổ đang
+        // mở thì đưa ra trước.
+        if let Some(h) = current() {
+            winutil::bring_to_front(h);
+        }
         return;
     }
+    // Thanh phiên không lấy tiêu điểm nên ô ghi chú chưa mất tiêu điểm: lưu trước khi xét
+    // "đã xuất chưa" (cửa sổ chưa mở thì không có gì để lưu).
+    commit_caption();
     if !needs_confirm() {
         end_session();
         return;
@@ -1589,7 +1604,7 @@ fn on_button(h: HWND, b: Btn) {
 
 /// Nút Kết thúc phiên: còn bước chưa xuất thì hỏi bằng thẻ; không thì kết thúc ngay.
 fn request_end() {
-    if EXPORTING.with(|e| e.get()) {
+    if busy() {
         return;
     }
     commit_caption();
@@ -1721,12 +1736,15 @@ fn confirm_key(h: HWND, vk: u16, shift: bool) -> bool {
 /// Nút Xuất…: lưu ghi chú, hỏi thư mục (hộp chọn của Windows, mặc định thư mục lưu ảnh), rồi
 /// xuất trên luồng nền.
 fn on_export_click(h: HWND) {
-    if EXPORTING.with(|e| e.get()) || steps_store::count() == 0 {
+    if busy() || steps_store::count() == 0 {
         return;
     }
     commit_caption();
     let default = DEFAULT_DIR.with(|d| d.get())();
-    let Some(parent) = pick_folder(h, default.as_deref()) else {
+    PICKING.with(|p| p.set(true));
+    let picked = pick_folder(h, default.as_deref());
+    PICKING.with(|p| p.set(false));
+    let Some(parent) = picked else {
         return;
     };
     // Hộp chọn là vòng lặp modal: phiên có thể đã kết thúc hay thẻ xác nhận đã mở trong lúc đó.
@@ -1823,10 +1841,7 @@ fn start_export(parent: PathBuf) -> bool {
         });
     match spawned {
         Ok(handle) => {
-            #[cfg(test)]
             EXPORT_THREAD.with(|t| *t.borrow_mut() = Some(handle));
-            #[cfg(not(test))]
-            drop(handle);
             EXPORTING.with(|e| e.set(true));
             if let Some(h) = current() {
                 relayout(h);
@@ -1847,6 +1862,21 @@ fn start_export(parent: PathBuf) -> bool {
 #[cfg(test)]
 fn wait_export() {
     if let Some(t) = EXPORT_THREAD.with(|t| t.borrow_mut().take()) {
+        let _ = t.join();
+    }
+}
+
+/// Lúc thoát: chờ lượt xuất đang chạy xong tối đa `timeout` (xong thì thư mục đã đổi sang tên cuối;
+/// chưa xong thì thư mục tạm còn sót được dọn ở lần xuất sau vào cùng thư mục cha).
+pub fn wait_export_on_exit(timeout: std::time::Duration) {
+    let Some(t) = EXPORT_THREAD.with(|t| t.borrow_mut().take()) else {
+        return;
+    };
+    let until = std::time::Instant::now() + timeout;
+    while !t.is_finished() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if t.is_finished() {
         let _ = t.join();
     }
 }

@@ -2,14 +2,17 @@
 //! `darkshot-steps-YYYY-MM-DD_HH-mm` (`_2`, `_3`… nếu tên đã có), chép ảnh theo thứ tự hiển thị
 //! thành `01.png`, `02.png`… và ghi `steps.md`. Chạy trên luồng nền.
 //!
-//! An toàn: thư mục con được tạo bằng `create_dir` (lỗi nếu tên đã có, tệp hay thư mục), nên không
-//! bao giờ ghi vào thư mục có sẵn; mọi tệp tạo bằng `create_new`. Lỗi giữa chừng thì xóa thư mục con
-//! vừa tạo (không để lại kết quả nửa vời).
+//! An toàn: mọi thứ được ghi vào một thư mục tạm mới (`.darkshot-steps-partial-…`, tạo bằng
+//! `create_dir` nên không bao giờ là thư mục có sẵn; tệp tạo bằng `create_new`), rồi đổi tên một lần
+//! sang tên cuối bằng `MoveFileExW` không cờ thay thế (tên đã có thì lỗi, thử `_2`…). Lỗi giữa chừng
+//! thì xóa thư mục tạm; thư mục tạm còn sót (thoát giữa chừng) được dọn ở lần xuất sau.
 
 use darkshot_core::i18n::Lang;
 use darkshot_core::naming::LocalTime;
 use darkshot_core::steps::{export_dir_name, export_names, markdown, Step};
 use std::path::{Path, PathBuf};
+use windows::core::HSTRING;
+use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVE_FILE_FLAGS};
 
 /// Tên tệp Markdown trong thư mục xuất.
 pub const MARKDOWN_FILE: &str = "steps.md";
@@ -60,8 +63,9 @@ fn copy_new(src: &Path, dst: &Path) -> std::io::Result<()> {
         .write(true)
         .create_new(true)
         .open(dst)?;
-    std::io::copy(&mut from, &mut to)?;
-    to.sync_all()
+    // Không `sync_all` từng ảnh: thư mục chỉ mang tên cuối sau khi `steps.md` (ghi cuối) đã
+    // `sync_all`; ảnh nguồn vẫn còn trong phiên nếu mất điện giữa chừng.
+    std::io::copy(&mut from, &mut to).map(|_| ())
 }
 
 /// Ghi `bytes` vào tệp mới `path` (lỗi nếu đã có).
@@ -85,18 +89,98 @@ fn fill(dir: &Path, job: &ExportJob) -> std::io::Result<()> {
     write_new(&dir.join(MARKDOWN_FILE), md.as_bytes())
 }
 
+/// Tên tệp do lượt xuất tạo: `steps.md` hay `NN.png`/`NNN.png`.
+fn export_file_name(name: &str) -> bool {
+    name == MARKDOWN_FILE
+        || name
+            .strip_suffix(".png")
+            .is_some_and(|d| (2..=3).contains(&d.len()) && d.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Thư mục tạm còn sót của lượt xuất bị ngắt: tên có tiền tố, chỉ chứa tệp do lượt xuất tạo.
+fn is_stale_staging(dir: &Path) -> bool {
+    let named = dir
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with(STAGING_PREFIX));
+    if !named || !dir.is_dir() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.into_iter().all(|e| {
+        e.is_ok_and(|e| {
+            e.file_type().is_ok_and(|t| t.is_file())
+                && export_file_name(&e.file_name().to_string_lossy())
+        })
+    })
+}
+
+/// Dọn các thư mục tạm còn sót trong `parent` (bỏ qua lỗi).
+fn clean_stale(parent: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if is_stale_staging(&p) {
+            let _ = std::fs::remove_dir_all(&p);
+        }
+    }
+}
+
+/// Đổi tên `staging` sang `base` (hoặc `base_2`…) trong `parent`, không bao giờ thay thứ đã có.
+fn publish(staging: &Path, parent: &Path, base: &str) -> std::io::Result<PathBuf> {
+    let mut last = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
+    for k in 1..=MAX_SUFFIX {
+        let name = if k == 1 {
+            base.to_string()
+        } else {
+            format!("{base}_{k}")
+        };
+        let target = parent.join(name);
+        // SAFETY: hai chuỗi sống suốt lời gọi. Không có MOVEFILE_REPLACE_EXISTING: tên đích đã có
+        // (tệp hay thư mục) thì lỗi ERROR_ALREADY_EXISTS/ERROR_FILE_EXISTS, không đè.
+        let r = unsafe {
+            MoveFileExW(
+                &HSTRING::from(staging.as_os_str()),
+                &HSTRING::from(target.as_os_str()),
+                MOVE_FILE_FLAGS(0),
+            )
+        };
+        match r {
+            Ok(()) => return Ok(target),
+            Err(e) => {
+                let io = std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF);
+                if io.kind() == std::io::ErrorKind::AlreadyExists {
+                    last = io;
+                } else {
+                    return Err(io);
+                }
+            }
+        }
+    }
+    Err(last)
+}
+
 /// Xuất `job`; trả thư mục vừa tạo, hay lý do lỗi (chữ của hệ thống). Lỗi thì không để lại gì.
 pub fn export(job: &ExportJob) -> Result<PathBuf, String> {
     if job.steps.len() != job.sources.len() {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).to_string());
     }
-    let dir =
-        create_unique_dir(&job.parent, &export_dir_name(job.when)).map_err(|e| e.to_string())?;
-    match fill(&dir, job) {
-        Ok(()) => Ok(dir),
+    clean_stale(&job.parent);
+    let staging = create_unique_dir(
+        &job.parent,
+        &format!("{STAGING_PREFIX}{}", std::process::id()),
+    )
+    .map_err(|e| e.to_string())?;
+    let done = fill(&staging, job)
+        .and_then(|()| publish(&staging, &job.parent, &export_dir_name(job.when)));
+    match done {
+        Ok(dir) => Ok(dir),
         Err(e) => {
-            // Không nửa vời: bỏ cả thư mục vừa tạo (chỉ chứa tệp của lượt này).
-            let _ = std::fs::remove_dir_all(&dir);
+            // Không nửa vời: bỏ cả thư mục tạm (chỉ chứa tệp của lượt này).
+            let _ = std::fs::remove_dir_all(&staging);
             Err(e.to_string())
         }
     }

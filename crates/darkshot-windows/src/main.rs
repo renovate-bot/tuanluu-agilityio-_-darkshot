@@ -983,6 +983,8 @@ fn finish_steps_on_exit() {
     // Cửa sổ Xem lại lưu ghi chú đang sửa khi bị hủy (trước khi chờ ghi ảnh).
     steps_window::close();
     steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    // Lượt xuất đang chạy: chờ có hạn để thư mục kịp đổi sang tên cuối.
+    steps_window::wait_export_on_exit(HISTORY_FLUSH_TIMEOUT);
     steps_bar::close();
 }
 
