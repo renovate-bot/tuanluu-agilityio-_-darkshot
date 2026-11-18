@@ -32,15 +32,14 @@ pub const MAX_AREA: i64 = 40_000_000;
 /// Mức `zoom` dùng được cho ảnh w×h: mỗi cạnh hiển thị ≤ MAX_SIDE, và khi phóng trên 100%
 /// thì diện tích hiển thị ≤ MAX_AREA.
 pub fn zoom_allowed(w: u32, h: u32, zoom: u16) -> bool {
-    let _ = (w, h, zoom);
-    todo!()
+    let (dw, dh) = display_size(w, h, zoom);
+    dw <= MAX_SIDE && dh <= MAX_SIDE && (zoom <= 100 || dw as i64 * dh as i64 <= MAX_AREA)
 }
 
 /// Bậc kế tiếp lớn hơn trong ZOOM_STEPS mà `zoom_allowed`.
 pub fn zoom_in(w: u32, h: u32, zoom: u16) -> Option<u16> {
     let next = ZOOM_STEPS.iter().copied().find(|&s| s > zoom)?;
-    let (dw, dh) = display_size(w, h, next);
-    (dw <= MAX_SIDE && dh <= MAX_SIDE).then_some(next)
+    zoom_allowed(w, h, next).then_some(next)
 }
 
 /// Bậc kế tiếp nhỏ hơn trong ZOOM_STEPS.

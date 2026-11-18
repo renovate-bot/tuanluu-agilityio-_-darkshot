@@ -121,6 +121,8 @@ struct Pin {
     drag: Option<(Point, Point)>,
     wheel: i32,
     badge: Option<String>,
+    /// Khung nhãn (tọa độ client) lúc đặt chữ nhãn: chỉ vẽ lại phần này khi nhãn hiện/ẩn.
+    badge_box: Option<Rect>,
     /// Đang tự đặt vị trí (WM_WINDOWPOSCHANGED không đồng bộ lại khung ảnh).
     self_move: bool,
 }
@@ -143,6 +145,29 @@ impl Pin {
     fn close_rect(&self) -> Option<Rect> {
         close_button_visible(self.img.w, self.img.h, self.dpi)
             .then(|| close_button_rect(self.client(), self.dpi))
+    }
+
+    /// Khung nhãn chữ `text` trong client, đo bằng phông nhãn trên DC tạm.
+    fn measure_badge(&self, text: &str) -> Option<Rect> {
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        // SAFETY: DC bộ nhớ tạm tạo ở đây được xóa trên mọi đường.
+        let size = unsafe {
+            let dc = CreateCompatibleDC(None);
+            if dc.is_invalid() {
+                return None;
+            }
+            let m = theme::draw_text(
+                dc,
+                &wide,
+                &RECT::default(),
+                TEXT,
+                self.font,
+                DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT,
+            );
+            let _ = DeleteDC(dc);
+            (m.right - m.left, m.bottom - m.top)
+        };
+        badge_rect(image_rect_of(self.client(), self.border()), size, self.dpi)
     }
 
     fn corner(&self) -> Point {
@@ -216,6 +241,9 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
         PinPlace::CenterOnCursorMonitor => {
             let area = cursor_work_area();
             let z = core_pin::fit_zoom(iw, ih, area);
+            if !core_pin::zoom_allowed(iw, ih, z) {
+                return Err(too_large());
+            }
             (z, core_pin::centered(iw, ih, z, area))
         }
     };
@@ -245,6 +273,7 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
         drag: None,
         wheel: 0,
         badge: None,
+        badge_box: None,
         self_move: false,
     });
     let caption = HSTRING::from(title(lang::current(), iw, ih));
@@ -274,15 +303,22 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
         destroy(hwnd);
         return Err(PinError::Create(e.to_string()));
     }
+    // Ghi sổ trước khi gắn trạng thái: không ghi được thì hủy cửa sổ, `pin` tự giải phóng khi trả.
+    let registered = PINS.with(|v| match v.try_borrow_mut() {
+        Ok(mut v) => {
+            v.push(hwnd);
+            true
+        }
+        Err(_) => false,
+    });
+    if !registered {
+        destroy(hwnd);
+        return Err(PinError::Create("pin registry busy".into()));
+    }
     // SAFETY: trao quyền sở hữu Box cho cửa sổ; WM_NCDESTROY lấy lại và hủy đúng một lần.
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(pin) as isize);
     }
-    PINS.with(|v| {
-        if let Ok(mut v) = v.try_borrow_mut() {
-            v.push(hwnd);
-        }
-    });
     // DPI thật của cửa sổ (màn hình chứa phần lớn cửa sổ) có thể khác dự đoán.
     // SAFETY: hwnd là cửa sổ còn sống của luồng này.
     let real = norm_dpi(unsafe { GetDpiForWindow(hwnd) });
@@ -473,17 +509,28 @@ fn hit(pt: Point, close: Option<Rect>) -> Hit {
     }
 }
 
-/// Mục Thu phóng của menu: bật khi cỡ hiển thị mỗi chiều ≤ `MAX_SIDE`.
+/// Mục Thu phóng của menu: bật khi lõi cho phép mức này (cạnh và diện tích).
 fn menu_zoom_enabled(w: u32, h: u32, zoom: u16) -> bool {
-    let (dw, dh) = core_pin::display_size(w, h, zoom);
-    dw <= core_pin::MAX_SIDE && dh <= core_pin::MAX_SIDE
+    core_pin::zoom_allowed(w, h, zoom)
 }
 
 /// Mức và khung ảnh ban đầu của `At(p)`: 100%, hoặc bậc lớn nhất dưới 100% vừa `MAX_SIDE`;
 /// `None` khi cả mức nhỏ nhất vẫn quá lớn.
 fn initial_at(p: Point, w: u32, h: u32) -> Option<(u16, Rect)> {
-    let _ = (p, w, h);
-    todo!()
+    let mut z = 100;
+    while !core_pin::zoom_allowed(w, h, z) {
+        z = core_pin::zoom_out(z)?;
+    }
+    let (dw, dh) = core_pin::display_size(w, h, z);
+    Some((
+        z,
+        Rect {
+            x: p.x,
+            y: p.y,
+            w: dw,
+            h: dh,
+        },
+    ))
 }
 
 /// Điểm mở menu ngữ cảnh: tọa độ màn hình trong `lp`, hoặc `fallback` khi mở bằng bàn phím (`lp` = -1).
@@ -655,6 +702,17 @@ fn dpi_for_rect(r: Rect) -> u32 {
 // ---------------------------------------------------------------------------------------------
 // Thao tác trên cửa sổ.
 
+/// Vẽ lại phần `r` (tọa độ client) của cửa sổ.
+fn invalidate_part(hwnd: HWND, r: Option<Rect>) {
+    if let Some(r) = r {
+        let rc = to_win(r);
+        // SAFETY: hwnd là cửa sổ của luồng này; rc là biến cục bộ.
+        unsafe {
+            let _ = InvalidateRect(Some(hwnd), Some(&rc), false);
+        }
+    }
+}
+
 fn invalidate(hwnd: HWND) {
     // SAFETY: hwnd là cửa sổ của luồng này.
     unsafe {
@@ -731,14 +789,19 @@ fn keep(hwnd: HWND) {
 }
 
 fn show_badge(hwnd: HWND, text: String) {
-    if with_pin(hwnd, |p| p.badge = Some(text)).is_none() {
+    let Some((old, new)) = with_pin(hwnd, |p| {
+        let new = p.measure_badge(&text);
+        p.badge = Some(text);
+        (std::mem::replace(&mut p.badge_box, new), new)
+    }) else {
         return;
-    }
+    };
     // SAFETY: hẹn giờ của chính cửa sổ này; đặt lại cùng ID thì thay hẹn giờ cũ.
     unsafe {
         SetTimer(Some(hwnd), BADGE_TIMER, BADGE_MS, None);
     }
-    invalidate(hwnd);
+    invalidate_part(hwnd, old);
+    invalidate_part(hwnd, new);
 }
 
 /// Đổi sang mức `target` giữ `anchor` (màn hình) đứng yên; mức không đổi thì chỉ hiện nhãn.
@@ -841,6 +904,11 @@ fn on_dpi_changed(hwnd: HWND, dpi: u32) {
     };
     delete_font(old);
     place(hwnd, img, true, true);
+    // Phông và viền mới: đo lại khung nhãn đang hiện (cả cửa sổ đã được vẽ lại).
+    with_pin(hwnd, |p| {
+        let b = p.badge.as_deref().and_then(|t| p.measure_badge(t));
+        p.badge_box = b;
+    });
 }
 
 fn copy_or_save(hwnd: HWND, action: Action) {
@@ -1059,11 +1127,15 @@ fn on_mouse_move(hwnd: HWND, lp: LPARAM) {
     }
     let pt = lparam_pt(lp);
     let Some((need_track, changed)) = with_pin(hwnd, |p| {
-        let over = hit(pt, p.close_rect()) == Hit::Close;
+        let close = p.close_rect();
+        let over = hit(pt, close) == Hit::Close;
         let changed = !p.hover || over != p.over_close;
         p.hover = true;
         p.over_close = over;
-        (!std::mem::replace(&mut p.tracking, true), changed)
+        (
+            !std::mem::replace(&mut p.tracking, true),
+            close.filter(|_| changed),
+        )
     }) else {
         return;
     };
@@ -1079,9 +1151,8 @@ fn on_mouse_move(hwnd: HWND, lp: LPARAM) {
             let _ = TrackMouseEvent(&mut tme);
         }
     }
-    if changed {
-        invalidate(hwnd);
-    }
+    // Chỉ nút × đổi khi rê chuột.
+    invalidate_part(hwnd, changed);
 }
 
 /// Kết thúc kéo (nếu đang kéo) rồi giữ cửa sổ trong màn hình.
@@ -1374,13 +1445,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_MOUSELEAVE => {
-            with_pin(hwnd, |p| {
+            let close = with_pin(hwnd, |p| {
                 p.hover = false;
                 p.over_close = false;
                 p.tracking = false;
                 p.close_pressed = false;
-            });
-            invalidate(hwnd);
+                p.close_rect()
+            })
+            .flatten();
+            invalidate_part(hwnd, close);
             LRESULT(0)
         }
         WM_LBUTTONDOWN => {
@@ -1425,8 +1498,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             unsafe {
                 let _ = KillTimer(Some(hwnd), BADGE_TIMER);
             }
-            with_pin(hwnd, |p| p.badge = None);
-            invalidate(hwnd);
+            let gone = with_pin(hwnd, |p| {
+                p.badge = None;
+                p.badge_box.take()
+            })
+            .flatten();
+            invalidate_part(hwnd, gone);
             LRESULT(0)
         }
         WM_DPICHANGED => {
