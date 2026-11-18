@@ -132,18 +132,31 @@ fn min_overlap(run_h: u32) -> u32 {
     MIN_OVERLAP_PX.max(frac)
 }
 
-/// Một khung đã băm: điểm ảnh, băm từng hàng, cờ hàng một màu.
+/// Bề rộng dải phải (cột) không dùng để so khớp: chỗ của thanh cuộn dọc, con trượt di chuyển
+/// theo nội dung nên làm hàng khác nhau dù nội dung khớp. Ảnh hẹp hơn 128 px: không bỏ cột nào.
+fn right_strip(w: u32) -> u32 {
+    if w >= 128 {
+        (w / 8).min(32)
+    } else {
+        0
+    }
+}
+
+/// Một khung đã băm: điểm ảnh, băm và cờ một màu của phần chính mỗi hàng (bỏ dải phải).
 struct Frame {
     bgra: Vec<u8>,
     hash: Vec<u64>,
     uniform: Vec<bool>,
+    /// Số byte đầu mỗi hàng thuộc phần chính.
+    main: usize,
 }
 
 impl Frame {
     /// `img` phải hợp lệ (đã kiểm `is_valid`).
     fn new(img: &Image) -> Frame {
         let stride = img.width as usize * 4;
-        let rows: Vec<&[u8]> = img.bgra.chunks_exact(stride).collect();
+        let main = (img.width - right_strip(img.width)) as usize * 4;
+        let rows: Vec<&[u8]> = img.bgra.chunks_exact(stride).map(|r| &r[..main]).collect();
         let mut hash = Vec::with_capacity(rows.len());
         let (groups, rest) = rows.as_chunks::<4>();
         for g in groups {
@@ -155,12 +168,63 @@ impl Frame {
             bgra: img.bgra.clone(),
             hash,
             uniform,
+            main,
         }
     }
 
-    fn row(&self, y: u32, stride: usize) -> &[u8] {
+    /// Phần chính của hàng `y`.
+    fn main_row(&self, y: u32, stride: usize) -> &[u8] {
         let s = y as usize * stride;
-        &self.bgra[s..s + stride]
+        &self.bgra[s..s + self.main]
+    }
+
+    /// Đúng khi các hàng `ys` có ít nhất `MIN_DISTINCT_ROWS` giá trị băm khác nhau, không kể
+    /// hàng một màu.
+    fn enough_distinct(&self, ys: impl Iterator<Item = usize>) -> bool {
+        let mut seen = [0u64; MIN_DISTINCT_ROWS as usize];
+        let mut k = 0;
+        for y in ys {
+            let h = self.hash[y];
+            if self.uniform[y] || seen[..k].contains(&h) {
+                continue;
+            }
+            seen[k] = h;
+            k += 1;
+            if k == seen.len() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Khối [top, top + n) của khung này gặp lại trong vùng chạy [top, top + run_h) ở một độ dịch
+    /// s ≥ 1 (nội dung lặp): so [0, n − s) với [s, n) trong khối, và khối với phần sau nó
+    /// [s, s + min(n, run_h − s)). Đoạn so phải dài ≥ `MIN_OVERLAP_PX`, khớp ≥ MATCH_RATIO − 0,005
+    /// và có ≥ `MIN_DISTINCT_ROWS` băm khác nhau.
+    fn self_similar(&self, top: usize, n: usize, run_h: usize) -> bool {
+        let floor = MATCH_RATIO - AMBIGUITY_MARGIN;
+        let min = MIN_OVERLAP_PX as usize;
+        for s in 1..=run_h.saturating_sub(min) {
+            let inside = n.saturating_sub(s);
+            let beyond = n.min(run_h - s);
+            for len in [inside, beyond] {
+                if len < min {
+                    continue;
+                }
+                let win = &self.hash[top..top + s + len];
+                if score(win, win, s as i64, floor).is_some()
+                    && self.enough_distinct(
+                        (top..top + len).filter(|&i| self.hash[i] == self.hash[i + s]),
+                    )
+                {
+                    return true;
+                }
+                if inside == beyond {
+                    break;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -173,6 +237,28 @@ fn static_bands(prev: &Frame, cur: &Frame) -> (u32, u32) {
     let top = pairs().take_while(|(a, b)| a == b).count().min(cap);
     let bottom = pairs().rev().take_while(|(a, b)| a == b).count().min(cap);
     (top as u32, bottom as u32)
+}
+
+/// Hàng y ∈ [`y0`, `y1`) của khung mới là nội dung cuộn: khớp hàng y + d của khung trước, với tỉ
+/// lệ ≥ MATCH_RATIO − 0,005. Hàng nằm ngoài khung (không so được) tính là không khớp.
+fn moved_with(cur: &Frame, prev: &Frame, y0: i64, y1: i64, d: u32) -> bool {
+    if y1 <= y0 {
+        return true;
+    }
+    let ok = (y0..y1)
+        .filter(|&y| {
+            let (c, p) = (usize::try_from(y), usize::try_from(y + i64::from(d)));
+            match (c, p) {
+                (Ok(c), Ok(p)) => cur
+                    .hash
+                    .get(c)
+                    .zip(prev.hash.get(p))
+                    .is_some_and(|(a, b)| a == b),
+                _ => false,
+            }
+        })
+        .count();
+    ok as f64 >= (MATCH_RATIO - AMBIGUITY_MARGIN) * (y1 - y0) as f64
 }
 
 /// Tỉ lệ hàng khớp khi hàng chạy `i` của khung mới ứng với hàng chạy `i + d` của khung trước
@@ -280,7 +366,7 @@ impl Stitcher {
     }
 
     fn fail(&mut self, r: Reason) -> Push {
-        if !self.in_gap && self.appended >= 2 {
+        if !self.in_gap && self.appended >= 1 {
             self.uncertain += 1;
         }
         self.in_gap = true;
@@ -336,27 +422,43 @@ impl Stitcher {
         if !self.confirm(prev, cur, top, run_h, d) {
             return Match::Fail(Reason::Ambiguous);
         }
+        // Nội dung lặp: khối chồng lấp gặp lại ở độ dịch khác thì dy thật có thể là d + s, nằm
+        // ngoài khoảng tìm (cuộn quá xa). Giới hạn còn lại, không sửa được ở mức hai khung: khối
+        // lặp cao hơn vùng chồng lấp ở hai nơi cách xa nhau mà khung mới chỉ thấy một lần.
+        if cur.self_similar(top as usize, (run_h - d) as usize, run_h as usize) {
+            return Match::Fail(Reason::Ambiguous);
+        }
+        // Hàng mà cặp khung này thấy đứng yên nhưng được tính là hàng chạy (dải tĩnh đã lưu nhỏ
+        // hơn): phải khớp như nội dung cuộn với độ dịch d; không khớp là thanh dính mới xuất
+        // hiện (ví dụ thanh đáy mỏng), nối vào sẽ lặp nó giữa ảnh.
+        // Dải trên: hàng [top, ct) của khung mới đến từ hàng y + d của khung trước. Dải dưới:
+        // hàng [H − cb, H − bottom) của khung trước phải hiện ở hàng y − d của khung mới.
+        let (h64, d64) = (i64::from(h), i64::from(d));
+        let (ct64, cb64, top64, bottom64) = (
+            i64::from(ct),
+            i64::from(cb),
+            i64::from(top),
+            i64::from(bottom),
+        );
+        if !moved_with(cur, prev, top64, ct64, d)
+            || !moved_with(cur, prev, h64 - cb64 - d64, h64 - bottom64 - d64, d)
+        {
+            return Match::Fail(Reason::NoOverlap);
+        }
         Match::Shift { d, top, bottom }
     }
 
-    /// Kiểm hàng khớp theo băm bằng so điểm ảnh, và đếm hàng phân biệt.
+    /// Kiểm hàng khớp theo băm bằng so điểm ảnh (phần chính), và đủ băm khác nhau.
     fn confirm(&self, prev: &Frame, cur: &Frame, top: u32, run_h: u32, d: u32) -> bool {
         let stride = self.stride();
-        let mut distinct = 0;
-        for c in top..top + run_h - d {
-            let p = c + d;
-            if cur.hash[c as usize] != prev.hash[p as usize] {
-                continue;
-            }
-            if !rows_equal_bgr(cur.row(c, stride), prev.row(p, stride)) {
-                return false;
-            }
-            let ci = c as usize;
-            if !cur.uniform[ci] && (ci == 0 || cur.hash[ci] != cur.hash[ci - 1]) {
-                distinct += 1;
-            }
-        }
-        distinct >= MIN_DISTINCT_ROWS
+        let matched: Vec<usize> = (top..top + run_h - d)
+            .filter(|&c| cur.hash[c as usize] == prev.hash[(c + d) as usize])
+            .map(|c| c as usize)
+            .collect();
+        matched.iter().all(|&c| {
+            let c = c as u32;
+            rows_equal_bgr(cur.main_row(c, stride), prev.main_row(c + d, stride))
+        }) && cur.enough_distinct(matched.into_iter())
     }
 
     /// Nối khung đã khớp với độ dịch `d` và dải tĩnh `top`, `bottom`.
@@ -419,8 +521,8 @@ impl Stitcher {
         }
     }
 
-    /// Số chỗ ghép không chắc chắn: mỗi chuỗi khung liên tiếp không ghép được, sau khi đã có ít
-    /// nhất một lần nối, tính là một.
+    /// Số chỗ ghép không chắc chắn: mỗi chuỗi khung liên tiếp không ghép được (sau khung đầu)
+    /// tính là một, kể cả khi chưa nối được lần nào.
     pub fn uncertain_count(&self) -> u32 {
         self.uncertain
     }
@@ -968,7 +1070,9 @@ mod tests {
     #[test]
     fn height_limit_stops_and_keeps_a_correct_prefix() {
         let w = 16;
-        let pg = page(w, MAX_HEIGHT + 2000, 9);
+        // Toàn nhiễu: trang hỗn hợp rộng 16 px có đoạn 200 hàng chỉ gồm sọc và ô vuông (quá ít
+        // băm khác nhau), sẽ bị bỏ đúng là Ambiguous; kiểm thử này chỉ nhắm giới hạn.
+        let pg = noise_page(w, MAX_HEIGHT + 2000, 9);
         let mut st = Stitcher::new(w, H);
         let mut offset = 0;
         let mut limited = false;
@@ -1094,6 +1198,21 @@ mod tests {
         assert_eq!(st.push(&f), Push::Uncertain(Reason::Ambiguous));
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         println!("push 1920x1080 one colour: {ms:.2} ms");
+        assert!(ms < 15.0, "{ms} ms");
+        // Nội dung thưa: một hàng nhiễu mỗi 20 hàng, còn lại trắng (tìm tự tương đồng lâu nhất).
+        let mut pg = noise_page(1920, 3000, 16);
+        for (y, row) in pg.bgra.chunks_mut(s).enumerate() {
+            if y % 20 != 0 {
+                row.fill(255);
+            }
+        }
+        let mut st = Stitcher::new(1920, 1080);
+        st.push(&frame(&pg, 0, 1080));
+        let f = frame(&pg, 90, 1080);
+        let t = std::time::Instant::now();
+        assert_eq!(st.push(&f), Push::Appended(90));
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!("push 1920x1080 sparse: {ms:.2} ms");
         assert!(ms < 15.0, "{ms} ms");
     }
 }
