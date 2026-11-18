@@ -173,7 +173,7 @@ pub fn next_kind(current: CaptureKind, requested: CaptureKind, act: GateAction) 
 /// tải lên, lưu, chép thì nhớ khung mới; hủy thì giữ khung cũ.
 pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Option<Rect> {
     match action {
-        Action::Upload | Action::Save | Action::Copy => Some(picked),
+        Action::Upload | Action::Save | Action::Copy | Action::Pin => Some(picked),
         Action::Cancel => prev,
     }
 }
@@ -759,7 +759,7 @@ fn run_on_image(
     };
     let clipboard: Arc<dyn Clipboard> = Arc::new(clipboard::WinClipboard);
     match action {
-        Action::Cancel => {}
+        Action::Cancel | Action::Pin => {}
         Action::Save | Action::Copy => {
             let ctx = Ctx {
                 save_dir: &config.save_dir,
@@ -1816,7 +1816,7 @@ mod tests {
             w: 30,
             h: 40,
         };
-        for a in [Action::Upload, Action::Save, Action::Copy] {
+        for a in [Action::Upload, Action::Save, Action::Copy, Action::Pin] {
             assert_eq!(remember_after(old, a, new), Some(new));
             assert_eq!(remember_after(None, a, new), Some(new));
         }

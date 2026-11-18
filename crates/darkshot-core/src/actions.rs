@@ -13,6 +13,7 @@ pub enum Action {
     Upload,
     Save,
     Copy,
+    Pin,
     Cancel,
 }
 
@@ -64,7 +65,7 @@ pub enum Outcome {
 }
 
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
-    if action == Action::Cancel {
+    if matches!(action, Action::Cancel | Action::Pin) {
         return Outcome::Cancelled;
     }
     if !img.is_valid() {
@@ -76,7 +77,7 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         return Outcome::Failed;
     }
     match action {
-        Action::Cancel => Outcome::Cancelled,
+        Action::Cancel | Action::Pin => Outcome::Cancelled,
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
@@ -374,6 +375,18 @@ mod tests {
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Cancel, &img());
         assert_eq!(out, Outcome::Cancelled);
         assert!(n.notes.lock().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn pin_does_nothing_in_core() {
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Pin, &img());
+        assert_eq!(out, Outcome::Cancelled);
+        assert!(n.notes.lock().unwrap().is_empty());
+        assert!(cb.images.lock().unwrap().is_empty());
+        assert!(cb.texts.lock().unwrap().is_empty());
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
     }
 

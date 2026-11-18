@@ -100,6 +100,7 @@ impl BarItem {
             BarItem::Act(Action::Save) => Msg::OverlaySave,
             BarItem::Act(Action::Copy) => Msg::OverlayCopy,
             BarItem::Act(Action::Cancel) => Msg::OverlayCancel,
+            BarItem::Act(Action::Pin) => Msg::OverlayPin,
         }
     }
 }
@@ -4634,7 +4635,7 @@ impl Gp {
                 p.arc(7.0, 5.0, 2.0, 180.0, 90.0);
                 p.line(7.0, 3.0, 15.0, 3.0);
             }
-            Action::Cancel => {
+            Action::Cancel | Action::Pin => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
             }
