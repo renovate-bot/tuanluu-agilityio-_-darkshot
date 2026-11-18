@@ -447,6 +447,20 @@ messages! {
         "The background task couldn't run."
     ),
     StepsEndFailedTitle => ("Không xóa hết ảnh của phiên", "Couldn't delete all session images"),
+    OverlayScroll => ("Chụp cuộn (Ctrl+L)", "Scrolling capture (Ctrl+L)"),
+    ScrollNoAnnotations => ("Không kèm hình đánh dấu", "Annotations are not included"),
+    ScrollBarTitle => ("Chụp cuộn", "Scrolling capture"),
+    ScrollHint => ("Cuộn xuống từ từ", "Scroll down slowly"),
+    ScrollSlowDown => ("Cuộn chậm hơn", "Scroll more slowly"),
+    ScrollDone => ("Xong", "Done"),
+    ScrollCancel => ("Hủy", "Cancel"),
+    ScrollLimitTitle => ("Đã đạt giới hạn chiều cao", "Height limit reached"),
+    ScrollResultTitle => ("Ảnh chụp cuộn", "Scrolling capture"),
+    ScrollSave => ("Lưu", "Save"),
+    ScrollCopy => ("Chép", "Copy"),
+    ScrollUpload => ("Tải lên", "Upload"),
+    ScrollPin => ("Ghim", "Pin"),
+    ScrollClose => ("Đóng", "Close"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -473,6 +487,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::StepsStartFailedTitle,
     Msg::StepsSessionSaveFailedTitle,
     Msg::StepsEndFailedTitle,
+    Msg::ScrollLimitTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -888,6 +903,18 @@ pub fn steps_exported(lang: Lang, n: usize) -> String {
         (Lang::En, n) => format!("Exported {n} steps"),
     }
 }
+/// Chiều cao hiện có trên thanh chụp cuộn: "1840 px".
+pub fn scroll_height(lang: Lang, px: u32) -> String {
+    let _ = (lang, px);
+    todo!()
+}
+
+/// Dải cảnh báo của cửa sổ kết quả chụp cuộn.
+pub fn scroll_uncertain(lang: Lang, n: u32) -> String {
+    let _ = (lang, n);
+    todo!()
+}
+
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
@@ -1452,6 +1479,59 @@ mod tests {
         for (m, vi, en) in want {
             assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
             assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn scroll_capture_strings() {
+        let pairs = [
+            (
+                Msg::OverlayScroll,
+                "Chụp cuộn (Ctrl+L)",
+                "Scrolling capture (Ctrl+L)",
+            ),
+            (
+                Msg::ScrollNoAnnotations,
+                "Không kèm hình đánh dấu",
+                "Annotations are not included",
+            ),
+            (Msg::ScrollBarTitle, "Chụp cuộn", "Scrolling capture"),
+            (Msg::ScrollHint, "Cuộn xuống từ từ", "Scroll down slowly"),
+            (Msg::ScrollSlowDown, "Cuộn chậm hơn", "Scroll more slowly"),
+            (Msg::ScrollDone, "Xong", "Done"),
+            (Msg::ScrollCancel, "Hủy", "Cancel"),
+            (
+                Msg::ScrollLimitTitle,
+                "Đã đạt giới hạn chiều cao",
+                "Height limit reached",
+            ),
+            (Msg::ScrollResultTitle, "Ảnh chụp cuộn", "Scrolling capture"),
+            (Msg::ScrollSave, "Lưu", "Save"),
+            (Msg::ScrollCopy, "Chép", "Copy"),
+            (Msg::ScrollUpload, "Tải lên", "Upload"),
+            (Msg::ScrollPin, "Ghim", "Pin"),
+            (Msg::ScrollClose, "Đóng", "Close"),
+        ];
+        for (m, vi, en) in pairs {
+            assert_eq!(t(Lang::Vi, m), vi);
+            assert_eq!(t(Lang::En, m), en);
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollLimitTitle));
+        assert_eq!(scroll_height(Lang::Vi, 1840), "1840 px");
+        assert_eq!(scroll_height(Lang::En, 0), "0 px");
+        assert_eq!(
+            scroll_uncertain(Lang::Vi, 3),
+            "Có 3 chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng."
+        );
+        assert_eq!(
+            scroll_uncertain(Lang::En, 3),
+            "3 join(s) may be inaccurate. Check the image before using it."
+        );
+        for l in Lang::ALL {
+            let h = help_text(l, &HelpKeys::default());
+            assert!(h.contains("Ctrl+L"), "{l:?}");
+            assert!(h.contains(t(l, Msg::ScrollBarTitle)), "{l:?}");
+            assert!(h.contains("8. "), "{l:?}");
         }
     }
 

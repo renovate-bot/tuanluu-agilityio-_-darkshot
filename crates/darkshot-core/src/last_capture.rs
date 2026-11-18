@@ -19,6 +19,7 @@ fn action_code(a: Action) -> Option<&'static str> {
         Action::Upload => Some("upload"),
         Action::Pin => Some("pin"),
         Action::Cancel | Action::Ocr | Action::AddStep => None,
+        Action::Scroll => todo!(),
     }
 }
 
@@ -184,6 +185,21 @@ mod tests {
         let prev = lc(rc(5, 5, 10, 10), Action::Pin);
         assert_eq!(remember(None, Action::AddStep, r), None);
         assert_eq!(remember(Some(prev), Action::AddStep, r), Some(prev));
+    }
+
+    #[test]
+    fn remember_scroll_keeps_prev() {
+        let r = rc(1, 2, 30, 40);
+        let prev = lc(rc(5, 5, 10, 10), Action::Pin);
+        assert_eq!(remember(None, Action::Scroll, r), None);
+        assert_eq!(remember(Some(prev), Action::Scroll, r), Some(prev));
+    }
+
+    #[test]
+    fn json_never_writes_scroll() {
+        let s = to_json(&lc(rc(1, 2, 30, 40), Action::Scroll));
+        assert!(!s.contains("scroll"), "{s}");
+        assert_eq!(from_json(&s.replace("save", "scroll")), None);
     }
 
     #[test]
