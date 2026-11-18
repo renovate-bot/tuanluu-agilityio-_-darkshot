@@ -17,6 +17,8 @@ pub enum Action {
     Ocr,
     /// Thêm bước vào phiên chụp từng bước (xử lý ở lớp Windows; lõi không làm gì).
     AddStep,
+    /// Chụp cuộn vùng đã chọn (xử lý ở lớp Windows; lõi không làm gì).
+    Scroll,
     Cancel,
 }
 
@@ -70,7 +72,7 @@ pub enum Outcome {
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
     if matches!(
         action,
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep
+        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll
     ) {
         return Outcome::Cancelled;
     }
@@ -83,7 +85,9 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         return Outcome::Failed;
     }
     match action {
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep => Outcome::Cancelled,
+        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll => {
+            Outcome::Cancelled
+        }
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
@@ -413,6 +417,18 @@ mod tests {
         let d = temp_dir();
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, None, &cb, &n), Action::AddStep, &img());
+        assert_eq!(out, Outcome::Cancelled);
+        assert!(n.notes.lock().unwrap().is_empty());
+        assert!(cb.images.lock().unwrap().is_empty());
+        assert!(cb.texts.lock().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn scroll_does_nothing_in_core() {
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Scroll, &img());
         assert_eq!(out, Outcome::Cancelled);
         assert!(n.notes.lock().unwrap().is_empty());
         assert!(cb.images.lock().unwrap().is_empty());
