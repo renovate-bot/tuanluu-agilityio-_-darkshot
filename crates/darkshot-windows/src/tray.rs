@@ -39,6 +39,8 @@ const ID_CLOSE_PINS: usize = 8;
 pub enum MenuCommand {
     OpenUpdate,
     Capture,
+    /// Chụp lại vùng trước (mờ khi chưa có lần chụp nào để lặp).
+    RepeatLast,
     History,
     /// Đóng mọi ảnh ghim (chỉ có khi đang có ảnh ghim).
     ClosePins,
@@ -166,7 +168,7 @@ impl Tray {
             let help = HSTRING::from(lang::tr(Msg::TrayHelp));
             let exit = HSTRING::from(lang::tr(Msg::TrayExit));
             let update_text = HSTRING::from(update.unwrap_or_default());
-            for entry in menu_layout(update.is_some(), pins) {
+            for entry in menu_layout(update.is_some(), pins, false) {
                 match entry {
                     MenuEntry::Separator => {
                         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
@@ -177,6 +179,7 @@ impl Tray {
                     MenuEntry::Item(MenuCommand::Capture) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_CAPTURE, &capture);
                     }
+                    MenuEntry::Item(MenuCommand::RepeatLast) | MenuEntry::Grayed(_) => {}
                     MenuEntry::Item(MenuCommand::History) => {
                         let _ = AppendMenuW(menu, MF_STRING, ID_HISTORY, &history);
                     }
@@ -327,12 +330,16 @@ impl Notifier for TrayNotifier {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuEntry {
     Item(MenuCommand),
+    /// Mục hiện mờ, không chọn được (`MF_GRAYED`).
+    Grayed(MenuCommand),
     Separator,
 }
 
 /// Các dòng của menu khay theo thứ tự; có bản mới thì mục cập nhật và vạch ngăn đứng đầu; có ảnh
-/// ghim (`pins` > 0) thì "Đóng mọi ảnh ghim" ngay sau Lịch sử.
-pub fn menu_layout(has_update: bool, pins: usize) -> Vec<MenuEntry> {
+/// ghim (`pins` > 0) thì "Đóng mọi ảnh ghim" ngay sau Lịch sử. "Chụp lại vùng trước" luôn ngay sau
+/// "Chụp", mờ khi `can_repeat` là `false`.
+pub fn menu_layout(has_update: bool, pins: usize, can_repeat: bool) -> Vec<MenuEntry> {
+    let _ = can_repeat;
     let mut v = Vec::new();
     if has_update {
         v.push(MenuEntry::Item(MenuCommand::OpenUpdate));
@@ -445,11 +452,12 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(true, 0),
+            menu_layout(true, 0, true),
             vec![
                 Item(OpenUpdate),
                 Separator,
                 Item(Capture),
+                Item(RepeatLast),
                 Item(History),
                 Item(Options),
                 Item(About),
@@ -458,9 +466,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            menu_layout(false, 0),
+            menu_layout(false, 0, true),
             vec![
                 Item(Capture),
+                Item(RepeatLast),
                 Item(History),
                 Item(Options),
                 Item(About),
@@ -476,9 +485,10 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(false, 3),
+            menu_layout(false, 3, true),
             vec![
                 Item(Capture),
+                Item(RepeatLast),
                 Item(History),
                 Item(ClosePins),
                 Item(Options),
@@ -488,11 +498,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            menu_layout(true, 3),
+            menu_layout(true, 3, true),
             vec![
                 Item(OpenUpdate),
                 Separator,
                 Item(Capture),
+                Item(RepeatLast),
                 Item(History),
                 Item(ClosePins),
                 Item(Options),
@@ -501,8 +512,32 @@ mod tests {
                 Item(Quit)
             ]
         );
-        assert_eq!(menu_layout(true, 1).len(), 9);
-        assert!(!menu_layout(true, 0).contains(&Item(ClosePins)));
+        assert_eq!(menu_layout(true, 1, true).len(), 10);
+        assert!(!menu_layout(true, 0, true).contains(&Item(ClosePins)));
+    }
+
+    /// Chưa có lần chụp để lặp: mục "Chụp lại vùng trước" vẫn ở ngay sau "Chụp" nhưng mờ.
+    #[test]
+    fn menu_layout_grays_repeat_last_without_capture() {
+        use MenuCommand::*;
+        use MenuEntry::*;
+        assert_eq!(
+            menu_layout(false, 0, false),
+            vec![
+                Item(Capture),
+                Grayed(RepeatLast),
+                Item(History),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        let with_update = menu_layout(true, 2, false);
+        assert_eq!(&with_update[2..4], &[Item(Capture), Grayed(RepeatLast)]);
+        assert!(!with_update.contains(&Item(RepeatLast)));
+        assert!(menu_layout(true, 2, true).contains(&Item(RepeatLast)));
+        assert!(!menu_layout(true, 2, true).contains(&Grayed(RepeatLast)));
     }
 
     #[test]

@@ -108,6 +108,16 @@ pub fn config_path() -> PathBuf {
     config_path_in(&appdata_dir())
 }
 
+/// `<appdata>\darkshot\last_capture.json` (cùng thư mục với `config.json`).
+pub fn last_capture_path_in(appdata: &Path) -> PathBuf {
+    appdata.join("last_capture.json")
+}
+
+/// `%APPDATA%\darkshot\last_capture.json` (theo `DARKSHOT_PROFILE_DIR`).
+pub fn last_capture_path() -> PathBuf {
+    last_capture_path_in(&appdata_dir())
+}
+
 /// `Pictures\darkshot`
 pub fn default_save_dir() -> PathBuf {
     pictures_dir().join("darkshot")
@@ -186,6 +196,22 @@ mod tests {
             PathBuf::from("C:/L").join("darkshot").join("history")
         );
         assert!(history_dir().ends_with("darkshot/history"));
+    }
+
+    #[test]
+    fn last_capture_sits_next_to_config() {
+        let root = Path::new("C:/R");
+        let p = last_capture_path_in(root);
+        assert_eq!(p.parent(), config_path_in(root).parent());
+        assert_eq!(p.file_name().unwrap(), "last_capture.json");
+        assert_eq!(
+            last_capture_path_in(&resolve(Some(Path::new("D:/sb")), Known::Roaming)),
+            PathBuf::from("D:/sb")
+                .join("Roaming")
+                .join("darkshot")
+                .join("last_capture.json")
+        );
+        assert!(last_capture_path().ends_with("darkshot/last_capture.json"));
     }
 
     #[test]

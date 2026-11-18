@@ -34,6 +34,7 @@ use darkshot_core::color::CustomColors;
 use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUALITY_DEFAULT};
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
+use darkshot_core::last_capture::{self, LastCapture};
 use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
 use darkshot_core::upload::{R2Uploader, Uploader};
 use secret::DpapiStore;
@@ -145,12 +146,14 @@ pub fn gate_step(state: CaptureGate, ev: GateEvent) -> (CaptureGate, GateAction)
     }
 }
 
-/// Loại của một lượt chụp: chụp vùng (lớp phủ) hoặc một trong hai kiểu toàn màn hình.
+/// Loại của một lượt chụp: chụp vùng (lớp phủ), một trong hai kiểu toàn màn hình, hoặc lặp lại
+/// lần chụp vùng trước.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CaptureKind {
     Region,
     SaveFull,
     UploadFull,
+    RepeatLast,
 }
 
 /// Loại chụp của một dòng phím tắt.
@@ -178,6 +181,54 @@ pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Optio
         Action::Upload | Action::Save | Action::Copy | Action::Pin => Some(picked),
         Action::Cancel => prev,
     }
+}
+
+/// Việc của một lượt "Chụp lại vùng trước" sau khi đã chụp màn hình.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepeatPlan {
+    /// Chưa có lần chụp trước: mở lớp phủ như phím chụp vùng.
+    Overlay,
+    /// Vùng trước không còn trên màn hình: thông báo rồi mở lớp phủ trên cùng ảnh chụp.
+    OverlayWithNotice,
+    /// Cắt vùng (tọa độ ảnh) rồi chạy hành động.
+    Run(Rect, Action),
+}
+
+/// Kế hoạch lặp lại `last` trên ảnh chụp có gốc `origin` (tọa độ màn hình), cỡ `img_w`×`img_h`,
+/// các màn hình `monitors` ở tọa độ ẢNH (như `Screenshot.monitors`).
+pub fn repeat_plan(
+    last: Option<LastCapture>,
+    origin: Point,
+    img_w: i32,
+    img_h: i32,
+    monitors: &[Rect],
+) -> RepeatPlan {
+    let _ = (last, origin, img_w, img_h, monitors);
+    RepeatPlan::Overlay
+}
+
+/// Lần chụp trước mới sau một lượt chụp vùng kết thúc bằng `action` với vùng `screen` (tọa độ
+/// màn hình), và có phải ghi tệp không (chỉ khi giá trị đổi; Hủy không bao giờ ghi).
+pub fn last_capture_after(
+    prev: Option<LastCapture>,
+    action: Action,
+    screen: Rect,
+) -> (Option<LastCapture>, bool) {
+    let _ = (action, screen);
+    (prev, false)
+}
+
+/// Đọc tệp lần chụp trước; thiếu, quá lớn hay hỏng thì `None` (im lặng).
+pub fn read_last_capture(path: &Path) -> Option<LastCapture> {
+    let _ = path;
+    None
+}
+
+/// Ghi tệp lần chụp trước nguyên tử: tệp tạm cùng thư mục, `sync_all`, đổi tên; tạo thư mục nếu
+/// thiếu. Lỗi thì xóa tệp tạm và trả lỗi (bên gọi nuốt).
+pub fn write_last_capture(path: &Path, l: &LastCapture) -> std::io::Result<()> {
+    let _ = (path, l);
+    Ok(())
 }
 
 /// Vùng (tọa độ ảnh) của lượt chụp toàn màn hình: màn hình chứa con trỏ (`cursor`, tọa độ màn
@@ -241,6 +292,9 @@ thread_local! {
     static CAPTURE_KIND: Cell<CaptureKind> = const { Cell::new(CaptureKind::Region) };
     /// Khung đã chọn ở lượt chụp vùng gần nhất (tọa độ màn hình); chỉ nhớ trong phiên.
     static LAST_SELECTION: Cell<Option<Rect>> = const { Cell::new(None) };
+    /// Lần chụp vùng trước (vùng tọa độ màn hình và hành động) cho "Chụp lại vùng trước"; đọc từ
+    /// tệp lúc khởi động.
+    static LAST_CAPTURE: Cell<Option<LastCapture>> = const { Cell::new(None) };
     /// Lý do của yêu cầu mở Tùy chọn đang chờ (gộp bằng `merge_reason`); `run_settings` lấy ra.
     static OPEN_REASON: Cell<OpenReason> = const { Cell::new(OpenReason::User) };
     /// Cấu hình trong bộ nhớ khớp file trên đĩa (đọc bình thường lúc khởi động, hoặc Tùy chọn đã
@@ -604,9 +658,13 @@ fn notify_hotkeys_taken(keys: &Hotkeys, failed: &[HotkeyRole], notifier: &dyn No
 /// màn hình cắt lấy màn hình chứa con trỏ. Chỉ gọi qua `request` (trạng thái `Capturing`), nên
 /// không bao giờ có hai lớp phủ; mọi đường ra đều trả về để `request` đóng cổng.
 fn capture_flow(hwnd: HWND) {
-    let kind = CAPTURE_KIND.with(|k| k.get());
     let notifier: Option<Arc<dyn Notifier>> =
         current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>);
+    capture_flow_with(hwnd, CAPTURE_KIND.with(|k| k.get()), notifier);
+}
+
+/// Thân của `capture_flow` với loại `kind` và bộ thông báo truyền vào.
+fn capture_flow_with(hwnd: HWND, kind: CaptureKind, notifier: Option<Arc<dyn Notifier>>) {
     let notify = |kind: NoticeKind, title: &str, body: &str| {
         if let Some(n) = &notifier {
             n.notify(kind, title, body);
@@ -637,7 +695,7 @@ fn capture_flow(hwnd: HWND) {
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
     let (action, rect, shapes) = match kind {
-        CaptureKind::Region => {
+        CaptureKind::Region | CaptureKind::RepeatLast => {
             let prev = LAST_SELECTION.with(|s| s.get());
             let initial = if keep_selection {
                 // `restore_selection` nhận màn hình theo tọa độ màn hình (nó tự trừ gốc), còn
@@ -1173,6 +1231,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::Capture) => {
                         request(hwnd, GateEvent::MenuCapture, CaptureKind::Region);
                     }
+                    Some(MenuCommand::RepeatLast) => {}
                     Some(MenuCommand::Options) => {
                         note_open_reason(OpenReason::User);
                         handle_event(hwnd, AppEvent::OpenSettings);
@@ -1829,6 +1888,219 @@ mod tests {
         assert_eq!(kind_of(HotkeyRole::Region), CaptureKind::Region);
         assert_eq!(kind_of(HotkeyRole::SaveFull), CaptureKind::SaveFull);
         assert_eq!(kind_of(HotkeyRole::UploadFull), CaptureKind::UploadFull);
+        assert_eq!(kind_of(HotkeyRole::RepeatLast), CaptureKind::RepeatLast);
+    }
+
+    fn rc(x: i32, y: i32, w: i32, h: i32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    fn lc(rect: Rect, action: Action) -> LastCapture {
+        LastCapture { rect, action }
+    }
+
+    #[test]
+    fn repeat_plan_without_last_opens_overlay() {
+        let mons = [rc(0, 0, 1920, 1080)];
+        assert_eq!(
+            repeat_plan(None, Point { x: 0, y: 0 }, 1920, 1080, &mons),
+            RepeatPlan::Overlay
+        );
+    }
+
+    #[test]
+    fn repeat_plan_gone_region_notifies_then_overlay() {
+        // Vùng nằm trên màn hình trái đã rút.
+        let mons = [rc(0, 0, 1920, 1080)];
+        let last = lc(rc(-1000, 100, 300, 200), Action::Save);
+        assert_eq!(
+            repeat_plan(Some(last), Point { x: 0, y: 0 }, 1920, 1080, &mons),
+            RepeatPlan::OverlayWithNotice
+        );
+        // Còn dưới MIN_SIZE trong ảnh.
+        let last = lc(rc(1918, 100, 300, 200), Action::Copy);
+        assert_eq!(
+            repeat_plan(Some(last), Point { x: 0, y: 0 }, 1920, 1080, &mons),
+            RepeatPlan::OverlayWithNotice
+        );
+    }
+
+    #[test]
+    fn repeat_plan_valid_region_runs_same_action() {
+        let mons = [rc(0, 0, 1920, 1080)];
+        for a in [Action::Save, Action::Copy, Action::Upload, Action::Pin] {
+            let last = lc(rc(100, 100, 300, 200), a);
+            assert_eq!(
+                repeat_plan(Some(last), Point { x: 0, y: 0 }, 1920, 1080, &mons),
+                RepeatPlan::Run(rc(100, 100, 300, 200), a)
+            );
+        }
+        // Một phần ra ngoài ảnh: cắt phần còn trong ảnh.
+        let last = lc(rc(1800, 100, 300, 200), Action::Save);
+        assert_eq!(
+            repeat_plan(Some(last), Point { x: 0, y: 0 }, 1920, 1080, &mons),
+            RepeatPlan::Run(rc(1800, 100, 120, 200), Action::Save)
+        );
+    }
+
+    #[test]
+    fn repeat_plan_negative_origin_subtracts_once() {
+        // Màn hình trái ở x âm; `monitors` ở tọa độ ảnh như `Screenshot.monitors`.
+        let origin = Point { x: -1920, y: -200 };
+        let mons = [rc(0, 0, 1920, 1080), rc(1920, 200, 1920, 1080)];
+        let last = lc(rc(-1000, 100, 300, 200), Action::Pin);
+        assert_eq!(
+            repeat_plan(Some(last), origin, 3840, 1280, &mons),
+            RepeatPlan::Run(rc(920, 300, 300, 200), Action::Pin)
+        );
+        // Vùng trên màn hình chính (tọa độ màn hình dương).
+        let last = lc(rc(10, 20, 300, 200), Action::Save);
+        assert_eq!(
+            repeat_plan(Some(last), origin, 3840, 1280, &mons),
+            RepeatPlan::Run(rc(1930, 220, 300, 200), Action::Save)
+        );
+    }
+
+    #[test]
+    fn last_capture_after_writes_only_on_change() {
+        let r = rc(1, 2, 30, 40);
+        let prev = lc(r, Action::Save);
+        // Hủy: giữ nguyên, không ghi.
+        assert_eq!(last_capture_after(None, Action::Cancel, r), (None, false));
+        assert_eq!(
+            last_capture_after(Some(prev), Action::Cancel, rc(9, 9, 50, 50)),
+            (Some(prev), false)
+        );
+        // Giống hệt: không ghi lại.
+        assert_eq!(
+            last_capture_after(Some(prev), Action::Save, r),
+            (Some(prev), false)
+        );
+        // Đổi vùng hoặc hành động: ghi.
+        assert_eq!(
+            last_capture_after(Some(prev), Action::Pin, r),
+            (Some(lc(r, Action::Pin)), true)
+        );
+        assert_eq!(
+            last_capture_after(None, Action::Copy, rc(5, 5, 60, 60)),
+            (Some(lc(rc(5, 5, 60, 60), Action::Copy)), true)
+        );
+    }
+
+    fn temp_dir_for(name: &str) -> std::path::PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("darkshot_lastcap_{}_{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    fn names_in(dir: &Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect()
+    }
+
+    #[test]
+    fn last_capture_file_round_trip_creates_dir() {
+        let root = temp_dir_for("roundtrip");
+        let path = root.join("darkshot").join("last_capture.json");
+        assert!(!root.exists());
+        assert_eq!(read_last_capture(&path), None);
+        let l = lc(rc(-1500, -40, 300, 200), Action::Upload);
+        write_last_capture(&path, &l).unwrap();
+        assert_eq!(read_last_capture(&path), Some(l));
+        // Ghi đè tệp đã có.
+        let l2 = lc(rc(7, 8, 90, 100), Action::Pin);
+        write_last_capture(&path, &l2).unwrap();
+        assert_eq!(read_last_capture(&path), Some(l2));
+        // Không để lại tệp tạm.
+        assert_eq!(
+            names_in(path.parent().unwrap()),
+            vec![std::ffi::OsString::from("last_capture.json")]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn last_capture_file_corrupt_is_none_and_kept() {
+        let root = temp_dir_for("corrupt");
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("last_capture.json");
+        for bad in [
+            "",
+            "{",
+            "null",
+            r#"{"version":2,"x":1,"y":2,"w":30,"h":40,"action":"save"}"#,
+        ] {
+            std::fs::write(&path, bad).unwrap();
+            assert_eq!(read_last_capture(&path), None, "{bad}");
+            // Không xóa tệp hỏng.
+            assert!(path.exists());
+        }
+        // Tệp quá lớn: bỏ qua.
+        std::fs::write(&path, " ".repeat(64 * 1024)).unwrap();
+        assert_eq!(read_last_capture(&path), None);
+        // Đường dẫn là thư mục: None, không panic.
+        assert_eq!(read_last_capture(&root), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn last_capture_write_failure_leaves_no_temp() {
+        let root = temp_dir_for("fail");
+        // Đích là một thư mục không rỗng: đổi tên thất bại, tệp tạm phải bị xóa.
+        let path = root.join("last_capture.json");
+        std::fs::create_dir_all(path.join("sub")).unwrap();
+        let l = lc(rc(1, 2, 30, 40), Action::Save);
+        assert!(write_last_capture(&path, &l).is_err());
+        assert_eq!(
+            names_in(&root),
+            vec![std::ffi::OsString::from("last_capture.json")]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    struct NullNotifier;
+    impl Notifier for NullNotifier {
+        fn notify(&self, _: NoticeKind, _: &str, _: &str) {}
+    }
+
+    /// Chụp màn hình thật rồi ghi PNG vào thư mục tạm; không hiện cửa sổ, không dời chuột.
+    #[test]
+    #[ignore = "chụp màn hình thật; chạy tay: cargo test -p darkshot-windows -- --ignored repeat_last_saves_png_of_region --test-threads=1"]
+    fn repeat_last_saves_png_of_region() {
+        let root = temp_dir_for("manual");
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = Config::defaults(&root, Lang::En);
+        APP.with(|a| {
+            *a.borrow_mut() = Some(AppState {
+                config: cfg,
+                config_notice: None,
+                overlay_open: false,
+                update: None,
+            })
+        });
+        // (0, 0) luôn thuộc màn hình chính.
+        let last = lc(rc(0, 0, 200, 120), Action::Save);
+        LAST_CAPTURE.with(|l| l.set(Some(last)));
+        capture_flow_with(
+            HWND::default(),
+            CaptureKind::RepeatLast,
+            Some(Arc::new(NullNotifier)),
+        );
+        // Lặp lại không đổi lần chụp trước, không mở lớp phủ.
+        assert_eq!(LAST_CAPTURE.with(|l| l.get()), Some(last));
+        assert!(!overlay_open());
+        let pngs: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "png"))
+            .collect();
+        assert_eq!(pngs.len(), 1, "{pngs:?}");
+        let img = darkshot_core::thumb::decode_png_file(&pngs[0]).unwrap();
+        assert_eq!((img.width, img.height), (200, 120));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
