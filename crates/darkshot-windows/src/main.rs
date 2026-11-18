@@ -226,9 +226,9 @@ pub fn last_capture_after(
     action: Action,
     screen: Rect,
 ) -> (Option<LastCapture>, bool) {
-    let _ = on_disk;
     let next = last_capture::remember(prev, action, screen);
-    (next, next != prev)
+    let write = action != Action::Cancel && next.is_some() && next != on_disk;
+    (next, write)
 }
 
 /// Tệp lần chụp trước lớn hơn mức này là hỏng (tệp thật chỉ vài chục byte).
@@ -279,10 +279,13 @@ pub fn write_last_capture(path: &Path, l: &LastCapture) -> std::io::Result<()> {
 /// thì ghi tệp. Lỗi ghi bị nuốt: không bao giờ làm hỏng luồng chụp.
 fn remember_last_capture(action: Action, screen: Rect) {
     let prev = LAST_CAPTURE.with(|l| l.get());
-    let (next, write) = last_capture_after(prev, prev, action, screen);
+    let on_disk = LAST_CAPTURE_ON_DISK.with(|l| l.get());
+    let (next, write) = last_capture_after(prev, on_disk, action, screen);
     LAST_CAPTURE.with(|l| l.set(next));
     if let (true, Some(l)) = (write, next) {
-        let _ = write_last_capture(&paths::last_capture_path(), &l);
+        if write_last_capture(&paths::last_capture_path(), &l).is_ok() {
+            LAST_CAPTURE_ON_DISK.with(|d| d.set(Some(l)));
+        }
     }
 }
 
@@ -350,6 +353,8 @@ thread_local! {
     /// Lần chụp vùng trước (vùng tọa độ màn hình và hành động) cho "Chụp lại vùng trước"; đọc từ
     /// tệp lúc khởi động.
     static LAST_CAPTURE: Cell<Option<LastCapture>> = const { Cell::new(None) };
+    /// Giá trị đã nằm trên đĩa (đọc lúc khởi động hoặc ghi thành công); ghi lỗi thì lần sau thử lại.
+    static LAST_CAPTURE_ON_DISK: Cell<Option<LastCapture>> = const { Cell::new(None) };
     /// Lý do của yêu cầu mở Tùy chọn đang chờ (gộp bằng `merge_reason`); `run_settings` lấy ra.
     static OPEN_REASON: Cell<OpenReason> = const { Cell::new(OpenReason::User) };
     /// Cấu hình trong bộ nhớ khớp file trên đĩa (đọc bình thường lúc khởi động, hoặc Tùy chọn đã
@@ -757,14 +762,13 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     let img_w = i32::try_from(shot.image.width).unwrap_or(i32::MAX);
     let img_h = i32::try_from(shot.image.height).unwrap_or(i32::MAX);
     let mut repeat = None;
+    // Vùng trước đã mất: báo sau khi lớp phủ đóng (bong bóng có thể bị hoãn hay ẩn khi cửa sổ
+    // toàn màn hình trên cùng đang mở).
+    let mut region_gone = false;
     if kind == CaptureKind::RepeatLast {
         match repeat_plan(last, shot.origin, img_w, img_h, &shot.monitors) {
             RepeatPlan::Run(r, a) => repeat = Some((a, r)),
-            RepeatPlan::OverlayWithNotice => notify(
-                NoticeKind::Info,
-                lang::tr(Msg::RepeatRegionGoneTitle),
-                lang::tr(Msg::RepeatRegionGoneBody),
-            ),
+            RepeatPlan::OverlayWithNotice => region_gone = true,
             RepeatPlan::Overlay => {}
         }
     }
@@ -791,6 +795,14 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             let mut custom = before;
             let picked = overlay::pick_region(&shot, initial, &mut custom);
             with_app(|a| a.overlay_open = false);
+            // Mọi kết quả của lớp phủ (chọn, hủy, lỗi) đều báo vùng trước đã mất.
+            if region_gone {
+                notify(
+                    NoticeKind::Info,
+                    lang::tr(Msg::RepeatRegionGoneTitle),
+                    lang::tr(Msg::RepeatRegionGoneBody),
+                );
+            }
             // Ảnh ghim từ Lịch sử tới lúc lớp phủ mở: mở bây giờ, trước mọi nhánh của kết quả.
             history_window::open_pending_pin();
             if custom != before {
@@ -1537,6 +1549,7 @@ fn main() {
     // Lần chụp trước (nếu có) cho phím lặp lại và cho "giữ vị trí vùng"; lỗi đọc thì coi như chưa có.
     let last = read_last_capture(&paths::last_capture_path());
     LAST_CAPTURE.with(|l| l.set(last));
+    LAST_CAPTURE_ON_DISK.with(|l| l.set(last));
     LAST_SELECTION.with(|s| s.set(last.map(|l| l.rect)));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
     if mode.update_timer && with_app(|a| a.config.check_updates).unwrap_or(false) {
