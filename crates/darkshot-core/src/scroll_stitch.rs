@@ -801,8 +801,124 @@ mod tests {
             Push::Uncertain(Reason::Ambiguous)
         );
         assert_eq!(st.height(), H);
-        // Chưa có lần nối nào: không tính là chỗ ghép không chắc chắn.
-        assert_eq!(st.uncertain_count(), 0);
+        // Đã cuộn mà chưa nối được lần nào: vẫn tính một chỗ, để kết quả có cảnh báo.
+        assert_eq!(st.uncertain_count(), 1);
+        assert_eq!(st.finish().1, 1);
+    }
+
+    /// Trang W×h: `noise` hàng nhiễu rồi các "dòng" giống hệt nhau, chu kỳ `period` hàng, mỗi dòng
+    /// `ink` hàng nhiễu (cùng một mẫu cho mọi dòng) rồi hàng trắng.
+    fn periodic_page(w: u32, h: u32, noise: u32, period: u32, ink: u32, seed: u64) -> Image {
+        let mut img = noise_page(w, h, seed);
+        let line = noise_page(w, ink, seed + 1000);
+        let s = (w * 4) as usize;
+        for y in noise..h {
+            let phase = (y - noise) % period;
+            let dst = &mut img.bgra[y as usize * s..(y as usize + 1) * s];
+            if phase < ink {
+                dst.copy_from_slice(&line.bgra[phase as usize * s..(phase as usize + 1) * s]);
+            } else {
+                dst.fill(255);
+            }
+        }
+        img
+    }
+
+    /// Nhảy vào nội dung lặp, quá xa so với khoảng tìm dy: không bao giờ được nối (mất hàng).
+    #[test]
+    fn jump_into_periodic_content_is_never_appended() {
+        // (nhiễu, chu kỳ, hàng nhiễu mỗi dòng, offset khung thứ hai)
+        let cases = [
+            (580, 20, 12, 650),
+            (580, 20, 12, 1250),
+            (500, 100, 60, 650),
+            (560, 40, 12, 630),
+            (500, 100, 9, 650),
+        ];
+        for (noise, period, ink, off) in cases {
+            let pg = periodic_page(200, 2500, noise, period, ink, 21);
+            let mut st = Stitcher::new(200, H);
+            assert_eq!(st.push(&frame(&pg, 0, H)), Push::Appended(H));
+            let r = st.push(&frame(&pg, off, H));
+            assert!(
+                matches!(r, Push::Uncertain(_)),
+                "{noise} {period} {ink} {off}: {r:?}"
+            );
+            let (img, n) = st.finish();
+            assert_eq!(img, frame(&pg, 0, H));
+            assert_eq!(n, 1);
+        }
+    }
+
+    /// Thanh dính đáy mỏng xuất hiện giữa chừng: không bao giờ bị nối lặp vào giữa ảnh.
+    #[test]
+    fn late_thin_bottom_bar_is_never_repeated_inside() {
+        for b in [6u32, 10, 12] {
+            let pg = page(W, 6000, 30 + u64::from(b));
+            let bar = noise_page(W, b, 40);
+            let s = (W * 4) as usize;
+            let mut st = Stitcher::new(W, H);
+            for (k, o) in [0u32, 100, 200, 300, 400, 500, 600].into_iter().enumerate() {
+                let mut f = frame(&pg, o, H);
+                if k >= 3 {
+                    f.bgra[(H - b) as usize * s..].copy_from_slice(&bar.bgra);
+                }
+                let _ = st.push(&f);
+            }
+            let (img, _) = st.finish();
+            assert!(img.height > b);
+            let body = img.height - b;
+            assert!(
+                img.bgra[..body as usize * s] == rows(&pg, 0, body),
+                "bar {b}: stitched rows differ from the page"
+            );
+            let last = &img.bgra[body as usize * s..];
+            assert!(
+                last == &bar.bgra[..] || last == &rows(&pg, body, img.height)[..],
+                "bar {b}: last rows"
+            );
+        }
+    }
+
+    /// Vùng chọn có thanh cuộn dọc 12 px ở mép phải, con trượt 100 hàng di chuyển theo nội dung.
+    #[test]
+    fn moving_scrollbar_thumb_does_not_block_stitching() {
+        let page_h = 4000;
+        let pg = page(W, page_h, 15);
+        let bar_x = W - 12;
+        let scrolled = |o: u32| {
+            let mut f = frame(&pg, o, H);
+            let ty = o * (H - 100) / (page_h - H);
+            for y in 0..H {
+                let c = if (ty..ty + 100).contains(&y) {
+                    [90, 90, 90, 255]
+                } else {
+                    [30, 30, 30, 255]
+                };
+                for x in bar_x..W {
+                    set_px(&mut f, x, y, c);
+                }
+            }
+            f
+        };
+        let mut st = Stitcher::new(W, H);
+        assert_eq!(st.push(&scrolled(0)), Push::Appended(H));
+        let mut o = 0;
+        for step in [3u32, 6, 20, 100, 3, 6, 20, 100] {
+            o += step;
+            assert_eq!(st.push(&scrolled(o)), Push::Appended(step), "step {step}");
+        }
+        let (img, n) = st.finish();
+        assert_eq!(n, 0);
+        assert_eq!(img.height, o + H);
+        let s = (W * 4) as usize;
+        let content = (bar_x * 4) as usize;
+        for y in 0..img.height as usize {
+            assert!(
+                img.bgra[y * s..y * s + content] == pg.bgra[y * s..y * s + content],
+                "row {y}"
+            );
+        }
     }
 
     #[test]
