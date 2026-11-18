@@ -8,6 +8,7 @@ pub mod history;
 pub mod history_store;
 pub mod i18n;
 pub mod image;
+pub mod last_capture;
 pub mod migrate;
 pub mod naming;
 pub mod pin;

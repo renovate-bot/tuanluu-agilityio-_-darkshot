@@ -235,6 +235,7 @@ mod tests {
             region: Some("PrintScreen".into()),
             save_full: None,
             upload_full: Some("Ctrl+PrintScreen".into()),
+            repeat_last: None,
         };
         for _ in 0..3 {
             show(parent, &keys);

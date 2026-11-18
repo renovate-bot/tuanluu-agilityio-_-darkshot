@@ -486,7 +486,7 @@ const ID_SNAP_WINDOWS: i32 = 155;
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
 const ID_HK_CHANGE0: i32 = 130;
-const ID_HK_CHECK0: i32 = 133;
+const ID_HK_CHECK0: i32 = 134;
 /// Khung của tab thứ i có ID `ID_FRAME0 + i` (120 đến 123).
 const ID_FRAME0: i32 = 120;
 const FRAME_CLASS: PCWSTR = w!("darkshot-settings-frame");
@@ -522,9 +522,9 @@ struct Ctl {
     expiry: HWND,
     dir: HWND,
     /// Ô tích, ô chỉ đọc và nút "Đổi…" của từng dòng phím tắt, theo `HotkeyRole::ALL`.
-    hk_chk: [HWND; 3],
-    hk_edit: [HWND; 3],
-    hk_btn: [HWND; 3],
+    hk_chk: [HWND; HotkeyRole::ALL.len()],
+    hk_edit: [HWND; HotkeyRole::ALL.len()],
+    hk_btn: [HWND; HotkeyRole::ALL.len()],
     autostart: HWND,
     notices: HWND,
     check_updates: HWND,
@@ -2427,9 +2427,9 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
 }
 
 struct HotkeysCtl {
-    chk: [HWND; 3],
-    edit: [HWND; 3],
-    btn: [HWND; 3],
+    chk: [HWND; HotkeyRole::ALL.len()],
+    edit: [HWND; HotkeyRole::ALL.len()],
+    btn: [HWND; HotkeyRole::ALL.len()],
     height: i32,
 }
 
@@ -2466,9 +2466,9 @@ fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
     let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
     let mut y = 12;
     let (mut chk, mut edit, mut btn) = (
-        [HWND::default(); 3],
-        [HWND::default(); 3],
-        [HWND::default(); 3],
+        [HWND::default(); HotkeyRole::ALL.len()],
+        [HWND::default(); HotkeyRole::ALL.len()],
+        [HWND::default(); HotkeyRole::ALL.len()],
     );
     for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
         chk[i] = b.button(

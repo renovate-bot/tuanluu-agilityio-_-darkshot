@@ -145,13 +145,15 @@ pub enum HotkeyRole {
     Region,
     SaveFull,
     UploadFull,
+    RepeatLast,
 }
 
 impl HotkeyRole {
-    pub const ALL: [HotkeyRole; 3] = [
+    pub const ALL: [HotkeyRole; 4] = [
         HotkeyRole::Region,
         HotkeyRole::SaveFull,
         HotkeyRole::UploadFull,
+        HotkeyRole::RepeatLast,
     ];
 
     pub fn label(self) -> Msg {
@@ -159,6 +161,7 @@ impl HotkeyRole {
             HotkeyRole::Region => Msg::LabelHotkey,
             HotkeyRole::SaveFull => Msg::LabelHotkeySaveFull,
             HotkeyRole::UploadFull => Msg::LabelHotkeyUploadFull,
+            HotkeyRole::RepeatLast => Msg::LabelHotkeyRepeatLast,
         }
     }
 
@@ -168,6 +171,7 @@ impl HotkeyRole {
             HotkeyRole::Region => d.region,
             HotkeyRole::SaveFull => d.save_full,
             HotkeyRole::UploadFull => d.upload_full,
+            HotkeyRole::RepeatLast => d.repeat_last,
         }
     }
 }
@@ -183,6 +187,7 @@ pub struct Hotkeys {
     pub region: HotkeySlot,
     pub save_full: HotkeySlot,
     pub upload_full: HotkeySlot,
+    pub repeat_last: HotkeySlot,
 }
 
 impl Default for Hotkeys {
@@ -201,6 +206,14 @@ impl Default for Hotkeys {
                 enabled: false,
                 key: Hotkey { ctrl: true, ..pre },
             },
+            repeat_last: HotkeySlot {
+                enabled: false,
+                key: Hotkey {
+                    ctrl: true,
+                    shift: true,
+                    ..pre
+                },
+            },
         }
     }
 }
@@ -211,6 +224,7 @@ impl Hotkeys {
             HotkeyRole::Region => self.region,
             HotkeyRole::SaveFull => self.save_full,
             HotkeyRole::UploadFull => self.upload_full,
+            HotkeyRole::RepeatLast => self.repeat_last,
         }
     }
 
@@ -219,6 +233,7 @@ impl Hotkeys {
             HotkeyRole::Region => self.region = slot,
             HotkeyRole::SaveFull => self.save_full = slot,
             HotkeyRole::UploadFull => self.upload_full = slot,
+            HotkeyRole::RepeatLast => self.repeat_last = slot,
         }
     }
 
@@ -378,6 +393,7 @@ struct FileConfig {
     hotkey_enabled: bool,
     hotkey_save_full: Option<FileSlot>,
     hotkey_upload_full: Option<FileSlot>,
+    hotkey_repeat_last: Option<FileSlot>,
     notify_success: bool,
     keep_selection: bool,
     include_cursor: bool,
@@ -402,6 +418,7 @@ impl Default for FileConfig {
             hotkey_enabled: true,
             hotkey_save_full: None,
             hotkey_upload_full: None,
+            hotkey_repeat_last: None,
             notify_success: true,
             keep_selection: false,
             include_cursor: false,
@@ -507,6 +524,10 @@ pub fn load(
                 .hotkey_upload_full
                 .unwrap_or_default()
                 .into_slot(HotkeyRole::UploadFull.default_slot()),
+            repeat_last: f
+                .hotkey_repeat_last
+                .unwrap_or_default()
+                .into_slot(HotkeyRole::RepeatLast.default_slot()),
         },
         save_dir: f.save_dir.unwrap_or_else(|| default_save_dir.to_path_buf()),
         autostart: f.autostart,
@@ -556,6 +577,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         hotkey_enabled: cfg.hotkeys.region.enabled,
         hotkey_save_full: Some(FileSlot::from_slot(cfg.hotkeys.save_full)),
         hotkey_upload_full: Some(FileSlot::from_slot(cfg.hotkeys.upload_full)),
+        hotkey_repeat_last: Some(FileSlot::from_slot(cfg.hotkeys.repeat_last)),
         notify_success: cfg.show_success_notices,
         keep_selection: cfg.keep_selection,
         include_cursor: cfg.include_cursor,
@@ -911,6 +933,61 @@ mod tests {
         for r in HotkeyRole::ALL {
             assert_eq!(h.get(r), r.default_slot());
         }
+        assert_eq!(HotkeyRole::ALL.last(), Some(&HotkeyRole::RepeatLast));
+        assert!(!h.repeat_last.enabled);
+        assert_eq!(
+            h.repeat_last.key,
+            Hotkey {
+                ctrl: true,
+                shift: true,
+                ..Hotkey::default()
+            }
+        );
+    }
+
+    #[test]
+    fn repeat_last_missing_key_gets_default_and_round_trips() {
+        // tệp cũ chỉ có ba dòng
+        let l = load_text(r#"{"hotkey_save_full":{"enabled":true}}"#);
+        assert_eq!(
+            l.config.hotkeys.repeat_last,
+            HotkeyRole::RepeatLast.default_slot()
+        );
+        assert!(!l.config.hotkeys.repeat_last.enabled);
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.hotkeys.repeat_last = HotkeySlot {
+            enabled: true,
+            key: Hotkey {
+                alt: true,
+                vk: 0x73,
+                ..Hotkey::default()
+            },
+        };
+        save(&path, &c, &XorStore).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["hotkey_repeat_last"]["vk"], 0x73);
+        assert_eq!(
+            load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi)
+                .unwrap()
+                .config,
+            c
+        );
+    }
+
+    #[test]
+    fn first_conflict_catches_repeat_last() {
+        let mut h = Hotkeys::default();
+        h.repeat_last.enabled = true;
+        h.region = HotkeySlot {
+            enabled: true,
+            key: h.repeat_last.key,
+        };
+        assert_eq!(
+            h.first_conflict(),
+            Some((HotkeyRole::Region, HotkeyRole::RepeatLast))
+        );
     }
 
     #[test]
@@ -1371,6 +1448,8 @@ mod tests {
         after.as_object_mut().unwrap().remove("history_enabled");
         assert_eq!(after["snap_windows"], true);
         after.as_object_mut().unwrap().remove("snap_windows");
+        assert_eq!(after["hotkey_repeat_last"]["enabled"], false);
+        after.as_object_mut().unwrap().remove("hotkey_repeat_last");
         assert_eq!(after, before);
     }
 }

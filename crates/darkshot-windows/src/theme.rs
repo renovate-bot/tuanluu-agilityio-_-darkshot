@@ -1605,6 +1605,7 @@ mod tests {
             region: Some("PrintScreen".into()),
             save_full: None,
             upload_full: Some("Ctrl+PrintScreen".into()),
+            repeat_last: None,
         };
         let mut counts = Vec::new();
         for _ in 0..20 {
