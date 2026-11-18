@@ -432,7 +432,7 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(true),
+            menu_layout(true, 0),
             vec![
                 Item(OpenUpdate),
                 Separator,
@@ -445,7 +445,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            menu_layout(false),
+            menu_layout(false, 0),
             vec![
                 Item(Capture),
                 Item(History),
@@ -455,6 +455,41 @@ mod tests {
                 Item(Quit)
             ]
         );
+    }
+
+    /// Có ảnh ghim: "Đóng mọi ảnh ghim (n)" ngay sau Lịch sử, có hay không có bản mới.
+    #[test]
+    fn menu_layout_adds_close_pins_after_history() {
+        use MenuCommand::*;
+        use MenuEntry::*;
+        assert_eq!(
+            menu_layout(false, 3),
+            vec![
+                Item(Capture),
+                Item(History),
+                Item(ClosePins),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        assert_eq!(
+            menu_layout(true, 3),
+            vec![
+                Item(OpenUpdate),
+                Separator,
+                Item(Capture),
+                Item(History),
+                Item(ClosePins),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        assert_eq!(menu_layout(true, 1).len(), 9);
+        assert!(!menu_layout(true, 0).contains(&Item(ClosePins)));
     }
 
     #[test]

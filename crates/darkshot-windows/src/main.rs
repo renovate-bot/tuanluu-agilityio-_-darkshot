@@ -1847,4 +1847,41 @@ mod tests {
             (SettingsOpen, GateAction::OpenSettings)
         );
     }
+
+    /// Góc ảnh ghim = góc trên trái vùng (đã kẹp vào ảnh) cộng gốc màn hình ảo, đúng một lần.
+    #[test]
+    fn pin_origin_is_clamped_corner_in_screen_coords() {
+        let r = |x, y| Rect { x, y, w: 50, h: 40 };
+        // Gốc 0: tọa độ ảnh trùng tọa độ màn hình.
+        assert_eq!(pin_origin(r(10, 20), Point { x: 0, y: 0 }), Point { x: 10, y: 20 });
+        // Màn hình bên trái/trên: gốc âm.
+        assert_eq!(
+            pin_origin(r(10, 20), Point { x: -1920, y: -200 }),
+            Point { x: -1910, y: -180 }
+        );
+        // Vùng tràn ra ngoài ảnh: góc sau khi kẹp (khớp gốc ảnh cắt của `picked_image`).
+        assert_eq!(
+            pin_origin(r(-15, -7), Point { x: -1920, y: -200 }),
+            Point { x: -1920, y: -200 }
+        );
+        assert_eq!(pin_origin(r(-15, 30), Point { x: 0, y: 0 }), Point { x: 0, y: 30 });
+    }
+
+    /// Lỗi ghim: đủ ảnh thì Info với số tối đa; lỗi tạo thì Error với thân i18n, không lộ lý do.
+    #[test]
+    fn pin_failure_notices() {
+        use darkshot_core::pin::MAX_PINS;
+        for lang in Lang::ALL {
+            let (kind, title, body) = pin_failure_notice(lang, &pin::PinError::Limit);
+            assert_eq!(kind, NoticeKind::Info);
+            assert_eq!(title, i18n::t(lang, Msg::PinLimitTitle));
+            assert_eq!(body, i18n::pin_limit_body(lang, MAX_PINS));
+            let err = pin::PinError::Create("CreateWindowExW failed 0x80070008".into());
+            let (kind, title, body) = pin_failure_notice(lang, &err);
+            assert_eq!(kind, NoticeKind::Error);
+            assert_eq!(title, i18n::t(lang, Msg::PinFailedTitle));
+            assert_eq!(body, i18n::t(lang, Msg::PinFailedBody));
+            assert!(!body.contains("CreateWindowExW"));
+        }
+    }
 }
