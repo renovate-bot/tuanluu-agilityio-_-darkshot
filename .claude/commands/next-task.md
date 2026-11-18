@@ -43,3 +43,5 @@ Task 66–72 (đợt 9 nội bộ = Giai đoạn 3 sản phẩm: Ghim ảnh lên
 Task 73–77 (đợt 10 = Giai đoạn 3: Lặp lại lần chụp trước) theo kế hoạch `docs/superpowers/plans/2026-11-18-repeat-capture.md`; đã gộp `main`. Từ đợt 10, xong mỗi đợt thì phiên điều phối tự gộp `main` và làm tiếp đợt kế (quyết định 114).
 
 Task 78–83 (đợt 11 = Giai đoạn 3: Nhận dạng chữ cục bộ) theo kế hoạch `docs/superpowers/plans/2026-11-18-local-ocr.md`; đã gộp `main`.
+
+Task 84–88 (đợt 12 = Giai đoạn 3: Chụp từng bước) theo kế hoạch `docs/superpowers/plans/2026-11-18-step-capture.md`; đã gộp `main`.

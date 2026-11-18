@@ -479,6 +479,8 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-ocr.ps1 -Exe target\d
 
 Chạy bản demo cách ly: `powershell -File scripts/demo-steps.ps1 -Exe target\demo12\release\darkshot.exe` (thêm `-Lang en`). Demo tạo sẵn một phiên 3 bước tổng hợp trong hồ sơ cách ly và mở darkshot: thanh phiên hiện ngay với "3 bước". [x] = phiên điều phối đã thấy; [ ] = chưa ai thử.
 
+- [x] (Phiên điều phối, 2026-11-18, Windows 11 bản dựng 26300, một màn hình 2880×1800 DPI 200%, tiếng Việt, không giả lập chuột/phím thật) Phiên tổng hợp 3 bước khôi phục khi khởi động, thanh phiên hiện; `PrintWindow` của thanh ra màu đen (đã loại khỏi ảnh chụp); nút Xem lại mở cửa sổ "Các bước" đúng 3 bước, ảnh nhỏ, xem trước, ghi chú, nút Lên mờ ở bước 1; nút Kết thúc trên thanh mở thẻ "Kết thúc mà không xuất? 3 bước sẽ bị xóa." và phiên còn nguyên (`target/demo12/screens/`). Kiểm thử chạy tay `steps_window::live`, `steps_bar::live` qua.
+
 - [ ] Menu khay: mục "Chụp từng bước" nằm ngay sau "Lịch sử ảnh chụp"; khi có phiên mục đổi thành "Xem lại các bước (N)" với N đúng số bước.
 - [ ] Bấm "Chụp từng bước": thanh phiên hiện, có chấm đỏ, "Chụp từng bước · 0 bước" và các nút Chụp bước, Xem lại, Kết thúc; mặc định giữa mép trên màn hình chính, cách mép khoảng 12 DIP.
 - [ ] Thanh phiên không lấy tiêu điểm (gõ chữ ở ứng dụng khác vẫn vào ứng dụng đó), luôn nằm trên cùng, không hiện trên thanh tác vụ, kéo được ở vùng chữ.

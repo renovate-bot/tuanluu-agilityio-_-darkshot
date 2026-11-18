@@ -4,13 +4,27 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
+- **Giai đoạn 3, đợt 12 nội bộ: Chụp từng bước. XONG, đã gộp `main` và đẩy `origin` (quyết định 114).** Bản mới nhất vẫn v0.4.0; Lặp lại (đợt 10), OCR (đợt 11), Chụp từng bước (đợt 12) ở mục "Chưa phát hành".
+- Thiết kế `docs/superpowers/specs/2026-11-18-step-capture-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-step-capture.md`, gói `docs/tasks/84-…` đến `87-…` (Task 88 không có gói, quyết định 125), quyết định 122–126. Demo: `scripts/demo-steps.ps1` (build `--target-dir target/demo12`).
+- Còn mở: checklist "Đợt 9"–"Đợt 12" (đa số `[ ]`): đặc biệt Ctrl+N thật, thanh phiên dưới lớp phủ, Windows 10 trước 2004, hộp chọn thư mục và Explorer sau khi xuất, kết thúc ngay sau Ctrl+N ảnh lớn, tắt máy khi đang gõ ghi chú.
+- Cách làm: quyết định 114 (worktree `shotme-bNN`/`shotme-task`/`shotme-docs`; thư mục chính ở `main`; QA không giả lập đầu vào).
+- Task đang làm: không.
+
+## Bước kế tiếp
+
+Đợt 13 (Giai đoạn 3): **Chụp cuộn** (quyết định 114), ứng viên cuối của danh sách chủ dự án. Gói task từ số 89. Rủi ro cao: phạm vi hẹp (chỉ cuộn dọc, cửa sổ dưới con trỏ), báo rõ khi ghép không chắc chắn, không bao giờ âm thầm ghép sai.
+
+## Lưu trữ: đợt 11 (đã gộp `main`)
+
+### Đang ở đâu (đợt 11)
+
 - **Giai đoạn 3, đợt 11 nội bộ: Nhận dạng chữ cục bộ (OCR). XONG, đã gộp `main` và đẩy `origin` (quyết định 114).** Bản mới nhất vẫn v0.4.0; Lặp lại (đợt 10) và OCR (đợt 11) ở mục "Chưa phát hành".
 - Thiết kế `docs/superpowers/specs/2026-11-18-local-ocr-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-local-ocr.md`, gói `docs/tasks/78-…` đến `83-…`, quyết định 118–121. Demo: `scripts/demo-ocr.ps1` (build `--target-dir target/demo11`).
 - Còn mở: mục "Đợt 9", "Đợt 10", "Đợt 11" của checklist (đa số `[ ]`); thử tay sau khi OCR đã chạy một lần (MTA ngầm): bộ gõ tiếng Việt, chọn thư mục ở Tùy chọn, mở tệp/thư mục từ Lịch sử, bấm thông báo mở link; máy có/không có gói OCR tiếng Việt.
 - Cách làm: như quyết định 114 (worktree `shotme-bNN`/`shotme-task`/`shotme-docs`; thư mục chính để ở `main`; QA không giả lập đầu vào).
 - Task đang làm: không.
 
-## Bước kế tiếp
+### Bước kế tiếp (đợt 11, cũ)
 
 Đợt 12 (Giai đoạn 3): **Chụp từng bước**, rồi đợt 13: **Chụp cuộn** (quyết định 114). Gói task từ số 84.
 
