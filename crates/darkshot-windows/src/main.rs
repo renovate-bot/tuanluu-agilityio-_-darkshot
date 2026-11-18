@@ -724,6 +724,11 @@ pub fn hotkey_defers(tray_menu_open: bool, pin_menu_open: bool) -> bool {
     tray_menu_open || pin_menu_open
 }
 
+/// Hẹn giờ chụp sau menu khay tới khi menu ngữ cảnh của ảnh ghim hay Lịch sử đang mở: chờ thêm.
+pub fn timer_should_wait(pin_menu_open: bool, history_menu_open: bool) -> bool {
+    pin_menu_open || history_menu_open
+}
+
 /// Góc trên trái của ảnh ghim (tọa độ màn hình) cho vùng `rect` (tọa độ ảnh chụp): góc sau khi kẹp
 /// vào ảnh như `picked_image`/`crop`, cộng gốc `origin` của màn hình ảo đúng một lần.
 pub fn pin_origin(rect: Rect, origin: Point) -> Point {
@@ -1223,6 +1228,24 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             // SAFETY: hủy bộ hẹn giờ một lần của chính cửa sổ này.
             unsafe {
                 let _ = KillTimer(Some(hwnd), MENU_CAPTURE_TIMER_ID);
+            }
+            if timer_should_wait(pin::menu_open(), history_window::menu_open()) {
+                // Người dùng vừa mở menu ảnh ghim/Lịch sử trong lúc chờ: đóng nó và chờ thêm một
+                // lượt, để lớp phủ không chạy trong vòng lặp modal của menu.
+                // SAFETY: đóng menu đang hiện của luồng này; hẹn giờ gắn với chính cửa sổ này.
+                let timer = unsafe {
+                    let _ = EndMenu();
+                    SetTimer(
+                        Some(hwnd),
+                        MENU_CAPTURE_TIMER_ID,
+                        MENU_CAPTURE_DELAY_MS,
+                        None,
+                    )
+                };
+                if timer != 0 {
+                    return LRESULT(0);
+                }
+                // Không đặt được hẹn giờ: giữ hành vi sẵn có (chụp ngay) để cổng không kẹt.
             }
             gate(hwnd, GateEvent::TimerFired);
             LRESULT(0)
