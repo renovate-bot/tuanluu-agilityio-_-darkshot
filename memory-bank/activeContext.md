@@ -6,8 +6,8 @@ Cập nhật: 2026-11-18
 
 - **Giai đoạn 3 sản phẩm (Mở rộng năng suất), đợt 9 nội bộ: Ghim ảnh lên màn hình. XONG, chủ dự án đã duyệt demo (2026-11-18) và cho gộp `feature/pin-screenshot` vào `main`, đẩy `origin` (quyết định 112).** Chưa phát hành: v0.3.0 vẫn là bản mới nhất; Ghim nằm ở mục "Chưa phát hành" của CHANGELOG. Duyệt dựa trên demo; các mục `[ ]` của "Đợt 9" trong checklist vẫn để ngỏ.
 - Lộ trình sản phẩm tách khỏi số đợt/task/phiên bản (quyết định 105). Thiết kế `docs/superpowers/specs/2026-11-18-pin-screenshot-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-pin-screenshot.md`, gói `docs/tasks/66-…` đến `72-…`, quyết định 105–111.
-- Bản demo: `target/demo9/release/darkshot.exe` trong worktree `D:\2026 - Tuan\shotme-pin` (build từ nhánh đợt). Chạy cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`); chụp vùng Ctrl+Alt+Shift+F10. Ảnh QA: `target/demo9/screens/` (cùng worktree).
-- Worktree tạm của đợt (`shotme-pin`, `shotme-task`, `shotme-docs`) có thể gỡ sau khi gộp; bản demo nằm trong `shotme-pin/target/demo9`.
+- Bản demo đợt 9 đã xóa cùng các worktree tạm (2026-11-18, chủ dự án yêu cầu dọn). Muốn chạy lại: `cargo build --release -p darkshot-windows --target-dir target/demo9` rồi `powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe` (thêm `-Lang en`); chụp vùng Ctrl+Alt+Shift+F10.
+- Worktree tạm của đợt (`shotme-pin`, `shotme-task`, `shotme-docs`) đã gỡ; nhánh task vẫn còn ở local và `origin`.
 - Còn mở: mục "Đợt 9" của `docs/testing/manual-checklist.md` (chưa ai thử tay: DPI 100/125/150%, nhiều màn hình, tọa độ âm, Windows 10, IME + Ctrl+P, thoát khi còn ảnh ghim); viên nhắc Bắt cửa sổ (quyết định 109); QA đầu vào thật bị dừng giữa chừng (quyết định 111).
 - Nhánh `task/67-website` (worktree `shotme-website`) là của phiên trang giới thiệu, trùng tiền tố số 67 với `task/67-pin-core`; không phải task của đợt 9.
 - Task đang làm: không (sau Task 72).
