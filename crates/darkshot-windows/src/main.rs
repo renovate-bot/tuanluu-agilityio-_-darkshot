@@ -2143,6 +2143,15 @@ mod tests {
             last_capture_after(Some(prev), Some(prev), Action::Cancel, rc(9, 9, 50, 50)),
             (Some(prev), false)
         );
+        // Nhận dạng chữ: như Hủy, giữ nguyên lần chụp trước, không ghi.
+        assert_eq!(
+            last_capture_after(Some(prev), Some(prev), Action::Ocr, rc(9, 9, 50, 50)),
+            (Some(prev), false)
+        );
+        assert_eq!(
+            last_capture_after(None, None, Action::Ocr, r),
+            (None, false)
+        );
         // Giống hệt giá trị đã ghi: không ghi lại.
         assert_eq!(
             last_capture_after(Some(prev), Some(prev), Action::Save, r),

@@ -1133,6 +1133,27 @@ fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> 
     center
 }
 
+/// Thứ cửa sổ đang hiện (chưa làm).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Shown {
+    Busy,
+    Text { label: String, lines: usize },
+    Empty { label: String },
+    NoLanguage,
+    Failed,
+}
+
+fn shown_of(_res: &Result<OcrResult, OcrError>) -> Shown {
+    Shown::Busy
+}
+
+fn relabel_parts(_lang: Lang, _shown: &Shown) -> (Option<String>, String) {
+    (None, String::new())
+}
+
+/// Đặt lại chữ giao diện theo ngôn ngữ hiện tại (chưa làm).
+pub fn relabel() {}
+
 #[cfg(test)]
 fn test_windows() -> Vec<(HWND, usize)> {
     WINS.with(|v| v.borrow().iter().map(|w| (w.hwnd, w.token)).collect())
@@ -1351,6 +1372,118 @@ mod tests {
         }
         assert!(!handled);
         assert_eq!(freed, 0);
+    }
+
+    fn results() -> Vec<Result<OcrResult, OcrError>> {
+        let ok = |text: &str, lines| {
+            Ok(OcrResult {
+                text: text.into(),
+                lang_tag: "en-US".into(),
+                lang_name: "English".into(),
+                lines,
+            })
+        };
+        vec![
+            ok(
+                "Hello
+world",
+                2,
+            ),
+            ok("", 0),
+            Err(OcrError::NoLanguage),
+            Err(OcrError::Failed("0x80004005".into())),
+        ]
+    }
+
+    /// Đổi ngôn ngữ: chữ giao diện dựng lại khớp `view_of`/`busy_view` ở ngôn ngữ mới; với kết quả có
+    /// chữ thì không trả chữ ô (giữ nguyên chữ người dùng đang sửa).
+    #[test]
+    fn relabel_parts_match_views() {
+        for lang in LANGS {
+            let (text, status) = relabel_parts(lang, &Shown::Busy);
+            let busy = busy_view(lang);
+            assert_eq!(
+                (text.as_deref(), status.as_str()),
+                (Some(busy.text.as_str()), "")
+            );
+            for res in results() {
+                let shown = shown_of(&res);
+                let v = view_of(lang, &res);
+                let (text, status) = relabel_parts(lang, &shown);
+                assert_eq!(status, v.status, "{lang:?} {shown:?}");
+                if v.editable {
+                    assert_eq!(text, None, "{lang:?} {shown:?}");
+                } else {
+                    assert_eq!(text, Some(v.text.clone()), "{lang:?} {shown:?}");
+                }
+            }
+        }
+        let [ok, empty, nolang, failed]: [Result<OcrResult, OcrError>; 4] =
+            results().try_into().unwrap();
+        assert_eq!(
+            shown_of(&ok),
+            Shown::Text {
+                label: "English, en-US".into(),
+                lines: 2
+            }
+        );
+        assert_eq!(
+            shown_of(&empty),
+            Shown::Empty {
+                label: "English, en-US".into()
+            }
+        );
+        assert_eq!(shown_of(&nolang), Shown::NoLanguage);
+        assert_eq!(shown_of(&failed), Shown::Failed);
+    }
+
+    fn title_of(h: HWND) -> String {
+        String::from_utf16_lossy(&crate::theme::window_text(h))
+    }
+
+    /// Đổi ngôn ngữ khi cửa sổ đang mở: tiêu đề, nút, dòng trạng thái theo ngôn ngữ mới; chữ người
+    /// dùng đã sửa trong ô giữ nguyên. Cửa sổ còn bận: câu "đang nhận dạng" đổi ngôn ngữ.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_relabel_keeps_user_text() {
+        use windows::Win32::UI::WindowsAndMessaging::{GetDlgItem, SetWindowTextW};
+        close_all();
+        let before = crate::lang::current();
+        crate::lang::set(Lang::Vi);
+        open_with(tiny(), no_ocr).expect("open");
+        open_with(tiny(), no_ocr).expect("open");
+        let wins = test_windows();
+        let (h, token) = wins[0];
+        let busy_win = wins[1].0;
+        post_fake(h, token, "Hello");
+        assert!(pump(2_000, || !busy(h)));
+        let edit = edit_of(h);
+        // Người dùng sửa chữ.
+        // SAFETY: ô chữ của cửa sổ do luồng này tạo; chuỗi sống suốt lời gọi.
+        unsafe {
+            let _ = SetWindowTextW(edit, &windows::core::HSTRING::from("Hello edited"));
+        }
+        assert_eq!(title_of(h), t(Lang::Vi, Msg::OcrWindowTitle));
+        crate::lang::set(Lang::En);
+        relabel();
+        pump(100, || false);
+        assert_eq!(title_of(h), t(Lang::En, Msg::OcrWindowTitle));
+        assert_eq!(text_of(edit), "Hello edited");
+        // SAFETY: điều khiển con của cửa sổ này theo ID.
+        let (copy, close, status) = unsafe {
+            (
+                GetDlgItem(Some(h), ID_COPY).unwrap_or_default(),
+                GetDlgItem(Some(h), ID_CLOSE).unwrap_or_default(),
+                GetDlgItem(Some(h), ID_STATUS).unwrap_or_default(),
+            )
+        };
+        assert_eq!(title_of(copy), t(Lang::En, Msg::OcrCopy));
+        assert_eq!(title_of(close), t(Lang::En, Msg::OcrClose));
+        assert_eq!(title_of(status), ocr_status(Lang::En, "English, en-US", 1));
+        assert_eq!(text_of(edit_of(busy_win)), t(Lang::En, Msg::OcrBusy));
+        assert_eq!(title_of(busy_win), t(Lang::En, Msg::OcrWindowTitle));
+        close_all();
+        crate::lang::set(before);
     }
 
     #[test]
