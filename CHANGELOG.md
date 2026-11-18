@@ -2,7 +2,7 @@
 
 Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên bản theo [SemVer](https://semver.org/lang/vi/): tăng số giữa khi có tính năng mới, số cuối khi chỉ sửa lỗi. Tải bản phát hành ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases).
 
-## [Chưa phát hành]
+## [0.4.0] - 2026-11-18
 
 ### Mới
 
