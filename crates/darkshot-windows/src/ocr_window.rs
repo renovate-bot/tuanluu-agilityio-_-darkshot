@@ -1088,6 +1088,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
+/// Vi tri cua so (chua lam).
+fn place_avoiding(_work: Rect, _w: i32, _h: i32, _avoid: Option<Rect>, _gap: i32) -> (i32, i32) {
+    (0, 0)
+}
+
 #[cfg(test)]
 fn test_windows() -> Vec<(HWND, usize)> {
     WINS.with(|v| v.borrow().iter().map(|w| (w.hwnd, w.token)).collect())
@@ -1215,6 +1220,97 @@ mod tests {
         );
         assert_eq!(lang_label("vi", ""), "vi");
         assert_eq!(lang_label("", "Tiếng Việt"), "Tiếng Việt");
+    }
+
+    fn r(x: i32, y: i32, w: i32, h: i32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    /// Màn hình bên trái (tọa độ âm): phải, rồi trái, dưới, trên khung cần tránh; không chỗ nào đủ
+    /// thì giữa vùng làm việc; luôn kẹp trong vùng làm việc.
+    #[test]
+    fn placement_avoids_rect() {
+        let work = r(-1920, 0, 1920, 1040);
+        let (w, h, g) = (600, 400, 8);
+        let place = |avoid| place_avoiding(work, w, h, avoid, g);
+        let center = (-1920 + (1920 - 600) / 2, (1040 - 400) / 2);
+        assert_eq!(place(None), center);
+        // Đủ chỗ bên phải.
+        assert_eq!(place(Some(r(-1800, 100, 400, 300))), (-1392, 100));
+        // Sát mép phải: sang trái.
+        assert_eq!(place(Some(r(-700, 100, 600, 300))), (-1308, 100));
+        // Chiếm cả bề ngang ở trên: xuống dưới, kẹp mép trái.
+        assert_eq!(place(Some(r(-1920, 0, 1920, 300))), (-1920, 308));
+        // Chiếm cả bề ngang ở dưới: lên trên.
+        assert_eq!(place(Some(r(-1920, 700, 1920, 340))), (-1920, 292));
+        // Che gần hết màn hình: giữa như cũ.
+        assert_eq!(place(Some(r(-1900, 20, 1880, 1000))), center);
+        // Khung sát mép dưới: bên phải, y kẹp để cửa sổ không tràn khỏi vùng làm việc.
+        assert_eq!(place(Some(r(-1800, 900, 200, 100))), (-1592, 640));
+        // Khung tràn ra ngoài vùng làm việc (sát mép trái trên): vẫn bên phải, trong vùng.
+        assert_eq!(place(Some(r(-2000, -50, 300, 200))), (-1692, 0));
+        // Cửa sổ lớn hơn vùng làm việc: góc trên trái của vùng.
+        assert_eq!(place_avoiding(work, 2000, 1200, None, g), (-1920, 0));
+        assert_eq!(
+            place_avoiding(work, 2000, 1200, Some(r(-1800, 100, 100, 100)), g),
+            (-1920, 0)
+        );
+        // Kết quả nằm trong vùng làm việc và không chồng khung cần tránh.
+        for avoid in [
+            r(-1900, 500, 50, 50),
+            r(-60, 1000, 60, 40),
+            r(-1920, 0, 10, 10),
+        ] {
+            let (x, y) = place(Some(avoid));
+            assert!(x >= work.x && x + w <= work.right(), "{avoid:?}");
+            assert!(y >= work.y && y + h <= work.bottom(), "{avoid:?}");
+            assert!(!overlaps(r(x, y, w, h), avoid), "{avoid:?}");
+        }
+    }
+
+    /// `WM_OCR_RESULT` gửi tới cửa sổ không phải cửa sổ kết quả: `pre_translate` không đụng LPARAM.
+    #[test]
+    fn pre_translate_ignores_foreign_result_message() {
+        use windows::core::w;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+        };
+        // SAFETY: cửa sổ chỉ-thông-điệp tạm của kiểm thử, hủy ở cuối.
+        let h = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("darkshot-ocr-foreign"),
+                WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE),
+                None,
+                None,
+                None,
+            )
+        }
+        .expect("message-only window");
+        FREED.with(|f| f.set(0));
+        post_fake(h, 1, "x");
+        let mut m = MSG::default();
+        // SAFETY: lấy thông điệp vừa gửi của cửa sổ do luồng này tạo.
+        let got = unsafe { PeekMessageW(&mut m, Some(h), WM_OCR_RESULT, WM_OCR_RESULT, PM_REMOVE) };
+        assert!(got.as_bool());
+        let handled = pre_translate(&m);
+        let freed = FREED.with(|f| f.get());
+        if freed == 0 {
+            // SAFETY: Box do `post_fake` tạo, chưa ai lấy lại.
+            drop(unsafe { ocr::take_result(m.lParam) });
+        }
+        // SAFETY: hủy cửa sổ tạm của kiểm thử.
+        unsafe {
+            let _ = DestroyWindow(h);
+        }
+        assert!(!handled);
+        assert_eq!(freed, 0);
     }
 
     #[test]

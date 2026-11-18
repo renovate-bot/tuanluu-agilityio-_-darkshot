@@ -374,6 +374,7 @@ messages! {
     OcrCopy => ("Chép", "Copy"),
     OcrClose => ("Đóng", "Close"),
     OcrCopiedTitle => ("Đã chép chữ", "Text copied"),
+    OcrCopyFailedTitle => ("Chưa có", "Not yet"),
     PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
     PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
     PinFailedBody => (
@@ -462,6 +463,10 @@ pub fn copy_failed_body(lang: Lang, err: &str) -> String {
         Lang::Vi => format!("Không đưa được ảnh vào clipboard: {err}"),
         Lang::En => format!("Could not put the image on the clipboard: {err}"),
     }
+}
+
+pub fn ocr_copy_failed_body(_lang: Lang, _err: &str) -> String {
+    String::new()
 }
 
 pub fn ocr_status(lang: Lang, name: &str, lines: usize) -> String {
@@ -1266,6 +1271,33 @@ mod tests {
                 "{l:?}"
             );
         }
+    }
+
+    #[test]
+    fn ocr_copy_failed_strings() {
+        for l in Lang::ALL {
+            let b = ocr_copy_failed_body(l, "ERR9");
+            assert!(b.contains("ERR9"), "{l:?}");
+            assert_ne!(b, copy_failed_body(l, "ERR9"), "{l:?}");
+            assert_ne!(
+                t(l, Msg::OcrCopyFailedTitle),
+                t(l, Msg::CopyFailedTitle),
+                "{l:?}"
+            );
+        }
+        assert_eq!(t(Lang::Vi, Msg::OcrCopyFailedTitle), "Không chép được chữ");
+        assert_eq!(
+            t(Lang::En, Msg::OcrCopyFailedTitle),
+            "Couldn't copy the text"
+        );
+        assert!(ocr_copy_failed_body(Lang::Vi, "x").contains("chữ"));
+        assert!(ocr_copy_failed_body(Lang::En, "x").contains("text"));
+        assert_ne!(
+            ocr_copy_failed_body(Lang::Vi, "x"),
+            ocr_copy_failed_body(Lang::En, "x")
+        );
+        assert!(NOTICE_TITLES.contains(&Msg::OcrCopyFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::OcrCopiedTitle));
     }
 
     #[test]
