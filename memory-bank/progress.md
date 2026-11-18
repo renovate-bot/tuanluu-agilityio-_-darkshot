@@ -90,7 +90,7 @@ Task 24–26 là đợt 3 (kế hoạch `docs/superpowers/plans/2026-11-16-uploa
 
 Task 27–31 là đợt 4 (kế hoạch `docs/superpowers/plans/2026-11-16-darkshot-dark-theme.md`). Trước khi xây: đọc soát thiết kế đợt 4 (general-purpose) 65.075. Cộng Task 27–31: 1.162.436 (làm 781.735; rà soát 367.839; sửa 12.862); kể cả đọc soát thiết kế: 1.227.511. Theo model: opus (Task 28, 30) 688.408; sonnet (Task 27, 29 và rà soát 31) 302.199; haiku (Task 31) 171.829. Sửa sau đợt 4: Task 30b (chủ dự án báo ô tích và nút chọn không như mong đợi: răng cưa) 213.843; Task 30c (chủ dự án báo ô nhập trộn góc vuông và bo tròn) 249.285. Chưa thử tay, chưa nghiệm thu.
 
-Task 59–64 là đợt 8 (kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`; model chọn theo từng task, quyết định 95). Cộng agent con: 1.348.079 (làm 739.173; rà soát 582.762; sửa 26.144). Theo model: opus 909.311 (Task 59, 61, 62, 63b, kể cả rà soát); sonnet 274.474 (Task 60, 63, 63c, kể cả rà soát); fable 164.294 (rà soát toàn đợt). Chưa gộp `main`.
+Task 59–64 là đợt 8 (kế hoạch `docs/superpowers/plans/2026-11-18-window-snap.md`; model chọn theo từng task, quyết định 95). Cộng agent con: 1.348.079 (làm 739.173; rà soát 582.762; sửa 26.144). Theo model: opus 909.311 (Task 59, 61, 62, 63b, kể cả rà soát); sonnet 274.474 (Task 60, 63, 63c, kể cả rà soát); fable 164.294 (rà soát toàn đợt). Chủ dự án duyệt demo và gộp vào `main` (2026-11-18).
 
 Rà soát Task 4, 8, 9, 17, 21, 22, 25, 28, 30 dùng `specialist` (opus); các task khác dùng `reviewer` (sonnet).
 
