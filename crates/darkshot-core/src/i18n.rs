@@ -636,10 +636,10 @@ pub fn help_text(lang: Lang, keys: &HelpKeys) -> String {
             "- {repeat_label}: press {k} or choose \"{repeat_menu}\" in the tray menu to capture the same region as the previous region capture and repeat the action you chose, without selecting a region."
         ),
         (Lang::Vi, None) => format!(
-            "- {repeat_label}: mặc định tắt; bật ở {options}, tab {hotkeys_tab}. Mục \"{repeat_menu}\" ở menu khay luôn dùng được."
+            "- {repeat_label}: mặc định tắt; bật ở {options}, tab {hotkeys_tab}. Mục \"{repeat_menu}\" ở menu khay dùng được sau lần chụp vùng đầu tiên (trước đó mục này mờ)."
         ),
         (Lang::En, None) => format!(
-            "- {repeat_label}: off by default; turn it on in {options}, {hotkeys_tab} tab. The \"{repeat_menu}\" tray menu item is always available."
+            "- {repeat_label}: off by default; turn it on in {options}, {hotkeys_tab} tab. The \"{repeat_menu}\" tray menu item becomes available after your first region capture (until then it is grayed out)."
         ),
     };
     match lang {
@@ -663,7 +663,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
 - Thông thường: khởi động cùng Windows, thư mục lưu, ngôn ngữ và ba ô tích:\n\
 \x20\x20+ {notices}: bỏ tích thì không hiện các thông báo \"{saved}\", \"{copied}\", \"{link}\". Thông báo lỗi luôn hiện.\n\
-\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, cho tới khi thoát darkshot.\n\
+\x20\x20+ {keep}: lần chụp vùng sau mở sẵn vùng đã chọn lần trước, kể cả sau khi khởi động lại darkshot.\n\
 \x20\x20+ {cursor}: ảnh chụp có cả con trỏ chuột.\n\
 - Phím tắt: bốn dòng \"{region_label}\", \"{save_label}\", \"{upload_label}\" và \"{repeat_label}\". Ô tích đầu dòng bật hoặc tắt phím của dòng đó; dòng tắt không giữ phím nào. Bấm {change} rồi nhấn tổ hợp mới; Esc để bỏ qua.\n\
 - {format_tab}: chọn định dạng cho ảnh tải lên, PNG (mặc định) hoặc JPEG, và chất lượng JPEG từ 50 đến 100. Ảnh lưu vào máy luôn là PNG. Chất lượng càng cao thì file càng nặng.\n\
@@ -704,7 +704,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
 - General: start with Windows, save folder, language and three check boxes:\n\
 \x20\x20+ {notices}: when unchecked, the \"{saved}\", \"{copied}\" and \"{link}\" notifications are not shown. Error notifications always appear.\n\
-\x20\x20+ {keep}: the next region capture starts with the previously selected region, until you exit darkshot.\n\
+\x20\x20+ {keep}: the next region capture starts with the previously selected region, even after darkshot restarts.\n\
 \x20\x20+ {cursor}: screenshots include the mouse pointer.\n\
 - Hotkeys: four rows, \"{region_label}\", \"{save_label}\", \"{upload_label}\" and \"{repeat_label}\". The check box at the start of a row turns its key on or off; a row that is off holds no key. Click {change}, then press the new combination; Esc skips.\n\
 - {format_tab}: choose the format for uploaded images, PNG (the default) or JPEG, and the JPEG quality from 50 to 100. Images saved to disk are always PNG. Higher quality means a larger file.\n\

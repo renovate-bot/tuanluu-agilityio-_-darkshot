@@ -3430,6 +3430,8 @@ mod tests {
     /// nhất (đo thật bằng phông hệ thống) ở 100/150/200%; không ô nào đè ô nào và tất cả trong khung.
     #[test]
     fn general_tab_fits_history_note_at_common_dpis() {
+        // Tạo phông và DC: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let texts = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
         for label_w in [None, Some(250)] {
             for dpi in [96u32, 144, 192] {
@@ -3661,6 +3663,8 @@ mod tests {
 
     #[test]
     fn hotkey_labels_fit_on_one_line_at_all_dpi() {
+        // Tạo phông và DC: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         for dpi in [96u32, 120, 144, 192] {
             let font = crate::winutil::system_font(dpi).expect("system font");
             // Bề rộng nhãn như `build_controls` đo: dài nhất mọi dòng, mọi ngôn ngữ.

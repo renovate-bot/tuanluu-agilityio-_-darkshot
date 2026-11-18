@@ -292,7 +292,7 @@ fn remember_last_capture(action: Action, screen: Rect) {
 /// Có liệt kê cửa sổ (gợi ý khung) trước khi chụp không, theo loại chụp `kind` (sau khi đã đổi phím
 /// lặp lại chưa có lần chụp trước thành `Region`) và ô gợi ý cửa sổ `snap_windows`.
 pub fn enumerates_windows(kind: CaptureKind, snap_windows: bool) -> bool {
-    kind == CaptureKind::Region && snap_windows
+    snap_windows && matches!(kind, CaptureKind::Region | CaptureKind::RepeatLast)
 }
 
 /// Vùng (tọa độ ảnh) của lượt chụp toàn màn hình: màn hình chứa con trỏ (`cursor`, tọa độ màn
@@ -751,8 +751,9 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
         )
     })
     .unwrap_or((false, false, false));
-    // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi chọn vùng và ô gợi ý đang bật.
-    let frames = (kind == CaptureKind::Region && snap_windows).then(snap::enumerate_windows);
+    // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi có thể mở lớp phủ (chọn vùng, hoặc lặp
+    // lại mà vùng trước có thể đã mất) và ô gợi ý đang bật.
+    let frames = enumerates_windows(kind, snap_windows).then(snap::enumerate_windows);
     let mut shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
@@ -773,7 +774,11 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     let mut region_gone = false;
     if kind == CaptureKind::RepeatLast {
         match repeat_plan(last, shot.origin, img_w, img_h, &shot.monitors) {
-            RepeatPlan::Run(r, a) => repeat = Some((a, r)),
+            RepeatPlan::Run(r, a) => {
+                // Không mở lớp phủ: bỏ khung cửa sổ đã liệt kê.
+                shot.windows = None;
+                repeat = Some((a, r));
+            }
             RepeatPlan::OverlayWithNotice => region_gone = true,
             RepeatPlan::Overlay => {}
         }

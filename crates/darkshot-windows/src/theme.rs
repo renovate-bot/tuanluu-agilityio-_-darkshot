@@ -1502,6 +1502,8 @@ mod tests {
 
     #[test]
     fn theme_brush_is_cached() {
+        // Bút vẽ tạo lần đầu làm tăng số đối tượng GDI của tiến trình: không chen vào kiểm thử đếm GDI.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         assert_eq!(brush(BG), brush(BG));
         assert_ne!(brush(BG), brush(TEXT));
     }
@@ -1574,6 +1576,8 @@ mod tests {
     /// Mở rồi đóng Thông tin và Trợ giúp 20 lần: số đối tượng GDI không tăng.
     #[test]
     fn about_help_no_gdi_leak() {
+        // Đếm GDI của cả tiến trình: giữ khóa để kiểm thử khác không tạo đối tượng GDI cùng lúc.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         // SAFETY: cửa sổ cha ẩn riêng của kiểm thử, hủy ở cuối.
         let parent = unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
