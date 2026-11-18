@@ -590,7 +590,7 @@ fn side_effects_allowed() -> bool {
 /// Lưu vào máy ảnh của mọi lượt tải lên chưa xong, rồi chờ hàng ghi lịch sử. Chạy trên luồng
 /// chính, chỉ ghi file, không mạng. Thứ tự: `drain` (giành mọi lượt còn dở; lượt nào đã được trao
 /// cho luồng tải lên thì móc của nó đã đẩy việc vào hàng) → lưu ảnh, đẩy mục dự phòng vào CUỐI
-/// hàng ghi (mới hơn mọi mục Lưu/Chép còn trong hàng) → `flush` một lần (tối đa 3 s).
+/// hàng ghi (mới hơn mọi mục Lưu/Chép còn trong hàng) → `flush` một lần (tối đa `timeout`).
 /// Gọi lại lần hai thì vô hại: sổ rỗng, hàng rỗng.
 fn save_pending_uploads(timeout: Duration) {
     let items = PENDING.with(|p| p.drain());
@@ -995,7 +995,7 @@ fn notify_step_errors(errors: &[steps_store::StepError]) {
     }
 }
 
-/// Lúc thoát: chờ ảnh bước đang ghi (tối đa 3 s) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
+/// Lúc thoát: chờ ảnh bước đang ghi và lượt xuất (trong hạn chót chung) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
 fn finish_steps_on_exit(deadline: std::time::Instant) {
     // Cửa sổ Xem lại lưu ghi chú đang sửa khi bị hủy (trước khi chờ ghi ảnh).
     steps_window::close();

@@ -201,6 +201,20 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     r
 }
 
+/// `session.json` chắc chắn vắng: chỉ khi hỏi được và câu trả lời là không có (lỗi hỏi thì coi là
+/// có, để không xóa nhầm một phiên).
+fn json_absent(exists: std::io::Result<bool>) -> bool {
+    matches!(exists, Ok(false))
+}
+
+/// Xóa tệp `path`; không có thì coi là xong.
+fn remove_if_exists(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
 /// Xóa thư mục phiên `root`: mọi thứ trừ tệp đánh dấu `ended` trước, đánh dấu sau cùng, rồi thư mục.
 /// Lỗi giữa chừng thì đánh dấu còn lại cùng phần sót (để lần sau nhận ra và xóa nốt). Không có thư
 /// mục thì coi là xong.
@@ -334,7 +348,8 @@ impl Store {
 
     /// Thư mục phiên là phần sót của một lần kết thúc: có `ended`, không có `session.json`.
     fn is_ended_leftover(&self) -> bool {
-        self.root.join(ENDED_FILE).is_file() && !self.root.join(SESSION_FILE).exists()
+        self.root.join(ENDED_FILE).is_file()
+            && json_absent(self.root.join(SESSION_FILE).try_exists())
     }
 
     pub fn mark_exported(&mut self) {
@@ -393,7 +408,14 @@ impl Store {
         self.in_flight.clear();
         self.session = Some(StepSession::default());
         self.dirty = false;
-        let r = self.persist();
+        let mut r = self.persist();
+        if r.is_ok() {
+            // Đánh dấu `ended` cũ không bao giờ nằm cạnh `session.json` của phiên đang chạy.
+            if let Err(e) = remove_if_exists(&self.root.join(ENDED_FILE)) {
+                let _ = std::fs::remove_file(self.root.join(SESSION_FILE));
+                r = Err(e);
+            }
+        }
         if r.is_err() {
             // Không ghi được phiên lên đĩa: không có phiên.
             self.session = None;
@@ -606,8 +628,8 @@ impl Store {
 
     /// Kết thúc phiên: chờ ảnh đang ghi (tối đa 3 s), xóa `session.json` TRƯỚC (không xóa được
     /// thì phiên giữ nguyên và trả lỗi), rồi bỏ phiên và xóa thư mục phiên. Lỗi xóa phần còn lại
-    /// được trả nhưng phiên đã kết thúc (không còn json nên không khôi phục; phần sót được giữ lại
-    /// bằng cách đổi tên ở lần bắt đầu sau). Không có phiên thì không đụng thư mục (có thể là dữ liệu
+    /// được trả nhưng phiên đã kết thúc (không còn json nên không khôi phục; nhờ tệp đánh dấu `ended`,
+    /// phần sót được xóa nốt ở lần bắt đầu hay khởi động sau). Không có phiên thì không đụng thư mục (có thể là dữ liệu
     /// chưa khôi phục được).
     pub fn end(&mut self) -> std::io::Result<()> {
         if !self.active() {
@@ -620,7 +642,10 @@ impl Store {
         match std::fs::remove_file(self.root.join(SESSION_FILE)) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 if marked {
-                    let _ = std::fs::remove_file(&marker);
+                    if let Err(m) = remove_if_exists(&marker) {
+                        // Đánh dấu nằm lại cạnh json: báo cả hai lỗi.
+                        return Err(std::io::Error::new(e.kind(), format!("{e}; {m}")));
+                    }
                 }
                 return Err(e);
             }
@@ -1511,6 +1536,35 @@ mod tests {
         assert!(!s.active());
         assert!(!root.exists());
         cleanup(&root);
+    }
+
+    /// Đánh dấu `ended` cũ không gỡ được (bị giữ): không bắt đầu phiên, không để `session.json` nằm
+    /// cạnh nó; gỡ được thì phiên mới chỉ có `session.json`.
+    #[test]
+    fn start_never_leaves_ended_marker_beside_session_json() {
+        let root = tmp("startmarker");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(ENDED_FILE), b"").unwrap();
+        let held = lock(&root.join(ENDED_FILE));
+        let mut s = store(&root);
+        assert!(s.start_at(now()).is_err());
+        assert!(!s.active());
+        assert!(!root.join(SESSION_FILE).exists());
+        drop(held);
+        s.start_at(now()).unwrap();
+        assert!(s.active());
+        assert_eq!(names(&root), ["session.json"]);
+        cleanup(&root);
+    }
+
+    /// Chỉ coi `session.json` vắng khi hỏi được và nó không có.
+    #[test]
+    fn json_absent_only_when_known_missing() {
+        assert!(json_absent(Ok(false)));
+        assert!(!json_absent(Ok(true)));
+        assert!(!json_absent(Err(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied
+        ))));
     }
 
     /// Kết thúc không xóa được json: phiên còn, không để lại đánh dấu `ended`.
