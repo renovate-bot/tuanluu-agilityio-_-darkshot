@@ -961,10 +961,19 @@ pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static st
     use steps_store::StepError;
     let (title, why) = match e {
         StepError::Image(w) => (Msg::SaveFailedTitle, w),
-        StepError::Session(w) => (Msg::StepsSessionSaveFailedTitle, w),
+        StepError::Session(w) | StepError::End(w) => (Msg::StepsSessionSaveFailedTitle, w),
         StepError::Start(w) => (Msg::StepsStartFailedTitle, w),
     };
     (i18n::t(lang, title), i18n::reason(lang, why))
+}
+
+/// Tổng thời gian chờ lúc thoát (ghi Lịch sử, ảnh bước, xuất), chia nhau theo một hạn chót chung.
+const EXIT_BUDGET: Duration = Duration::from_secs(4);
+
+/// Thời gian còn lại tới hạn chót `deadline` (0 khi đã qua).
+fn remaining(deadline: std::time::Instant, now: std::time::Instant) -> Duration {
+    let _ = (deadline, now);
+    Duration::ZERO
 }
 
 /// Báo các lỗi của phiên chụp từng bước qua khay.
@@ -1850,6 +1859,26 @@ mod tests {
         assert_eq!(t, i18n::t(Lang::En, Msg::StepsSessionSaveFailedTitle));
         let (t, _) = step_error_notice(Lang::En, &StepError::Image("x".into()));
         assert_eq!(t, i18n::t(Lang::En, Msg::SaveFailedTitle));
+        let (t, b) = step_error_notice(Lang::En, &StepError::End("x".into()));
+        assert_eq!(t, i18n::t(Lang::En, Msg::StepsEndFailedTitle));
+        assert_eq!(b, "Reason: x");
+    }
+
+    /// Các lần chờ lúc thoát chia nhau một hạn chót chung.
+    #[test]
+    fn exit_waits_share_one_deadline() {
+        let now = std::time::Instant::now();
+        let deadline = now + EXIT_BUDGET;
+        assert_eq!(remaining(deadline, now), EXIT_BUDGET);
+        assert_eq!(
+            remaining(deadline, now + Duration::from_secs(1)),
+            EXIT_BUDGET - Duration::from_secs(1)
+        );
+        assert_eq!(
+            remaining(deadline, deadline + Duration::from_secs(1)),
+            Duration::ZERO
+        );
+        assert!(EXIT_BUDGET <= Duration::from_secs(4));
     }
 
     #[test]

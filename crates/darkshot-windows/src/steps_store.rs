@@ -51,7 +51,13 @@ pub enum StepError {
     Session(String),
     /// Không bắt đầu được phiên.
     Start(String),
+    /// Phiên đã kết thúc nhưng không xóa hết tệp của nó (phần sót được xóa nốt về sau).
+    End(String),
 }
+
+/// Tệp đánh dấu "phiên đã kết thúc, đang xóa" (ghi trước khi xóa `session.json`): thư mục còn tệp
+/// này là phần sót của một lần kết thúc, được xóa nốt chứ không giữ lại như dữ liệu hỏng.
+pub const ENDED_FILE: &str = "ended";
 
 /// Kết quả áp các lần ghi ảnh đã xong.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -268,6 +274,17 @@ impl Store {
 
     pub fn dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Chờ ảnh đang ghi (tối đa `timeout`) rồi áp kết quả.
+    pub fn settle(&mut self, timeout: Duration) -> Drained {
+        let _ = timeout;
+        Drained::default()
+    }
+
+    /// Kết thúc lúc này cần hỏi: còn bước chưa xuất, hay còn ảnh đang ghi (chưa vào danh sách).
+    pub fn needs_end_confirm(&self) -> bool {
+        self.dirty && self.count() > 0
     }
 
     pub fn mark_exported(&mut self) {
@@ -758,6 +775,21 @@ pub fn image_path(i: usize) -> Option<PathBuf> {
 
 pub fn dirty() -> bool {
     with(|s| s.dirty())
+}
+
+/// Chờ ảnh đang ghi tối đa `timeout` rồi áp kết quả (bước mới vào danh sách); lỗi được báo qua
+/// `set_on_error`. Gọi trước khi quyết định có hỏi khi kết thúc phiên hay không.
+pub fn settle(timeout: Duration) {
+    let d = with(|s| s.settle(timeout));
+    if d.added > 0 {
+        changed();
+    }
+    report(&d.errors);
+}
+
+/// Kết thúc phiên lúc này có cần hỏi không: còn bước chưa xuất, hay còn ảnh đang ghi.
+pub fn needs_end_confirm() -> bool {
+    with(|s| s.needs_end_confirm())
 }
 
 /// Đã xuất: kết thúc phiên sau đó không cần hỏi lại (tới khi có thay đổi mới).
@@ -1343,6 +1375,114 @@ mod tests {
         drop(held);
         assert_eq!(std::fs::read(root.join(SESSION_FILE)).unwrap(), b"{rac");
         cleanup(&root);
+    }
+
+    /// Bước vừa thêm còn đang ghi (chưa vào danh sách): kết thúc phải hỏi; `settle` áp kết quả.
+    #[test]
+    fn write_in_flight_needs_end_confirm_and_settle_applies_it() {
+        let root = tmp("settle");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        assert!(!s.needs_end_confirm());
+        s.add(img(1)).unwrap();
+        assert_eq!(s.count(), 0);
+        assert!(s.needs_end_confirm(), "ảnh đang ghi: chưa được xuất");
+        let d = s.settle(WAIT);
+        assert_eq!((d.added, d.errors.len()), (1, 0));
+        assert_eq!(s.count(), 1);
+        assert!(s.needs_end_confirm());
+        s.mark_exported();
+        assert!(!s.needs_end_confirm());
+        cleanup(&root);
+    }
+
+    /// Kết thúc mà còn sót tệp (bị giữ): thư mục còn tệp đánh dấu `ended`; lần bắt đầu sau xóa nốt
+    /// thay vì giữ lại như thư mục hỏng.
+    #[test]
+    fn leftover_of_end_is_deleted_not_kept_as_corrupt() {
+        let root = tmp("endleft");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        add_wait(&mut s, 1);
+        let held = lock(&root.join("001.png"));
+        assert!(s.end().is_err());
+        assert!(!s.active());
+        assert!(!root.join(SESSION_FILE).exists());
+        assert!(
+            root.join(ENDED_FILE).is_file(),
+            "đánh dấu còn cùng phần sót"
+        );
+        drop(held);
+        s.start_at(now()).unwrap();
+        assert!(s.active());
+        assert_eq!(names(&root), ["session.json"]);
+        let base = root.parent().unwrap();
+        assert!(
+            names(base).iter().all(|n| !n.contains("corrupt")),
+            "{:?}",
+            names(base)
+        );
+        cleanup(&root);
+    }
+
+    /// Khởi động thấy phần sót của một lần kết thúc (có `ended`, không có json): xóa nốt.
+    #[test]
+    fn restore_deletes_leftover_of_end() {
+        let root = tmp("restoreleft");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("002.png"), b"x").unwrap();
+        std::fs::write(root.join(ENDED_FILE), b"").unwrap();
+        let mut s = store(&root);
+        s.restore_at(now());
+        assert!(!s.active());
+        assert!(!root.exists());
+        cleanup(&root);
+    }
+
+    /// Kết thúc không xóa được json: phiên còn, không để lại đánh dấu `ended`.
+    #[test]
+    fn failed_end_keeps_no_ended_marker() {
+        let root = tmp("endkeep");
+        let mut s = store(&root);
+        s.start_at(now()).unwrap();
+        add_wait(&mut s, 1);
+        let held = lock(&root.join(SESSION_FILE));
+        assert!(s.end().is_err());
+        assert!(s.active());
+        assert!(!root.join(ENDED_FILE).exists());
+        drop(held);
+        cleanup(&root);
+    }
+
+    fn record_errors(e: &[StepError]) {
+        ERRS.with(|v| v.borrow_mut().extend_from_slice(e));
+    }
+
+    thread_local! {
+        static ERRS: std::cell::RefCell<Vec<StepError>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Kết thúc của tiến trình: phần sót báo bằng lỗi `End` (không phải lỗi lưu phiên), phiên đã hết.
+    #[test]
+    fn end_reports_leftover_as_end_error() {
+        let base =
+            std::env::temp_dir().join(format!("darkshot_steps_{}_endrep", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("current");
+        use_root_for_test(root.clone());
+        set_on_error(record_errors);
+        assert!(start());
+        add(img(1)).unwrap();
+        settle(WAIT);
+        assert_eq!(count(), 1);
+        let held = lock(&root.join("001.png"));
+        assert!(end(), "phiên đã kết thúc dù còn sót tệp");
+        assert!(!active());
+        let errs = ERRS.with(|v| std::mem::take(&mut *v.borrow_mut()));
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(errs[0], StepError::End(_)), "{errs:?}");
+        drop(held);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

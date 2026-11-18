@@ -446,6 +446,7 @@ messages! {
         "Không chạy được tác vụ nền.",
         "The background task couldn't run."
     ),
+    StepsEndFailedTitle => ("Không xóa hết ảnh của phiên", "Couldn't delete all session images"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -1502,6 +1503,15 @@ mod tests {
         assert!(NOTICE_TITLES.contains(&Msg::StepsExportFailedTitle));
         assert!(NOTICE_TITLES.contains(&Msg::StepsStartFailedTitle));
         assert!(NOTICE_TITLES.contains(&Msg::StepsSessionSaveFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::StepsEndFailedTitle));
+        assert_eq!(
+            t(Lang::Vi, Msg::StepsEndFailedTitle),
+            "Không xóa hết ảnh của phiên"
+        );
+        assert_eq!(
+            t(Lang::En, Msg::StepsEndFailedTitle),
+            "Couldn't delete all session images"
+        );
         assert_eq!(
             t(Lang::Vi, Msg::StepsStartFailedTitle),
             "Không bắt đầu được phiên chụp từng bước"

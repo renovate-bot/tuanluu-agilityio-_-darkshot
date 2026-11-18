@@ -484,6 +484,27 @@ mod tests {
     }
 
     #[test]
+    fn markdown_escapes_more_block_markers() {
+        // Dòng chỉ gồm `-` (từ hai ký tự): gạch ngang/tiêu đề setext.
+        assert_eq!(rendered_caption("--"), "\\--\n");
+        assert_eq!(rendered_caption("a\n--"), "a\\\n\\--\n");
+        assert_eq!(rendered_caption("-----"), "\\-----\n");
+        // `~` đầu dòng (khối mã `~~~`).
+        assert_eq!(rendered_caption("~~~"), "\\~~~\n");
+        assert_eq!(rendered_caption("~ a"), "\\~ a\n");
+        // Dấu danh sách theo sau bởi tab.
+        assert_eq!(rendered_caption("-\ta"), "\\-\ta\n");
+        assert_eq!(rendered_caption("+\tb"), "\\+\tb\n");
+        assert_eq!(rendered_caption("*\tc"), "\\*\tc\n");
+        // `*` đầu dòng theo sau bởi khoảng trắng: thoát đúng một lần.
+        assert_eq!(rendered_caption("* a"), "\\* a\n");
+        // Chữ thường không bị thoát thừa.
+        assert_eq!(rendered_caption("a~b"), "a~b\n");
+        assert_eq!(rendered_caption("-a"), "-a\n");
+        assert_eq!(rendered_caption("a -- b"), "a -- b\n");
+    }
+
+    #[test]
     fn markdown_escapes_inline_syntax() {
         assert_eq!(rendered_caption("![x](u)"), "\\!\\[x\\](u)\n");
         assert_eq!(rendered_caption("<b>"), "\\<b\\>\n");
