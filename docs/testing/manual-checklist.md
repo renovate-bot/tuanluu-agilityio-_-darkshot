@@ -425,6 +425,8 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-pin.ps1 -Exe target\d
 
 Chạy bản demo cách ly: `powershell -File scripts/demo-repeat.ps1 -Exe target\demo10\release\darkshot.exe` (thêm `-Lang en`). Chụp vùng: Ctrl+Alt+Shift+F10 hoặc menu khay. Lặp lại: Ctrl+Alt+Shift+F11 hoặc menu khay > Chụp lại vùng trước. Demo có sẵn một lần chụp vùng (200, 200, 640 × 360, hành động Lưu) trong `last_capture.json`. [x] = phiên điều phối đã thấy trên bản demo; [ ] = chưa ai thử.
 
+- [x] (Phiên điều phối, 2026-11-18, Windows 11, một màn hình 2880×1800 DPI 200%, tiếng Việt, không giả lập chuột/phím thật) Tab Phím tắt hiện đủ bốn dòng, dòng "Chụp lại vùng trước" không cắt chữ (`target/demo10/screens/01-…`). Gửi `WM_HOTKEY` id 4 tới cửa sổ ẩn với `last_capture.json` tổng hợp (640 × 360, Lưu): một PNG 640 × 360 được lưu, không mở lớp phủ, Lịch sử có mục "Đã lưu". Kiểm thử `repeat_last_saves_png_of_region` qua một lượt (người làm Task 74).
+
 - [ ] Tab Phím tắt có bốn dòng, dòng "Chụp lại vùng trước" đứng dưới ba dòng cũ, mặc định tắt, phím Ctrl+Shift+PrintScreen; ô tích bật/tắt và nút Đổi… của dòng này hoạt động như ba dòng kia.
 - [ ] Bật dòng "Chụp lại vùng trước" rồi bấm OK: Ctrl+Shift+PrintScreen chụp lại ngay, không mở lớp phủ. Tắt dòng đó: phím không còn phản ứng, mục menu vẫn dùng được.
 - [ ] Đặt dòng "Chụp lại vùng trước" trùng tổ hợp với dòng đang bật khác rồi bấm OK: cửa sổ báo lỗi và không đóng. Dòng đang tắt có thể trùng.
