@@ -1002,6 +1002,34 @@ mod tests {
         assert_eq!(recentered_x(100, 400, 400), 100);
     }
 
+    thread_local! {
+        static ENDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn count_end() {
+        ENDS.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Nút Kết thúc luôn đi qua cửa sổ Xem lại (nó lưu ghi chú đang sửa và giữ chốt đang xuất),
+    /// kể cả khi phiên đã xuất: không tự kết thúc phiên.
+    #[test]
+    fn finish_always_goes_through_review_window() {
+        let base = std::env::temp_dir().join(format!("darkshot_bar_finish_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        crate::steps_store::use_root_for_test(base.join("current"));
+        assert!(crate::steps_store::start());
+        assert!(!crate::steps_store::dirty());
+        set_on_confirm_end(count_end);
+        finish();
+        assert_eq!(ENDS.with(|c| c.get()), 1);
+        assert!(
+            crate::steps_store::active(),
+            "thanh phiên không tự kết thúc"
+        );
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[test]
     fn exclusion_needs_windows_10_2004() {
         assert!(!exclude_supported(None));

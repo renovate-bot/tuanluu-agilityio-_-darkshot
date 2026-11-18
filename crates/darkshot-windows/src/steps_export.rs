@@ -14,6 +14,9 @@ use std::path::{Path, PathBuf};
 /// Tên tệp Markdown trong thư mục xuất.
 pub const MARKDOWN_FILE: &str = "steps.md";
 
+/// Tiền tố thư mục tạm của một lượt xuất đang chạy (đổi tên sang tên cuối khi xong).
+pub const STAGING_PREFIX: &str = ".darkshot-steps-partial-";
+
 /// Số hậu tố tối đa thử khi tên thư mục đã có (`_2` … `_999`).
 const MAX_SUFFIX: u32 = 999;
 
@@ -238,6 +241,57 @@ mod tests {
         assert_eq!(names(&base), ["01.png"]);
         assert_eq!(std::fs::read(base.join("01.png")).unwrap(), b"old");
         assert_eq!(names(&out), ["01.png", MARKDOWN_FILE]);
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    /// Xuất thành công không để lại thư mục tạm; tên cuối đã bị một tệp chiếm thì sang `_2`, tệp
+    /// giữ nguyên.
+    #[test]
+    fn export_leaves_no_staging_folder_and_skips_taken_names() {
+        let parent = tmp("staging");
+        let base = export_dir_name(when());
+        std::fs::write(parent.join(&base), b"file").unwrap();
+        let paths = sources(&parent.join("session"), &["001.png"]);
+        let job = ExportJob {
+            parent: parent.clone(),
+            when: when(),
+            lang: Lang::En,
+            steps: vec![step("001.png", "")],
+            sources: paths,
+        };
+        let out = export(&job).unwrap();
+        assert_eq!(out, parent.join(format!("{base}_2")));
+        assert_eq!(std::fs::read(parent.join(&base)).unwrap(), b"file");
+        assert_eq!(
+            names(&parent),
+            [base.clone(), format!("{base}_2"), "session".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    /// Thư mục tạm còn sót của lượt xuất bị ngắt (thoát giữa chừng) được dọn ở lần xuất sau; thư mục
+    /// cùng tiền tố mà có tệp lạ thì không đụng.
+    #[test]
+    fn stale_staging_folders_are_cleaned_up() {
+        let parent = tmp("stale");
+        let stale = parent.join(format!("{STAGING_PREFIX}old"));
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("01.png"), b"x").unwrap();
+        std::fs::write(stale.join(MARKDOWN_FILE), b"y").unwrap();
+        let foreign = parent.join(format!("{STAGING_PREFIX}mine"));
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("notes.txt"), b"keep").unwrap();
+        let paths = sources(&parent.join("session"), &["001.png"]);
+        let job = ExportJob {
+            parent: parent.clone(),
+            when: when(),
+            lang: Lang::En,
+            steps: vec![step("001.png", "")],
+            sources: paths,
+        };
+        export(&job).unwrap();
+        assert!(!stale.exists());
+        assert_eq!(std::fs::read(foreign.join("notes.txt")).unwrap(), b"keep");
         let _ = std::fs::remove_dir_all(&parent);
     }
 

@@ -3072,6 +3072,11 @@ mod tests {
         std::fs::create_dir_all(&parent).unwrap();
 
         assert!(start_export(parent.clone()));
+        // Kết thúc (thanh phiên) trong lúc đang xuất: không kết thúc, kể cả khi không cần hỏi.
+        crate::steps_store::mark_exported();
+        open_confirm_end();
+        assert!(crate::steps_store::active(), "đang xuất: phiên còn");
+        assert_eq!(crate::steps_store::count(), 3);
         wait_export();
         on_exported();
         assert!(
@@ -3210,6 +3215,7 @@ mod live {
         std::fs::create_dir_all(&base).unwrap();
         super::tests::session_of_three(&base);
         crate::steps_store::on_change(on_store_changed);
+        crate::steps_bar::set_on_confirm_end(open_confirm_end);
         assert!(crate::steps_store::set_caption(0, "Mở menu\nrồi chọn"));
         let lang = crate::lang::current();
         let (mut gdi0, mut user0) = (0, 0);
@@ -3304,9 +3310,32 @@ mod live {
         eprintln!("GDI {gdi0} -> {gdi1}, USER {user0} -> {user1}");
         assert!(gdi1 <= gdi0 + 2, "GDI {gdi0} -> {gdi1}");
         assert!(user1 <= user0 + 2, "USER {user0} -> {user1}");
-        // Kết thúc phiên đã xuất (không cần hỏi): cửa sổ đang mở thì đóng theo.
+        // Ô ghi chú có chữ chưa lưu (thanh phiên không lấy tiêu điểm nên không có EN_KILLFOCUS) và
+        // phiên đang coi là đã xuất: Kết thúc từ thanh phiên lưu ghi chú trước, rồi mới hỏi.
         open();
         pump();
+        crate::steps_store::mark_exported();
+        // SAFETY: đặt chữ cho ô ghi chú của cửa sổ này; chuỗi sống suốt lời gọi.
+        unsafe {
+            let _ = SetWindowTextW(edit_hwnd(), &windows::core::HSTRING::from("chưa lưu"));
+        }
+        crate::steps_bar::finish();
+        pump();
+        assert_eq!(crate::steps_store::steps()[0].caption, "chưa lưu");
+        assert!(crate::steps_store::dirty());
+        assert!(confirm_open(), "ghi chú vừa lưu chưa xuất: phải hỏi");
+        assert!(crate::steps_store::active());
+        let esc = MSG {
+            hwnd: card_button_hwnds()[0],
+            message: WM_KEYDOWN,
+            wParam: WPARAM(VK_ESCAPE.0 as usize),
+            lParam: LPARAM(0),
+            ..Default::default()
+        };
+        assert!(pre_translate(&esc));
+        pump();
+        assert!(!confirm_open());
+        // Kết thúc phiên đã xuất (không cần hỏi): cửa sổ đang mở thì đóng theo.
         crate::steps_store::mark_exported();
         open_confirm_end();
         pump();
