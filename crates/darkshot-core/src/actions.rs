@@ -14,6 +14,7 @@ pub enum Action {
     Save,
     Copy,
     Pin,
+    Ocr,
     Cancel,
 }
 
@@ -65,7 +66,7 @@ pub enum Outcome {
 }
 
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
-    if matches!(action, Action::Cancel | Action::Pin) {
+    if matches!(action, Action::Cancel | Action::Pin | Action::Ocr) {
         return Outcome::Cancelled;
     }
     if !img.is_valid() {
@@ -77,7 +78,7 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         return Outcome::Failed;
     }
     match action {
-        Action::Cancel | Action::Pin => Outcome::Cancelled,
+        Action::Cancel | Action::Pin | Action::Ocr => Outcome::Cancelled,
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
@@ -383,6 +384,18 @@ mod tests {
         let d = temp_dir();
         let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
         let out = run_action(&ctx(&d, None, &cb, &n), Action::Pin, &img());
+        assert_eq!(out, Outcome::Cancelled);
+        assert!(n.notes.lock().unwrap().is_empty());
+        assert!(cb.images.lock().unwrap().is_empty());
+        assert!(cb.texts.lock().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn ocr_does_nothing_in_core() {
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::Ocr, &img());
         assert_eq!(out, Outcome::Cancelled);
         assert!(n.notes.lock().unwrap().is_empty());
         assert!(cb.images.lock().unwrap().is_empty());

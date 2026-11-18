@@ -445,3 +445,32 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-repeat.ps1 -Exe targe
 - [ ] English: nhãn tab, mục menu "Repeat last capture" và thông báo đều tiếng Anh; không cắt chữ ở tab Phím tắt.
 - [ ] Windows 10: phím và menu lặp hoạt động như trên Windows 11.
 - [ ] Chạy tay kiểm thử `#[ignore]` mới `repeat_last_saves_png_of_region` (`crates/darkshot-windows/src/main.rs`) với `--test-threads=1`, khi không chạm chuột/bàn phím: `cargo test -p darkshot-windows -- --ignored repeat_last_saves_png_of_region --test-threads=1`.
+
+## Đợt 11: Nhận dạng chữ cục bộ
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-ocr.ps1 -Exe target\demo11\release\darkshot.exe` (thêm `-Lang en`). Demo mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó bằng Ctrl+Alt+Shift+F10, rồi bấm Ctrl+T (hoặc nút Nhận dạng chữ). [x] = phiên điều phối đã thấy; [ ] = chưa ai thử.
+
+- [x] (Phiên điều phối, 2026-11-18, Windows 11, một màn hình 2880×1800 DPI 200%, English, không giả lập chuột/phím thật) Lịch sử → Ghim một ảnh tổng hợp có chữ → menu ảnh ghim → Recognize text: cửa sổ "Recognized text" đọc đúng 3/3 dòng, dòng trạng thái "English (United States), en-US · 3 lines", chữ được chọn sẵn, Copy/Close (`target/demo11/screens/`). Ảnh ghim ở giữa màn hình nên cửa sổ kết quả mở giữa và bị ảnh ghim che một phần (quyết định 120). Kiểm thử chạy tay `ocr::tests::manual` 3/3 và `ocr_window::tests::manual` 6/6 qua.
+
+- [ ] Thanh ngang ở lớp phủ có tám nút: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy. Nút "Nhận dạng chữ (Ctrl+T)" nằm giữa Ghim và Hủy, rê chuột thấy đúng tên và phím.
+- [ ] Ctrl+T khi chưa có vùng chọn không làm gì; có vùng chọn thì mở cửa sổ Chữ nhận dạng.
+- [ ] Đang gõ dở một ô chữ rồi bấm Ctrl+T: ô được chốt trước, và ô đó có trong ảnh nhận dạng.
+- [ ] Cửa sổ hiện ngay "Đang nhận dạng chữ…", sau đó hiện chữ của vùng trong ô sửa được; chữ trong file mẫu đọc đúng (ví dụ "Hello darkshot 123").
+- [ ] Dòng trạng thái ghi tên ngôn ngữ và số dòng: "Ngôn ngữ: … · n dòng" (tiếng Việt) hoặc "Language: … · n lines" (English).
+- [ ] Ảnh nhận dạng có các nét đã vẽ: chữ bị một nét đánh dấu hoặc vùng Làm mờ che kín thì không đọc ra.
+- [ ] Sửa chữ trong ô, rồi bấm Chép (hoặc Ctrl+Enter): clipboard có đúng bản đã sửa, hiện "Đã chép chữ", cửa sổ đóng. Enter khi con trỏ không ở ô chữ cũng chép và đóng.
+- [ ] Đóng (nút Đóng hoặc Esc) không chép gì, clipboard giữ nội dung cũ.
+- [ ] Đổi cỡ cửa sổ chữ: nội dung và ô sửa được không mất.
+- [ ] Vùng trơn không có chữ: hiện "Không tìm thấy chữ trong ảnh.", ô rỗng.
+- [ ] Mở chín cửa sổ chữ: cửa sổ cũ nhất tự đóng, còn tối đa tám.
+- [ ] Ảnh ghim: chuột phải có mục "Nhận dạng chữ" ngay sau "Lưu ảnh"; bấm mở đúng cửa sổ chữ của ảnh đó.
+- [ ] Máy chưa có gói OCR nào (hoặc thử với ngôn ngữ không có gói): hiện câu hướng dẫn thêm ngôn ngữ trong Cài đặt > Thời gian & ngôn ngữ > Ngôn ngữ & khu vực.
+- [ ] Tiếng Việt: máy có gói nhận dạng tiếng Việt thì đọc được chữ Việt; máy không có gói thì không nhận được chữ Việt và không báo lỗi lạ.
+- [ ] Tắt mạng rồi bấm Ctrl+T: vẫn nhận dạng được.
+- [ ] Nhận dạng không ghi gì: không có tệp chữ trong thư mục lưu, Lịch sử không có mục mới, `last_capture.json` không đổi (đo bằng thời gian sửa tệp).
+- [ ] Sau khi nhận dạng, Chụp lại vùng trước vẫn chụp đúng vùng cũ và không mở cửa sổ chữ.
+- [ ] DPI 100%, 150% và 200%: nhận dạng đúng chữ trong vùng ở cả ba mức.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): nhận dạng đúng vùng nằm trên màn đó.
+- [ ] English: nút "Recognize text (Ctrl+T)", tiêu đề "Recognized text", nút Copy và Close, thông báo "Text copied" và dòng "Language: …" đều tiếng Anh; không cắt chữ.
+- [ ] Windows 10: nút, phím và menu nhận dạng hoạt động như trên Windows 11.
+- [ ] Chạy tay kiểm thử `#[ignore]` của nhận dạng (khi không chạm chuột hoặc bàn phím): `cargo test -p darkshot-windows ocr::tests::manual -- --ignored --nocapture --test-threads=1` (3 kiểm thử) và `cargo test -p darkshot-windows ocr_window::tests::manual -- --ignored --test-threads=1` (5 kiểm thử; mở cửa sổ thật).

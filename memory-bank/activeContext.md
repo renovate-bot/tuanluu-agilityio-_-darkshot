@@ -4,6 +4,20 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
+- **Giai đoạn 3, đợt 11 nội bộ: Nhận dạng chữ cục bộ (OCR). XONG, đã gộp `main` và đẩy `origin` (quyết định 114).** Bản mới nhất vẫn v0.4.0; Lặp lại (đợt 10) và OCR (đợt 11) ở mục "Chưa phát hành".
+- Thiết kế `docs/superpowers/specs/2026-11-18-local-ocr-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-local-ocr.md`, gói `docs/tasks/78-…` đến `83-…`, quyết định 118–121. Demo: `scripts/demo-ocr.ps1` (build `--target-dir target/demo11`).
+- Còn mở: mục "Đợt 9", "Đợt 10", "Đợt 11" của checklist (đa số `[ ]`); thử tay sau khi OCR đã chạy một lần (MTA ngầm): bộ gõ tiếng Việt, chọn thư mục ở Tùy chọn, mở tệp/thư mục từ Lịch sử, bấm thông báo mở link; máy có/không có gói OCR tiếng Việt.
+- Cách làm: như quyết định 114 (worktree `shotme-bNN`/`shotme-task`/`shotme-docs`; thư mục chính để ở `main`; QA không giả lập đầu vào).
+- Task đang làm: không.
+
+## Bước kế tiếp
+
+Đợt 12 (Giai đoạn 3): **Chụp từng bước**, rồi đợt 13: **Chụp cuộn** (quyết định 114). Gói task từ số 84.
+
+## Lưu trữ: đợt 10 (đã gộp `main`)
+
+### Đang ở đâu (đợt 10)
+
 - **Giai đoạn 3 sản phẩm, đợt 10 nội bộ: Lặp lại lần chụp trước. XONG, đã gộp `main` và đẩy `origin` (quyết định 114: chủ dự án cho phiên điều phối tự gộp sau mỗi đợt rồi làm tiếp).** Bản mới nhất là v0.4.0 (gồm Ghim, đợt 9; phiên khác phát hành theo yêu cầu chủ dự án, quyết định 113). Lặp lại (đợt 10) nằm ở mục "Chưa phát hành" của CHANGELOG. Lưu ý: nhánh phát hành của phiên đó tên `task/73-release-0.4.0`, trùng số 73 với `task/73-repeat-core` của đợt 10.
 - Thiết kế `docs/superpowers/specs/2026-11-18-repeat-capture-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-repeat-capture.md`, gói `docs/tasks/73-…` đến `77-…`, quyết định 114–117. Demo chạy cách ly: `scripts/demo-repeat.ps1` (build `--target-dir target/demo10`; phím vùng Ctrl+Alt+Shift+F10, phím lặp Ctrl+Alt+Shift+F11).
 - Còn mở: mục "Đợt 10" và "Đợt 9" của `docs/testing/manual-checklist.md` (đa số `[ ]`); kiểm thử chưa giữ khóa GDI (quyết định 117); viên nhắc Bắt cửa sổ (quyết định 109).
@@ -11,7 +25,7 @@ Cập nhật: 2026-11-18
 - Phiên trang giới thiệu từng tạo nhánh `task/67-website`, `task/68-website-sync-rule` trùng tiền tố số với đợt 9; task của đợt mới dùng số kế tiếp sau số lớn nhất trong `docs/tasks/`.
 - Task đang làm: không.
 
-## Bước kế tiếp
+### Bước kế tiếp (đợt 10, cũ)
 
 Đợt 11 (Giai đoạn 3): **OCR cục bộ** (Windows.Media.Ocr, không mạng), rồi Chụp từng bước, rồi Chụp cuộn (quyết định 114). Mỗi đợt: thiết kế mới, kế hoạch có bảng agent/model, gói task từ số 78, rà soát độc lập, rà soát toàn đợt, cập nhật website, gộp `main`, đẩy `origin`. Phát hành chỉ khi chủ dự án yêu cầu.
 
