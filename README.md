@@ -4,11 +4,10 @@ darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintS
 
 ## Tải về
 
-Bản mới nhất: **0.3.0** ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases/latest) (`darkshot-v0.3.0-windows-x64.zip` gồm `darkshot.exe` và README, hoặc chỉ `darkshot.exe`; kiểm tra bằng `SHA256SUMS.txt`). Không cần cài đặt: chạy thẳng `darkshot.exe`. File chưa ký số nên SmartScreen có thể cảnh báo lần đầu: **More info** → **Run anyway**.
+Bản mới nhất: **0.4.0** ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases/latest) (`darkshot-v0.4.0-windows-x64.zip` gồm `darkshot.exe` và README, hoặc chỉ `darkshot.exe`; kiểm tra bằng `SHA256SUMS.txt`). Không cần cài đặt: chạy thẳng `darkshot.exe`. File chưa ký số nên SmartScreen có thể cảnh báo lần đầu: **More info** → **Run anyway**.
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
-Ghim ảnh lên màn hình đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.3.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
 
 ## Build
 
@@ -18,7 +17,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.3.0 đo ngày 2026-11-18: **2.016.256 byte** (khoảng 1,92 MiB, bản `--release` trên Windows 11). Bản build từ `main` có Ghim ảnh (đo ngày 2026-11-18): **2.041.856 byte** (khoảng 1,95 MiB).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 

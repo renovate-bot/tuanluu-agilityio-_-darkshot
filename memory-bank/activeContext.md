@@ -12,6 +12,7 @@ Cập nhật: 2026-11-18
 - Nhánh `task/67-website` (worktree `shotme-website`) là của phiên trang giới thiệu, trùng tiền tố số 67 với `task/67-pin-core`; không phải task của đợt 9.
 - Task đang làm: không (sau Task 72).
 
+- **Phát hành v0.4.0** (2026-11-18, chủ dự án yêu cầu): gồm Ghim ảnh (đợt 9) và website. Tag `v0.4.0`, release kèm `darkshot-v0.4.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`; nội dung từ `CHANGELOG.md` (quyết định 113). Exe chưa ký số. Task đang làm: không.
 ## Bước kế tiếp
 
 Không có task `chờ`. Đợt tiếp theo của Giai đoạn 3 cần thiết kế mới (gói task từ số 73; ứng viên còn lại ở thiết kế đợt 9 mục 2). Lỗi chủ dự án báo về Ghim: nhánh `task/72b-…` từ `main`, agent/model theo độ khó. Phát hành (0.4.0) chỉ khi họ yêu cầu; khi phát hành: CHANGELOG "Chưa phát hành" → 0.4.0, README "Tải về" và kích thước, rà website.
