@@ -195,6 +195,10 @@ fn with_pin<R>(hwnd: HWND, f: impl FnOnce(&mut Pin) -> R) -> Option<R> {
     r
 }
 
+fn too_large() -> PinError {
+    PinError::Create("image too large".into())
+}
+
 /// Tạo một ảnh ghim (sở hữu `image`). Gọi trên luồng giao diện chính.
 pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
     if !core_pin::can_add(count()) {
@@ -208,7 +212,7 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
     }
     let (iw, ih) = (image.width, image.height);
     let (zoom, img) = match place {
-        PinPlace::At(p) => initial_at(p, iw, ih),
+        PinPlace::At(p) => initial_at(p, iw, ih).ok_or_else(too_large)?,
         PinPlace::CenterOnCursorMonitor => {
             let area = cursor_work_area();
             let z = core_pin::fit_zoom(iw, ih, area);
@@ -475,25 +479,11 @@ fn menu_zoom_enabled(w: u32, h: u32, zoom: u16) -> bool {
     dw <= core_pin::MAX_SIDE && dh <= core_pin::MAX_SIDE
 }
 
-/// Mức và khung ảnh ban đầu của `At(p)`: 100%, hoặc bậc lớn nhất dưới 100% vừa `MAX_SIDE`.
-fn initial_at(p: Point, w: u32, h: u32) -> (u16, Rect) {
-    let mut z = 100;
-    while !menu_zoom_enabled(w, h, z) {
-        match core_pin::zoom_out(z) {
-            Some(n) => z = n,
-            None => break,
-        }
-    }
-    let (dw, dh) = core_pin::display_size(w, h, z);
-    (
-        z,
-        Rect {
-            x: p.x,
-            y: p.y,
-            w: dw,
-            h: dh,
-        },
-    )
+/// Mức và khung ảnh ban đầu của `At(p)`: 100%, hoặc bậc lớn nhất dưới 100% vừa `MAX_SIDE`;
+/// `None` khi cả mức nhỏ nhất vẫn quá lớn.
+fn initial_at(p: Point, w: u32, h: u32) -> Option<(u16, Rect)> {
+    let _ = (p, w, h);
+    todo!()
 }
 
 /// Điểm mở menu ngữ cảnh: tọa độ màn hình trong `lp`, hoặc `fallback` khi mở bằng bàn phím (`lp` = -1).
@@ -1577,15 +1567,24 @@ mod tests {
         assert!(!menu_zoom_enabled(8193, 100, 200));
         assert!(!menu_zoom_enabled(100, 8193, 200));
         assert!(menu_zoom_enabled(100, 100, 400));
+        // Giới hạn diện tích của lõi khi phóng trên 100%.
+        assert!(menu_zoom_enabled(3840, 2160, 200));
+        assert!(!menu_zoom_enabled(4096, 4096, 200));
+        assert!(menu_zoom_enabled(8000, 6000, 100));
     }
 
     #[test]
     fn initial_at_keeps_100_or_fits_max_side() {
         assert_eq!(
             initial_at(p(-1920, 5), 640, 480),
-            (100, r(-1920, 5, 640, 480))
+            Some((100, r(-1920, 5, 640, 480)))
         );
-        assert_eq!(initial_at(p(0, 0), 20000, 100), (75, r(0, 0, 15000, 75)));
+        assert_eq!(
+            initial_at(p(0, 0), 20000, 100),
+            Some((75, r(0, 0, 15000, 75)))
+        );
+        // Mức nhỏ nhất (10%) vẫn vượt MAX_SIDE: không ghim được.
+        assert_eq!(initial_at(p(0, 0), 200_000, 10), None);
     }
 
     #[test]
@@ -1625,6 +1624,7 @@ mod tests {
 #[cfg(test)]
 mod live {
     use super::*;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
     use windows::Win32::Foundation::{POINT, RECT};
     use windows::Win32::Graphics::Gdi::ClientToScreen;
     use windows::Win32::System::Threading::{
@@ -1634,9 +1634,41 @@ mod live {
         SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetClientRect, GetWindowRect, IsWindow, PeekMessageW, SendMessageW,
-        TranslateMessage, MSG, PM_REMOVE, WM_MOUSEWHEEL,
+        DispatchMessageW, EndMenu, GetClientRect, GetWindowRect, IsWindow, KillTimer, PeekMessageW,
+        SendMessageW, SetTimer, TranslateMessage, MSG, PM_REMOVE, WM_CONTEXTMENU, WM_MOUSEWHEEL,
     };
+
+    fn send(h: HWND, msg: u32, wp: usize, lp: isize) {
+        // SAFETY: gửi thông điệp cho cửa sổ ảnh ghim còn sống của luồng này.
+        unsafe {
+            SendMessageW(h, msg, Some(WPARAM(wp)), Some(LPARAM(lp)));
+        }
+    }
+
+    unsafe extern "system" fn end_menu_timer(_: HWND, _: u32, id: usize, _: u32) {
+        // SAFETY: hẹn giờ luồng do kiểm thử đặt; đóng menu đang mở của luồng này.
+        unsafe {
+            let _ = KillTimer(None, id);
+            let _ = EndMenu();
+        }
+    }
+
+    unsafe extern "system" fn close_all_timer(_: HWND, _: u32, id: usize, _: u32) {
+        // SAFETY: hẹn giờ luồng do kiểm thử đặt.
+        unsafe {
+            let _ = KillTimer(None, id);
+        }
+        close_all();
+    }
+
+    /// Mở menu ngữ cảnh bằng bàn phím (lp = -1); hẹn giờ `proc` chạy trong vòng lặp của menu.
+    fn context_menu_with(h: HWND, proc: unsafe extern "system" fn(HWND, u32, usize, u32)) {
+        // SAFETY: hẹn giờ luồng (không gắn cửa sổ); vòng lặp của menu phân phối WM_TIMER.
+        unsafe {
+            SetTimer(None, 0, 100, Some(proc));
+        }
+        send(h, WM_CONTEXTMENU, h.0 as usize, -1);
+    }
 
     fn p(x: i32, y: i32) -> Point {
         Point { x, y }
@@ -1722,6 +1754,19 @@ mod live {
                 }
             }
             pump();
+            if let Some(h) = handles().first().copied() {
+                // Ctrl + cuộn: độ mờ.
+                send(
+                    h,
+                    WM_MOUSEWHEEL,
+                    (-120i16 as u16 as usize) << 16 | 0x0008,
+                    0,
+                );
+                pump();
+                // Menu ngữ cảnh mở rồi đóng bằng EndMenu.
+                context_menu_with(h, end_menu_timer);
+                pump();
+            }
             close_all();
             pump();
         }
@@ -1774,6 +1819,25 @@ mod live {
 
     #[test]
     #[ignore]
+    fn pin_close_all_during_context_menu() {
+        per_monitor();
+        for i in 0..3 {
+            open(image(120, 90), PinPlace::At(p(150 + i * 30, 150))).unwrap();
+        }
+        pump();
+        let hs = handles();
+        // close_all chạy trong vòng lặp của menu đang mở trên ảnh ghim đầu.
+        context_menu_with(hs[0], close_all_timer);
+        pump();
+        assert_eq!(count(), 0);
+        for h in hs {
+            // SAFETY: IsWindow chỉ hỏi tính hợp lệ của handle.
+            assert!(!unsafe { IsWindow(Some(h)) }.as_bool());
+        }
+    }
+
+    #[test]
+    #[ignore]
     fn pin_rejects_invalid_image() {
         per_monitor();
         let bad = Image {
@@ -1794,6 +1858,13 @@ mod live {
             open(bad, PinPlace::CenterOnCursorMonitor),
             Err(PinError::Create(_))
         ));
+        // Ở 10% vẫn vượt MAX_SIDE.
+        for place in [PinPlace::At(p(10, 10)), PinPlace::CenterOnCursorMonitor] {
+            assert!(matches!(
+                open(image(200_000, 10), place),
+                Err(PinError::Create(_))
+            ));
+        }
         assert_eq!(count(), 0);
     }
 
