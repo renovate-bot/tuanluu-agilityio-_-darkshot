@@ -1408,46 +1408,71 @@ mod tests {
         assert_eq!(l.hit_test(mid(l.clear_btn), 0, 50), Hit::Clear);
         assert_eq!(l.hit_test(mid(l.preview_area), 0, 50), Hit::Preview);
         assert_eq!(l.hit_test(mid(l.search), 0, 50), Hit::None);
-        l.place_buttons([80, 110, 130, 150, 130], [true, true, false, true, true]);
+        l.place_buttons([80, 110, 130, 150, 70, 130], [true, true, false, true, true, true]);
         assert_eq!(l.hit_test(mid(l.buttons[0]), 0, 50), Hit::Button(0));
         assert_eq!(l.hit_test(mid(l.buttons[4]), 0, 50), Hit::Button(4));
+        assert_eq!(l.hit_test(mid(l.buttons[5]), 0, 50), Hit::Button(5));
         // Nút ẩn không trúng.
         assert_eq!(area(&l.buttons[2]), 0);
         assert_eq!(l.hit_test(p(-5, -5), 0, 50), Hit::None);
     }
 
+    /// Bề rộng giả của nút cho nhãn `text` ở 96 DPI: 8 px mỗi ký tự (rộng hơn phông thật) + đệm.
+    fn fake_width(text: &str, dpi: u32) -> i32 {
+        scale((text.chars().count() as i32 * 8 + 32).max(72), dpi)
+    }
+
     #[test]
     fn buttons_flow_in_two_lines_without_overlap() {
-        for dpi in DPIS {
-            for (w, h) in sizes(dpi) {
-                let mut l = layout(w, h, dpi, false);
-                // Bề rộng thật cỡ chữ tiếng Việt dài nhất + đệm.
-                let wd = [72, 108, 128, 152, 124].map(|v| scale(v, dpi));
-                for shown in [
-                    [true, true, false, true, true],
-                    [true, true, true, false, true],
-                    [true, true, false, false, true],
-                    [true, true, true, true, true],
-                ] {
-                    l.place_buttons(wd, shown);
-                    let vis: Vec<RECT> =
-                        (0..5).filter(|&k| shown[k]).map(|k| l.buttons[k]).collect();
-                    for (i, a) in vis.iter().enumerate() {
-                        assert!(inside(a, &l.buttons_row), "{a:?} at {w}x{h}@{dpi}");
-                        assert_eq!(a.bottom - a.top, scale(32, dpi));
-                        for b in vis.iter().skip(i + 1) {
-                            assert!(!overlap(a, b), "{a:?} {b:?} at {w}x{h}@{dpi}");
+        use darkshot_core::i18n::{t, Msg};
+        for lang in Lang::ALL {
+            for open in [Msg::HistoryOpen, Msg::HistoryOpenLink] {
+                let labels = [
+                    open,
+                    Msg::HistoryCopyImage,
+                    Msg::HistoryCopyLink,
+                    Msg::HistoryShowInFolder,
+                    Msg::HistoryPin,
+                    Msg::HistoryRemove,
+                ];
+                for dpi in DPIS {
+                    let wd = labels.map(|m| fake_width(t(lang, m), dpi));
+                    for (w, h) in sizes(dpi) {
+                        let mut l = layout(w, h, dpi, false);
+                        for shown in [
+                            [true, true, false, true, true, true],
+                            [true, true, true, false, true, true],
+                            [true, true, false, false, true, true],
+                            [true, true, true, true, true, true],
+                            [true, true, true, true, false, true],
+                        ] {
+                            l.place_buttons(wd, shown);
+                            let vis: Vec<usize> = (0..6).filter(|&k| shown[k]).collect();
+                            let (bh, gap) = (scale(32, dpi), scale(BTN_GAP, dpi));
+                            for (i, &ka) in vis.iter().enumerate() {
+                                let a = l.buttons[ka];
+                                let ctx = format!("{lang:?} {ka} {a:?} at {w}x{h}@{dpi}");
+                                assert!(inside(&a, &l.buttons_row), "{ctx}");
+                                assert_eq!(a.bottom - a.top, bh, "{ctx}");
+                                // Không cắt chữ: nút đủ rộng cho nhãn.
+                                assert_eq!(a.right - a.left, wd[ka], "{ctx}");
+                                // Tối đa hai hàng.
+                                assert!(a.top <= l.buttons_row.top + bh + gap, "{ctx}");
+                                for &kb in vis.iter().skip(i + 1) {
+                                    assert!(!overlap(&a, &l.buttons[kb]), "{ctx} vs {kb}");
+                                }
+                            }
+                            for k in 0..6 {
+                                if !shown[k] {
+                                    assert_eq!(area(&l.buttons[k]), 0);
+                                }
+                            }
+                            // Nút Xóa ở mép phải.
+                            assert_eq!(l.buttons[5].right, l.buttons_row.right);
+                            // Mở là nút đầu tiên, sát lề trái.
+                            assert_eq!(l.buttons[0].left, l.buttons_row.left);
                         }
                     }
-                    for k in 0..5 {
-                        if !shown[k] {
-                            assert_eq!(area(&l.buttons[k]), 0);
-                        }
-                    }
-                    // Nút Xóa ở mép phải.
-                    assert_eq!(l.buttons[4].right, l.buttons_row.right);
-                    // Mở là nút đầu tiên, sát lề trái.
-                    assert_eq!(l.buttons[0].left, l.buttons_row.left);
                 }
             }
         }
@@ -1489,50 +1514,50 @@ mod tests {
             (
                 Kind::Saved,
                 true,
-                [Enabled, Enabled, Hidden, Enabled, Enabled],
+                [Enabled, Enabled, Hidden, Enabled, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::Saved,
                 false,
-                [Disabled, Disabled, Hidden, Disabled, Enabled],
+                [Disabled, Disabled, Hidden, Disabled, Disabled, Enabled],
                 false,
             ),
             (
                 Kind::UploadFallback,
                 true,
-                [Enabled, Enabled, Hidden, Enabled, Enabled],
+                [Enabled, Enabled, Hidden, Enabled, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::UploadFallback,
                 false,
-                [Disabled, Disabled, Hidden, Disabled, Enabled],
+                [Disabled, Disabled, Hidden, Disabled, Disabled, Enabled],
                 false,
             ),
             (
                 Kind::Uploaded,
                 true,
-                [Enabled, Enabled, Enabled, Hidden, Enabled],
+                [Enabled, Enabled, Enabled, Hidden, Enabled, Enabled],
                 true,
             ),
             // Tải lên: mở liên kết vẫn được khi bản sao mất.
             (
                 Kind::Uploaded,
                 false,
-                [Enabled, Disabled, Enabled, Hidden, Enabled],
+                [Enabled, Disabled, Enabled, Hidden, Disabled, Enabled],
                 true,
             ),
             (
                 Kind::Copied,
                 true,
-                [Enabled, Enabled, Hidden, Hidden, Enabled],
+                [Enabled, Enabled, Hidden, Hidden, Enabled, Enabled],
                 false,
             ),
             (
                 Kind::Copied,
                 false,
-                [Disabled, Disabled, Hidden, Hidden, Enabled],
+                [Disabled, Disabled, Hidden, Hidden, Disabled, Enabled],
                 false,
             ),
         ];
@@ -2160,7 +2185,7 @@ mod tests {
         // Đã lưu, còn tệp: Mở, Sao chép ảnh, Mở thư mục, vạch, Xóa (không có Sao chép liên kết).
         let m = menu_items(&actions_for(&entry(1, Kind::Saved), true));
         let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
-        assert_eq!(ids, vec![0, 1, 3, 4]);
+        assert_eq!(ids, vec![0, 1, 3, 5]);
         assert!(m.iter().all(|i| i.enabled));
         assert_eq!(m[0].label, Msg::HistoryOpen);
         assert_eq!(m[0].shortcut, Some("Enter"));
@@ -2176,7 +2201,7 @@ mod tests {
         // Tải lên: Mở liên kết, Sao chép liên kết có Ctrl+Shift+C.
         let m = menu_items(&actions_for(&entry(1, Kind::Uploaded), true));
         let ids: Vec<usize> = m.iter().map(|i| i.action).collect();
-        assert_eq!(ids, vec![0, 1, 2, 4]);
+        assert_eq!(ids, vec![0, 1, 2, 5]);
         assert_eq!(m[0].label, Msg::HistoryOpenLink);
         assert_eq!(m[2].label, Msg::HistoryCopyLink);
         assert_eq!(m[2].shortcut, Some("Ctrl+Shift+C"));
