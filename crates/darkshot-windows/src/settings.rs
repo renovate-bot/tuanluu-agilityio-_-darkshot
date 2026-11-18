@@ -2457,44 +2457,91 @@ fn max_text_width_dip(b: &Builder, texts: &[&str]) -> Option<i32> {
     }
 }
 
+/// Hình chữ nhật (x, y, w, h) tính bằng DIP, tương đối với khung của tab.
+type Rect4 = (i32, i32, i32, i32);
+
+/// Ba ô của một dòng phím tắt.
+#[derive(Clone, Copy, Debug)]
+struct HotkeyRow {
+    chk: Rect4,
+    edit: Rect4,
+    btn: Rect4,
+}
+
+/// Bố cục tab Phím tắt: một dòng cho mỗi phần tử của `HotkeyRole::ALL`, cách nhau `HK_ROW_STEP`.
+#[derive(Clone, Debug)]
+struct HotkeysLayout {
+    rows: [HotkeyRow; HotkeyRole::ALL.len()],
+    height: i32,
+}
+
+impl HotkeysLayout {
+    /// Mọi ô, theo thứ tự dòng rồi (ô tích, ô chỉ đọc, nút): cũng là thứ tự Tab.
+    fn rects(&self) -> Vec<Rect4> {
+        self.rows
+            .iter()
+            .flat_map(|r| [r.chk, r.edit, r.btn])
+            .collect()
+    }
+}
+
+/// Khoảng cách dọc giữa hai dòng phím tắt (DIP).
+const HK_ROW_STEP: i32 = 34;
+
+fn hotkeys_layout(l: Layout) -> HotkeysLayout {
+    let right = EX + l.ew;
+    let edit_x = LX + l.hk_chk_w + HK_GAP;
+    let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
+    let mut y = 12;
+    let mut rows = [HotkeyRow {
+        chk: (0, 0, 0, 0),
+        edit: (0, 0, 0, 0),
+        btn: (0, 0, 0, 0),
+    }; HotkeyRole::ALL.len()];
+    for row in rows.iter_mut() {
+        *row = HotkeyRow {
+            chk: (LX, y + 1, l.hk_chk_w, 22),
+            edit: (edit_x, y, edit_w, 24),
+            btn: (right - HK_BTN_W, y - 1, HK_BTN_W, 26),
+        };
+        y += HK_ROW_STEP;
+    }
+    HotkeysLayout {
+        rows,
+        height: y + 4,
+    }
+}
+
 /// Ô của tab Phím tắt: mỗi dòng theo `HotkeyRole::ALL` có ô tích (nhãn của dòng), ô chỉ đọc, nút "Đổi…".
 /// Cột nhãn đủ rộng cho nhãn dài nhất của mọi ngôn ngữ; ô phím lấy phần còn lại.
 fn build_hotkeys(b: &mut Builder) -> HotkeysCtl {
-    let right = EX + b.layout.ew;
-    let chk_w = b.layout.hk_chk_w;
-    let edit_x = LX + chk_w + HK_GAP;
-    let edit_w = right - HK_BTN_W - HK_GAP - edit_x;
-    let mut y = 12;
+    let lay = hotkeys_layout(b.layout);
     let (mut chk, mut edit, mut btn) = (
         [HWND::default(); HotkeyRole::ALL.len()],
         [HWND::default(); HotkeyRole::ALL.len()],
         [HWND::default(); HotkeyRole::ALL.len()],
     );
     for (i, r) in HotkeyRole::ALL.into_iter().enumerate() {
+        let row = lay.rows[i];
         chk[i] = b.button(
             lang::tr(r.label()),
             ws(BS_AUTOCHECKBOX),
-            (LX, y + 1, chk_w, 22),
+            row.chk,
             ID_HK_CHECK0 + i as i32,
         );
-        edit[i] = b.edit(
-            WINDOW_STYLE(ES_READONLY as u32),
-            (edit_x, y, edit_w, 24),
-            -1,
-        );
+        edit[i] = b.edit(WINDOW_STYLE(ES_READONLY as u32), row.edit, -1);
         btn[i] = b.button(
             lang::tr(Msg::BtnChange),
             ws(BS_PUSHBUTTON),
-            (right - HK_BTN_W, y - 1, HK_BTN_W, 26),
+            row.btn,
             ID_HK_CHANGE0 + i as i32,
         );
-        y += 34;
     }
     HotkeysCtl {
         chk,
         edit,
         btn,
-        height: y + 4,
+        height: lay.height,
     }
 }
 
@@ -3613,8 +3660,6 @@ mod tests {
 
     #[test]
     fn hotkey_labels_fit_on_one_line_at_all_dpi() {
-        use darkshot_core::i18n::Msg;
-        let _ = Msg::BtnChange;
         for dpi in [96u32, 120, 144, 192] {
             let font = crate::winutil::system_font(dpi).expect("system font");
             // Bề rộng nhãn như `build_controls` đo: dài nhất mọi dòng, mọi ngôn ngữ.
