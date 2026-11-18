@@ -84,7 +84,7 @@ pub struct Layout {
     /// Dòng tiêu đề (ngày giờ đầy đủ), nằm đầu `meta_area`.
     pub title: RECT,
     pub buttons_row: RECT,
-    /// Năm nút hành động (Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Xóa); rỗng khi ẩn.
+    /// Sáu nút hành động (Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Ghim, Xóa); rỗng khi ẩn.
     pub buttons: [RECT; 6],
     pub status_line: RECT,
     pub row_h: i32,
@@ -352,6 +352,10 @@ pub struct ActionSet {
     pub pin: Avail,
     pub remove: Avail,
 }
+
+/// Chỉ số nút Ghim và nút Xóa trong `as_array`/`Layout.buttons`.
+pub const BTN_PIN: usize = 4;
+pub const BTN_REMOVE: usize = 5;
 
 impl ActionSet {
     /// Theo thứ tự nút: Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục, Ghim, Xóa khỏi lịch sử.
@@ -945,13 +949,13 @@ pub fn menu_items(a: &ActionSet) -> Vec<MenuItem> {
     a.as_array()
         .into_iter()
         .enumerate()
-        .filter(|(k, av)| *av != Avail::Hidden && *k != 4)
+        .filter(|(k, av)| *av != Avail::Hidden && *k != BTN_PIN)
         .map(|(k, av)| MenuItem {
             action: k,
             label: labels[k],
             enabled: av == Avail::Enabled,
             shortcut: keys[k],
-            separator_before: k == 5,
+            separator_before: k == BTN_REMOVE,
         })
         .collect()
 }

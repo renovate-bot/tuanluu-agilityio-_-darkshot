@@ -13,7 +13,7 @@ use crate::history_layout::{
     explorer_select_args, filter_chip, layout, menu_items, preview_target, search_parts,
     select_after_remove, step_selection, url_openable, visible_indices, Avail, CardRects, ChipKey,
     Confirm, ConfirmBtn, ConfirmKey, ConfirmOutcome, Generation, Layout, Nav, SearchParts, Status,
-    ThumbCache, ThumbSlot, MAX_THUMBS,
+    ThumbCache, ThumbSlot, BTN_PIN, MAX_THUMBS,
 };
 use crate::history_paint::{self as hp, Bmp, Fonts, PreviewView, RowView, ThumbView, Tip};
 use crate::history_service::{self, WM_HISTORY_CHANGED};
@@ -1836,20 +1836,7 @@ fn post_status(hwnd: isize, st: Status) {
 
 /// Trao ảnh đã giải mã cho cửa sổ để ghim (`LPARAM` = `Box<Image>`); không gửi được thì báo lỗi.
 fn post_pin_image(hwnd: isize, img: Image) {
-    let raw = Box::into_raw(Box::new(img));
-    // SAFETY: PostMessageW an toàn từ luồng bất kỳ; nếu không vào hàng đợi, raw vẫn thuộc về ta.
-    let posted = unsafe {
-        PostMessageW(
-            Some(HWND(hwnd as *mut c_void)),
-            WM_HISTORY_PIN,
-            WPARAM(0),
-            LPARAM(raw as isize),
-        )
-    };
-    if posted.is_err() {
-        // SAFETY: tin nhắn không vào hàng đợi nên raw chưa ai nhận.
-        drop(unsafe { Box::from_raw(raw) });
-    }
+    post_box(hwnd, WM_HISTORY_PIN, Box::new(img));
 }
 
 /// Ảnh đã giải mã của nút Ghim, trên luồng giao diện: mở ảnh ghim giữa màn hình chứa con trỏ.
@@ -1985,7 +1972,7 @@ fn on_action(id: i32) {
             None => on_status(hwnd, Status::Failed),
         },
         // Ghim: giải mã PNG ở luồng nền (như Sao chép ảnh), mở ảnh ghim trên luồng giao diện.
-        4 => {
+        BTN_PIN => {
             if let Some(p) = e.image_path(&root) {
                 let h = hwnd.0 as isize;
                 let spawned = std::thread::Builder::new()
