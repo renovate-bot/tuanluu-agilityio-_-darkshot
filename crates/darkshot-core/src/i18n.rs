@@ -1520,12 +1520,23 @@ mod tests {
             (Msg::ScrollUpload, "Tải lên", "Upload"),
             (Msg::ScrollPin, "Ghim", "Pin"),
             (Msg::ScrollClose, "Đóng", "Close"),
+            (
+                Msg::ScrollNoRoomTitle,
+                "Không có chỗ cho thanh chụp cuộn",
+                "No room for the scrolling capture bar",
+            ),
+            (
+                Msg::ScrollNoRoomBody,
+                "Chọn vùng nhỏ hơn màn hình.",
+                "Select a region smaller than the screen.",
+            ),
         ];
         for (m, vi, en) in pairs {
             assert_eq!(t(Lang::Vi, m), vi);
             assert_eq!(t(Lang::En, m), en);
         }
         assert!(NOTICE_TITLES.contains(&Msg::ScrollLimitTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollNoRoomTitle));
         assert_eq!(scroll_height(Lang::Vi, 1840), "1840 px");
         assert_eq!(scroll_height(Lang::En, 0), "0 px");
         assert_eq!(

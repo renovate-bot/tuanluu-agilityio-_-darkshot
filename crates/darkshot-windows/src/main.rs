@@ -2099,6 +2099,8 @@ mod tests {
 
     #[test]
     fn annotated_capture_writes_marked_image() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         use darkshot_core::annotate::{Pt, Shape};
         use darkshot_core::image::Image;
         use darkshot_core::theme::Rgb;

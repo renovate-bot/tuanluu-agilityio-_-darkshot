@@ -1392,6 +1392,29 @@ mod tests {
         }
     }
 
+    /// Không đặt được trong vùng làm việc: thử cả màn hình (đè lên thanh tác vụ), vẫn ngoài vùng.
+    #[test]
+    fn bar_spot_falls_back_to_monitor_rect() {
+        let mon = r(0, 0, 1920, 1080);
+        let work = r(0, 0, 1920, 1032);
+        let size = (300, 40);
+        // Vùng chiếm cả vùng làm việc, không loại được: dưới vùng, trên thanh tác vụ.
+        assert_eq!(
+            bar_spot(work, size, 8, work, mon, &[], false),
+            Some(Point { x: 810, y: 1040 })
+        );
+        // Vùng làm việc còn chỗ: như `bar_origin`.
+        let region = r(100, 100, 400, 300);
+        assert_eq!(
+            bar_spot(region, size, 8, work, mon, &[], false),
+            bar_origin(region, size, 8, work, &[], false)
+        );
+        // Vùng phủ kín màn hình: không có chỗ.
+        assert_eq!(bar_spot(mon, size, 8, work, mon, &[], false), None);
+        // Loại được khỏi ảnh chụp: luôn có chỗ (trong vùng làm việc).
+        assert!(bar_spot(mon, size, 8, work, mon, &[], true).is_some());
+    }
+
     #[test]
     fn region_valid_only_when_fully_on_screens() {
         let a = r(0, 0, 1920, 1080);
@@ -1590,6 +1613,11 @@ mod live {
         static OFFSET: Cell<i32> = const { Cell::new(0) };
         static PAGE: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
         static RESULT: RefCell<Option<(Image, u32)>> = const { RefCell::new(None) };
+        static ENDS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    fn count_end() {
+        ENDS.with(|c| c.set(c.get() + 1));
     }
 
     fn keep_result(img: Image, uncertain: u32) {
@@ -1677,6 +1705,13 @@ mod live {
 
     /// Cửa sổ thử luôn trên cùng, không lấy tiêu điểm; trả cửa sổ và vùng client (tọa độ màn hình).
     fn test_window() -> (HWND, Rect) {
+        test_window_with(false)
+    }
+
+    /// Như `test_window`; `layered`: cửa sổ lớp (`WS_EX_LAYERED`, độ đục 255).
+    fn test_window_with(layered: bool) -> (HWND, Rect) {
+        let ex = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        let ex = if layered { ex | WS_EX_LAYERED } else { ex };
         // SAFETY: đăng ký lớp và tạo cửa sổ popup của luồng kiểm thử.
         unsafe {
             let hinst = GetModuleHandleW(None).unwrap();
@@ -1689,7 +1724,7 @@ mod live {
             };
             RegisterClassW(&wc);
             let h = CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                ex,
                 class,
                 w!("scroll test"),
                 WS_POPUP,
@@ -1703,6 +1738,9 @@ mod live {
                 None,
             )
             .unwrap();
+            if layered {
+                SetLayeredWindowAttributes(h, COLORREF(0), 255, LWA_ALPHA).unwrap();
+            }
             let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
             let _ = UpdateWindow(h);
             let mut cr = RECT::default();
@@ -1751,10 +1789,13 @@ mod live {
         set_on_result(keep_result);
         // SAFETY: chỉ đọc cửa sổ đang có tiêu điểm.
         let fg = unsafe { GetForegroundWindow() };
-        assert!(start(region));
+        assert_eq!(start(region), Ok(()));
         assert!(active());
         // Bắt đầu lại khi đang chạy: từ chối.
-        assert!(!start(region));
+        assert_eq!(start(region), Err(StartError::Busy));
+        // Đổi ngôn ngữ giữa phiên: thanh dựng lại, phiên vẫn chạy.
+        relabel();
+        assert!(active());
         // SAFETY: chỉ đọc cửa sổ đang có tiêu điểm.
         assert_eq!(unsafe { GetForegroundWindow() }, fg, "không lấy tiêu điểm");
         pump_for(350);
@@ -1798,6 +1839,8 @@ mod live {
         let (tw, region) = test_window();
         pump_for(200);
         set_on_result(keep_result);
+        set_on_end(count_end);
+        ENDS.with(|c| c.set(0));
         let supported = exclude_supported(os_build());
         let (mut gdi0, mut user0) = (0, 0);
         for i in 0..11 {
@@ -1805,8 +1848,12 @@ mod live {
                 gdi0 = gui(GR_GDIOBJECTS);
                 user0 = gui(GR_USEROBJECTS);
             }
-            assert!(start(region));
+            assert_eq!(start(region), Ok(()));
             pump_for(150);
+            // Đổi ngôn ngữ và dựng lại theo DPI khác giữa phiên: không rò.
+            relabel();
+            relayout_bar(Some(if i % 2 == 0 { 144 } else { 96 }));
+            pump_for(30);
             let ws = session_windows();
             if supported {
                 // Bốn khung và thanh, tất cả loại khỏi ảnh chụp.
@@ -1828,6 +1875,8 @@ mod live {
             }
             pump_for(30);
             assert!(!active());
+            // Hàm kết thúc chạy đúng một lần mỗi phiên (Hủy lẫn Xong).
+            assert_eq!(ENDS.with(|c| c.get()), i + 1);
             for h in ws {
                 // SAFETY: chỉ hỏi cửa sổ đã hủy có còn không.
                 assert!(!unsafe { IsWindow(Some(h)) }.as_bool());
@@ -1837,6 +1886,41 @@ mod live {
         eprintln!("GDI {gdi0} -> {gdi1}, USER {user0} -> {user1}");
         assert!(gdi1 <= gdi0 + 2, "GDI {gdi0} -> {gdi1}");
         assert!(user1 <= user0 + 2, "USER {user0} -> {user1}");
+        // SAFETY: hủy cửa sổ thử của chính kiểm thử.
+        unsafe {
+            let _ = DestroyWindow(tw);
+        }
+        pump_for(50);
+    }
+
+    /// `capture_rect` chỉ dùng SRCCOPY (không CAPTUREBLT): khi DWM bật, nội dung của cửa sổ lớp
+    /// (`WS_EX_LAYERED`) vẫn có trong ảnh chụp.
+    #[test]
+    #[ignore]
+    fn capture_rect_sees_layered_window() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        dpi_aware();
+        PAGE.with(|p| *p.borrow_mut() = make_page());
+        OFFSET.with(|o| o.set(0));
+        let (tw, region) = test_window_with(true);
+        pump_for(300);
+        // SAFETY: chờ DWM trình bày khung có cửa sổ thử.
+        unsafe {
+            let _ = DwmFlush();
+        }
+        let img = crate::capture::capture_rect(region).unwrap();
+        assert_eq!((img.width, img.height), (TEST_W as u32, TEST_H as u32));
+        PAGE.with(|p| {
+            let p = p.borrow();
+            for y in [0, 57, 120, 239] {
+                for x in [0, 33, 200, 359] {
+                    let i = ((y * TEST_W + x) * 4) as usize;
+                    let got =
+                        u32::from_le_bytes([img.bgra[i], img.bgra[i + 1], img.bgra[i + 2], 0]);
+                    assert_eq!(got, p[(y * TEST_W + x) as usize], "({x}, {y})");
+                }
+            }
+        });
         // SAFETY: hủy cửa sổ thử của chính kiểm thử.
         unsafe {
             let _ = DestroyWindow(tw);

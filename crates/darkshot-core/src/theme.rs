@@ -151,6 +151,16 @@ mod tests {
         assert!(UI_PAIRS.contains(&(DANGER_BUTTON, BG)));
     }
 
+    /// Chữ trạng thái vàng ("Cuộn chậm hơn") trên thanh chụp cuộn (`SURFACE`) và nền cửa sổ.
+    #[test]
+    fn warning_pairs_are_listed() {
+        assert_eq!(WARNING, Rgb::hex(0xF5C04A));
+        for bg in [SURFACE, BG] {
+            assert!(TEXT_PAIRS.contains(&(WARNING, bg)), "{bg:?}");
+            assert!(contrast_ratio(WARNING, bg) >= 4.5);
+        }
+    }
+
     #[test]
     fn ui_pairs_meet_non_text_contrast() {
         for (fg, bg) in UI_PAIRS {

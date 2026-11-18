@@ -596,6 +596,8 @@ mod tests {
     /// Giải nén JPEG do core tạo bằng GDI+ (bộ giải nén độc lập), so kích thước và màu tâm mỗi ô.
     #[test]
     fn jpeg_decodes_with_gdiplus() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         use windows::Win32::Graphics::GdiPlus::{
             GdipBitmapGetPixel, GdipCreateBitmapFromStream, GdipDisposeImage, GdipGetImageHeight,
             GdipGetImageWidth, GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap,
