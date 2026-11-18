@@ -28,69 +28,169 @@ pub struct StepSession {
 impl StepSession {
     /// Thêm bước cuối với ghi chú rỗng; trả chỉ số bước mới. Đủ `MAX_STEPS` thì `Err(Full)`.
     pub fn add(&mut self, file: String) -> Result<usize, Full> {
-        let _ = file;
-        todo!()
+        if self.steps.len() >= MAX_STEPS {
+            return Err(Full);
+        }
+        self.steps.push(Step {
+            file,
+            caption: String::new(),
+        });
+        Ok(self.steps.len() - 1)
     }
 
     /// `false` khi chỉ số ngoài phạm vi.
     pub fn remove(&mut self, i: usize) -> bool {
-        let _ = i;
-        todo!()
+        if i >= self.steps.len() {
+            return false;
+        }
+        self.steps.remove(i);
+        true
     }
 
     /// Đổi bước `i` lên trước một vị trí; `false` khi `i` ngoài phạm vi hoặc đã ở đầu.
     pub fn move_up(&mut self, i: usize) -> bool {
-        let _ = i;
-        todo!()
+        if i == 0 || i >= self.steps.len() {
+            return false;
+        }
+        self.steps.swap(i - 1, i);
+        true
     }
 
     /// Đổi bước `i` xuống sau một vị trí; `false` khi `i` ngoài phạm vi hoặc đã ở cuối.
     pub fn move_down(&mut self, i: usize) -> bool {
-        let _ = i;
-        todo!()
+        if i + 1 >= self.steps.len() {
+            return false;
+        }
+        self.steps.swap(i, i + 1);
+        true
     }
 
     /// Đặt ghi chú, cắt còn `MAX_CAPTION` ký tự Unicode; `false` khi chỉ số ngoài phạm vi.
     pub fn set_caption(&mut self, i: usize, s: &str) -> bool {
-        let _ = (i, s);
-        todo!()
+        let Some(step) = self.steps.get_mut(i) else {
+            return false;
+        };
+        step.caption = truncate_chars(s, MAX_CAPTION);
+        true
     }
 
-    /// Tên tệp kế tiếp (`001.png`...) không trùng tên đang có.
+    /// Tên tệp kế tiếp (`001.png`...) không trùng tên đang có: số lớn nhất hiện có cộng một,
+    /// quay vòng trong 1..=999 khi hết chỗ.
     pub fn next_file_name(&self) -> String {
-        todo!()
+        let used: Vec<u32> = self
+            .steps
+            .iter()
+            .filter_map(|s| file_number(&s.file))
+            .collect();
+        let start = used.iter().copied().max().unwrap_or(0);
+        let n = (0..999u32)
+            .map(|k| (start + k) % 999 + 1)
+            .find(|n| !used.contains(n))
+            .unwrap_or(1);
+        format!("{n:03}.png")
     }
 
     pub fn to_json(&self) -> String {
-        todo!()
+        let steps: Vec<serde_json::Value> = self
+            .steps
+            .iter()
+            .map(|s| serde_json::json!({ "file": s.file, "caption": s.caption }))
+            .collect();
+        serde_json::json!({ "version": FILE_VERSION, "steps": steps }).to_string()
     }
 
     /// `None` khi JSON hỏng, version khác 1, hoặc có `file` không khớp `^\d{3}\.png$`.
     /// Tên trùng bị bỏ; quá `MAX_STEPS` bước thì bỏ phần thừa; ghi chú dài bị cắt.
     pub fn from_json(s: &str) -> Option<StepSession> {
-        let _ = s;
-        todo!()
+        let v: serde_json::Value = serde_json::from_str(s).ok()?;
+        if v.get("version")?.as_u64()? != u64::from(FILE_VERSION) {
+            return None;
+        }
+        let mut out = StepSession::default();
+        for item in v.get("steps")?.as_array()? {
+            let file = item.get("file")?.as_str()?;
+            file_number(file)?;
+            let caption = match item.get("caption") {
+                None => "",
+                Some(c) => c.as_str()?,
+            };
+            if out.steps.iter().any(|x| x.file == file) || out.steps.len() >= MAX_STEPS {
+                continue;
+            }
+            out.steps.push(Step {
+                file: file.to_string(),
+                caption: truncate_chars(caption, MAX_CAPTION),
+            });
+        }
+        Some(out)
     }
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    s.chars().take(max).collect()
+}
+
+/// Số của tên tệp dạng `NNN.png` (đúng ba chữ số ASCII, đuôi `.png` chữ thường); None nếu khác.
+fn file_number(file: &str) -> Option<u32> {
+    let digits = file.strip_suffix(".png")?;
+    if digits.len() != 3 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 /// Tên tệp ảnh khi xuất cho `n` bước: `01.png`... (`001.png`... khi n >= 100).
 pub fn export_names(n: usize) -> Vec<String> {
-    let _ = n;
-    todo!()
+    let width = if n >= 100 { 3 } else { 2 };
+    (1..=n).map(|k| format!("{k:0width$}.png")).collect()
+}
+
+/// Thoát dòng ghi chú để Markdown không hiểu là tiêu đề: chèn `\` trước dấu `#` đầu dòng.
+fn escape_line(line: &str) -> String {
+    let body = line.trim_start();
+    if body.starts_with('#') {
+        let indent = line.len() - body.len();
+        format!("{}\\{}", &line[..indent], body)
+    } else {
+        line.to_string()
+    }
 }
 
 /// Nội dung `steps.md` cho các bước (đã theo thứ tự hiển thị).
 pub fn markdown(lang: Lang, when: LocalTime, steps: &[Step]) -> String {
-    let _ = (lang, when, steps);
-    todo!()
+    let names = export_names(steps.len());
+    let mut out = format!(
+        "# {}\n_darkshot, {:04}-{:02}-{:02} {:02}:{:02}_\n",
+        i18n::t(lang, i18n::Msg::StepsWindowTitle),
+        when.year,
+        when.month,
+        when.day,
+        when.hour,
+        when.minute
+    );
+    for (k, (step, name)) in steps.iter().zip(&names).enumerate() {
+        let label = i18n::step_label(lang, k + 1);
+        out.push_str(&format!("\n## {label}\n"));
+        let caption = step.caption.replace("\r\n", "\n").replace('\r', "\n");
+        let caption = caption.trim_matches('\n');
+        if !caption.trim().is_empty() {
+            for line in caption.split('\n') {
+                out.push_str(&escape_line(line));
+                out.push('\n');
+            }
+        }
+        out.push_str(&format!("\n![{label}]({name})\n"));
+    }
+    out
 }
 
 /// Tên thư mục xuất: `darkshot-steps-YYYY-MM-DD_HH-mm`.
 pub fn export_dir_name(when: LocalTime) -> String {
-    let _ = when;
-    todo!()
+    format!(
+        "darkshot-steps-{:04}-{:02}-{:02}_{:02}-{:02}",
+        when.year, when.month, when.day, when.hour, when.minute
+    )
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,14 +414,20 @@ mod tests {
 
     #[test]
     fn markdown_multiline_caption_and_heading_escape() {
-        let steps = [step("001.png", "dòng một\r\n# không phải tiêu đề\n  ## cũng không\nhết")];
+        let steps = [step(
+            "001.png",
+            "dòng một\r\n# không phải tiêu đề\n  ## cũng không\nhết",
+        )];
         let md = markdown(Lang::Vi, when(), &steps);
         assert!(!md.contains('\r'));
         assert!(md.contains("\ndòng một\n\\# không phải tiêu đề\n"), "{md}");
         assert!(md.contains("\n  \\## cũng không\n"), "{md}");
         assert!(md.contains("\nhết\n\n![Bước 1](01.png)"));
         // Chỉ có đúng một tiêu đề cấp 1 và một cấp 2 thật.
-        let real: Vec<&str> = md.lines().filter(|l| l.trim_start().starts_with('#')).collect();
+        let real: Vec<&str> = md
+            .lines()
+            .filter(|l| l.trim_start().starts_with('#'))
+            .collect();
         assert_eq!(real, ["# Các bước", "## Bước 1"]);
     }
 
