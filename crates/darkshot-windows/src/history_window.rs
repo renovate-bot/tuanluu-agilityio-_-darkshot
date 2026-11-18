@@ -160,6 +160,15 @@ thread_local! {
     /// Những gì `NM_CUSTOMDRAW` và ô tìm cần, giữ ngoài `STATE` để vẽ điều khiển không bao giờ đụng
     /// khóa của nó.
     static DRAW: Cell<DrawInfo> = const { Cell::new(DrawInfo::new()) };
+    /// Menu chuột phải của Lịch sử đang mở (vòng lặp modal của `TrackPopupMenu`).
+    static MENU_OPEN: Cell<bool> = const { Cell::new(false) };
+    /// Ảnh ghim tới lúc lớp phủ đang mở: chờ tới khi lớp phủ đóng (ảnh mới thay ảnh cũ).
+    static PENDING_PIN: RefCell<pin::PendingPin<Image>> = const { RefCell::new(pin::PendingPin::new()) };
+}
+
+/// Menu chuột phải của Lịch sử đang mở.
+pub fn menu_open() -> bool {
+    MENU_OPEN.with(|m| m.get())
 }
 
 /// Thông tin vẽ điều khiển con (xem `DRAW`).
@@ -1841,14 +1850,47 @@ fn post_pin_image(hwnd: isize, img: Image) {
 
 /// Ảnh đã giải mã của nút Ghim, trên luồng giao diện: mở ảnh ghim giữa màn hình chứa con trỏ.
 /// Cửa sổ Lịch sử giữ nguyên. Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).
+/// Lớp phủ chọn vùng đang mở thì không mở ngay: giữ ảnh, `open_pending_pin` mở sau khi lớp phủ đóng.
 fn on_pin_image(img: Image) {
-    if let Err(e) = pin::open(img, pin::PinPlace::CenterOnCursorMonitor) {
-        let (kind, title, body) = crate::pin_failure_notice(lang::current(), &e);
-        if let Some(tray) = crate::current_tray() {
-            use darkshot_core::actions::Notifier;
-            tray.notifier().notify(kind, title, &body);
-        }
+    if crate::overlay_open() {
+        // Ảnh chờ cũ (nếu có) bị bỏ ở đây, ngoài khóa.
+        let old = PENDING_PIN.with(|p| p.try_borrow_mut().ok().and_then(|mut p| p.put(img)));
+        drop(old);
+        return;
     }
+    open_pin(img);
+}
+
+fn open_pin(img: Image) {
+    if let Err(e) = pin::open(img, pin::PinPlace::CenterOnCursorMonitor) {
+        notify_pin_error(&e);
+    }
+}
+
+/// Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).
+fn notify_pin_error(e: &pin::PinError) {
+    let (kind, title, body) = crate::pin_failure_notice(lang::current(), e);
+    if let Some(tray) = crate::current_tray() {
+        use darkshot_core::actions::Notifier;
+        tray.notifier().notify(kind, title, &body);
+    }
+}
+
+/// Mở ảnh ghim đang chờ (nếu có). Gọi trên luồng giao diện ngay sau khi lớp phủ đóng.
+pub fn open_pending_pin() {
+    let img = PENDING_PIN.with(|p| p.try_borrow_mut().ok().and_then(|mut p| p.take()));
+    if let Some(img) = img {
+        open_pin(img);
+    }
+}
+
+/// Bỏ ảnh ghim đang chờ (thoát ứng dụng).
+pub fn drop_pending_pin() {
+    PENDING_PIN.with(|p| {
+        if let Ok(mut p) = p.try_borrow_mut() {
+            p.clear();
+        }
+    });
 }
 
 /// Chạy `f` trên một luồng nền rồi báo kết quả; không tạo được luồng thì báo lỗi.
@@ -1973,6 +2015,11 @@ fn on_action(id: i32) {
         },
         // Ghim: giải mã PNG ở luồng nền (như Sao chép ảnh), mở ảnh ghim trên luồng giao diện.
         BTN_PIN => {
+            // Đã đủ ảnh ghim: báo ngay, không giải mã (`pin::open` vẫn tự kiểm lần nữa).
+            if !darkshot_core::pin::can_add(pin::count()) {
+                notify_pin_error(&pin::PinError::Limit);
+                return;
+            }
             if let Some(p) = e.image_path(&root) {
                 let h = hwnd.0 as isize;
                 let spawned = std::thread::Builder::new()
@@ -2055,6 +2102,7 @@ fn show_context_menu(hwnd: HWND, pt: POINT) {
                 &HSTRING::from(label),
             );
         }
+        MENU_OPEN.with(|m| m.set(true));
         let cmd = TrackPopupMenu(
             menu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -2064,6 +2112,7 @@ fn show_context_menu(hwnd: HWND, pt: POINT) {
             hwnd,
             None,
         );
+        MENU_OPEN.with(|m| m.set(false));
         let _ = DestroyMenu(menu);
         cmd.0
     };

@@ -78,7 +78,43 @@ pub enum PinPlace {
 #[derive(Debug)]
 pub enum PinError {
     Limit,
+    /// Ảnh vượt `MAX_SIDE` ngay ở mức thu nhỏ nhất.
+    TooLarge,
     Create(String),
+}
+
+/// Một chỗ chờ cho đúng một giá trị: đặt mới thì thay giá trị cũ, lấy ra đúng một lần.
+#[derive(Debug)]
+pub struct PendingPin<T>(Option<T>);
+
+impl<T> PendingPin<T> {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    /// Đặt `v`; trả giá trị cũ (nếu có) để nơi gọi bỏ.
+    pub fn put(&mut self, v: T) -> Option<T> {
+        self.0.replace(v)
+    }
+
+    pub fn take(&mut self) -> Option<T> {
+        self.0.take()
+    }
+
+    #[cfg(test)]
+    pub fn is_waiting(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl<T> Default for PendingPin<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Hàm nhận hành động Lưu/Chép từ ảnh ghim.
@@ -218,7 +254,7 @@ fn with_pin<R>(hwnd: HWND, f: impl FnOnce(&mut Pin) -> R) -> Option<R> {
 }
 
 fn too_large() -> PinError {
-    PinError::Create("image too large".into())
+    PinError::TooLarge
 }
 
 /// Tạo một ảnh ghim (sở hữu `image`). Gọi trên luồng giao diện chính.
@@ -327,6 +363,11 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
         let _ = ShowWindow(hwnd, SW_SHOWNA);
     }
     Ok(())
+}
+
+/// Menu ngữ cảnh của một ảnh ghim đang mở (vòng lặp modal của `TrackPopupMenu`).
+pub fn menu_open() -> bool {
+    MENU_OPEN.with(|m| m.get())
 }
 
 pub fn count() -> usize {
@@ -559,7 +600,7 @@ fn title(lang: Lang, w: u32, h: u32) -> String {
 fn badge_text(lang: Lang, zoom: Option<u16>, opacity: u8) -> String {
     match zoom {
         Some(z) => format!("{z}%"),
-        None => format!("{} {opacity}%", t(lang, Msg::PinMenuOpacity)),
+        None => darkshot_core::i18n::pin_opacity_badge(lang, opacity),
     }
 }
 
