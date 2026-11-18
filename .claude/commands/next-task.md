@@ -41,3 +41,5 @@ Task 59–63 (đợt 8: gia cố Lịch sử, bắt cửa sổ) theo kế hoạc
 Task 66–72 (đợt 9 nội bộ = Giai đoạn 3 sản phẩm: Ghim ảnh lên màn hình) theo kế hoạch `docs/superpowers/plans/2026-11-18-pin-screenshot.md` và thiết kế `docs/superpowers/specs/2026-11-18-pin-screenshot-design.md`. Nhánh gốc: `feature/pin-screenshot`; đã duyệt và gộp vào `main` (2026-11-18). Task mới sau đợt 9 cần thiết kế mới. Thay đổi người dùng thấy được phải cập nhật `website/` trong cùng đợt (CLAUDE.md).
 
 Task 73–77 (đợt 10 = Giai đoạn 3: Lặp lại lần chụp trước) theo kế hoạch `docs/superpowers/plans/2026-11-18-repeat-capture.md`; đã gộp `main`. Từ đợt 10, xong mỗi đợt thì phiên điều phối tự gộp `main` và làm tiếp đợt kế (quyết định 114).
+
+Task 78–83 (đợt 11 = Giai đoạn 3: Nhận dạng chữ cục bộ) theo kế hoạch `docs/superpowers/plans/2026-11-18-local-ocr.md`; đã gộp `main`.

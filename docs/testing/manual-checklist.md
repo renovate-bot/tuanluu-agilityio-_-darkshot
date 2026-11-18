@@ -450,6 +450,8 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-repeat.ps1 -Exe targe
 
 Chạy bản demo cách ly: `powershell -File scripts/demo-ocr.ps1 -Exe target\demo11\release\darkshot.exe` (thêm `-Lang en`). Demo mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó bằng Ctrl+Alt+Shift+F10, rồi bấm Ctrl+T (hoặc nút Nhận dạng chữ). [x] = phiên điều phối đã thấy; [ ] = chưa ai thử.
 
+- [x] (Phiên điều phối, 2026-11-18, Windows 11, một màn hình 2880×1800 DPI 200%, English, không giả lập chuột/phím thật) Lịch sử → Ghim một ảnh tổng hợp có chữ → menu ảnh ghim → Recognize text: cửa sổ "Recognized text" đọc đúng 3/3 dòng, dòng trạng thái "English (United States), en-US · 3 lines", chữ được chọn sẵn, Copy/Close (`target/demo11/screens/`). Ảnh ghim ở giữa màn hình nên cửa sổ kết quả mở giữa và bị ảnh ghim che một phần (quyết định 120). Kiểm thử chạy tay `ocr::tests::manual` 3/3 và `ocr_window::tests::manual` 6/6 qua.
+
 - [ ] Thanh ngang ở lớp phủ có tám nút: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy. Nút "Nhận dạng chữ (Ctrl+T)" nằm giữa Ghim và Hủy, rê chuột thấy đúng tên và phím.
 - [ ] Ctrl+T khi chưa có vùng chọn không làm gì; có vùng chọn thì mở cửa sổ Chữ nhận dạng.
 - [ ] Đang gõ dở một ô chữ rồi bấm Ctrl+T: ô được chốt trước, và ô đó có trong ảnh nhận dạng.

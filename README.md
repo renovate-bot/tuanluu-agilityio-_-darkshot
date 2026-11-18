@@ -19,7 +19,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11). Bản build từ `main` có thêm Chụp lại vùng trước và Nhận dạng chữ cục bộ (đo ngày 2026-11-18): **2.078.720 byte** (khoảng 1,98 MiB).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11). Bản build từ `main` có thêm Chụp lại vùng trước và Nhận dạng chữ cục bộ (đo ngày 2026-11-18): **2.080.768 byte** (khoảng 1,98 MiB).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 

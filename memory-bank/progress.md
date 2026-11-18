@@ -98,10 +98,13 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 76 Lặp lại lần chụp: tài liệu, website, demo | task/76-repeat-docs | scaffolder | haiku | xong | 118.101 | phiên điều phối đọc diff | 0 | 118.101 |
 | Rà soát toàn đợt 10 | feature/repeat-capture | specialist | fable | xong | | 110.020 | | 110.020 |
 | 77 Sửa sau rà soát toàn đợt 10 (khóa GDI kiểm thử, chữ Trợ giúp, gợi ý cửa sổ ở lớp phủ dự phòng) | task/77-repeat-review-fixes | specialist (agent Task 74, còn ngữ cảnh) | opus | xong | 32.868 | phiên điều phối đọc diff | 0 | 32.868 |
-| 78 OCR: lõi (Giai đoạn 3, đợt 11) | task/78-ocr-core | builder | sonnet | chờ | | | | |
-| 79 OCR: bộ nhận dạng WinRT | task/79-ocr-engine | specialist | opus | chờ | | | | |
-| 80 OCR: cửa sổ kết quả, lớp phủ, ảnh ghim | task/80-ocr-window | specialist | opus | chờ | | | | |
-| 81 OCR: tài liệu, website, demo | task/81-ocr-docs | scaffolder | haiku | chờ | | | | |
+| 78 OCR: lõi (Giai đoạn 3, đợt 11) | task/78-ocr-core | builder | sonnet | xong | 67.269 | 27.163 (reviewer sonnet) | 0 | 94.432 |
+| 79 OCR: bộ nhận dạng WinRT | task/79-ocr-engine | specialist | opus | xong | 101.454 | 56.356 (reviewer fable) | 0 | 157.810 |
+| 80 OCR: cửa sổ kết quả, lớp phủ, ảnh ghim | task/80-ocr-window | specialist | opus | xong | 217.289 | 104.364 (reviewer fable) | 0 | 321.653 |
+| 81 OCR: tài liệu, website, demo | task/81-ocr-docs | scaffolder | haiku | xong | 122.249 | phiên điều phối đọc diff | 0 | 122.249 |
+| 82 OCR: sửa sau rà soát Task 80 | task/82-ocr-review-fixes | specialist (agent Task 80) | opus | xong | 32.839 | phiên điều phối đọc báo cáo | 0 | 32.839 |
+| Rà soát toàn đợt 11 | feature/local-ocr | specialist | fable | xong | | 146.876 | | 146.876 |
+| 83 OCR: đổi ngôn ngữ cập nhật cửa sổ, kiểm thử Ocr | task/83-ocr-final-fixes | specialist (agent Task 80) | opus | xong | 13.663 | phiên điều phối đọc báo cáo | 0 | 13.663 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
