@@ -1,6 +1,12 @@
 # darkshot
 
-darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, hoặc hủy. Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
+darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình (hoặc bấm một lần để chọn đúng một cửa sổ), đánh dấu nếu cần, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, hoặc hủy. Có lịch sử ảnh chụp cục bộ (tùy chọn). Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
+
+## Tải về
+
+Bản mới nhất: **0.3.0** ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases/latest) (`darkshot-v0.3.0-windows-x64.zip` gồm `darkshot.exe` và README, hoặc chỉ `darkshot.exe`; kiểm tra bằng `SHA256SUMS.txt`). Không cần cài đặt: chạy thẳng `darkshot.exe`. File chưa ký số nên SmartScreen có thể cảnh báo lần đầu: **More info** → **Run anyway**.
+
+Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
 ## Build
 
@@ -10,7 +16,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build đo ngày 2026-11-17 (commit `f67268a`): **1.686.528 byte** (khoảng 1,61 MiB, bản `--release` trên Windows 11).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.3.0 đo ngày 2026-11-18: **2.016.256 byte** (khoảng 1,92 MiB, bản `--release` trên Windows 11).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
@@ -29,7 +35,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 ## Cách dùng
 
 1. Chạy `darkshot.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "darkshot".
-2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
+2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Lịch sử ảnh chụp**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
 3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel. Hoặc rê chuột lên một cửa sổ (hay nền của một màn hình) rồi bấm một lần, hoặc Enter, để chọn đúng khung đó (xem "Gợi ý cửa sổ").

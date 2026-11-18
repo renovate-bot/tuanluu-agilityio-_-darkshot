@@ -10,6 +10,7 @@ Cập nhật: 2026-11-18
 - Còn mở (nhỏ): viên nhắc còn đọng sau khi BẤM chọn tới lần di chuột kế (quyết định 100); chưa thử tay Lưu/Chép/Tải lên sau khi chọn cửa sổ bằng chuột thật, DPI 100/150%, màn hình tọa độ âm, Windows 10.
 - Quy trình: model chọn theo từng task (CLAUDE.md "Agent và model", quyết định 95).
 - Khi gộp vào `main`, bốn kiểm thử trạng thái lớp phủ hỏng vì đọc DPI màn hình thật (máy vừa đổi sang một màn 1440×900); đã sửa fixture ở Task 64b (quyết định 102).
+- **Phát hành v0.3.0** (2026-11-18, chủ dự án yêu cầu): tag `v0.3.0`, GitHub release kèm `darkshot-v0.3.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Nội dung từ `CHANGELOG.md` (mới, quyết định 103). Exe chưa ký số.
 - Task đang làm: không.
 
 ## Bước kế tiếp
