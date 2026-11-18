@@ -8617,14 +8617,19 @@ mod tests {
     }
 
     /// Số điểm ảnh trong `r` (tọa độ ảnh) của màn hình thật có một kênh màu lệch quá 8 mức so với
-    /// ảnh `shot` (`bright`) hoặc nền tối của nó.
-    fn screen_diff(shot: &crate::capture::Screenshot, r: Rect, bright: bool) -> usize {
-        let now = crate::capture::capture_virtual_screen(false).unwrap();
+    /// ảnh `shot` (`bright`) hoặc nền tối của nó. Chạy ở luồng phụ của `live::drive`: không panic
+    /// (lớp phủ toàn màn hình sẽ treo), lỗi trả `Err`.
+    fn screen_diff(
+        shot: &crate::capture::Screenshot,
+        r: Rect,
+        bright: bool,
+    ) -> Result<usize, String> {
+        let now = crate::capture::capture_virtual_screen(false).map_err(|e| e.to_string())?;
         let w = shot.image.width as i32;
-        assert_eq!(
-            (now.image.width, now.origin),
-            (shot.image.width, shot.origin)
-        );
+        let geo = |s: &crate::capture::Screenshot| (s.image.width, s.image.height, s.origin);
+        if geo(&now) != geo(shot) {
+            return Err("màn hình ảo đổi kích thước hoặc gốc".to_string());
+        }
         let mut n = 0;
         for y in r.y..r.bottom() {
             for x in r.x..r.right() {
@@ -8637,7 +8642,7 @@ mod tests {
                 n += usize::from(differs);
             }
         }
-        n
+        Ok(n)
     }
 
     /// Bấm (không kéo) chọn ứng viên khi viên nhắc đang hiện: trên MÀN HÌNH THẬT ô viên nhắc phải
@@ -8674,14 +8679,23 @@ mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let probe = |label: &'static str, r: Rect, bright: bool| {
             let (sh, lg) = (shot.clone(), log.clone());
-            live::Step::Probe(Box::new(move || {
-                let n = screen_diff(&sh, r, bright);
-                lg.lock().unwrap().push((label, n));
-                true
+            live::Step::Probe(Box::new(move || match screen_diff(&sh, r, bright) {
+                Ok(n) => {
+                    if let Ok(mut l) = lg.lock() {
+                        l.push((label, n));
+                    }
+                    true
+                }
+                Err(e) => {
+                    eprintln!("probe {label}: {e}");
+                    false
+                }
             }))
         };
         let inner = inflate(win, -40);
-        // Dải nền dưới ứng viên, xa con trỏ: tối khi lớp phủ đang hiện và xem trước đúng ứng viên.
+        // Dải nền dưới ứng viên: tối khi lớp phủ đang hiện và xem trước ứng viên `win` (chỉ kiểm khi
+        // con trỏ thật ở điểm bấm; với con trỏ thật ở góc xa, WM_MOUSEMOVE hệ thống tại đó có thể đổi
+        // xem trước sang ứng viên cả màn hình, đúng kịch bản demo).
         let below = Rect {
             x: win.x,
             y: win.bottom() + 40,
@@ -8692,6 +8706,7 @@ mod tests {
             live::Step::Cursor(if real_cursor { at } else { far }),
             live::Step::Move(at),
             probe("hint before", hint, false),
+            probe("hint before bright", hint, true),
             probe("below before", below, false),
             live::Step::Down(at),
             live::Step::Up(at),
@@ -8704,15 +8719,25 @@ mod tests {
         let (r, ok) = live::drive(&shot, None, steps);
         let log = log.lock().unwrap().clone();
         eprintln!("hint {hint:?} win {win:?} log {log:?}");
-        // `ok` sai: lớp phủ mất kích hoạt và tự đóng giữa chừng (chạy lại).
-        assert!(ok, "lớp phủ đóng giữa chừng: {log:?}");
+        // `ok` sai: lớp phủ mất kích hoạt và tự đóng giữa chừng, hoặc một phép đo lỗi (chạy lại).
+        assert!(ok, "lớp phủ đóng giữa chừng hoặc phép đo lỗi: {log:?}");
         assert!(matches!(r, Ok(None)));
         let get = |l: &str| log.iter().find(|(k, _)| *k == l).unwrap().1;
-        // Tiền đề: lớp phủ đang hiện trên cùng, xem trước đúng ứng viên (không thì do môi trường:
-        // cửa sổ khác che, chuột thật bị di; chạy lại).
-        assert_eq!(get("below before"), 0, "lớp phủ không hiện đúng: {log:?}");
-        // Trước khi bấm viên nhắc thật sự hiện (phép đo có nghĩa).
+        // Tiền đề: lớp phủ đang hiện trên cùng với viên nhắc (ô viên nhắc khác cả ảnh gốc lẫn nền
+        // tối). Không thì do môi trường (cửa sổ khác che, chuột thật bị di): chạy lại.
+        assert!(
+            get("hint before bright") > 50,
+            "lớp phủ không hiện: {log:?}"
+        );
         assert!(get("hint before") > 50, "{log:?}");
+        if real_cursor {
+            // Con trỏ thật ở điểm bấm: xem trước đúng ứng viên `win`.
+            assert_eq!(
+                get("below before"),
+                0,
+                "xem trước không phải `win`: {log:?}"
+            );
+        }
         // Vùng ứng viên đã được chọn (sáng).
         assert!(get("window after") < 50, "{log:?}");
         // Viên nhắc đã biến mất ngay sau khi nhả chuột.
@@ -9121,6 +9146,18 @@ mod tests {
             // Con trỏ thật ngay dưới viên nhắc (viên nhắc ẩn khi chuột gần).
             let near = p(hint.x + hint.w / 2, hint.bottom() + 2);
             let cases: Vec<(&str, Vec<Ev>)> = vec![
+                // WM_MOUSEMOVE hệ thống tại con trỏ thật (xa) chen giữa bấm và nhả: thành kéo, nhả
+                // tại điểm bấm thì không chọn gì và viên nhắc hiện lại.
+                (
+                    "demo, chuột thật xa chen giữa bấm và nhả",
+                    vec![
+                        Ev::Move(at),
+                        Ev::Down(at),
+                        Ev::Move(far),
+                        Ev::Up(at),
+                        Ev::Move(far),
+                    ],
+                ),
                 (
                     "chuột thật",
                     vec![Ev::Move(at), Ev::Down(at), Ev::Up(at), Ev::Move(at)],
@@ -9166,8 +9203,13 @@ mod tests {
                 let mut s = state(&sh, None);
                 assert!(s.hint().is_some(), "{name}");
                 screen_hint_follows_state(&mut s, &evs).unwrap_or_else(|e| panic!("{name}: {e}"));
-                assert_eq!(s.sel.rect(), Some(WIN), "{name}");
-                assert!(s.hint().is_none(), "{name}");
+                if name.contains("chen giữa") {
+                    assert_eq!(s.sel.rect(), None, "{name}");
+                    assert!(s.hint().is_some(), "{name}");
+                } else {
+                    assert_eq!(s.sel.rect(), Some(WIN), "{name}");
+                    assert!(s.hint().is_none(), "{name}");
+                }
             }
         }
 
@@ -9190,6 +9232,14 @@ mod tests {
             s.dpis = vec![96, 192];
             let at = p(200, 150);
             let other = p(W + 400, 500);
+            // Viên nhắc có ở cả hai màn và nhảy màn theo con trỏ.
+            s.on_move(other);
+            let on_other = s.hint().expect("viên nhắc ở màn 2").0;
+            s.on_move(at);
+            let on_at = s.hint().expect("viên nhắc ở màn 1").0;
+            assert!(mon2.contains(p(on_other.x, on_other.y)), "{on_other:?}");
+            assert!(MON.contains(p(on_at.x, on_at.y)), "{on_at:?}");
+            assert_ne!(on_other, on_at);
             let evs = [
                 Ev::Move(other),
                 Ev::Move(at),
