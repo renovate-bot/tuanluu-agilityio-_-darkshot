@@ -12,7 +12,7 @@ use darkshot_core::i18n::Lang;
 use darkshot_core::image::{encode_png, Image};
 use darkshot_core::naming::LocalTime;
 use darkshot_core::steps::{Step, StepSession, MAX_STEPS};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -41,13 +41,30 @@ struct Saved {
     result: Result<(), String>,
 }
 
+/// Lỗi của phiên, kèm lý do (chữ của hệ thống hoặc chữ đã dịch).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepError {
+    /// Không ghi được ảnh bước: bước không được thêm.
+    Image(String),
+    /// Không ghi được `session.json`: phiên trong bộ nhớ vẫn đúng, json được ghi lại ở lần thay
+    /// đổi sau hoặc lúc thoát; hoặc không kết thúc được phiên.
+    Session(String),
+    /// Không bắt đầu được phiên.
+    Start(String),
+}
+
 /// Kết quả áp các lần ghi ảnh đã xong.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Drained {
     /// Số bước đã thêm vào phiên.
     pub added: usize,
-    /// Lý do của các lần ghi ảnh lỗi (bước không được thêm).
-    pub errors: Vec<String>,
+    /// Lỗi ghi ảnh (bước không được thêm) và lỗi ghi `session.json`.
+    pub errors: Vec<StepError>,
+}
+
+/// Lý do khi luồng ghi nền không chạy được (không tạo được luồng, hoặc việc ghi panic).
+fn worker_failed(lang: Lang) -> String {
+    darkshot_core::i18n::t(lang, darkshot_core::i18n::Msg::StepsWorkerFailed).to_string()
 }
 
 /// Bộ đếm việc chưa xong của hàng ghi: `flush` chờ nó về 0.
@@ -198,6 +215,10 @@ pub struct Store {
     writer: Writer,
     results: Arc<Mutex<Vec<Saved>>>,
     notify: Arc<dyn Fn() + Send + Sync>,
+    /// Lần ghi `session.json` gần nhất lỗi: phải ghi lại (lần thay đổi sau, lúc thoát).
+    json_stale: bool,
+    /// Lỗi chưa báo của các thao tác sửa phiên.
+    errors: Vec<StepError>,
 }
 
 impl Store {
@@ -213,7 +234,20 @@ impl Store {
             writer: Writer::new(),
             results: Arc::new(Mutex::new(Vec::new())),
             notify: Arc::from(notify),
+            json_stale: false,
+            errors: Vec::new(),
         }
+    }
+
+    /// `session.json` đang chậm hơn phiên trong bộ nhớ (lần ghi gần nhất lỗi).
+    #[cfg(test)]
+    pub fn json_stale(&self) -> bool {
+        self.json_stale
+    }
+
+    /// Lấy ra các lỗi chưa báo của thao tác sửa phiên.
+    pub fn take_errors(&mut self) -> Vec<StepError> {
+        std::mem::take(&mut self.errors)
     }
 
     fn results(&self) -> MutexGuard<'_, Vec<Saved>> {
@@ -254,10 +288,35 @@ impl Store {
         write_atomic(&self.root.join(SESSION_FILE), s.to_json().as_bytes())
     }
 
+    /// Như `persist`, ghi nhớ kết quả vào `json_stale`; lỗi trả lý do.
+    fn save(&mut self) -> Result<(), String> {
+        let r = self.persist();
+        self.json_stale = r.is_err();
+        r.map_err(|e| e.to_string())
+    }
+
+    /// Thư mục phiên còn dữ liệu (json hoặc ảnh) không thuộc phiên nào trong bộ nhớ; không đọc
+    /// được thư mục cũng coi là còn.
+    fn has_leftovers(&self) -> bool {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) => return e.kind() != std::io::ErrorKind::NotFound,
+        };
+        entries.flatten().any(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name == SESSION_FILE || name.ends_with(".png")
+        })
+    }
+
     /// Bắt đầu phiên trống (đang có phiên thì không làm gì): tạo thư mục và `session.json`.
-    pub fn start(&mut self) -> std::io::Result<()> {
+    /// Thư mục còn dữ liệu chưa khôi phục được thì không ghi đè: đổi tên nó thành
+    /// `current.corrupt-<now>` để giữ lại; không đổi tên được thì không bắt đầu (trả lỗi).
+    pub fn start_at(&mut self, now: LocalTime) -> std::io::Result<()> {
         if self.active() {
             return Ok(());
+        }
+        if self.has_leftovers() {
+            self.keep_corrupt(now)?;
         }
         self.gen += 1;
         self.in_flight.clear();
@@ -268,6 +327,7 @@ impl Store {
             // Không ghi được phiên lên đĩa: không có phiên.
             self.session = None;
         }
+        self.json_stale = false;
         r
     }
 
@@ -323,7 +383,7 @@ impl Store {
         let lang = crate::lang::current();
         let job: Job = Box::new(move || {
             let result = catch_unwind(AssertUnwindSafe(|| write_png(&path, &img, lang)))
-                .unwrap_or_else(|_| Err("panic".to_string()));
+                .unwrap_or_else(|_| Err(worker_failed(lang)));
             results
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -338,7 +398,7 @@ impl Store {
             self.results().push(Saved {
                 gen,
                 file,
-                result: Err("thread".to_string()),
+                result: Err(worker_failed(lang)),
             });
             (self.notify)();
         }
@@ -373,13 +433,24 @@ impl Store {
                         let _ = std::fs::remove_file(self.root.join(&d.file));
                     }
                 }
-                Err(e) => out.errors.push(e),
+                Err(e) => out.errors.push(StepError::Image(e)),
             }
         }
-        if out.added > 0 {
-            let _ = self.persist();
+        if out.added > 0 || (self.json_stale && self.active()) {
+            if let Err(e) = self.save() {
+                out.errors.push(StepError::Session(e));
+            }
         }
         out
+    }
+
+    /// Lúc thoát: chờ ảnh đang ghi tối đa `timeout`, áp kết quả, ghi lại `session.json` nếu đang
+    /// trễ. Trả mọi lỗi chưa báo.
+    pub fn finish(&mut self, timeout: Duration) -> Vec<StepError> {
+        let _ = self.flush(timeout);
+        let mut errors = self.drain().errors;
+        errors.extend(self.take_errors());
+        errors
     }
 
     /// Chờ các ảnh đang ghi xong, tối đa `timeout`; `true` khi hàng rỗng.
@@ -401,7 +472,8 @@ impl Store {
             .ok()
             .and_then(|s| StepSession::from_json(&s));
         let Some(mut sess) = parsed else {
-            self.keep_corrupt(now);
+            // Không đổi tên được: thư mục giữ nguyên; bắt đầu phiên mới sẽ thử lại.
+            let _ = self.keep_corrupt(now);
             return;
         };
         let before = sess.steps.len();
@@ -412,13 +484,17 @@ impl Store {
         // Không biết phiên đã xuất chưa: coi là chưa (hỏi lại trước khi xóa).
         self.dirty = !sess.steps.is_empty();
         self.session = Some(sess);
+        self.json_stale = false;
         if dropped {
-            let _ = self.persist();
+            if let Err(e) = self.save() {
+                self.errors.push(StepError::Session(e));
+            }
         }
     }
 
-    /// Đổi tên thư mục phiên hỏng sang tên chưa có; không đổi được thì để nguyên.
-    fn keep_corrupt(&self, now: LocalTime) {
+    /// Đổi tên thư mục phiên hỏng (hay chưa khôi phục được) sang tên chưa có; không đổi được thì
+    /// để nguyên và trả lỗi.
+    fn keep_corrupt(&self, now: LocalTime) -> std::io::Result<()> {
         let base = format!(
             "{}.corrupt-{:04}{:02}{:02}-{:02}{:02}{:02}",
             self.root
@@ -432,6 +508,7 @@ impl Store {
             now.minute,
             now.second
         );
+        let mut last = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
         for k in 1..=100 {
             let name = if k == 1 {
                 base.clone()
@@ -442,47 +519,73 @@ impl Store {
             if target.exists() {
                 continue;
             }
-            if std::fs::rename(&self.root, &target).is_ok() {
-                return;
+            match std::fs::rename(&self.root, &target) {
+                Ok(()) => return Ok(()),
+                Err(e) => last = e,
             }
         }
+        Err(last)
     }
 
-    /// Kết thúc phiên: chờ ảnh đang ghi (tối đa 3 s), bỏ phiên, xóa thư mục phiên.
+    /// Kết thúc phiên: chờ ảnh đang ghi (tối đa 3 s), xóa `session.json` TRƯỚC (không xóa được
+    /// thì phiên giữ nguyên và trả lỗi), rồi bỏ phiên và xóa thư mục phiên. Lỗi xóa phần còn lại
+    /// được trả nhưng phiên đã kết thúc (không còn json nên không khôi phục; phần sót được giữ lại
+    /// bằng cách đổi tên ở lần bắt đầu sau). Không có phiên thì không đụng thư mục (có thể là dữ liệu
+    /// chưa khôi phục được).
     pub fn end(&mut self) -> std::io::Result<()> {
+        if !self.active() {
+            return Ok(());
+        }
         let _ = self.flush(END_FLUSH);
+        match std::fs::remove_file(self.root.join(SESSION_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
         // Kết quả còn lại thuộc phiên cũ: bỏ (ảnh nằm trong thư mục sắp xóa).
         self.results().clear();
         self.gen += 1;
         self.in_flight.clear();
         self.session = None;
         self.dirty = false;
+        self.json_stale = false;
         match std::fs::remove_dir_all(&self.root) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         }
     }
 
-    /// Sửa phiên bằng `f`; đổi thì ghi `session.json` và đánh dấu chưa xuất.
+    /// Sửa phiên bằng `f`; đổi thì ghi `session.json` và đánh dấu chưa xuất. Ghi lỗi thì thay
+    /// đổi vẫn giữ trong bộ nhớ, lỗi được ghi lại để báo và json được ghi lại về sau.
     fn edit(&mut self, f: impl FnOnce(&mut StepSession) -> bool) -> bool {
         let changed = self.session.as_mut().is_some_and(f);
         if changed {
             self.dirty = true;
-            let _ = self.persist();
+            if let Err(e) = self.save() {
+                self.errors.push(StepError::Session(e));
+            }
         }
         changed
     }
 
-    /// Xóa bước `i`: ghi `session.json` trước, rồi xóa tệp ảnh.
+    /// Xóa bước `i`: ghi `session.json` trước, rồi xóa tệp ảnh. Không ghi được json thì bước được
+    /// trả lại (ảnh không bị xóa), báo lỗi và trả `false`.
     pub fn remove(&mut self, i: usize) -> bool {
         let Some(file) = self.steps().get(i).map(|s| s.file.clone()) else {
             return false;
         };
-        let changed = self.edit(|s| s.remove(i));
-        if changed {
-            let _ = std::fs::remove_file(self.root.join(file));
+        let (before, dirty) = (self.session.clone(), self.dirty);
+        if !self.session.as_mut().is_some_and(|s| s.remove(i)) {
+            return false;
         }
-        changed
+        if let Err(e) = self.save() {
+            self.session = before;
+            self.dirty = dirty;
+            self.errors.push(StepError::Session(e));
+            return false;
+        }
+        self.dirty = true;
+        let _ = std::fs::remove_file(self.root.join(file));
+        true
     }
 
     pub fn move_up(&mut self, i: usize) -> bool {
@@ -513,9 +616,24 @@ impl Store {
 /// HWND của cửa sổ chính nhận `WM_STEPS_SAVED` (0: chưa có).
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 
+fn ignore_errors(_: &[StepError]) {}
+
 thread_local! {
     static STORE: RefCell<Option<Store>> = const { RefCell::new(None) };
     static LISTENERS: RefCell<Vec<fn()>> = const { RefCell::new(Vec::new()) };
+    static ON_ERROR: Cell<fn(&[StepError])> = const { Cell::new(ignore_errors) };
+}
+
+/// Hàm báo lỗi của phiên (main: thông báo Error qua khay).
+pub fn set_on_error(f: fn(&[StepError])) {
+    ON_ERROR.with(|c| c.set(f));
+}
+
+/// Báo `errors` (nếu có); chỉ gọi khi đã trả mượn `STORE`.
+fn report(errors: &[StepError]) {
+    if !errors.is_empty() {
+        ON_ERROR.with(|c| c.get())(errors);
+    }
 }
 
 fn post_saved() {
@@ -561,11 +679,15 @@ fn changed() {
     }
 }
 
-/// Bắt đầu phiên trống (đang có phiên thì giữ nguyên).
-pub fn start() -> std::io::Result<()> {
-    let r = with(|s| s.start());
+/// Bắt đầu phiên trống (đang có phiên thì giữ nguyên); lỗi được báo qua `set_on_error`.
+pub fn start() -> bool {
+    let now = paths::local_now();
+    let r = with(|s| s.start_at(now));
     changed();
-    r
+    if let Err(e) = &r {
+        report(&[StepError::Start(e.to_string())]);
+    }
+    r.is_ok()
 }
 
 pub fn active() -> bool {
@@ -581,36 +703,41 @@ pub fn add(image: Image) -> Result<(), Full> {
     with(|s| s.add(image))
 }
 
-/// Áp các lần ghi ảnh đã xong (ở `WM_STEPS_SAVED`); trả lý do của các lần lỗi.
-pub fn drain_saved() -> Vec<String> {
+/// Áp các lần ghi ảnh đã xong (ở `WM_STEPS_SAVED`); lỗi được báo qua `set_on_error`.
+pub fn drain_saved() {
     let d = with(|s| s.drain());
     if d.added > 0 {
         changed();
     }
-    d.errors
+    report(&d.errors);
 }
 
 /// Khôi phục phiên lúc khởi động.
 pub fn restore() {
     let now = paths::local_now();
-    with(|s| s.restore_at(now));
+    let errors = with(|s| {
+        s.restore_at(now);
+        s.take_errors()
+    });
     changed();
+    report(&errors);
 }
 
-/// Kết thúc phiên và xóa thư mục phiên.
-pub fn end() -> std::io::Result<()> {
+/// Kết thúc phiên và xóa thư mục phiên; lỗi được báo qua `set_on_error`.
+pub fn end() -> bool {
     let r = with(|s| s.end());
     changed();
-    r
+    if let Err(e) = &r {
+        report(&[StepError::Session(e.to_string())]);
+    }
+    r.is_ok()
 }
 
-/// Lúc thoát: chờ ảnh đang ghi tối đa `timeout` rồi áp kết quả (thư mục phiên được giữ).
-/// Trả lý do của các lần ghi lỗi (không còn ai để báo).
-pub fn flush(timeout: Duration) -> Vec<String> {
-    with(|s| {
-        let _ = s.flush(timeout);
-        s.drain().errors
-    })
+/// Lúc thoát: chờ ảnh đang ghi tối đa `timeout`, áp kết quả và ghi lại `session.json` nếu đang
+/// trễ (thư mục phiên được giữ). Lỗi được báo qua `set_on_error`.
+pub fn flush(timeout: Duration) {
+    let errors = with(|s| s.finish(timeout));
+    report(&errors);
 }
 
 /// Các bước theo thứ tự hiển thị (cho cửa sổ Xem lại).
@@ -637,10 +764,11 @@ pub fn mark_exported() {
 }
 
 fn edit_and_notify(f: impl FnOnce(&mut Store) -> bool) -> bool {
-    let r = with(f);
+    let (r, errors) = with(|s| (f(s), s.take_errors()));
     if r {
         changed();
     }
+    report(&errors);
     r
 }
 
@@ -1132,6 +1260,7 @@ mod tests {
         add_wait(&mut s, 2);
         let held = lock(&root.join(SESSION_FILE));
         assert!(s.set_caption(0, "x"));
+        assert_eq!(session_errors(&s.take_errors()), 1);
         drop(held);
         assert!(s.move_down(0));
         assert!(s.take_errors().is_empty());

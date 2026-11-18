@@ -434,6 +434,18 @@ messages! {
         "Export or end the session to capture more."
     ),
     StepsExportFailedTitle => ("Không xuất được các bước", "Couldn't export the steps"),
+    StepsStartFailedTitle => (
+        "Không bắt đầu được phiên chụp từng bước",
+        "Couldn't start step capture"
+    ),
+    StepsSessionSaveFailedTitle => (
+        "Không lưu được phiên chụp từng bước",
+        "Couldn't save the step capture session"
+    ),
+    StepsWorkerFailed => (
+        "Không chạy được tác vụ nền.",
+        "The background task couldn't run."
+    ),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -457,6 +469,8 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::OcrCopyFailedTitle,
     Msg::StepsFullTitle,
     Msg::StepsExportFailedTitle,
+    Msg::StepsStartFailedTitle,
+    Msg::StepsSessionSaveFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`

@@ -291,9 +291,10 @@ pub fn finish() {
     if crate::steps_store::dirty() && crate::steps_store::count() > 0 {
         ON_CONFIRM_END.with(|c| c.get())();
     } else {
-        // Lỗi xóa thư mục: phiên vẫn kết thúc; thư mục còn lại không được khôi phục (thiếu json
-        // thì không có phiên) và bị xóa ở lần kết thúc sau.
-        let _ = crate::steps_store::end();
+        // Không xóa được `session.json`: phiên giữ nguyên. Xóa được json mà còn sót tệp: phiên đã
+        // kết thúc; phần sót được đổi tên (giữ lại) ở lần bắt đầu phiên sau. Lỗi được báo qua
+        // `steps_store::set_on_error`.
+        crate::steps_store::end();
     }
 }
 

@@ -945,23 +945,31 @@ fn post_steps_capture() {
     }
 }
 
-/// Báo lỗi ghi ảnh bước (bước không được thêm).
-fn notify_step_errors(errors: &[String]) {
+/// Tiêu đề và nội dung thông báo cho một lỗi của phiên chụp từng bước.
+pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static str, String) {
+    use steps_store::StepError;
+    let (title, why) = match e {
+        StepError::Image(w) => (Msg::SaveFailedTitle, w),
+        StepError::Session(w) => (Msg::StepsSessionSaveFailedTitle, w),
+        StepError::Start(w) => (Msg::StepsStartFailedTitle, w),
+    };
+    (i18n::t(lang, title), i18n::reason(lang, why))
+}
+
+/// Báo các lỗi của phiên chụp từng bước qua khay.
+fn notify_step_errors(errors: &[steps_store::StepError]) {
     let Some(t) = current_tray() else {
         return;
     };
     for e in errors {
-        t.notifier().notify(
-            NoticeKind::Error,
-            lang::tr(Msg::SaveFailedTitle),
-            &i18n::reason(lang::current(), e),
-        );
+        let (title, body) = step_error_notice(lang::current(), e);
+        t.notifier().notify(NoticeKind::Error, title, &body);
     }
 }
 
 /// Lúc thoát: chờ ảnh bước đang ghi (tối đa 3 s) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
 fn finish_steps_on_exit() {
-    let _ = steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
     steps_bar::close();
 }
 
@@ -1431,7 +1439,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         steps_store::WM_STEPS_SAVED => {
-            notify_step_errors(&steps_store::drain_saved());
+            steps_store::drain_saved();
             LRESULT(0)
         }
         WM_TRAY => {
@@ -1486,9 +1494,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::ClosePins) => pin::close_all(),
                     Some(MenuCommand::StepsStart) => {
-                        if let Err(e) = steps_store::start() {
-                            notify_step_errors(&[e.to_string()]);
-                        }
+                        steps_store::start();
                     }
                     Some(MenuCommand::StepsReview) => steps_bar::review(),
                     Some(MenuCommand::About) => about::show(hwnd),
@@ -1716,6 +1722,7 @@ fn main() {
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
     // Chụp từng bước: phiên còn từ lần chạy trước thì tiếp tục và hiện thanh phiên.
     steps_store::set_window(hwnd);
+    steps_store::set_on_error(notify_step_errors);
     steps_store::on_change(on_steps_changed);
     steps_bar::set_on_capture(post_steps_capture);
     steps_store::restore();
@@ -1758,7 +1765,7 @@ fn main() {
     }
     // Lưới an toàn: vòng lặp kết thúc theo đường nào thì ảnh của lượt còn dở cũng được lưu.
     save_pending_uploads();
-    let _ = steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
 }
 
 #[cfg(test)]
@@ -1803,6 +1810,18 @@ mod tests {
             startup_mode(Some(std::path::Path::new("D:\\sb\\one"))).mutex_name
         );
         assert_ne!(m.mutex_name, startup_mode(None).mutex_name);
+    }
+
+    #[test]
+    fn step_error_titles() {
+        use steps_store::StepError;
+        let (t, b) = step_error_notice(Lang::En, &StepError::Start("x".into()));
+        assert_eq!(t, "Couldn't start step capture");
+        assert_eq!(b, "Reason: x");
+        let (t, _) = step_error_notice(Lang::En, &StepError::Session("x".into()));
+        assert_eq!(t, i18n::t(Lang::En, Msg::StepsSessionSaveFailedTitle));
+        let (t, _) = step_error_notice(Lang::En, &StepError::Image("x".into()));
+        assert_eq!(t, i18n::t(Lang::En, Msg::SaveFailedTitle));
     }
 
     #[test]
