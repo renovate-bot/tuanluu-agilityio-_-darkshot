@@ -576,6 +576,13 @@ impl Stitcher {
         self.bands = Some((top, bottom));
         self.appended += 1;
         self.in_gap = false;
+        // Quy tắc A: cú nhảy hơn nửa vùng chạy vẫn được nối (đã khớp chắc) nhưng tính là một chỗ
+        // không chắc chắn, khớp với lời nhắc "Cuộn chậm hơn". Giới hạn còn lại: trang có khối lặp
+        // cao hơn 1/3 vùng chụp mà người dùng cuộn quá 2/3 khung trong một nhịp có thể mất một số
+        // nguyên lần khối lặp; đo của rà soát: khoảng 0,008% phiên trang lặp sai mà không cảnh báo.
+        if d > (self.h - top - bottom) / 2 {
+            self.uncertain += 1;
+        }
         Push::Appended(d)
     }
 
@@ -1231,9 +1238,9 @@ mod tests {
 
     /// Fuzz trên trang cố ý lặp (thẻ giống hệt): chỉ đo tỉ lệ nối sai
     /// (`cargo test -p darkshot-core --release --lib fuzz_repeating -- --ignored --nocapture`).
-    /// ?o 2026-11-18: 4150 l?n n?i ??ng, 99 sai (2,33%); m?i l?n sai c? dy th?t ngo?i kho?ng t?m
-    /// (cu?n qu? xa ho?c cu?n ng??c) v? l?ch ??ng b?i s? chu k? th?, m?i khung ch? th?y m?t b?n
-    /// c?a kh?i l?p ?? d?i: gi?i h?n c?a gh?p hai khung.
+    /// Đo 2026-11-18: 4150 lần nối đúng, 99 sai (2,33%); mọi lần sai có dy thật ngoài khoảng tìm
+    /// (cuộn quá xa hoặc cuộn ngược) và lệch đúng bội số chu kỳ thẻ, mỗi khung chỉ thấy một bản
+    /// của khối lặp đủ dài: giới hạn của ghép hai khung.
     #[test]
     #[ignore]
     fn fuzz_repeating_pages_measure() {
@@ -1331,6 +1338,26 @@ mod tests {
                 "row {y}"
             );
         }
+    }
+
+    /// Quy tắc A: nhảy hơn nửa vùng chạy vẫn nối đúng nhưng có cảnh báo; tới nửa thì không.
+    #[test]
+    fn large_jump_appends_with_a_warning() {
+        let pg = noise_page(W, 3000, 71);
+        let mut st = Stitcher::new(W, H);
+        st.push(&frame(&pg, 0, H));
+        assert_eq!(st.push(&frame(&pg, 420, H)), Push::Appended(420));
+        assert_eq!(st.uncertain_count(), 1);
+        let (img, n) = st.finish();
+        assert_eq!(n, 1);
+        assert_eq!(img, slice(&pg, 0, 420 + H));
+
+        let mut st = Stitcher::new(W, H);
+        st.push(&frame(&pg, 0, H));
+        assert_eq!(st.push(&frame(&pg, 350, H)), Push::Appended(350));
+        assert_eq!(st.push(&frame(&pg, 400, H)), Push::Appended(50));
+        assert_eq!(st.uncertain_count(), 0);
+        assert_eq!(st.finish().0, slice(&pg, 0, 400 + H));
     }
 
     #[test]
