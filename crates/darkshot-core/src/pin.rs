@@ -45,10 +45,10 @@ pub fn zoom_about(image_rect: Rect, anchor: Point, img_w: u32, img_h: u32, new_z
         if old <= 0 {
             return pos;
         }
-        let off = (a as i64 - pos as i64) * new as i64;
-        let den = old as i64;
+        let off = (a as i128 - pos as i128) * new as i128;
+        let den = old as i128;
         let moved = (2 * off + den).div_euclid(2 * den);
-        (a as i64 - moved).clamp(i32::MIN as i64, i32::MAX as i64) as i32
+        (a as i128 - moved).clamp(i32::MIN as i128, i32::MAX as i128) as i32
     };
     Rect {
         x: axis(image_rect.x, image_rect.w, anchor.x, nw),
@@ -232,6 +232,18 @@ mod tests {
     }
 
     #[test]
+    fn zoom_about_extreme_inputs_do_not_panic() {
+        let out = zoom_about(
+            r(i32::MAX, i32::MIN, i32::MAX, i32::MAX),
+            p(i32::MIN, i32::MAX),
+            u32::MAX,
+            u32::MAX,
+            400,
+        );
+        assert_eq!((out.w, out.h), (i32::MAX, i32::MAX));
+    }
+
+    #[test]
     fn fit_zoom_cases() {
         let area = r(0, 0, 1920, 1040);
         assert_eq!(fit_zoom(800, 600, area), 100);
@@ -289,7 +301,11 @@ mod tests {
             keep_visible(r(500, 2000, 400, 300), &[left, main]),
             r(500, 1048, 400, 300)
         );
-        // Khung giao hai màn hình nhưng chỉ main đủ lớn hơn: giữ nguyên vì main đã đủ.
+        // Giao một phần màn hình trên cả hai trục nhưng chưa đủ 32 px: dời cả hai trục.
+        assert_eq!(
+            keep_visible(r(1900, 1070, 400, 300), &[left, main]),
+            r(1888, 1048, 400, 300)
+        );
         // Không giao màn hình nào: màn hình trái gần nhất.
         assert_eq!(
             keep_visible(r(-4000, 100, 400, 300), &[left, main]),
