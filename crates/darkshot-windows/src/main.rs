@@ -23,6 +23,8 @@ mod pin;
 mod secret;
 mod settings;
 mod snap;
+mod steps_bar;
+mod steps_store;
 mod theme;
 mod tray;
 mod wer;
@@ -608,6 +610,8 @@ const WM_OPEN_SETTINGS: u32 = WM_APP + 3;
 const WM_UPDATE_RESULT: u32 = WM_APP + 4;
 /// Mở cửa sổ Lịch sử (cờ `--history` lúc khởi động).
 const WM_OPEN_HISTORY: u32 = WM_APP + 5;
+/// Nút Chụp bước của thanh phiên (WM_APP+13 là `steps_store::WM_STEPS_SAVED`).
+const WM_STEPS_CAPTURE: u32 = WM_APP + 14;
 const RETRY_TIMER_ID: usize = 1;
 const UPDATE_TIMER_ID: usize = 3;
 const UPDATE_FIRST_DELAY_MS: u32 = 60_000;
@@ -755,7 +759,12 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     .unwrap_or((false, false, false));
     // Liệt kê ngay trước khi chụp để khung khớp ảnh; chỉ khi có thể mở lớp phủ (chọn vùng, hoặc lặp
     // lại mà vùng trước có thể đã mất) và ô gợi ý đang bật.
-    let frames = enumerates_windows(kind, snap_windows).then(snap::enumerate_windows);
+    // Thanh phiên không loại khỏi ảnh chụp được (Windows cũ): ẩn nó tới hết lượt chụp.
+    let _bar = BarHiddenForCapture(steps_bar::hide_for_capture());
+    // Thanh phiên không có trong ảnh: không gợi ý nó như một cửa sổ.
+    let frames = enumerates_windows(kind, snap_windows)
+        .then(snap::enumerate_windows)
+        .map(|w| without_frame(w, steps_bar::frame()));
     let mut shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
@@ -806,7 +815,7 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             with_app(|a| a.overlay_open = true);
             let before = with_app(|a| a.config.custom_colors).unwrap_or_default();
             let mut custom = before;
-            let picked = overlay::pick_region(&shot, initial, &mut custom);
+            let picked = overlay::pick_region(&shot, initial, &mut custom, steps_store::active());
             with_app(|a| a.overlay_open = false);
             // Mọi kết quả của lớp phủ (chọn, hủy, lỗi) đều báo vùng trước đã mất.
             if region_gone {
@@ -880,10 +889,105 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
         open_ocr(image, None, &notify);
         return;
     }
+    if action == Action::AddStep {
+        // Bước của phiên: ghi nền vào thư mục phiên; không lưu, không ghi Lịch sử.
+        if steps_store::add(image).is_err() {
+            notify(
+                NoticeKind::Info,
+                lang::tr(Msg::StepsFullTitle),
+                lang::tr(Msg::StepsFullBody),
+            );
+        }
+        return;
+    }
     let Some(notifier) = notifier else {
         return;
     };
     run_on_image(hwnd, action, image, notifier);
+}
+
+/// Khung cửa sổ `frames` (tọa độ màn hình) bỏ khung `skip` (nếu có).
+pub fn without_frame(mut frames: Vec<Rect>, skip: Option<Rect>) -> Vec<Rect> {
+    if let Some(r) = skip {
+        frames.retain(|f| *f != r);
+    }
+    frames
+}
+
+/// Hiện lại thanh phiên đã ẩn quanh lượt chụp khi rời phạm vi (mọi đường ra của `capture_flow_with`).
+struct BarHiddenForCapture(bool);
+
+impl Drop for BarHiddenForCapture {
+    fn drop(&mut self) {
+        if self.0 {
+            steps_bar::show_after_capture();
+        }
+    }
+}
+
+/// Phiên chụp từng bước đổi (bắt đầu, thêm, sửa, kết thúc): hiện/cập nhật hoặc đóng thanh phiên.
+fn on_steps_changed() {
+    if steps_store::active() {
+        steps_bar::show();
+    } else {
+        steps_bar::close();
+    }
+}
+
+/// Nút Chụp bước của thanh phiên: nhờ cửa sổ chính chụp vùng (không chạy lớp phủ trong thủ tục
+/// cửa sổ của thanh).
+fn post_steps_capture() {
+    if let Some(h) = MAIN_HWND.with(|h| h.get()) {
+        // SAFETY: cửa sổ chính của luồng này; lỗi đăng thông điệp thì bỏ qua.
+        unsafe {
+            let _ = PostMessageW(Some(h), WM_STEPS_CAPTURE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Tiêu đề và nội dung thông báo cho một lỗi của phiên chụp từng bước.
+pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static str, String) {
+    use steps_store::StepError;
+    let (title, why) = match e {
+        StepError::Image(w) => (Msg::SaveFailedTitle, w),
+        StepError::Session(w) => (Msg::StepsSessionSaveFailedTitle, w),
+        StepError::Start(w) => (Msg::StepsStartFailedTitle, w),
+    };
+    (i18n::t(lang, title), i18n::reason(lang, why))
+}
+
+/// Báo các lỗi của phiên chụp từng bước qua khay.
+fn notify_step_errors(errors: &[steps_store::StepError]) {
+    let Some(t) = current_tray() else {
+        return;
+    };
+    for e in errors {
+        let (title, body) = step_error_notice(lang::current(), e);
+        t.notifier().notify(NoticeKind::Error, title, &body);
+    }
+}
+
+/// Lúc thoát: chờ ảnh bước đang ghi (tối đa 3 s) rồi ghi vào phiên; giữ thư mục phiên; đóng thanh.
+fn finish_steps_on_exit() {
+    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
+    steps_bar::close();
+}
+
+/// Một yêu cầu chụp loại `kind` từ phím tắt hay nút Chụp bước: menu đang mở thì đóng nó rồi chụp
+/// sau khi menu tắt hẳn; không thì chụp ngay.
+fn capture_request(hwnd: HWND, kind: CaptureKind) {
+    let other_menu = pin::menu_open() || history_window::menu_open();
+    if hotkey_defers(MENU_OPEN.with(|m| m.get()), other_menu) {
+        // Một menu (khay, ảnh ghim, Lịch sử) đang mở: đóng nó rồi chụp sau khi menu tắt
+        // hẳn, như chọn từ menu khay; lớp phủ không chạy trong vòng lặp modal của menu.
+        // SAFETY: đóng menu đang hiện của luồng này.
+        unsafe {
+            let _ = EndMenu();
+        }
+        request(hwnd, GateEvent::MenuCapture, kind);
+    } else {
+        handle_event(hwnd, AppEvent::Capture(kind));
+    }
 }
 
 /// Phím chụp tới khi một menu đang mở (menu khay, hoặc menu ngữ cảnh của ảnh ghim/Lịch sử): đóng
@@ -1175,6 +1279,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 help::close();
                 // Cửa sổ Nhận dạng chữ không đóng (giữ chữ người dùng đang sửa): đổi chữ giao diện.
                 ocr_window::relabel();
+                steps_bar::relabel();
             }
             if history_window_stale(&config, &new) {
                 history_window::close_if_open();
@@ -1295,6 +1400,7 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             ocr_window::close_all();
             // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng.
             save_pending_uploads();
+            finish_steps_on_exit();
             // SAFETY: hwnd là cửa sổ của luồng này.
             unsafe {
                 let _ = DestroyWindow(hwnd);
@@ -1324,18 +1430,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let kind = hotkey::role_of(wp.0 as i32)
                 .map(kind_of)
                 .unwrap_or(CaptureKind::Region);
-            let other_menu = pin::menu_open() || history_window::menu_open();
-            if hotkey_defers(MENU_OPEN.with(|m| m.get()), other_menu) {
-                // Một menu (khay, ảnh ghim, Lịch sử) đang mở: đóng nó rồi chụp sau khi menu tắt
-                // hẳn, như chọn từ menu khay; lớp phủ không chạy trong vòng lặp modal của menu.
-                // SAFETY: đóng menu đang hiện của luồng này.
-                unsafe {
-                    let _ = EndMenu();
-                }
-                request(hwnd, GateEvent::MenuCapture, kind);
-            } else {
-                handle_event(hwnd, AppEvent::Capture(kind));
-            }
+            capture_request(hwnd, kind);
+            LRESULT(0)
+        }
+        // Chụp bước: như phím chụp vùng.
+        WM_STEPS_CAPTURE => {
+            capture_request(hwnd, CaptureKind::Region);
+            LRESULT(0)
+        }
+        steps_store::WM_STEPS_SAVED => {
+            steps_store::drain_saved();
             LRESULT(0)
         }
         WM_TRAY => {
@@ -1364,8 +1468,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 .flatten();
                 let pins = pin::count();
                 let can_repeat = LAST_CAPTURE.with(|l| l.get()).is_some();
-                let cmd =
-                    current_tray().and_then(|t| t.show_menu(label.as_deref(), pins, can_repeat));
+                let steps = steps_store::active().then(steps_store::count);
+                let cmd = current_tray()
+                    .and_then(|t| t.show_menu(label.as_deref(), pins, can_repeat, steps));
                 MENU_OPEN.with(|m| m.set(false));
                 match cmd {
                     Some(MenuCommand::OpenUpdate) => {
@@ -1388,6 +1493,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // Lịch sử, Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
                     Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::ClosePins) => pin::close_all(),
+                    Some(MenuCommand::StepsStart) => {
+                        steps_store::start();
+                    }
+                    Some(MenuCommand::StepsReview) => steps_bar::review(),
                     Some(MenuCommand::About) => about::show(hwnd),
                     Some(MenuCommand::Help) => {
                         if let Some(keys) = with_app(|a| hotkey::help_keys(&a.config.hotkeys)) {
@@ -1486,6 +1595,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 pin::close_all();
                 ocr_window::close_all();
                 save_pending_uploads();
+                finish_steps_on_exit();
             }
             LRESULT(0)
         }
@@ -1498,6 +1608,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
+            steps_bar::close();
             hotkey::unregister_all(hwnd);
             TRAY.with(|t| t.borrow_mut().take());
             // SAFETY: kết thúc vòng lặp thông điệp của luồng này.
@@ -1609,6 +1720,12 @@ fn main() {
     LAST_CAPTURE_ON_DISK.with(|l| l.set(last));
     LAST_SELECTION.with(|s| s.set(last.map(|l| l.rect)));
     register_hotkeys_or_notify(hwnd, &keys, &notifier);
+    // Chụp từng bước: phiên còn từ lần chạy trước thì tiếp tục và hiện thanh phiên.
+    steps_store::set_window(hwnd);
+    steps_store::set_on_error(notify_step_errors);
+    steps_store::on_change(on_steps_changed);
+    steps_bar::set_on_capture(post_steps_capture);
+    steps_store::restore();
     if mode.update_timer && with_app(|a| a.config.check_updates).unwrap_or(false) {
         start_update_timer(hwnd);
     }
@@ -1648,6 +1765,7 @@ fn main() {
     }
     // Lưới an toàn: vòng lặp kết thúc theo đường nào thì ảnh của lượt còn dở cũng được lưu.
     save_pending_uploads();
+    steps_store::flush(HISTORY_FLUSH_TIMEOUT);
 }
 
 #[cfg(test)]
@@ -1692,6 +1810,37 @@ mod tests {
             startup_mode(Some(std::path::Path::new("D:\\sb\\one"))).mutex_name
         );
         assert_ne!(m.mutex_name, startup_mode(None).mutex_name);
+    }
+
+    #[test]
+    fn step_error_titles() {
+        use steps_store::StepError;
+        let (t, b) = step_error_notice(Lang::En, &StepError::Start("x".into()));
+        assert_eq!(t, "Couldn't start step capture");
+        assert_eq!(b, "Reason: x");
+        let (t, _) = step_error_notice(Lang::En, &StepError::Session("x".into()));
+        assert_eq!(t, i18n::t(Lang::En, Msg::StepsSessionSaveFailedTitle));
+        let (t, _) = step_error_notice(Lang::En, &StepError::Image("x".into()));
+        assert_eq!(t, i18n::t(Lang::En, Msg::SaveFailedTitle));
+    }
+
+    #[test]
+    fn without_frame_drops_only_the_session_bar() {
+        let r = |x, y, w, h| Rect { x, y, w, h };
+        let bar = r(700, 12, 400, 40);
+        let wins = vec![r(0, 0, 800, 600), bar, r(10, 10, 50, 50)];
+        assert_eq!(
+            without_frame(wins.clone(), Some(bar)),
+            vec![r(0, 0, 800, 600), r(10, 10, 50, 50)]
+        );
+        assert_eq!(without_frame(wins.clone(), None), wins);
+    }
+
+    /// Mã thông điệp của chụp từng bước không trùng mã nào đã dùng (WM_APP+1..+12).
+    #[test]
+    fn steps_message_ids() {
+        assert_eq!(steps_store::WM_STEPS_SAVED, WM_APP + 13);
+        assert_eq!(WM_STEPS_CAPTURE, WM_APP + 14);
     }
 
     #[test]

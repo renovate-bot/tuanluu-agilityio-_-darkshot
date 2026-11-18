@@ -248,33 +248,62 @@ enum Glyph {
     Redo,
 }
 
+/// Các ô của thanh ngang: không có phiên chụp từng bước thì đúng `BAR_CELLS`; có phiên thì thêm
+/// Thêm bước ngay trước Hủy.
+fn bar_cells(steps: bool) -> Vec<Option<BarItem>> {
+    let mut v = BAR_CELLS.to_vec();
+    if steps {
+        let cancel = v
+            .iter()
+            .position(|c| *c == Some(BarItem::Act(Action::Cancel)))
+            .unwrap_or(v.len());
+        v.insert(cancel, Some(BarItem::Act(Action::AddStep)));
+    }
+    v
+}
+
 /// Bố cục thanh ngang ở một DPI: cỡ thanh và ô của từng phần (tương đối góc trên trái thanh),
-/// theo thứ tự `BAR_CELLS`.
+/// theo thứ tự `bar_cells`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BarLayout {
     size: (i32, i32),
-    cells: [(Option<BarItem>, Rect); BAR_CELLS.len()],
+    cells: Vec<(Option<BarItem>, Rect)>,
 }
 
-/// Thanh ngang: các nút vuông `BUTTON` xếp liền, vạch ngăn rộng `SIDE_SEP`.
+/// Thanh ngang khi không có phiên chụp từng bước.
+#[cfg(test)]
 fn bar_layout(dpi: u32) -> BarLayout {
+    bar_layout_with(dpi, false)
+}
+
+/// Thanh ngang: các nút vuông `BUTTON` xếp liền, vạch ngăn rộng `SIDE_SEP`; `steps`: có phiên.
+fn bar_layout_with(dpi: u32, steps: bool) -> BarLayout {
     let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
     let mut x = 0;
-    let cells = BAR_CELLS.map(|item| {
-        let w = if item.is_some() { b } else { sep };
-        let r = Rect { x, y: 0, w, h: b };
-        x += w;
-        (item, r)
-    });
+    let cells = bar_cells(steps)
+        .into_iter()
+        .map(|item| {
+            let w = if item.is_some() { b } else { sep };
+            let r = Rect { x, y: 0, w, h: b };
+            x += w;
+            (item, r)
+        })
+        .collect();
     BarLayout {
         size: (x, b),
         cells,
     }
 }
 
-/// Ô của mục `item` trên thanh ngang `bar`.
+/// Ô của mục `item` trên thanh ngang `bar` khi không có phiên.
+#[cfg(test)]
 fn bar_item_rect(bar: Rect, dpi: u32, item: BarItem) -> Option<Rect> {
-    bar_layout(dpi)
+    bar_item_rect_with(bar, dpi, false, item)
+}
+
+/// Ô của mục `item` trên thanh ngang `bar`.
+fn bar_item_rect_with(bar: Rect, dpi: u32, steps: bool, item: BarItem) -> Option<Rect> {
+    bar_layout_with(dpi, steps)
         .cells
         .iter()
         .find(|(i, _)| *i == Some(item))
@@ -285,12 +314,18 @@ fn bar_item_rect(bar: Rect, dpi: u32, item: BarItem) -> Option<Rect> {
         })
 }
 
-/// Mục của thanh ngang `bar` dưới điểm `p`; vạch ngăn và ngoài thanh trả `None`.
+/// Mục của thanh ngang `bar` (không phiên) dưới điểm `p`.
+#[cfg(test)]
 fn bar_item_at(bar: Rect, p: Point, dpi: u32) -> Option<BarItem> {
+    bar_item_at_with(bar, p, dpi, false)
+}
+
+/// Mục của thanh ngang `bar` dưới điểm `p`; vạch ngăn và ngoài thanh trả `None`.
+fn bar_item_at_with(bar: Rect, p: Point, dpi: u32, steps: bool) -> Option<BarItem> {
     if bar.w <= 0 || !bar.contains(p) {
         return None;
     }
-    bar_layout(dpi)
+    bar_layout_with(dpi, steps)
         .cells
         .iter()
         .find(|(_, r)| {
@@ -611,10 +646,17 @@ fn lum_image(hue: u16, sat: u16, w: i32, h: i32) -> Vec<u8> {
     bits
 }
 
-/// Thanh ngang và thanh dọc cho vùng chọn `sel`, màn hình chứa góc dưới phải `mon` ở `dpi`.
+/// Thanh ngang và thanh dọc (không phiên chụp từng bước).
+#[cfg(test)]
 fn bars_for(sel: Rect, mon: Rect, dpi: u32) -> (Rect, Rect) {
+    bars_for_with(sel, mon, dpi, false)
+}
+
+/// Thanh ngang và thanh dọc cho vùng chọn `sel`, màn hình chứa góc dưới phải `mon` ở `dpi`;
+/// `steps`: có phiên chụp từng bước (thanh ngang thêm một ô).
+fn bars_for_with(sel: Rect, mon: Rect, dpi: u32, steps: bool) -> (Rect, Rect) {
     let gap = scaled(GAP, dpi);
-    let bar = place_toolbar(sel, bar_layout(dpi).size, gap, mon);
+    let bar = place_toolbar(sel, bar_layout_with(dpi, steps).size, gap, mon);
     let size = side_layout_for(mon, dpi).size;
     let side = place_side_toolbar(sel, size, gap, mon, Some(bar));
     (bar, side)
@@ -1423,6 +1465,8 @@ struct State {
     expanded: bool,
     /// 16 màu tự chọn; `pick_region` chép ra cho bên gọi khi đóng.
     custom: CustomColors,
+    /// Có phiên chụp từng bước: thanh ngang thêm ô Thêm bước, Ctrl+N thêm bước.
+    steps: bool,
     /// Màu hiện tại của phần tự chọn (dạng đủ).
     pick: PickColor,
     /// Ô tự chọn đích của "Thêm vào màu tự chọn".
@@ -1592,7 +1636,7 @@ impl State {
         };
         let mon = monitor_containing(corner, &self.monitors);
         let dpi = self.monitor_dpi(mon);
-        let (bar, side) = bars_for(sel, mon, dpi);
+        let (bar, side) = bars_for_with(sel, mon, dpi, self.steps);
         Some(Bars {
             sel,
             mon,
@@ -1649,7 +1693,7 @@ impl State {
     /// Mục thanh ngang dưới `p`.
     fn bar_item_at(&self, p: Point) -> Option<BarItem> {
         let (bar, dpi) = self.toolbar()?;
-        bar_item_at(bar, p, dpi)
+        bar_item_at_with(bar, p, dpi, self.steps)
     }
 
     /// Bảng màu khi đang mở.
@@ -1838,7 +1882,7 @@ impl State {
         }
         let item = self.hover?;
         let (bar, dpi) = self.toolbar()?;
-        let btn = bar_item_rect(bar, dpi, item)?;
+        let btn = bar_item_rect_with(bar, dpi, self.steps, item)?;
         let text = wide(lang::tr(item.tip()));
         let (tw, th) = self.text_size(&text, dpi);
         let (w, h) = (tw + 2 * scaled(8, dpi), th + 2 * scaled(4, dpi));
@@ -2573,6 +2617,8 @@ impl State {
                 0x50 => self.finish(Action::Pin),
                 // T: như P, chốt ô chữ trước khi nhận dạng (chữ vừa gõ có trong ảnh nhận dạng).
                 0x54 => self.finish(Action::Ocr),
+                // N: thêm bước (chỉ khi có phiên chụp từng bước), chốt ô chữ như P.
+                0x4E if self.steps => self.finish(Action::AddStep),
                 _ => {}
             }
             return;
@@ -3336,6 +3382,8 @@ impl State {
             0x43 => Action::Copy,   // C
             0x50 => Action::Pin,    // P
             0x54 => Action::Ocr,    // T
+            // N: thêm bước, chỉ khi có phiên chụp từng bước.
+            0x4E if self.steps => Action::AddStep,
             _ => return,
         };
         self.finish(a);
@@ -3567,6 +3615,7 @@ impl State {
                 // Đang gõ thì Hoàn tác xóa ô chữ (hoặc hủy ô rỗng rồi hoàn tác hình cuối).
                 can_undo: self.marks.can_undo() || self.text.is_some(),
                 can_redo: self.marks.can_redo(),
+                steps: self.steps,
             };
             p.toolbar(bar, dpi, &look, self.gdiplus);
         }
@@ -3670,6 +3719,8 @@ struct BarLook {
     hover: Option<BarItem>,
     can_undo: bool,
     can_redo: bool,
+    /// Có phiên chụp từng bước (thêm ô Thêm bước).
+    steps: bool,
 }
 
 impl BarLook {
@@ -4386,7 +4437,7 @@ impl Painter {
     /// động ngăn bằng vạch 1 px.
     fn toolbar(&self, bar: Rect, dpi: u32, look: &BarLook, gdiplus: bool) {
         self.round_rect(bar, scaled(6, dpi), SURFACE, OVERLAY_BORDER);
-        let l = bar_layout(dpi);
+        let l = bar_layout_with(dpi, look.steps);
         let cells = || {
             l.cells.iter().map(|(item, r)| {
                 (
@@ -4698,8 +4749,17 @@ impl Gp {
                 p.poly(&bar);
                 p.poly(&stem);
             }
-            // Ô thêm bước chưa có trên thanh ngang (Task 85).
-            Action::AddStep => {}
+            Action::AddStep => {
+                // Dấu cộng trong ô vuông bo góc (4,4)-(20,20), bán kính 2.
+                p.start();
+                p.arc(6.0, 6.0, 2.0, 180.0, 90.0);
+                p.arc(18.0, 6.0, 2.0, 270.0, 90.0);
+                p.arc(18.0, 18.0, 2.0, 0.0, 90.0);
+                p.arc(6.0, 18.0, 2.0, 90.0, 90.0);
+                p.close();
+                p.poly(&[(12.0, 8.0), (12.0, 16.0)]);
+                p.poly(&[(8.0, 12.0), (16.0, 12.0)]);
+            }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
@@ -5166,6 +5226,7 @@ impl State {
             palette: false,
             expanded: false,
             custom: *custom,
+            steps: false,
             pick: PickColor::from_rgb(color),
             target: None,
             field: None,
@@ -5203,6 +5264,7 @@ pub fn pick_region(
     shot: &Screenshot,
     initial: Option<Rect>,
     custom: &mut CustomColors,
+    steps: bool,
 ) -> Result<Option<Picked>, String> {
     let img = &shot.image;
     let size = (i32::try_from(img.width), i32::try_from(img.height));
@@ -5219,7 +5281,8 @@ pub fn pick_region(
     }
 
     let gdiplus = GdiPlus::start();
-    let state = State::new(shot, w, h, initial, custom, gdiplus.ok())?;
+    let mut state = State::new(shot, w, h, initial, custom, gdiplus.ok())?;
+    state.steps = steps;
     let placed = OVERLAY.with(|o| match o.try_borrow_mut() {
         Ok(mut b) => {
             *b = Some(state);
@@ -5422,6 +5485,77 @@ mod tests {
         }
     }
 
+    /// Không phiên: đúng `BAR_CELLS` (9 ô) như cũ. Có phiên: thêm Thêm bước ngay trước Hủy (10 ô);
+    /// bố cục và dò ô theo đúng danh sách ô.
+    #[test]
+    fn bar_cells_with_and_without_steps() {
+        assert_eq!(bar_cells(false), BAR_CELLS.to_vec());
+        let with = bar_cells(true);
+        assert_eq!(with.len(), 10);
+        assert_eq!(
+            with,
+            vec![
+                Some(BarItem::Undo),
+                Some(BarItem::Redo),
+                None,
+                Some(BarItem::Act(Action::Upload)),
+                Some(BarItem::Act(Action::Save)),
+                Some(BarItem::Act(Action::Copy)),
+                Some(BarItem::Act(Action::Pin)),
+                Some(BarItem::Act(Action::Ocr)),
+                Some(BarItem::Act(Action::AddStep)),
+                Some(BarItem::Act(Action::Cancel)),
+            ]
+        );
+        for dpi in [96, 144, 192] {
+            let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
+            assert_eq!(bar_layout(dpi), bar_layout_with(dpi, false));
+            let l = bar_layout_with(dpi, true);
+            assert_eq!(l.size, (9 * b + sep, b), "dpi {dpi}");
+            let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
+            assert_eq!(items, with);
+            let bar = Rect {
+                x: 50,
+                y: 40,
+                w: l.size.0,
+                h: l.size.1,
+            };
+            let step = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
+            let cancel = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::Cancel)).unwrap();
+            assert_eq!(step.right(), cancel.x);
+            assert_eq!(cancel.right(), bar.right());
+            let c = Point {
+                x: step.x + step.w / 2,
+                y: step.y + step.h / 2,
+            };
+            assert_eq!(
+                bar_item_at_with(bar, c, dpi, true),
+                Some(BarItem::Act(Action::AddStep))
+            );
+            // Không phiên: không có ô Thêm bước.
+            assert_eq!(
+                bar_item_rect_with(bar, dpi, false, BarItem::Act(Action::AddStep)),
+                None
+            );
+            let mon = Rect {
+                x: 0,
+                y: 0,
+                w: 1920,
+                h: 1080,
+            };
+            let sel = Rect {
+                x: 600,
+                y: 300,
+                w: 500,
+                h: 300,
+            };
+            let (placed, _) = bars_for_with(sel, mon, dpi, true);
+            assert_eq!((placed.w, placed.h), l.size, "dpi {dpi}");
+            let (plain, _) = bars_for(sel, mon, dpi);
+            assert_eq!((plain.w, plain.h), bar_layout(dpi).size, "dpi {dpi}");
+        }
+    }
+
     #[test]
     fn blit_bounds_are_checked() {
         let r = |x, y, w, h| Rect { x, y, w, h };
@@ -5528,7 +5662,7 @@ mod tests {
                 }
                 false
             });
-            let r = pick_region(&shot, None, &mut CustomColors::default());
+            let r = pick_region(&shot, None, &mut CustomColors::default(), false);
             assert!(driver.join().unwrap(), "không thấy cửa sổ lớp phủ");
             r
         };
@@ -7029,7 +7163,7 @@ mod tests {
                 post(WM_CLOSE, 0, LPARAM(0));
                 false
             });
-            let r = pick_region(shot, initial, custom);
+            let r = pick_region(shot, initial, custom, false);
             let ok = driver.join().unwrap();
             (r, ok)
         }
@@ -9585,6 +9719,111 @@ mod tests {
             assert_eq!((r.action, r.rect), (Action::Pin, SEL));
             assert_eq!(r.shapes.len(), 1);
             assert!(matches!(r.shapes[0], Shape::Text { .. }));
+        }
+
+        #[test]
+        fn ctrl_n_adds_step_with_session() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::AddStep, SEL));
+            assert!(r.shapes.is_empty());
+        }
+
+        #[test]
+        fn ctrl_n_without_session_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            assert!(!s.steps);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_n_without_selection_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            s.steps = true;
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_n_while_typing_commits_text_then_adds_step() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::AddStep, SEL));
+            assert_eq!(r.shapes.len(), 1);
+        }
+
+        #[test]
+        fn ctrl_n_while_typing_without_session_keeps_typing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.text.is_some());
+            assert!(s.result.is_none());
+        }
+
+        /// Có phiên: thanh ngang của trạng thái có ô Thêm bước; bấm vào nó kết thúc bằng AddStep.
+        #[test]
+        fn add_step_button_with_session() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            let (bar, dpi) = s.toolbar().unwrap();
+            assert_eq!((bar.w, bar.h), bar_layout_with(dpi, true).size);
+            let r = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
+            let at = p(r.x + r.w / 2, r.y + r.h / 2);
+            assert_eq!(s.bar_item_at(at), Some(BarItem::Act(Action::AddStep)));
+            // Nút thanh ngang: nhấn rồi nhả trên cùng ô (không giữ chuột như khi kéo).
+            s.on_move(at);
+            s.on_down(at);
+            s.on_up(at);
+            let res = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!(res.action, Action::AddStep);
+            // Không phiên: thanh 9 ô như cũ.
+            let s2 = state(&sh, Some(SEL));
+            let (bar2, dpi2) = s2.toolbar().unwrap();
+            assert_eq!((bar2.w, bar2.h), bar_layout(dpi2).size);
         }
     }
 }
