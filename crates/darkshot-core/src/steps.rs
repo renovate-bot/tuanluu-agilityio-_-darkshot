@@ -159,9 +159,8 @@ fn escape_line(line: &str) -> String {
         || body.starts_with("+ ")
         || body == "-"
         || body == "+"
+        || (!chars.is_empty() && chars.iter().all(|&c| c == '='))
     {
-        Some(0)
-    } else if !chars.is_empty() && chars.iter().all(|&c| c == '=') {
         Some(0)
     } else if (1..=9).contains(&digits)
         && matches!(chars.get(digits), Some('.') | Some(')'))
