@@ -16,60 +16,150 @@ pub const MIN_VISIBLE: i32 = 32;
 /// Ảnh từ Lịch sử chiếm tối đa tỉ lệ này của vùng làm việc.
 pub const FIT_PERCENT: i32 = 80;
 
+fn scale(v: u32, zoom: u16) -> i32 {
+    let r = (v as u64 * zoom as u64 + 50) / 100;
+    r.clamp(1, i32::MAX as u64) as i32
+}
+
 /// Cỡ hiển thị của ảnh w×h ở mức `zoom` (%), làm tròn gần nhất, mỗi chiều ≥ 1.
-pub fn display_size(_w: u32, _h: u32, _zoom: u16) -> (i32, i32) {
-    todo!()
+pub fn display_size(w: u32, h: u32, zoom: u16) -> (i32, i32) {
+    (scale(w, zoom), scale(h, zoom))
 }
 
 /// Bậc kế tiếp lớn hơn trong ZOOM_STEPS mà cỡ hiển thị mỗi chiều ≤ MAX_SIDE.
-pub fn zoom_in(_w: u32, _h: u32, _zoom: u16) -> Option<u16> {
-    todo!()
+pub fn zoom_in(w: u32, h: u32, zoom: u16) -> Option<u16> {
+    let next = ZOOM_STEPS.iter().copied().find(|&s| s > zoom)?;
+    let (dw, dh) = display_size(w, h, next);
+    (dw <= MAX_SIDE && dh <= MAX_SIDE).then_some(next)
 }
 
 /// Bậc kế tiếp nhỏ hơn trong ZOOM_STEPS.
-pub fn zoom_out(_zoom: u16) -> Option<u16> {
-    todo!()
+pub fn zoom_out(zoom: u16) -> Option<u16> {
+    ZOOM_STEPS.iter().rev().copied().find(|&s| s < zoom)
 }
 
 /// Khung ảnh mới khi đổi mức, giữ `anchor` đứng yên trên cùng điểm ảnh.
-pub fn zoom_about(
-    _image_rect: Rect,
-    _anchor: Point,
-    _img_w: u32,
-    _img_h: u32,
-    _new_zoom: u16,
-) -> Rect {
-    todo!()
+pub fn zoom_about(image_rect: Rect, anchor: Point, img_w: u32, img_h: u32, new_zoom: u16) -> Rect {
+    let (nw, nh) = display_size(img_w, img_h, new_zoom);
+    let axis = |pos: i32, old: i32, a: i32, new: i32| -> i32 {
+        if old <= 0 {
+            return pos;
+        }
+        let off = (a as i64 - pos as i64) * new as i64;
+        let den = old as i64;
+        let moved = (2 * off + den).div_euclid(2 * den);
+        (a as i64 - moved).clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    };
+    Rect {
+        x: axis(image_rect.x, image_rect.w, anchor.x, nw),
+        y: axis(image_rect.y, image_rect.h, anchor.y, nh),
+        w: nw,
+        h: nh,
+    }
 }
 
 /// Bậc lớn nhất ≤ 100 để ảnh vừa FIT_PERCENT% của `area` mỗi chiều.
-pub fn fit_zoom(_img_w: u32, _img_h: u32, _area: Rect) -> u16 {
-    todo!()
+pub fn fit_zoom(img_w: u32, img_h: u32, area: Rect) -> u16 {
+    let max_w = area.w as i64 * FIT_PERCENT as i64 / 100;
+    let max_h = area.h as i64 * FIT_PERCENT as i64 / 100;
+    ZOOM_STEPS
+        .iter()
+        .rev()
+        .copied()
+        .filter(|&z| z <= 100)
+        .find(|&z| {
+            let (dw, dh) = display_size(img_w, img_h, z);
+            dw as i64 <= max_w && dh as i64 <= max_h
+        })
+        .unwrap_or(ZOOM_STEPS[0])
 }
 
 /// Khung ảnh căn giữa `area` ở mức `zoom`.
-pub fn centered(_img_w: u32, _img_h: u32, _zoom: u16, _area: Rect) -> Rect {
-    todo!()
+pub fn centered(img_w: u32, img_h: u32, zoom: u16, area: Rect) -> Rect {
+    let (w, h) = display_size(img_w, img_h, zoom);
+    let c = |a: i32, len: i32, s: i32| -> i32 {
+        (a as i64 + (len as i64 - s as i64).div_euclid(2)).clamp(i32::MIN as i64, i32::MAX as i64)
+            as i32
+    };
+    Rect {
+        x: c(area.x, area.w, w),
+        y: c(area.y, area.h, h),
+        w,
+        h,
+    }
+}
+
+/// Độ dài phần giao của hai đoạn [a, a+la) và [b, b+lb); âm khi không giao.
+fn overlap1(a: i32, la: i32, b: i32, lb: i32) -> i64 {
+    let lo = (a as i64).max(b as i64);
+    let hi = (a as i64 + la as i64).min(b as i64 + lb as i64);
+    hi - lo
 }
 
 /// Dời `r` ít nhất có thể sao cho đủ MIN_VISIBLE px mỗi chiều nằm trong một màn hình.
-pub fn keep_visible(_r: Rect, _monitors: &[Rect]) -> Rect {
-    todo!()
+pub fn keep_visible(r: Rect, monitors: &[Rect]) -> Rect {
+    if monitors.is_empty() {
+        return r;
+    }
+    let need_w = MIN_VISIBLE.min(r.w) as i64;
+    let need_h = MIN_VISIBLE.min(r.h) as i64;
+    let ok = |m: &Rect| {
+        overlap1(r.x, r.w, m.x, m.w) >= need_w.min(m.w as i64)
+            && overlap1(r.y, r.h, m.y, m.h) >= need_h.min(m.h as i64)
+    };
+    if monitors.iter().any(ok) {
+        return r;
+    }
+    let area = |m: &Rect| overlap1(r.x, r.w, m.x, m.w).max(0) * overlap1(r.y, r.h, m.y, m.h).max(0);
+    let dist = |m: &Rect| {
+        let dx = (-overlap1(r.x, r.w, m.x, m.w)).max(0);
+        let dy = (-overlap1(r.y, r.h, m.y, m.h)).max(0);
+        dx * dx + dy * dy
+    };
+    let best_area = monitors.iter().map(area).max().unwrap_or(0);
+    let m = if best_area > 0 {
+        monitors.iter().find(|m| area(m) == best_area)
+    } else {
+        monitors.iter().min_by_key(|m| dist(m))
+    }
+    .copied()
+    .unwrap_or(monitors[0]);
+    let fix = |pos: i64, len: i64, mpos: i64, mlen: i64, need: i64| -> i32 {
+        let need = need.min(mlen);
+        let mut p = pos;
+        if p + len < mpos + need {
+            p = mpos + need - len;
+        } else if p > mpos + mlen - need {
+            p = mpos + mlen - need;
+        }
+        p.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    };
+    Rect {
+        x: fix(r.x as i64, r.w as i64, m.x as i64, m.w as i64, need_w),
+        y: fix(r.y as i64, r.h as i64, m.y as i64, m.h as i64, need_h),
+        w: r.w,
+        h: r.h,
+    }
 }
 
 /// Độ mờ kế tiếp (phần trăm); `up` là đục hơn. Kẹp [OPACITY_MIN, 100].
-pub fn opacity_step(_cur: u8, _up: bool) -> u8 {
-    todo!()
+pub fn opacity_step(cur: u8, up: bool) -> u8 {
+    let cur = cur.clamp(OPACITY_MIN, 100);
+    if up {
+        cur.saturating_add(OPACITY_STEP).min(100)
+    } else {
+        cur.saturating_sub(OPACITY_STEP).max(OPACITY_MIN)
+    }
 }
 
 /// Phần trăm sang alpha 0..=255 (làm tròn).
-pub fn opacity_alpha(_percent: u8) -> u8 {
-    todo!()
+pub fn opacity_alpha(percent: u8) -> u8 {
+    ((percent.min(100) as u32 * 255 + 50) / 100) as u8
 }
 
 /// Có được tạo thêm ảnh ghim khi đang có `count`.
-pub fn can_add(_count: usize) -> bool {
-    todo!()
+pub fn can_add(count: usize) -> bool {
+    count < MAX_PINS
 }
 
 #[cfg(test)]

@@ -345,6 +345,18 @@ messages! {
     HistorySelectPrompt => ("Chọn một ảnh để xem trước", "Select a screenshot to preview"),
     HistoryPreviewLoading => ("Đang tải bản xem trước…", "Loading preview…"),
     HistoryFileMissing => ("Không tìm thấy tệp ảnh", "Image file not found"),
+    OverlayPin => ("Ghim lên màn hình (Ctrl+P)", "Pin to screen (Ctrl+P)"),
+    PinWindowTitle => ("darkshot — Ảnh ghim", "darkshot — Pinned image"),
+    PinMenuCopy => ("Sao chép ảnh\tCtrl+C", "Copy image\tCtrl+C"),
+    PinMenuSave => ("Lưu ảnh\tCtrl+S", "Save image\tCtrl+S"),
+    PinMenuZoom => ("Thu phóng", "Zoom"),
+    PinMenuOpacity => ("Độ mờ", "Opacity"),
+    PinMenuClose => ("Đóng\tEsc", "Close\tEsc"),
+    PinMenuCloseAll => ("Đóng mọi ảnh ghim", "Close all pinned images"),
+    PinClose => ("Đóng", "Close"),
+    HistoryPin => ("Ghim", "Pin"),
+    PinLimitTitle => ("Đã đủ ảnh ghim", "Too many pinned images"),
+    PinFailedTitle => ("Không ghim được ảnh", "Couldn't pin the image"),
     HistoryFileMissingHint => (
         "Tệp đã bị di chuyển hoặc xóa. Vẫn có thể xóa mục này khỏi lịch sử.",
         "The file was moved or deleted. You can still remove this entry from history."
@@ -426,6 +438,31 @@ pub fn copy_failed_body(lang: Lang, err: &str) -> String {
         Lang::Vi => format!("Không đưa được ảnh vào clipboard: {err}"),
         Lang::En => format!("Could not put the image on the clipboard: {err}"),
     }
+}
+
+pub fn pin_limit_body(lang: Lang, max: usize) -> String {
+    match lang {
+        Lang::Vi => format!("Đã đủ {max} ảnh ghim. Đóng bớt rồi thử lại."),
+        Lang::En => format!("You already have {max} pinned images. Close some and try again."),
+    }
+}
+
+pub fn tray_close_pins(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::Vi => format!("Đóng mọi ảnh ghim ({n})"),
+        Lang::En => format!("Close all pinned images ({n})"),
+    }
+}
+
+pub fn pin_opacity_badge(lang: Lang, p: u8) -> String {
+    match lang {
+        Lang::Vi => format!("Độ mờ {p}%"),
+        Lang::En => format!("Opacity {p}%"),
+    }
+}
+
+pub fn pin_failed_body(lang: Lang, reason: &str) -> String {
+    reason_try_again(lang, reason)
 }
 
 pub fn encode_failed(lang: Lang, err: &str) -> String {
@@ -595,6 +632,7 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 - Ctrl+S: lưu ảnh vào thư mục lưu.\n\
 - Ctrl+C: chép ảnh vào clipboard.\n\
 - Esc lùi một bước (đóng bảng, hủy chữ, bỏ chọn) rồi đóng lớp phủ.\n\
+- Ctrl+P: ghim ảnh lên màn hình (hoặc bấm nút Ghim trong Lịch sử ảnh chụp). Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn chuột để phóng, Ctrl+cuộn để làm mờ, chuột phải để mở menu, Esc để đóng.\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
@@ -634,6 +672,7 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 - Ctrl+S: save the image to the save folder.\n\
 - Ctrl+C: copy the image to the clipboard.\n\
 - Esc steps back (closes a panel, cancels text, deselects), then closes the overlay.\n\
+- Ctrl+P: pin the image to the screen (or click Pin in Screenshot History). A pinned image stays on top: drag to move, scroll to zoom, Ctrl+scroll to change opacity, right-click for a menu, Esc to close.\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
@@ -1084,6 +1123,26 @@ mod tests {
             assert!(s.contains(t(l, Msg::TabFormat)), "{l:?} thiếu tên tab");
             assert!(s.contains("PNG"), "{l:?} thiếu PNG");
             assert!(s.contains("JPEG"), "{l:?} thiếu JPEG");
+        }
+    }
+
+    #[test]
+    fn pin_texts() {
+        assert!(tray_close_pins(Lang::Vi, 3).contains("(3)"));
+        assert!(tray_close_pins(Lang::En, 3).contains("(3)"));
+        assert!(pin_limit_body(Lang::Vi, 32).contains("32"));
+        assert_eq!(pin_opacity_badge(Lang::Vi, 60), "Độ mờ 60%");
+        assert_eq!(pin_opacity_badge(Lang::En, 60), "Opacity 60%");
+        assert!(pin_failed_body(Lang::En, "x").contains("x"));
+    }
+
+    #[test]
+    fn help_text_mentions_pin_hotkey() {
+        for l in Lang::ALL {
+            assert!(
+                help_text(l, &HelpKeys::default()).contains("Ctrl+P"),
+                "{l:?}"
+            );
         }
     }
 
