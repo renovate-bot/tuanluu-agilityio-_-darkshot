@@ -952,6 +952,247 @@ mod tests {
         }
     }
 
+    /// Trang W×h: `noise` hàng nhiễu, `cards` thẻ giống hệt nhau (`ink` hàng nhiễu cùng mẫu rồi
+    /// `gap` hàng trắng), rồi nhiễu đến hết.
+    fn cards_page(w: u32, h: u32, noise: u32, cards: u32, ink: u32, gap: u32, seed: u64) -> Image {
+        let mut img = noise_page(w, h, seed);
+        let card = noise_page(w, ink, seed + 1000);
+        let s = (w * 4) as usize;
+        let period = ink + gap;
+        for y in noise..(noise + cards * period).min(h) {
+            let phase = (y - noise) % period;
+            let dst = &mut img.bgra[y as usize * s..(y as usize + 1) * s];
+            if phase < ink {
+                dst.copy_from_slice(&card.bgra[phase as usize * s..(phase as usize + 1) * s]);
+            } else {
+                dst.fill(255);
+            }
+        }
+        img
+    }
+
+    /// Đẩy khung tại 0 rồi tại `off`: khung thứ hai không bao giờ được nối.
+    fn assert_not_appended(pg: &Image, off: u32, what: &str) {
+        let mut st = Stitcher::new(pg.width, H);
+        assert_eq!(st.push(&frame(pg, 0, H)), Push::Appended(H));
+        let r = st.push(&frame(pg, off, H));
+        assert!(matches!(r, Push::Uncertain(_)), "{what}: {r:?}");
+        let (img, n) = st.finish();
+        assert_eq!(img, frame(pg, 0, H), "{what}");
+        assert_eq!(n, 1, "{what}");
+    }
+
+    /// Khối đã khớp của khung TRƯỚC gặp lại sớm hơn trong khung đó (thẻ lặp): dy thật lớn hơn.
+    #[test]
+    fn repeated_cards_in_previous_frame_are_never_appended() {
+        // Phản ví dụ của rà soát: thẻ 110 + 10, 350 hàng nhiễu, 4/5/6 thẻ.
+        for (cards, off) in [(4, 710), (5, 830), (6, 950)] {
+            let pg = cards_page(200, 2500, 350, cards, 110, 10, 61);
+            assert_not_appended(&pg, off, &format!("{cards} cards at {off}"));
+        }
+        // Thẻ 230 + 10: chồng lấp 240 hàng (đủ chồng lấp tối thiểu) nằm trọn trong một chu kỳ;
+        // khung mới không tự lặp, chỉ khung trước thấy thẻ lặp.
+        let pg = cards_page(200, 2500, 100, 4, 230, 10, 62);
+        assert_not_appended(&pg, 700, "240-row cards at 700");
+    }
+
+    /// Khung mới bắt đầu đúng thẻ cuối (dy thật 710/830/1070, ngoài khoảng tìm).
+    #[test]
+    fn jump_to_last_card_is_never_appended() {
+        for (cards, off) in [(2, 710), (3, 830), (5, 1070)] {
+            let pg = cards_page(200, 2500, 590, cards, 110, 10, 63);
+            assert_not_appended(&pg, off, &format!("{cards} cards at {off}"));
+        }
+    }
+
+    /// Trang không có khối lặp cho fuzz: nhiễu, "chữ" giả ngẫu nhiên, khoảng trắng ngắn.
+    fn fuzz_page(w: u32, h: u32, rng: &mut Rng) -> Image {
+        let mut img = blank(w, h);
+        let s = (w * 4) as usize;
+        let mut y = 0;
+        while y < h {
+            let kind = rng.below(3);
+            let len = match kind {
+                0 => 5 + rng.below(30),
+                1 => 10 + rng.below(60),
+                _ => 2 + rng.below(30),
+            } as u32;
+            let ink = rng.color();
+            for yy in y..(y + len).min(h) {
+                let row = &mut img.bgra[yy as usize * s..(yy as usize + 1) * s];
+                match kind {
+                    0 => {
+                        for p in row.chunks_mut(4) {
+                            p.copy_from_slice(&rng.color());
+                        }
+                    }
+                    1 => {
+                        row.fill(255);
+                        if (yy - y) % 12 < 8 {
+                            for _ in 0..1 + w / 10 {
+                                let x = rng.below(u64::from(w)) as usize;
+                                row[x * 4..x * 4 + 4].copy_from_slice(&ink);
+                            }
+                        }
+                    }
+                    _ => row.fill(255),
+                }
+            }
+            y += len;
+        }
+        img
+    }
+
+    /// Một cấu hình fuzz: trang, cỡ khung, dải tĩnh trên/dưới, thanh cuộn phải.
+    struct Fuzz {
+        pg: Image,
+        h: u32,
+        header: Image,
+        footer: Image,
+        bar: bool,
+    }
+
+    impl Fuzz {
+        fn new(seed: u64, pg: Image) -> Fuzz {
+            let mut rng = Rng::new(seed);
+            let h = 150 + rng.below(250) as u32;
+            let header_h = if rng.below(2) == 0 {
+                0
+            } else {
+                5 + rng.below(40) as u32
+            };
+            let footer_h = if rng.below(2) == 0 {
+                0
+            } else {
+                5 + rng.below(30) as u32
+            };
+            let bar = rng.below(2) == 0;
+            let w = pg.width;
+            Fuzz {
+                header: noise_page(w, header_h, seed + 7),
+                footer: noise_page(w, footer_h, seed + 8),
+                pg,
+                h,
+                bar,
+            }
+        }
+
+        fn frame(&self, o: u32) -> Image {
+            let (w, h) = (self.pg.width, self.h);
+            let mut f = frame(&self.pg, o, h);
+            let s = (w * 4) as usize;
+            let hh = self.header.height as usize;
+            f.bgra[..hh * s].copy_from_slice(&self.header.bgra);
+            let fh = self.footer.height as usize;
+            f.bgra[(h as usize - fh) * s..].copy_from_slice(&self.footer.bgra);
+            if self.bar {
+                let ty = o * (h - 40) / (self.pg.height - h);
+                for y in 0..h {
+                    let c = if (ty..ty + 40).contains(&y) {
+                        [120, 120, 120, 255]
+                    } else {
+                        [40, 40, 40, 255]
+                    };
+                    for x in w - 10..w {
+                        set_px(&mut f, x, y, c);
+                    }
+                }
+            }
+            f
+        }
+
+        /// Chạy `steps` bước ngẫu nhiên; trả (số lần nối đúng, số lần nối sai dy).
+        fn run(&self, seed: u64, steps: u32, check: bool) -> (u32, u32) {
+            let mut rng = Rng::new(seed);
+            let h = self.h;
+            let max_o = self.pg.height - h;
+            let mut st = Stitcher::new(self.pg.width, h);
+            let mut o = 0u32;
+            assert_eq!(st.push(&self.frame(0)), Push::Appended(h));
+            let mut prev = 0u32;
+            let (mut ok, mut bad) = (0, 0);
+            let mut failed = false;
+            for _ in 0..steps {
+                // Sau một khung không ghép được, người dùng thường cuộn về gần chỗ đã ghép.
+                if failed && rng.below(2) == 0 {
+                    o = prev;
+                }
+                let step: i64 = match rng.below(10) {
+                    0..=3 => 1 + rng.below(40) as i64,
+                    4..=6 => 40 + rng.below(u64::from(h / 2)) as i64,
+                    7 => i64::from(h / 2) + rng.below(u64::from(h) + 100) as i64,
+                    8 => -(1 + rng.below(u64::from(h / 2)) as i64),
+                    _ => 0,
+                };
+                o = (i64::from(o) + step).clamp(0, i64::from(max_o)) as u32;
+                match st.push(&self.frame(o)) {
+                    Push::Appended(d) => {
+                        let truth = i64::from(o) - i64::from(prev);
+                        if i64::from(d) == truth {
+                            ok += 1;
+                        } else {
+                            bad += 1;
+                            assert!(!check, "seed {seed}: appended {d}, true shift {truth}");
+                        }
+                        prev = o;
+                        failed = false;
+                    }
+                    Push::Limit => break,
+                    Push::NoChange => {}
+                    Push::Uncertain(_) => failed = true,
+                }
+            }
+            (ok, bad)
+        }
+    }
+
+    /// Fuzz có seed cố định trên trang không có khối lặp: mọi lần nối đúng độ dịch thật.
+    #[test]
+    fn fuzz_non_repeating_pages_never_append_a_wrong_shift() {
+        let mut total = 0;
+        for seed in 1..=24u64 {
+            let mut rng = Rng::new(seed * 7919);
+            let w = 140 + rng.below(160) as u32;
+            let pg = fuzz_page(w, 2500, &mut rng);
+            let fz = Fuzz::new(seed, pg);
+            let (ok, bad) = fz.run(seed, 60, true);
+            assert_eq!(bad, 0);
+            total += ok;
+        }
+        // Đủ nhiều lần nối để kiểm thử có nghĩa.
+        assert!(total > 300, "{total}");
+    }
+
+    /// Fuzz trên trang cố ý lặp (thẻ giống hệt): chỉ đo tỉ lệ nối sai
+    /// (`cargo test -p darkshot-core --release --lib fuzz_repeating -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn fuzz_repeating_pages_measure() {
+        let (mut ok, mut bad) = (0, 0);
+        for seed in 1..=200u64 {
+            let mut rng = Rng::new(seed * 104_729);
+            let w = 140 + rng.below(160) as u32;
+            let mut pg = fuzz_page(w, 3000, &mut rng);
+            let ink = 20 + rng.below(280) as u32;
+            let gap = rng.below(20) as u32;
+            let cards = 2 + rng.below(7) as u32;
+            let noise = rng.below(800) as u32;
+            let c = cards_page(w, 3000, noise, cards, ink, gap, seed + 5);
+            let s = (w * 4) as usize;
+            let end = (noise + cards * (ink + gap)).min(3000) as usize;
+            let start = noise as usize;
+            pg.bgra[start * s..end * s].copy_from_slice(&c.bgra[start * s..end * s]);
+            let fz = Fuzz::new(seed, pg);
+            let (a, b) = fz.run(seed, 60, false);
+            ok += a;
+            bad += b;
+        }
+        println!(
+            "repeating pages: {ok} correct appends, {bad} wrong ({:.3}%)",
+            100.0 * f64::from(bad) / f64::from((ok + bad).max(1))
+        );
+    }
+
     /// Thanh dính đáy mỏng xuất hiện giữa chừng: không bao giờ bị nối lặp vào giữa ảnh.
     #[test]
     fn late_thin_bottom_bar_is_never_repeated_inside() {
@@ -1086,11 +1327,11 @@ mod tests {
                 other => panic!("unexpected {other:?} at {offset}"),
             }
             assert!(st.height() <= MAX_HEIGHT);
-            offset += 500;
+            offset += 400;
         }
         assert!(limited);
         let h = st.height();
-        assert!(h <= MAX_HEIGHT && h > MAX_HEIGHT - 500, "{h}");
+        assert!(h <= MAX_HEIGHT && h > MAX_HEIGHT - 400, "{h}");
         // Sau giới hạn: mọi khung đều Limit.
         assert_eq!(st.push(&frame(&pg, offset, H)), Push::Limit);
         let (img, _) = st.finish();
