@@ -105,6 +105,10 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 82 OCR: sửa sau rà soát Task 80 | task/82-ocr-review-fixes | specialist (agent Task 80) | opus | xong | 32.839 | phiên điều phối đọc báo cáo | 0 | 32.839 |
 | Rà soát toàn đợt 11 | feature/local-ocr | specialist | fable | xong | | 146.876 | | 146.876 |
 | 83 OCR: đổi ngôn ngữ cập nhật cửa sổ, kiểm thử Ocr | task/83-ocr-final-fixes | specialist (agent Task 80) | opus | xong | 13.663 | phiên điều phối đọc báo cáo | 0 | 13.663 |
+| 84 Chụp từng bước: lõi (Giai đoạn 3, đợt 12) | task/84-steps-core | builder | sonnet | chờ | | | | |
+| 85 Chụp từng bước: lưu phiên, thanh phiên, lớp phủ, khay | task/85-steps-session | specialist | opus | chờ | | | | |
+| 86 Chụp từng bước: cửa sổ Xem lại, xuất | task/86-steps-window | specialist | opus | chờ | | | | |
+| 87 Chụp từng bước: tài liệu, website, demo | task/87-steps-docs | scaffolder | haiku | chờ | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
