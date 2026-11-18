@@ -412,6 +412,14 @@ mod tests {
         assert_eq!(md, "# Steps\n_darkshot, 2026-11-18 14:05_\n");
     }
 
+    /// Phần ghi chú đã thoát của bước duy nhất trong tài liệu.
+    fn rendered_caption(caption: &str) -> String {
+        let md = markdown(Lang::Vi, when(), &[step("001.png", caption)]);
+        let body = md.split_once("## Bước 1\n").unwrap().1;
+        let body = body.rsplit_once("\n![Bước 1](01.png)").unwrap().0;
+        body.to_string()
+    }
+
     #[test]
     fn markdown_multiline_caption_and_heading_escape() {
         let steps = [step(
@@ -420,8 +428,10 @@ mod tests {
         )];
         let md = markdown(Lang::Vi, when(), &steps);
         assert!(!md.contains('\r'));
-        assert!(md.contains("\ndòng một\n\\# không phải tiêu đề\n"), "{md}");
-        assert!(md.contains("\n  \\## cũng không\n"), "{md}");
+        assert!(
+            md.contains("\ndòng một\\\n\\# không phải tiêu đề\\\n\\## cũng không\\\nhết\n"),
+            "{md}"
+        );
         assert!(md.contains("\nhết\n\n![Bước 1](01.png)"));
         // Chỉ có đúng một tiêu đề cấp 1 và một cấp 2 thật.
         let real: Vec<&str> = md
@@ -431,6 +441,49 @@ mod tests {
         assert_eq!(real, ["# Các bước", "## Bước 1"]);
     }
 
+    #[test]
+    fn markdown_escapes_block_structure() {
+        assert_eq!(rendered_caption("a\n---"), "a\\\n\\---\n");
+        assert_eq!(rendered_caption("a\n==="), "a\\\n\\===\n");
+        assert_eq!(rendered_caption("- a"), "\\- a\n");
+        assert_eq!(rendered_caption("+ a"), "\\+ a\n");
+        assert_eq!(rendered_caption("1. a"), "1\\. a\n");
+        assert_eq!(rendered_caption("12) a"), "12\\) a\n");
+        assert_eq!(rendered_caption("> a"), "\\> a\n");
+    }
+
+    #[test]
+    fn markdown_escapes_inline_syntax() {
+        assert_eq!(rendered_caption("![x](u)"), "\\!\\[x\\](u)\n");
+        assert_eq!(rendered_caption("<b>"), "\\<b\\>\n");
+        assert_eq!(rendered_caption("| a |"), "\\| a \\|\n");
+        assert_eq!(
+            rendered_caption("**b** _c_ `d`"),
+            "\\*\\*b\\*\\* \\_c\\_ \\`d\\`\n"
+        );
+        assert_eq!(rendered_caption("[l](u)"), "\\[l\\](u)\n");
+    }
+
+    #[test]
+    fn markdown_does_not_over_escape_plain_text() {
+        assert_eq!(
+            rendered_caption("Bấm Lưu, rồi đóng. Xong! 3.5 là 1-2 và a-b # x"),
+            "Bấm Lưu, rồi đóng. Xong! 3.5 là 1-2 và a-b # x\n"
+        );
+        assert_eq!(rendered_caption("2024. Bắt đầu"), "2024\\. Bắt đầu\n");
+        assert_eq!(rendered_caption("1.5 lần"), "1.5 lần\n");
+    }
+
+    #[test]
+    fn markdown_hard_breaks_after_escaping() {
+        // Dòng kết thúc bằng `\` của người dùng: `\\` chữ, rồi `\` ngắt dòng.
+        assert_eq!(rendered_caption("a\\\nb"), "a\\\\\\\nb\n");
+        // Dòng cuối kết thúc bằng `\`: chỉ thoát, không thêm ngắt dòng.
+        assert_eq!(rendered_caption("a\\"), "a\\\\\n");
+        // Dòng rỗng giữa ghi chú giữ là dòng rỗng, không thêm `\`.
+        assert_eq!(rendered_caption("a\n\nb\nc"), "a\n\nb\\\nc\n");
+        assert_eq!(rendered_caption("a\n   \nb"), "a\n\nb\n");
+    }
     #[test]
     fn markdown_uses_display_order_names() {
         let steps = [step("005.png", "b"), step("002.png", "a")];
