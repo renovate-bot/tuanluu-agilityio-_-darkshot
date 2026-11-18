@@ -1,6 +1,6 @@
 # darkshot
 
-darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình (hoặc bấm một lần để chọn đúng một cửa sổ), đánh dấu nếu cần, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, ghim ảnh lên màn hình, hoặc hủy. Có lịch sử ảnh chụp cục bộ (tùy chọn). Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
+darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình (hoặc bấm một lần để chọn đúng một cửa sổ), đánh dấu nếu cần, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, ghim ảnh lên màn hình, hoặc hủy. Vùng đã chọn cũng nhận dạng được chữ (Ctrl+T) và chép chữ ra, hoàn toàn trên máy. Có lịch sử ảnh chụp cục bộ (tùy chọn). Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
 
 ## Tải về
 
@@ -8,7 +8,7 @@ Bản mới nhất: **0.4.0** ở [trang Releases](https://github.com/tuanluu-ag
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
-Chụp lại vùng trước đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
+Chụp lại vùng trước và Nhận dạng chữ cục bộ đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
 
 
 ## Build
@@ -19,7 +19,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11). Bản build từ `main` có thêm Chụp lại vùng trước (đo ngày 2026-11-18): **2.051.584 byte** (khoảng 1,96 MiB).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.4.0 đo ngày 2026-11-18: **2.041.856 byte** (khoảng 1,95 MiB, bản `--release` trên Windows 11). Bản build từ `main` có thêm Chụp lại vùng trước và Nhận dạng chữ cục bộ (đo ngày 2026-11-18): **2.078.720 byte** (khoảng 1,98 MiB).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
@@ -51,7 +51,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có bảy nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi năm nút hành động (Tải lên, Lưu, Chép, Ghim, Hủy). Rê chuột vào nút để xem tên và phím tắt.
+Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi sáu nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy). Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
@@ -61,9 +61,10 @@ Thanh có bảy nút chỉ có biểu tượng: Hoàn tác, Làm lại, một v�
 | Lưu vào máy | `Ctrl+S` | Lưu PNG vào thư mục lưu, không hỏi lại. |
 | Chép ảnh | `Ctrl+C` | Chép ảnh vào clipboard. |
 | Ghim lên màn hình | `Ctrl+P` | Ghim vùng chọn lên màn hình thành một ảnh ghim. Xem "Ghim ảnh lên màn hình". |
+| Nhận dạng chữ | `Ctrl+T` | Nhận dạng chữ trong vùng đã chọn và mở cửa sổ "Chữ nhận dạng". Xem mục "Nhận dạng chữ". |
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
-- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
+- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
 - `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo khung chọn vùng. Khi đang có bảng mở, ô chữ, lần kéo hình hoặc hình được chọn, `Esc` chỉ lùi một bước (xem "Đánh dấu ảnh").
 
 ### Đánh dấu ảnh
@@ -125,7 +126,7 @@ Tự chọn màu: bảng mở ở dạng gọn ("Màu cơ bản", 16 ô "Màu t�
 **Chữ:**
 
 - Khi đang chọn Chữ, bấm trong vùng để đặt ô chữ tại đó. Ô đang gõ có khung nét đứt xanh và con trỏ nháy; khung và con trỏ không in ra ảnh.
-- Enter xuống dòng. Chốt ô bằng cách bấm chỗ khác trong vùng, đổi công cụ, bấm nút hành động hoặc bấm Ctrl+D, Ctrl+S, Ctrl+C. Ô rỗng khi chốt thì bỏ.
+- Enter xuống dòng. Chốt ô bằng cách bấm chỗ khác trong vùng, đổi công cụ, bấm nút hành động hoặc bấm Ctrl+D, Ctrl+S, Ctrl+C hoặc Ctrl+T. Ô rỗng khi chốt thì bỏ.
 - Gõ được Backspace, Delete, mũi tên bốn hướng, Home và End. Ctrl+V dán chữ thuần: xuống dòng giữ nguyên, Tab thành khoảng trắng. Không chọn chữ bằng chuột hay Shift.
 - Gõ được tiếng Việt bằng Unikey, EVKey hoặc bộ gõ tiếng Việt của Windows. Khi đang gõ, mọi phím chữ (kể cả V, P, L, A, R, E, H, B, T, N, `[` và `]`) đi vào ô chữ, không đổi công cụ hay cỡ.
 - Chữ có viền đen hoặc trắng (theo màu chữ) để đọc được trên mọi nền.
@@ -294,7 +295,7 @@ Thao tác trên ảnh ghim:
 - **Cuộn chuột** để phóng hoặc thu quanh con trỏ: điểm dưới con trỏ đứng yên. Nhãn mức (ví dụ `125%`) hiện khoảng 1,2 giây.
 - **Ctrl+cuộn** để đổi độ mờ (từ 20% trở lên). Nhãn "Độ mờ 60%" hiện khoảng 1,2 giây.
 - **Bấm đúp** để về 100%. Bấm đúp trên nút × thì ảnh không phóng.
-- **Chuột phải** mở menu: Sao chép ảnh, Lưu ảnh, Thu phóng, Độ mờ, Đóng. Mức đang dùng có dấu tích.
+- **Chuột phải** mở menu: Sao chép ảnh, Lưu ảnh, Nhận dạng chữ, Thu phóng, Độ mờ, Đóng. Mức đang dùng có dấu tích.
 - **Rê chuột vào ảnh** để hiện nút ×; bấm nút × để đóng ảnh đó.
 - **Phím:** `+` và `-` phóng hoặc thu theo bậc (từ 10% đến 400%); `0` về 100%; mũi tên dời ảnh 1 px, Shift+mũi tên 10 px; `Esc` hoặc `Ctrl+W` đóng ảnh; `Ctrl+C` chép ảnh; `Ctrl+S` lưu ảnh.
 
@@ -312,6 +313,31 @@ powershell -File scripts/demo-pin.ps1 -Exe target\demo9\release\darkshot.exe
 ```
 
 Thêm `-Lang en` để chạy giao diện English. Chụp vùng: `Ctrl+Alt+Shift+F10`. Cửa sổ Lịch sử mở sẵn. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 9".
+
+### Nhận dạng chữ
+
+Nhận dạng chữ trong vùng đã chọn (hoặc trong ảnh ghim) và đưa chữ vào cửa sổ **Chữ nhận dạng**. Nhận dạng chạy hoàn toàn trên máy bằng OCR của Windows: không dùng mạng, ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử, và không đổi "lần chụp trước".
+
+- **Từ lớp phủ:** chọn vùng, rồi bấm nút **Nhận dạng chữ** (giữa Ghim và Hủy) hoặc `Ctrl+T`. Khi chưa có vùng chọn thì `Ctrl+T` không làm gì. Đang gõ dở một ô chữ thì ô đó được chốt trước. Ảnh đem nhận dạng gồm cả các nét đã vẽ, nên vùng đã làm mờ sẽ không đọc được chữ bên dưới.
+- **Từ ảnh ghim:** chuột phải, mục **Nhận dạng chữ** (ngay sau Lưu ảnh).
+- **Cửa sổ Chữ nhận dạng:** hiện ngay "Đang nhận dạng chữ…", rồi hiện chữ trong một ô sửa được. Dòng trạng thái ghi tên ngôn ngữ và số dòng, ví dụ "Ngôn ngữ: English (United States) · 2 dòng".
+- **Chép** (`Ctrl+Enter`, hoặc `Enter` khi con trỏ không ở ô chữ) chép chữ đang có trong ô vào clipboard, hiện "Đã chép chữ", rồi đóng cửa sổ. **Đóng** hoặc `Esc` đóng cửa sổ, không chép gì. Cỡ cửa sổ đổi được.
+- Tối đa 8 cửa sổ chữ cùng lúc. Mở thêm khi đã đủ 8 thì cửa sổ cũ nhất đóng.
+- Không tìm thấy chữ: hiện "Không tìm thấy chữ trong ảnh."
+
+Ngôn ngữ:
+
+- Darkshot nhận dạng theo danh sách ngôn ngữ trong cài đặt Windows của bạn (Cài đặt > Thời gian & ngôn ngữ > Ngôn ngữ & khu vực).
+- Tiếng Việt chỉ nhận dạng được nếu Windows có gói nhận dạng tiếng Việt. Máy không có gói đó thì chữ Việt không được nhận ra.
+- Máy chưa có gói nhận dạng nào: hiện câu hướng dẫn thêm ngôn ngữ trong Cài đặt Windows.
+
+Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay khóa R2 thật, không mạng):
+
+```powershell
+powershell -File scripts/demo-ocr.ps1 -Exe target\demo11\release\darkshot.exe
+```
+
+Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó bằng `Ctrl+Alt+Shift+F10`, rồi bấm `Ctrl+T`. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 11".
 
 ### Menu khay
 
@@ -448,6 +474,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 - HTTPS dùng thư viện `rustls` với danh sách chứng chỉ gốc đóng kèm trong file, không dùng bộ chứng chỉ của Windows.
 - Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng. Ứng dụng chỉ mở trình duyệt khi bạn bấm mục hoặc thông báo "Có bản mới", và chỉ tới trang release của repo darkshot trên GitHub.
 - Ứng dụng không ghi log ra file. Không gửi thống kê. Việc kiểm tra bản mới chỉ gửi tên và phiên bản ứng dụng (xem mục "Cập nhật") và tắt được.
+- Nhận dạng chữ (Ctrl+T) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.
 - **Ứng dụng không xóa được ảnh chụp đã tải lên.** (Nó chỉ xóa file thử của nút Kiểm tra kết nối.) Muốn xóa, vào trang Cloudflare R2, mở bucket và xóa đối tượng đó.
