@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="meta.title">darkshot — Lightweight screenshot tool for Windows</title>
+  <meta name="description" content="darkshot is a lightweight Windows 11 screenshot tool: capture a region or a window, annotate, redact sensitive details, then save, copy or share a link through your own Cloudflare R2 storage." data-i18n-attr="content:meta.description" />
+  <meta name="theme-color" content="#0b0d10" />
+  <meta name="color-scheme" content="dark" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="darkshot" />
+  <meta property="og:title" content="darkshot — Capture. Annotate. Share. Stay in flow." data-i18n-attr="content:meta.ogTitle" />
+  <meta property="og:description" content="A lightweight Windows screenshot tool with annotation, privacy redaction and sharing through your own Cloudflare R2 storage." data-i18n-attr="content:meta.ogDescription" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:locale:alternate" content="vi_VN" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="darkshot — Capture. Annotate. Share. Stay in flow." data-i18n-attr="content:meta.ogTitle" />
+  <meta name="twitter:description" content="A lightweight Windows screenshot tool with annotation, privacy redaction and sharing through your own Cloudflare R2 storage." data-i18n-attr="content:meta.ogDescription" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "darkshot",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 11 (64-bit)",
+    "description": "A lightweight Windows screenshot tool: capture, annotate, redact and share through your own Cloudflare R2 storage.",
+    "downloadUrl": "https://github.com/tuanluu-agilityio/darkshot/releases/latest",
+    "codeRepository": "https://github.com/tuanluu-agilityio/darkshot"
+  }
+  </script>
+  <script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="nav.skip">Skip to content</a>
+
+  <!-- Icon sprite (stroke icons, 24px grid) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-select" viewBox="0 0 24 24"><path d="M6 3l12 8.5-5.2 1.3L10 18.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-pen" viewBox="0 0 24 24"><path d="M16.5 3.5a2.1 2.1 0 013 3L7.5 18.5 3 20l1.5-4.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M6 18L18 6M9 6h9v9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-marker" viewBox="0 0 24 24"><path d="M3 21h7M15 4l5 5-9 9H7v-4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-blur" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15L15 5M9 19L20 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 7V4.5h14V7M12 4.5V20M9 20h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-step" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10.2 9.6L12.6 8.2V16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h9a6 6 0 010 12h-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5M20 9h-9a6 6 0 000 12h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M7 18a4 4 0 01-.6-7.95A5.5 5.5 0 0117 9.5a4 4 0 011 8M12 20v-8M9 14.5l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 9h11v11H9zM5 15H4V4h11v1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3zM12 10v4.5M12 17.4v.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-tray" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 20h8M12 17v3M14 13h4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14.5h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 01-.6-7.95A5.5 5.5 0 0117 9.5a4 4 0 011 8.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-server-off" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="14" width="16" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 21L21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 11V8a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+      <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3 9h18" stroke="currentColor" stroke-width="1.7"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="nav" id="top">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="darkshot">
+        <img src="/img/logo-64.png" width="28" height="28" alt="" />
+        <span>darkshot</span>
+      </a>
+      <nav class="nav-links" id="nav-links" aria-label="Primary" data-i18n-attr="aria-label:nav.primary">
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#how" data-i18n="nav.how">How it works</a>
+        <a href="#privacy" data-i18n="nav.privacy">Privacy</a>
+        <a href="#faq" data-i18n="nav.faq">FAQ</a>
+      </nav>
+      <div class="nav-actions">
+        <a class="icon-link" href="https://github.com/tuanluu-agilityio/darkshot" target="_blank" rel="noopener" aria-label="GitHub" data-i18n-attr="aria-label:nav.github">
+          <svg width="20" height="20" aria-hidden="true"><use href="#i-github"/></svg>
+        </a>
+        <div class="lang" role="group" aria-label="Language" data-i18n-attr="aria-label:nav.language">
+          <button type="button" data-lang="en" aria-pressed="true" lang="en">EN</button>
+          <button type="button" data-lang="vi" aria-pressed="false" lang="vi">VI</button>
+        </div>
+        <a class="btn btn-primary btn-sm" href="https://github.com/tuanluu-agilityio/darkshot/releases/latest" data-download-cta>
+          <svg width="16" height="16" aria-hidden="true"><use href="#i-download"/></svg>
+          <span data-cta-label data-i18n="cta.download">Download</span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu" data-i18n-attr="aria-label:nav.menu">
+          <svg width="22" height="22" aria-hidden="true"><use href="#i-menu"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 2. HERO -->
+    <section class="hero" id="hero" aria-labelledby="hero-title">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow" data-i18n="hero.eyebrow">LIGHTWEIGHT SCREENSHOT TOOL FOR WINDOWS</p>
+          <h1 id="hero-title">
+            <span data-i18n="hero.h1a">Capture anything.</span>
+            <span class="grad" data-i18n="hero.h1b">Make it clear.</span>
+            <span data-i18n="hero.h1c">Share it instantly.</span>
+          </h1>
+          <p class="lead" data-i18n-html="hero.lead">Meet <strong>darkshot</strong> — a lightweight screenshot companion that helps you capture, annotate, and share your screen without interrupting your workflow.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" href="https://github.com/tuanluu-agilityio/darkshot/releases/latest" data-download-cta>
+              <svg width="20" height="20" aria-hidden="true"><use href="#i-download"/></svg>
+              <span data-cta-label data-i18n="hero.cta">Download for Windows</span>
+            </a>
+            <a class="btn btn-ghost btn-lg" href="#features" data-i18n="hero.cta2">Explore Features</a>
+          </div>
+          <p class="meta-line"><span data-i18n="hero.meta">Windows 11 · 64-bit · Rust-powered</span><span class="rel-badge" data-release-badge hidden></span></p>
+        </div>
+
+        <figure class="hero-stage" data-stage="capture" data-hero>
+          <div class="stage-frame">
+            <div data-scene="hero" class="scene-slot" style="aspect-ratio:760/470"></div>
+          </div>
+          <div class="stage-steps" role="tablist" aria-label="Capture, annotate, share" data-i18n-attr="aria-label:hero.stepsLabel">
+            <button role="tab" type="button" data-stage-btn="capture" aria-selected="true"><b>1</b><span data-i18n="hero.s1">Capture</span></button>
+            <span class="stage-arrow" aria-hidden="true">→</span>
+            <button role="tab" type="button" data-stage-btn="annotate" aria-selected="false"><b>2</b><span data-i18n="hero.s2">Annotate</span></button>
+            <span class="stage-arrow" aria-hidden="true">→</span>
+            <button role="tab" type="button" data-stage-btn="share" aria-selected="false"><b>3</b><span data-i18n="hero.s3">Share</span></button>
+          </div>
+          <figcaption class="fig-note" data-i18n="hero.note">Illustration reconstructed from darkshot's real interface. Sample content is invented.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 3. HIGHLIGHTS -->
+    <section class="highlights" aria-label="Highlights" data-i18n-attr="aria-label:hl.label">
+      <div class="wrap">
+        <ul class="hl-grid">
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-bolt"/></svg><div><h3 data-i18n="hl.1t">Lightweight and native</h3><p data-i18n="hl.1d">Written in Rust for Windows. A single portable executable, no installer.</p></div></li>
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-tray"/></svg><div><h3 data-i18n="hl.2t">Quiet in your tray</h3><p data-i18n="hl.2d">Lives in the system tray until you press the capture key.</p></div></li>
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-keyboard"/></svg><div><h3 data-i18n="hl.3t">Keyboard-first</h3><p data-i18n="hl.3d">One key to capture, one key to finish. Shortcuts are configurable.</p></div></li>
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-save"/></svg><div><h3 data-i18n="hl.4t">Save and copy locally</h3><p data-i18n="hl.4d">PNG files and the clipboard work without any account or setup.</p></div></li>
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-cloud"/></svg><div><h3 data-i18n="hl.5t">Optional cloud sharing</h3><p data-i18n="hl.5d">Upload to your own Cloudflare R2 bucket and copy the link.</p></div></li>
+          <li><svg width="22" height="22" aria-hidden="true"><use href="#i-server-off"/></svg><div><h3 data-i18n="hl.6t">No middleman server</h3><p data-i18n="hl.6d">Uploads go straight from your PC to your storage, not through ours.</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 4. FEATURES -->
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="feat.eyebrow">FEATURES</p>
+          <h2 id="features-title" data-i18n="feat.title">Everything between “see it” and “send it”.</h2>
+          <p class="section-lead" data-i18n="feat.lead">Eight things darkshot does well, each one a feature that exists in the app today.</p>
+        </div>
+        <nav class="feat-nav" aria-label="Feature groups" data-i18n-attr="aria-label:feat.navLabel">
+          <a href="#f-capture" data-i18n="feat.n1">Capture</a>
+          <a href="#f-annotate" data-i18n="feat.n2">Annotate</a>
+          <a href="#f-redact" data-i18n="feat.n3">Redact</a>
+          <a href="#f-export" data-i18n="feat.n4">Export</a>
+          <a href="#f-r2" data-i18n="feat.n5">Cloudflare R2</a>
+          <a href="#f-history" data-i18n="feat.n6">History</a>
+          <a href="#f-keys" data-i18n="feat.n7">Shortcuts</a>
+          <a href="#f-custom" data-i18n="feat.n8">Customize</a>
+        </nav>
+
+        <!-- A. Capture -->
+        <article class="feature" id="f-capture" aria-labelledby="fa-title">
+          <div class="feature-copy">
+            <p class="tag">A</p>
+            <h3 id="fa-title" data-i18n="fa.title">Smart screenshot capture</h3>
+            <p class="feature-pitch" data-i18n="fa.pitch">Click to capture a window. Drag to capture any region.</p>
+            <ul class="ticks">
+              <li data-i18n="fa.l1">Drag to capture any custom region of the screen.</li>
+              <li data-i18n-html="fa.l2">Hover a window and click once, or press <kbd>Enter</kbd>, to capture exactly that window.</li>
+              <li data-i18n="fa.l3">Works across multiple monitors and mixed display DPI settings.</li>
+              <li data-i18n="fa.l4">Optionally remembers where your last selection was.</li>
+              <li data-i18n="fa.l5">Optionally includes the mouse pointer in the image.</li>
+            </ul>
+            <p class="small" data-i18n="fa.priv">Window selection only reads each window's position and size, never its title or contents.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="demo snap-demo" data-snap tabindex="0" role="group" aria-label="Interactive demo: hover a window and click, or drag a region" data-i18n-attr="aria-label:fa.demoLabel">
+              <div data-scene="snap" class="scene-slot" style="aspect-ratio:760/470"></div>
+            </div>
+            <div class="demo-controls">
+              <span class="demo-status" data-snap-status aria-live="polite" data-i18n="fa.status0">Try it: move over a window, click it, or drag a region.</span>
+              <button type="button" class="btn btn-ghost btn-sm" data-snap-reset data-i18n="fa.reset">Reset</button>
+            </div>
+            <figcaption class="fig-note" data-i18n="fa.note">Interactive illustration of the capture overlay. Sample windows are invented.</figcaption>
+          </figure>
+        </article>
+
+        <!-- B. Annotate -->
+        <article class="feature reverse" id="f-annotate" aria-labelledby="fb-title">
+          <div class="feature-copy">
+            <p class="tag">B</p>
+            <h3 id="fb-title" data-i18n="fb.title">Powerful annotation tools</h3>
+            <p class="feature-pitch" data-i18n="fb.pitch">Turn screenshots into clear explanations.</p>
+            <ul class="tool-chips" aria-label="Annotation tools" data-i18n-attr="aria-label:fb.toolsLabel">
+              <li><kbd>P</kbd> <span data-i18n="fb.t.pen">Freehand pen</span></li>
+              <li><kbd>L</kbd> <span data-i18n="fb.t.line">Line</span></li>
+              <li><kbd>A</kbd> <span data-i18n="fb.t.arrow">Arrow</span></li>
+              <li><kbd>R</kbd> <span data-i18n="fb.t.rect">Rectangle</span></li>
+              <li><kbd>E</kbd> <span data-i18n="fb.t.ellipse">Ellipse</span></li>
+              <li><kbd>H</kbd> <span data-i18n="fb.t.hl">Highlighter</span></li>
+              <li><kbd>T</kbd> <span data-i18n="fb.t.text">Text</span></li>
+              <li><kbd>N</kbd> <span data-i18n="fb.t.step">Numbered markers</span></li>
+              <li><kbd>V</kbd> <span data-i18n="fb.t.select">Select and edit</span></li>
+              <li><kbd>[</kbd><kbd>]</kbd> <span data-i18n="fb.t.size">Four stroke &amp; text sizes</span></li>
+              <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> <span data-i18n="fb.t.undo">Multi-step undo / redo</span></li>
+              <li><span class="swatch" aria-hidden="true"></span> <span data-i18n="fb.t.color">48 colours plus your own</span></li>
+            </ul>
+            <p class="small" data-i18n="fb.sel">With the Select tool you can move, resize, recolour or delete any shape you drew.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="demo compare" data-compare style="--split:50%">
+              <div class="compare-base" data-scene="before" style="aspect-ratio:640/400"></div>
+              <div class="compare-top" data-scene="after" style="aspect-ratio:640/400"></div>
+              <span class="compare-tag left" data-i18n="fb.before">Before</span>
+              <span class="compare-tag right" data-i18n="fb.after">After</span>
+              <span class="compare-handle" aria-hidden="true"></span>
+              <input type="range" min="0" max="100" value="50" aria-label="Compare before and after" data-i18n-attr="aria-label:fb.compare" />
+            </div>
+            <figcaption class="fig-note" data-i18n="fb.note">Drag the slider. Illustration of the annotation tools; the invoice is invented.</figcaption>
+          </figure>
+        </article>
+
+        <!-- C. Redact -->
+        <article class="feature" id="f-redact" aria-labelledby="fc-title">
+          <div class="feature-copy">
+            <p class="tag">C</p>
+            <h3 id="fc-title" data-i18n="fc.title">Privacy redaction</h3>
+            <p class="feature-pitch" data-i18n="fc.pitch">Share screenshots without exposing sensitive information.</p>
+            <p data-i18n-html="fc.body">Drag the <strong>Blur</strong> tool (<kbd>B</kbd>) over anything private. It isn't a Gaussian blur: darkshot covers the area with an <strong>opaque solid colour sampled from the image</strong>, so the text underneath is not kept in the exported screenshot.</p>
+            <ul class="ticks">
+              <li data-i18n="fc.l1">Sharp-edged cover, no soft blur that hints at the original.</li>
+              <li data-i18n="fc.l2">Hold Shift for a perfect square.</li>
+              <li data-i18n="fc.l3">Applies to the saved, copied and uploaded image alike.</li>
+            </ul>
+            <p class="small" data-i18n="fc.warn">Tip: redactions are burned in when you export. If you move or delete one before exporting, what was underneath is visible again.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="demo redact" data-redact data-state="off">
+              <div class="redact-stage" data-scene="redact" style="aspect-ratio:640/400"></div>
+            </div>
+            <div class="demo-controls">
+              <button type="button" class="btn btn-primary btn-sm" data-redact-toggle aria-pressed="false">
+                <svg width="16" height="16" aria-hidden="true"><use href="#i-blur"/></svg>
+                <span data-redact-label data-i18n="fc.apply">Redact sensitive fields</span>
+              </button>
+              <span class="demo-status" data-redact-status aria-live="polite" data-i18n="fc.s0">The email address and key are readable.</span>
+            </div>
+            <figcaption class="fig-note" data-i18n="fc.note">Illustration. All sample data is fictional.</figcaption>
+          </figure>
+        </article>
+
+        <!-- D. Export -->
+        <article class="feature reverse" id="f-export" aria-labelledby="fd-title">
+          <div class="feature-copy">
+            <p class="tag">D</p>
+            <h3 id="fd-title" data-i18n="fd.title">Multiple ways to export</h3>
+            <p class="feature-pitch" data-i18n="fd.pitch">One selection, four actions. Pick with a button or a key.</p>
+            <div class="tabs" data-tabs>
+              <div role="tablist" aria-label="Export actions" data-i18n-attr="aria-label:fd.tabsLabel">
+                <button role="tab" type="button" id="fd-t1" aria-controls="fd-p1" aria-selected="true"><svg width="18" height="18" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n="fd.t1">Upload</span><kbd>Ctrl+D</kbd></button>
+                <button role="tab" type="button" id="fd-t2" aria-controls="fd-p2" aria-selected="false" tabindex="-1"><svg width="18" height="18" aria-hidden="true"><use href="#i-save"/></svg><span data-i18n="fd.t2">Save</span><kbd>Ctrl+S</kbd></button>
+                <button role="tab" type="button" id="fd-t3" aria-controls="fd-p3" aria-selected="false" tabindex="-1"><svg width="18" height="18" aria-hidden="true"><use href="#i-copy"/></svg><span data-i18n="fd.t3">Copy</span><kbd>Ctrl+C</kbd></button>
+                <button role="tab" type="button" id="fd-t4" aria-controls="fd-p4" aria-selected="false" tabindex="-1"><svg width="18" height="18" aria-hidden="true"><use href="#i-close"/></svg><span data-i18n="fd.t4">Cancel</span><kbd>Esc</kbd></button>
+              </div>
+              <div role="tabpanel" id="fd-p1" aria-labelledby="fd-t1" class="tab-panel">
+                <h4 data-i18n="fd.p1t">Upload and copy the link</h4>
+                <p data-i18n="fd.p1d">Sends the image to your own Cloudflare R2 bucket, then puts the share link on your clipboard.</p>
+                <div class="mini-toast"><b>darkshot</b><span data-i18n="demo.linkCopied">Link copied</span><code>https://img.example.com/d30/k3X9f2abQ7mZp1Lw.png</code></div>
+              </div>
+              <div role="tabpanel" id="fd-p2" aria-labelledby="fd-t2" class="tab-panel" hidden>
+                <h4 data-i18n="fd.p2t">Save a PNG</h4>
+                <p data-i18n-html="fd.p2d">Saves straight into your save folder (default <code>Pictures\darkshot</code>) without asking. Saved files are always PNG.</p>
+                <div class="mini-toast"><b>darkshot</b><span data-i18n="demo.saved">Image saved</span><code>darkshot_2026-11-18_10-42-07.png</code></div>
+              </div>
+              <div role="tabpanel" id="fd-p3" aria-labelledby="fd-t3" class="tab-panel" hidden>
+                <h4 data-i18n="fd.p3t">Copy to the clipboard</h4>
+                <p data-i18n="fd.p3d">Paste the finished image into chat, a ticket or a document right away.</p>
+                <div class="mini-toast"><b>darkshot</b><span data-i18n="demo.copied">Image copied</span><code>Ctrl+V</code></div>
+              </div>
+              <div role="tabpanel" id="fd-p4" aria-labelledby="fd-t4" class="tab-panel" hidden>
+                <h4 data-i18n="fd.p4t">Cancel</h4>
+                <p data-i18n="fd.p4d">Closes the overlay and does nothing. In the middle of editing, Esc steps back one level first.</p>
+                <div class="mini-toast neutral"><b>darkshot</b><span data-i18n="fd.p4x">Nothing saved, nothing sent.</span></div>
+              </div>
+            </div>
+          </div>
+          <figure class="feature-visual bar-visual">
+            <svg viewBox="0 0 330 56" class="bar-svg" role="img" aria-label="The darkshot action bar: undo, redo, upload, save, copy, cancel" data-i18n-attr="aria-label:fd.barLabel" data-bar></svg>
+            <figcaption class="fig-note" data-i18n="fd.note">The action bar as it appears next to your selection (illustration).</figcaption>
+          </figure>
+        </article>
+
+        <!-- E. R2 -->
+        <article class="feature" id="f-r2" aria-labelledby="fe-title">
+          <div class="feature-copy">
+            <p class="tag">E</p>
+            <h3 id="fe-title" data-i18n="fe.title">Cloudflare R2 integration</h3>
+            <p class="feature-pitch" data-i18n="fe.pitch">Your screenshots. Your storage. Your control.</p>
+            <ul class="ticks">
+              <li data-i18n="fe.l1">Connect your own Cloudflare R2 bucket in Options.</li>
+              <li data-i18n="fe.l2">Images upload straight to it and the public link is copied for you.</li>
+              <li data-i18n="fe.l3">Upload as PNG, or as JPEG with quality 50–100.</li>
+              <li data-i18n="fe.l4">Choose link expiry: 1 day, 7 days, 30 days or never.</li>
+            </ul>
+            <p class="callout" data-i18n-html="fe.req"><strong>R2 is required only for cloud uploads.</strong> Saving and copying work without it. Cloudflare R2 is your own Cloudflare account and service; darkshot doesn't provide or host storage.</p>
+            <p class="small" data-i18n-html="fe.lifecycle">Expiry works through lifecycle rules you create once in Cloudflare (<code>d1/</code>, <code>d7/</code>, <code>d30/</code>); darkshot can't create or verify them. The README walks through it.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="demo r2" data-r2>
+              <div class="r2-flow" aria-hidden="true">
+                <div class="r2-node"><svg width="22" height="22"><use href="#i-window"/></svg><span>darkshot.exe</span></div>
+                <div class="r2-link"><i></i><small>HTTPS · SigV4</small></div>
+                <div class="r2-node accent"><svg width="22" height="22"><use href="#i-cloud"/></svg><span data-i18n="fe.node">Your R2 bucket</span></div>
+              </div>
+              <div class="r2-controls">
+                <fieldset>
+                  <legend data-i18n="fe.expiry">Link expiry</legend>
+                  <div class="seg" role="radiogroup">
+                    <label><input type="radio" name="expiry" value="d1" /><span data-i18n="fe.e1">1 day</span></label>
+                    <label><input type="radio" name="expiry" value="d7" /><span data-i18n="fe.e7">7 days</span></label>
+                    <label><input type="radio" name="expiry" value="d30" checked /><span data-i18n="fe.e30">30 days</span></label>
+                    <label><input type="radio" name="expiry" value="keep" /><span data-i18n="fe.ek">Never</span></label>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend data-i18n="fe.format">Upload format</legend>
+                  <div class="seg" role="radiogroup">
+                    <label><input type="radio" name="fmt" value="png" checked /><span>PNG</span></label>
+                    <label><input type="radio" name="fmt" value="jpg" /><span>JPEG</span></label>
+                  </div>
+                </fieldset>
+              </div>
+              <div class="r2-result">
+                <span class="r2-result-label" data-i18n="fe.result">Copied link</span>
+                <code data-r2-link>https://img.example.com/d30/k3X9f2abQ7mZp1Lw.png</code>
+              </div>
+            </div>
+            <figcaption class="fig-note" data-i18n="fe.note">Illustration. The address and file name are examples.</figcaption>
+          </figure>
+        </article>
+
+        <!-- F. History -->
+        <article class="feature reverse" id="f-history" aria-labelledby="ff-title">
+          <div class="feature-copy">
+            <p class="tag">F</p>
+            <h3 id="ff-title" data-i18n="ff.title">Screenshot history</h3>
+            <p class="feature-pitch" data-i18n="ff.pitch">Your recent captures, always within reach.</p>
+            <ul class="ticks">
+              <li data-i18n="ff.l1">Off by default. Turn it on in Options.</li>
+              <li data-i18n="ff.l2">Keeps your 50 most recent items, stored locally on your PC.</li>
+              <li data-i18n="ff.l3">Thumbnails and a preview for each item.</li>
+              <li data-i18n="ff.l4">Search by file name, date, type or link; filter Saved, Uploaded or Copied.</li>
+              <li data-i18n="ff.l5">Open, copy or remove entries.</li>
+            </ul>
+            <p class="small" data-i18n="ff.safe">Removing an entry never deletes the file you saved or the image on R2.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="shot-frame">
+              <img data-shot="history" src="/img/history-en.webp" width="1300" height="903" loading="lazy" decoding="async" alt="darkshot's Screenshot history window: a searchable list of recent captures with a preview and Open link, Copy image, Copy link and Remove buttons." data-i18n-attr="alt:ff.alt" />
+            </div>
+            <figcaption class="fig-note" data-i18n="ff.note">Real screenshot of the app, using placeholder demo images.</figcaption>
+          </figure>
+        </article>
+
+        <!-- G. Shortcuts -->
+        <article class="feature stack" id="f-keys" aria-labelledby="fg-title">
+          <div class="feature-copy wide">
+            <p class="tag">G</p>
+            <h3 id="fg-title" data-i18n="fg.title">Keyboard shortcuts &amp; workflow</h3>
+            <p class="feature-pitch" data-i18n="fg.pitch">Hands on the keys from capture to share.</p>
+          </div>
+          <div class="keys-wrap">
+            <table class="keys">
+              <caption class="sr-only" data-i18n="fg.caption">Keyboard shortcuts</caption>
+              <thead><tr><th scope="col" data-i18n="fg.h1">Shortcut</th><th scope="col" data-i18n="fg.h2">Action</th></tr></thead>
+              <tbody>
+                <tr><td><kbd>PrintScreen</kbd></td><td data-i18n="fg.r1">Open screenshot capture</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>D</kbd></td><td data-i18n="fg.r2">Upload and copy link</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td data-i18n="fg.r3">Save PNG</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>C</kbd></td><td data-i18n="fg.r4">Copy image</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td data-i18n="fg.r5">Cancel or step back</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td data-i18n="fg.r6">Undo annotation</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td data-i18n="fg.r7">Redo annotation</td></tr>
+              </tbody>
+            </table>
+            <div class="keys-side">
+              <h4 data-i18n="fg.extra">Also available</h4>
+              <ul class="ticks">
+                <li data-i18n-html="fg.x1"><kbd>Shift</kbd>+<kbd>PrintScreen</kbd> saves the whole screen with no overlay (off by default).</li>
+                <li data-i18n-html="fg.x2"><kbd>Ctrl</kbd>+<kbd>PrintScreen</kbd> uploads the whole screen and copies the link (off by default).</li>
+                <li data-i18n="fg.x3">All three capture shortcuts can be re-assigned or turned off in Options.</li>
+              </ul>
+              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S and Ctrl+C work once you have a selection.</p>
+            </div>
+          </div>
+        </article>
+
+        <!-- H. Customize -->
+        <article class="feature reverse" id="f-custom" aria-labelledby="fh-title">
+          <div class="feature-copy">
+            <p class="tag">H</p>
+            <h3 id="fh-title" data-i18n="fh.title">Customization &amp; experience</h3>
+            <p class="feature-pitch" data-i18n="fh.pitch">Make it fit the way you work.</p>
+            <ul class="ticks">
+              <li data-i18n="fh.l1">Customizable screenshot shortcuts.</li>
+              <li data-i18n="fh.l2">Start with Windows.</li>
+              <li data-i18n="fh.l3">Vietnamese or English interface.</li>
+              <li data-i18n="fh.l4">PNG or JPEG for uploads, with adjustable JPEG quality.</li>
+              <li data-i18n="fh.l5">Choose your save folder.</li>
+              <li data-i18n="fh.l6">Optional update check (off by default).</li>
+              <li data-i18n="fh.l7">Optional screenshot history.</li>
+              <li data-i18n="fh.l8">Turn save and copy notifications on or off.</li>
+            </ul>
+          </div>
+          <figure class="feature-visual">
+            <div class="shot-frame narrow">
+              <img data-shot="options" src="/img/options-en.webp" width="776" height="462" loading="lazy" decoding="async" alt="darkshot's Options window, General tab, listing Start with Windows, notifications, update check, history, remembered region, mouse pointer and window suggestion options." data-i18n-attr="alt:fh.alt" />
+            </div>
+            <figcaption class="fig-note" data-i18n="fh.note">Real screenshot of the Options window (General tab).</figcaption>
+          </figure>
+        </article>
+      </div>
+    </section>
+
+    <!-- 5. HOW IT WORKS -->
+    <section class="section alt" id="how" aria-labelledby="how-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="how.eyebrow">HOW IT WORKS</p>
+          <h2 id="how-title" data-i18n="how.title">Four steps. Under ten seconds.</h2>
+        </div>
+        <ol class="timeline">
+          <li><span class="step-n">1</span><h3 data-i18n="how.1t">Capture</h3><p data-i18n-html="how.1d">Press <kbd>PrintScreen</kbd> or choose Capture from the tray menu.</p></li>
+          <li><span class="step-n">2</span><h3 data-i18n="how.2t">Select</h3><p data-i18n="how.2d">Click a window, or drag to select a region.</p></li>
+          <li><span class="step-n">3</span><h3 data-i18n="how.3t">Annotate</h3><p data-i18n="how.3d">Draw, highlight, add text or numbers, or redact sensitive details.</p></li>
+          <li><span class="step-n">4</span><h3 data-i18n="how.4t">Share</h3><p data-i18n="how.4d">Save locally, copy to the clipboard, or upload to your Cloudflare R2.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 6. PRIVACY -->
+    <section class="section" id="privacy" aria-labelledby="privacy-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="pv.eyebrow">PRIVACY &amp; ARCHITECTURE</p>
+          <h2 id="privacy-title" data-i18n="pv.title">Your screen. Your data. Your control.</h2>
+          <p class="section-lead" data-i18n="pv.lead">Screenshots can be sensitive, so here is exactly what stays on your PC and what leaves it.</p>
+        </div>
+        <div class="split">
+          <div class="panel local">
+            <h3><svg width="20" height="20" aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n="pv.localT">On your PC</span></h3>
+            <ul class="ticks">
+              <li data-i18n="pv.l1">A native Rust desktop app. Capture, annotation and saving all happen locally.</li>
+              <li data-i18n="pv.l2">Screenshot history is optional, off by default and stored only on your PC.</li>
+              <li data-i18n="pv.l3">Window selection reads window geometry, not titles or contents.</li>
+              <li data-i18n="pv.l4">Your R2 secret key is encrypted with Windows DPAPI.</li>
+              <li data-i18n="pv.l5">No analytics, no usage statistics, no log files.</li>
+            </ul>
+          </div>
+          <div class="panel net">
+            <h3><svg width="20" height="20" aria-hidden="true"><use href="#i-cloud"/></svg><span data-i18n="pv.netT">When it uses the network</span></h3>
+            <ul class="ticks">
+              <li data-i18n="pv.n1">Only when you choose Upload: the image goes straight to your own Cloudflare R2 bucket over HTTPS. There is no intermediary upload server.</li>
+              <li data-i18n="pv.n2">Optional update check (can be turned off): contacts GitHub and sends only the app name and version.</li>
+            </ul>
+            <p class="small" data-i18n="pv.n3">darkshot doesn't claim to be offline-only: uploads and update checks need a connection. Saving, copying and history work without one.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. DOWNLOAD -->
+    <section class="section download" id="download" aria-labelledby="download-title">
+      <div class="wrap">
+        <div class="dl-panel">
+          <div class="dl-main">
+            <p class="eyebrow" data-i18n="dl.eyebrow">DOWNLOAD</p>
+            <h2 id="download-title" data-i18n="dl.title">Ready to capture smarter?</h2>
+            <p class="section-lead" data-i18n="dl.lead">Get darkshot and make screenshots a more natural part of your workflow.</p>
+            <a class="btn btn-primary btn-xl" href="https://github.com/tuanluu-agilityio/darkshot/releases/latest" data-download-cta>
+              <svg width="22" height="22" aria-hidden="true"><use href="#i-download"/></svg>
+              <span data-cta-label data-i18n="dl.cta">Download darkshot for Windows</span>
+            </a>
+            <ul class="dl-facts">
+              <li data-i18n="dl.f1">Windows 11</li>
+              <li data-i18n="dl.f2">64-bit</li>
+              <li data-i18n="dl.f3">Portable executable</li>
+              <li data-i18n="dl.f4">No traditional installation required</li>
+              <li data-i18n="dl.f5">Latest stable release</li>
+            </ul>
+            <p class="dl-links">
+              <a href="https://github.com/tuanluu-agilityio/darkshot/releases" target="_blank" rel="noopener" data-i18n="dl.all">View all releases</a>
+              <a href="https://github.com/tuanluu-agilityio/darkshot" target="_blank" rel="noopener" data-i18n="dl.src">View source on GitHub</a>
+              <a href="#install" data-i18n="dl.inst">Read installation instructions</a>
+            </p>
+          </div>
+          <div class="dl-release" data-release aria-live="polite">
+            <h3 data-i18n="dl.relTitle">Latest release</h3>
+            <p class="rel-status" data-release-status data-i18n="dl.loading">Checking GitHub for the latest release…</p>
+            <dl class="rel-meta" data-release-meta hidden>
+              <div><dt data-i18n="dl.version">Version</dt><dd data-release-version></dd></div>
+              <div><dt data-i18n="dl.published">Published</dt><dd data-release-date></dd></div>
+            </dl>
+            <ul class="assets" data-release-assets></ul>
+            <p class="small"><a data-release-notes href="https://github.com/tuanluu-agilityio/darkshot/releases/latest" target="_blank" rel="noopener" data-i18n="dl.notes">Release notes on GitHub</a></p>
+          </div>
+        </div>
+
+        <div class="notice" role="note">
+          <svg width="22" height="22" aria-hidden="true"><use href="#i-alert"/></svg>
+          <div>
+            <h3 data-i18n="dl.warnT">darkshot is currently unsigned</h3>
+            <p data-i18n="dl.warn">darkshot is currently unsigned. Windows SmartScreen may display a warning on first launch. You can verify the downloaded file against the published SHA256 checksums.</p>
+            <details class="verify">
+              <summary data-i18n="dl.verifyT">How to verify the download</summary>
+              <ol>
+                <li data-i18n-html="dl.v1">Download <code>SHA256SUMS.txt</code> from the same release.</li>
+                <li data-i18n-html="dl.v2">In PowerShell, run <code>Get-FileHash .\darkshot.exe -Algorithm SHA256</code>.</li>
+                <li data-i18n="dl.v3">Compare the hash with the line for that file in SHA256SUMS.txt. They must match exactly.</li>
+                <li data-i18n-html="dl.v4">If SmartScreen appears and the hash matches, choose <strong>More info</strong> → <strong>Run anyway</strong>.</li>
+              </ol>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. INSTALL -->
+    <section class="section alt" id="install" aria-labelledby="install-title">
+      <div class="wrap narrow">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="in.eyebrow">GET STARTED</p>
+          <h2 id="install-title" data-i18n="in.title">Installation guide</h2>
+        </div>
+        <ol class="install">
+          <li><h3 data-i18n="in.1t">Download</h3><p data-i18n="in.1d">Get the ZIP package or the standalone executable from the latest GitHub release.</p></li>
+          <li><h3 data-i18n="in.2t">Extract</h3><p data-i18n="in.2d">If you downloaded the ZIP, extract it anywhere you like.</p></li>
+          <li><h3 data-i18n="in.3t">Run darkshot.exe</h3><p data-i18n="in.3d">No installer. Double-click the executable. If SmartScreen appears, see the note above.</p></li>
+          <li><h3 data-i18n="in.4t">Find it in the tray</h3><p data-i18n="in.4d">darkshot appears in the Windows system tray. Click its icon for the menu, or press PrintScreen.</p></li>
+          <li><h3 data-i18n="in.5t">Set up R2 (only if you need it)</h3><p data-i18n="in.5d">Open Options → R2 storage to connect your Cloudflare R2 bucket for cloud uploads.</p></li>
+        </ol>
+        <p class="callout" data-i18n="in.note">Local saving and clipboard copying don't need any R2 credentials.</p>
+        <p><a class="btn btn-ghost" href="https://github.com/tuanluu-agilityio/darkshot#readme" target="_blank" rel="noopener" data-i18n="in.readme">Read the full README</a></p>
+      </div>
+    </section>
+
+    <!-- 9. FAQ -->
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="wrap narrow">
+        <div class="section-head">
+          <p class="eyebrow" data-i18n="faq.eyebrow">FAQ</p>
+          <h2 id="faq-title" data-i18n="faq.title">Questions, answered plainly.</h2>
+        </div>
+        <div class="faq">
+          <details><summary data-i18n="faq.q1">Is darkshot free?</summary><p data-i18n="faq.a1">The source code is public on GitHub, and downloading a release doesn't ask for payment. The repository doesn't currently include a license file, so no license terms are published; check the repository for updates.</p></details>
+          <details><summary data-i18n="faq.q2">Which Windows versions are supported?</summary><p data-i18n="faq.a2">Windows 11, 64-bit.</p></details>
+          <details><summary data-i18n="faq.q3">Do I need Cloudflare R2?</summary><p data-i18n="faq.a3">No, not for saving locally or copying to the clipboard. R2 is required only for cloud uploads and shareable links.</p></details>
+          <details><summary data-i18n="faq.q4">Does darkshot require installation?</summary><p data-i18n="faq.a4">No traditional installer. Run the portable darkshot.exe directly.</p></details>
+          <details><summary data-i18n="faq.q5">Where are my screenshots stored?</summary><p data-i18n-html="faq.a5">Saved screenshots go to your save folder, by default <code>Pictures\darkshot</code>, and you can change it in Options. If you turn on history, its index and thumbnails live in <code>%LOCALAPPDATA%\darkshot\history</code>. A screenshot only exists in memory until you save or upload it.</p></details>
+          <details><summary data-i18n="faq.q6">Are screenshots uploaded automatically?</summary><p data-i18n="faq.a6">No. Nothing is uploaded unless you choose Upload (or use the optional quick-upload shortcut you enabled yourself). Uploads go only to the R2 bucket you configured.</p></details>
+          <details><summary data-i18n="faq.q7">Can I customize keyboard shortcuts?</summary><p data-i18n="faq.a7">Yes. The three capture shortcuts (region, quick save, quick upload) can be changed or turned off in Options → Hotkeys. Shortcuts inside the overlay, such as Ctrl+S, are fixed.</p></details>
+          <details><summary data-i18n="faq.q8">Is darkshot available on macOS or Linux?</summary><p data-i18n="faq.a8">No. darkshot is a Windows-only app and there are no macOS or Linux builds.</p></details>
+          <details><summary data-i18n="faq.q9">Why does Windows SmartScreen show a warning?</summary><p data-i18n="faq.a9">The executable is not yet digitally signed, so SmartScreen has no publisher reputation to check. Verify the file against SHA256SUMS.txt, then choose More info → Run anyway if you're comfortable.</p></details>
+          <details><summary data-i18n="faq.q10">How can I verify the download?</summary><p data-i18n-html="faq.a10">Each release includes <code>SHA256SUMS.txt</code>. Run <code>Get-FileHash .\darkshot.exe -Algorithm SHA256</code> in PowerShell and compare the result with the matching line.</p></details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 10. FOOTER -->
+  <footer class="footer">
+    <div class="wrap footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="#top"><img src="/img/logo-64.png" width="28" height="28" alt="" /><span>darkshot</span></a>
+        <p data-i18n="ft.desc">A lightweight screenshot tool for Windows. Capture. Annotate. Share. Stay in flow.</p>
+      </div>
+      <nav aria-label="Project" data-i18n-attr="aria-label:ft.project">
+        <h2 data-i18n="ft.project">Project</h2>
+        <ul>
+          <li><a href="https://github.com/tuanluu-agilityio/darkshot" target="_blank" rel="noopener" data-i18n="ft.repo">GitHub repository</a></li>
+          <li><a href="https://github.com/tuanluu-agilityio/darkshot/releases" target="_blank" rel="noopener" data-i18n="ft.releases">Releases</a></li>
+          <li><a href="https://github.com/tuanluu-agilityio/darkshot/blob/main/CHANGELOG.md" target="_blank" rel="noopener" data-i18n="ft.changelog">Changelog</a></li>
+        </ul>
+      </nav>
+      <nav aria-label="Help" data-i18n-attr="aria-label:ft.help">
+        <h2 data-i18n="ft.help">Help</h2>
+        <ul>
+          <li><a href="https://github.com/tuanluu-agilityio/darkshot#readme" target="_blank" rel="noopener" data-i18n="ft.docs">Documentation (README)</a></li>
+          <li><a href="https://github.com/tuanluu-agilityio/darkshot/issues" target="_blank" rel="noopener" data-i18n="ft.issue">Report an issue</a></li>
+          <li><a href="#privacy" data-i18n="ft.privacy">Privacy information</a></li>
+        </ul>
+      </nav>
+    </div>
+    <div class="wrap footer-bottom">
+      <p>© <span data-year></span> darkshot. <span data-i18n="ft.rights">Website content describes the app as of its latest release.</span></p>
+    </div>
+  </footer>
+</body>
+</html>

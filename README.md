@@ -20,6 +20,10 @@ File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản buil
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
+## Trang giới thiệu
+
+`website/` chứa trang giới thiệu darkshot (static site Vite + TypeScript, hai ngôn ngữ EN/VI, tự lấy bản phát hành mới nhất từ GitHub). Tách khỏi ứng dụng, không ảnh hưởng `cargo build`. Cách chạy, build và triển khai: [website/README.md](website/README.md).
+
 ## Chuyển từ shotme
 
 darkshot là tên mới của shotme. Nếu máy đang có shotme:
