@@ -1203,6 +1203,30 @@ mod tests {
     }
 
     #[test]
+    fn help_text_keep_selection_and_repeat_menu_are_accurate() {
+        let on = HelpKeys {
+            repeat_last: Some("Ctrl+Shift+PrintScreen".into()),
+            ..HelpKeys::default()
+        };
+        for keys in [HelpKeys::default(), on] {
+            let vi = help_text(Lang::Vi, &keys);
+            let en = help_text(Lang::En, &keys);
+            // "Giữ vị trí vùng" nhớ cả sau khi khởi động lại.
+            assert!(!vi.contains("cho tới khi thoát darkshot"));
+            assert!(!en.contains("until you exit darkshot"));
+            assert!(vi.contains("kể cả sau khi khởi động lại darkshot"));
+            assert!(en.contains("even after darkshot restarts"));
+            // Mục menu khay lặp lại mờ khi chưa có lần chụp vùng.
+            assert!(!vi.contains("luôn dùng được"));
+            assert!(!en.contains("always available"));
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("dùng được sau lần chụp vùng đầu tiên"));
+        assert!(en.contains("becomes available after your first region capture"));
+    }
+
+    #[test]
     fn help_text_mentions_pin_hotkey() {
         for l in Lang::ALL {
             assert!(

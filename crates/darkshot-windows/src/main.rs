@@ -289,6 +289,12 @@ fn remember_last_capture(action: Action, screen: Rect) {
     }
 }
 
+/// Có liệt kê cửa sổ (gợi ý khung) trước khi chụp không, theo loại chụp `kind` (sau khi đã đổi phím
+/// lặp lại chưa có lần chụp trước thành `Region`) và ô gợi ý cửa sổ `snap_windows`.
+pub fn enumerates_windows(kind: CaptureKind, snap_windows: bool) -> bool {
+    kind == CaptureKind::Region && snap_windows
+}
+
 /// Vùng (tọa độ ảnh) của lượt chụp toàn màn hình: màn hình chứa con trỏ (`cursor`, tọa độ màn
 /// hình), không chứa thì màn hình gần nhất; vùng rỗng thì cả ảnh `w`×`h`.
 fn full_screen_rect(cursor: Point, origin: Point, monitors: &[Rect], w: i32, h: i32) -> Rect {
@@ -1981,6 +1987,19 @@ mod tests {
             gate_step(Capturing, OverlayClosed),
             (Idle, GateAction::None)
         );
+    }
+
+    #[test]
+    fn enumerates_windows_for_region_and_repeat_fallback() {
+        use CaptureKind::*;
+        // Lặp lại cũng liệt kê: vùng trước có thể đã mất và lớp phủ dự phòng cần gợi ý cửa sổ.
+        assert!(enumerates_windows(Region, true));
+        assert!(enumerates_windows(RepeatLast, true));
+        for k in [Region, RepeatLast, SaveFull, UploadFull] {
+            assert!(!enumerates_windows(k, false), "{k:?}");
+        }
+        assert!(!enumerates_windows(SaveFull, true));
+        assert!(!enumerates_windows(UploadFull, true));
     }
 
     #[test]
