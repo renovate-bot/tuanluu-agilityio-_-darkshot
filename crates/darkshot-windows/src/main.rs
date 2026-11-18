@@ -23,6 +23,8 @@ mod pin;
 mod secret;
 mod settings;
 mod snap;
+mod steps_bar;
+mod steps_store;
 mod theme;
 mod tray;
 mod wer;
@@ -1692,6 +1694,13 @@ mod tests {
             startup_mode(Some(std::path::Path::new("D:\\sb\\one"))).mutex_name
         );
         assert_ne!(m.mutex_name, startup_mode(None).mutex_name);
+    }
+
+    /// Mã thông điệp của chụp từng bước không trùng mã nào đã dùng (WM_APP+1..+12).
+    #[test]
+    fn steps_message_ids() {
+        assert_eq!(steps_store::WM_STEPS_SAVED, WM_APP + 13);
+        assert_eq!(WM_STEPS_CAPTURE, WM_APP + 14);
     }
 
     #[test]

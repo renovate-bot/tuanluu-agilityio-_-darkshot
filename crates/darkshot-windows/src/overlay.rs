@@ -5422,6 +5422,77 @@ mod tests {
         }
     }
 
+    /// Không phiên: đúng `BAR_CELLS` (9 ô) như cũ. Có phiên: thêm Thêm bước ngay trước Hủy (10 ô);
+    /// bố cục và dò ô theo đúng danh sách ô.
+    #[test]
+    fn bar_cells_with_and_without_steps() {
+        assert_eq!(bar_cells(false), BAR_CELLS.to_vec());
+        let with = bar_cells(true);
+        assert_eq!(with.len(), 10);
+        assert_eq!(
+            with,
+            vec![
+                Some(BarItem::Undo),
+                Some(BarItem::Redo),
+                None,
+                Some(BarItem::Act(Action::Upload)),
+                Some(BarItem::Act(Action::Save)),
+                Some(BarItem::Act(Action::Copy)),
+                Some(BarItem::Act(Action::Pin)),
+                Some(BarItem::Act(Action::Ocr)),
+                Some(BarItem::Act(Action::AddStep)),
+                Some(BarItem::Act(Action::Cancel)),
+            ]
+        );
+        for dpi in [96, 144, 192] {
+            let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
+            assert_eq!(bar_layout(dpi), bar_layout_with(dpi, false));
+            let l = bar_layout_with(dpi, true);
+            assert_eq!(l.size, (9 * b + sep, b), "dpi {dpi}");
+            let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
+            assert_eq!(items, with);
+            let bar = Rect {
+                x: 50,
+                y: 40,
+                w: l.size.0,
+                h: l.size.1,
+            };
+            let step = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
+            let cancel = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::Cancel)).unwrap();
+            assert_eq!(step.right(), cancel.x);
+            assert_eq!(cancel.right(), bar.right());
+            let c = Point {
+                x: step.x + step.w / 2,
+                y: step.y + step.h / 2,
+            };
+            assert_eq!(
+                bar_item_at_with(bar, c, dpi, true),
+                Some(BarItem::Act(Action::AddStep))
+            );
+            // Không phiên: không có ô Thêm bước.
+            assert_eq!(
+                bar_item_rect_with(bar, dpi, false, BarItem::Act(Action::AddStep)),
+                None
+            );
+            let mon = Rect {
+                x: 0,
+                y: 0,
+                w: 1920,
+                h: 1080,
+            };
+            let sel = Rect {
+                x: 600,
+                y: 300,
+                w: 500,
+                h: 300,
+            };
+            let (placed, _) = bars_for_with(sel, mon, dpi, true);
+            assert_eq!((placed.w, placed.h), l.size, "dpi {dpi}");
+            let (plain, _) = bars_for(sel, mon, dpi);
+            assert_eq!((plain.w, plain.h), bar_layout(dpi).size, "dpi {dpi}");
+        }
+    }
+
     #[test]
     fn blit_bounds_are_checked() {
         let r = |x, y, w, h| Rect { x, y, w, h };
@@ -9585,6 +9656,108 @@ mod tests {
             assert_eq!((r.action, r.rect), (Action::Pin, SEL));
             assert_eq!(r.shapes.len(), 1);
             assert!(matches!(r.shapes[0], Shape::Text { .. }));
+        }
+
+        #[test]
+        fn ctrl_n_adds_step_with_session() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::AddStep, SEL));
+            assert!(r.shapes.is_empty());
+        }
+
+        #[test]
+        fn ctrl_n_without_session_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            assert!(!s.steps);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_n_without_selection_does_nothing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, None);
+            s.steps = true;
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_n_while_typing_commits_text_then_adds_step() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::AddStep, SEL));
+            assert_eq!(r.shapes.len(), 1);
+        }
+
+        #[test]
+        fn ctrl_n_while_typing_without_session_keeps_typing() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x4E, false);
+            assert!(s.text.is_some());
+            assert!(s.result.is_none());
+        }
+
+        /// Có phiên: thanh ngang của trạng thái có ô Thêm bước; bấm vào nó kết thúc bằng AddStep.
+        #[test]
+        fn add_step_button_with_session() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            s.steps = true;
+            let (bar, dpi) = s.toolbar().unwrap();
+            assert_eq!((bar.w, bar.h), bar_layout_with(dpi, true).size);
+            let r = bar_item_rect_with(bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
+            let at = p(r.x + r.w / 2, r.y + r.h / 2);
+            assert_eq!(s.bar_item_at(at), Some(BarItem::Act(Action::AddStep)));
+            click(&mut s, at);
+            let res = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!(res.action, Action::AddStep);
+            // Không phiên: thanh 9 ô như cũ.
+            let s2 = state(&sh, Some(SEL));
+            let (bar2, dpi2) = s2.toolbar().unwrap();
+            assert_eq!((bar2.w, bar2.h), bar_layout(dpi2).size);
         }
     }
 }

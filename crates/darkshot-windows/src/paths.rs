@@ -199,6 +199,22 @@ mod tests {
     }
 
     #[test]
+    fn steps_dir_is_under_local_darkshot() {
+        assert_eq!(
+            steps_dir_in(Path::new("C:/L")),
+            PathBuf::from("C:/L")
+                .join("darkshot")
+                .join("steps")
+                .join("current")
+        );
+        assert!(steps_dir().ends_with("darkshot/steps/current"));
+        assert_eq!(
+            steps_dir_in(&resolve(Some(Path::new("D:/sb")), Known::Local)),
+            PathBuf::from("D:/sb/Local/darkshot/steps/current")
+        );
+    }
+
+    #[test]
     fn last_capture_sits_next_to_config() {
         let root = Path::new("C:/R");
         let p = last_capture_path_in(root);

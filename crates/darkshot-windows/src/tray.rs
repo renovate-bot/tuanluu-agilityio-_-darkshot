@@ -473,13 +473,14 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(true, 0, true),
+            menu_layout(true, 0, true, None),
             vec![
                 Item(OpenUpdate),
                 Separator,
                 Item(Capture),
                 Item(RepeatLast),
                 Item(History),
+                Item(StepsStart),
                 Item(Options),
                 Item(About),
                 Item(Help),
@@ -487,11 +488,12 @@ mod tests {
             ]
         );
         assert_eq!(
-            menu_layout(false, 0, true),
+            menu_layout(false, 0, true, None),
             vec![
                 Item(Capture),
                 Item(RepeatLast),
                 Item(History),
+                Item(StepsStart),
                 Item(Options),
                 Item(About),
                 Item(Help),
@@ -506,11 +508,12 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(false, 3, true),
+            menu_layout(false, 3, true, None),
             vec![
                 Item(Capture),
                 Item(RepeatLast),
                 Item(History),
+                Item(StepsStart),
                 Item(ClosePins),
                 Item(Options),
                 Item(About),
@@ -519,13 +522,14 @@ mod tests {
             ]
         );
         assert_eq!(
-            menu_layout(true, 3, true),
+            menu_layout(true, 3, true, None),
             vec![
                 Item(OpenUpdate),
                 Separator,
                 Item(Capture),
                 Item(RepeatLast),
                 Item(History),
+                Item(StepsStart),
                 Item(ClosePins),
                 Item(Options),
                 Item(About),
@@ -533,8 +537,8 @@ mod tests {
                 Item(Quit)
             ]
         );
-        assert_eq!(menu_layout(true, 1, true).len(), 10);
-        assert!(!menu_layout(true, 0, true).contains(&Item(ClosePins)));
+        assert_eq!(menu_layout(true, 1, true, None).len(), 11);
+        assert!(!menu_layout(true, 0, true, None).contains(&Item(ClosePins)));
     }
 
     /// Chưa có lần chụp để lặp: mục "Chụp lại vùng trước" vẫn ở ngay sau "Chụp" nhưng mờ.
@@ -543,22 +547,52 @@ mod tests {
         use MenuCommand::*;
         use MenuEntry::*;
         assert_eq!(
-            menu_layout(false, 0, false),
+            menu_layout(false, 0, false, None),
             vec![
                 Item(Capture),
                 Grayed(RepeatLast),
                 Item(History),
+                Item(StepsStart),
                 Item(Options),
                 Item(About),
                 Item(Help),
                 Item(Quit)
             ]
         );
-        let with_update = menu_layout(true, 2, false);
+        let with_update = menu_layout(true, 2, false, None);
         assert_eq!(&with_update[2..4], &[Item(Capture), Grayed(RepeatLast)]);
         assert!(!with_update.contains(&Item(RepeatLast)));
-        assert!(menu_layout(true, 2, true).contains(&Item(RepeatLast)));
-        assert!(!menu_layout(true, 2, true).contains(&Grayed(RepeatLast)));
+        assert!(menu_layout(true, 2, true, None).contains(&Item(RepeatLast)));
+        assert!(!menu_layout(true, 2, true, None).contains(&Grayed(RepeatLast)));
+    }
+
+    /// Không phiên: "Chụp từng bước" ngay sau Lịch sử; có phiên: "Xem lại các bước (N)" ở đúng chỗ đó,
+    /// trước "Đóng mọi ảnh ghim".
+    #[test]
+    fn menu_layout_steps_entry() {
+        use MenuCommand::*;
+        use MenuEntry::*;
+        let none = menu_layout(false, 0, true, None);
+        assert_eq!(&none[2..4], &[Item(History), Item(StepsStart)]);
+        assert!(!none.contains(&Item(StepsReview)));
+        let some = menu_layout(false, 2, true, Some(3));
+        assert_eq!(
+            some,
+            vec![
+                Item(Capture),
+                Item(RepeatLast),
+                Item(History),
+                Item(StepsReview),
+                Item(ClosePins),
+                Item(Options),
+                Item(About),
+                Item(Help),
+                Item(Quit)
+            ]
+        );
+        assert!(!some.contains(&Item(StepsStart)));
+        // Phiên rỗng vẫn là phiên.
+        assert!(menu_layout(true, 0, false, Some(0)).contains(&Item(StepsReview)));
     }
 
     #[test]
