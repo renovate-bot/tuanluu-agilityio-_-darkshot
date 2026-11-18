@@ -63,7 +63,7 @@ website/
 
 ## Minh họa và ảnh chụp
 
-- Hai ảnh chụp thật: cửa sổ Lịch sử (dữ liệu mẫu giữ chỗ) và cửa sổ Tùy chọn (tab Thông thường, đã cắt bỏ ô Thư mục lưu vì chứa đường dẫn máy). Nguồn: `target/demo7/screens`, `target/demo8/screens`.
+- Hai ảnh chụp thật: cửa sổ Lịch sử (dữ liệu mẫu giữ chỗ) và cửa sổ Tùy chọn (tab Thông thường, đã cắt bỏ ô Thư mục lưu vì chứa đường dẫn máy). Nguồn: `target/demo7/screens`, `target/demo8/screens`, `target/demo9/screens` (Lịch sử có nút Ghim).
 - Mọi hình còn lại (lớp phủ chụp, thanh công cụ, đánh dấu, che thông tin, bắt cửa sổ, thanh hành động) là SVG dựng lại theo bố cục và màu thật trong `crates/darkshot-core/src/theme.rs`, luôn kèm chú thích "Minh họa". Nội dung mẫu (hóa đơn Acme, email `jane.doe@example.com`, khóa `sk_test_EXAMPLE_0000`, link `img.example.com`) đều bịa, không dữ liệu thật.
 - Cần ảnh chụp thật cho lớp phủ: chụp bằng bản build thật rồi thay `scene.ts` trong từng mục (không dùng ảnh có màn hình riêng của ai).
 

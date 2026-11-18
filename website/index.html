@@ -157,7 +157,7 @@
         <div class="section-head">
           <p class="eyebrow" data-i18n="feat.eyebrow">FEATURES</p>
           <h2 id="features-title" data-i18n="feat.title">Everything between “see it” and “send it”.</h2>
-          <p class="section-lead" data-i18n="feat.lead">Eight things darkshot does well, each one a feature that exists in the app today.</p>
+          <p class="section-lead" data-i18n="feat.lead">Nine things darkshot does well, each one a feature that exists in the app today.</p>
         </div>
         <nav class="feat-nav" aria-label="Feature groups" data-i18n-attr="aria-label:feat.navLabel">
           <a href="#f-capture" data-i18n="feat.n1">Capture</a>
@@ -166,8 +166,9 @@
           <a href="#f-export" data-i18n="feat.n4">Export</a>
           <a href="#f-r2" data-i18n="feat.n5">Cloudflare R2</a>
           <a href="#f-history" data-i18n="feat.n6">History</a>
-          <a href="#f-keys" data-i18n="feat.n7">Shortcuts</a>
-          <a href="#f-custom" data-i18n="feat.n8">Customize</a>
+          <a href="#f-pin" data-i18n="feat.n7">Pin</a>
+          <a href="#f-keys" data-i18n="feat.n8">Shortcuts</a>
+          <a href="#f-custom" data-i18n="feat.n9">Customize</a>
         </nav>
 
         <!-- A. Capture -->
@@ -362,22 +363,46 @@
               <li data-i18n="ff.l2">Keeps your 50 most recent items, stored locally on your PC.</li>
               <li data-i18n="ff.l3">Thumbnails and a preview for each item.</li>
               <li data-i18n="ff.l4">Search by file name, date, type or link; filter Saved, Uploaded or Copied.</li>
-              <li data-i18n="ff.l5">Open, copy or remove entries.</li>
+              <li data-i18n="ff.l5">Open link, copy image, copy link, pin or remove entries.</li>
             </ul>
             <p class="small" data-i18n="ff.safe">Removing an entry never deletes the file you saved or the image on R2.</p>
           </div>
           <figure class="feature-visual">
             <div class="shot-frame">
-              <img data-shot="history" src="/img/history-en.webp" width="1300" height="903" loading="lazy" decoding="async" alt="darkshot's Screenshot history window: a searchable list of recent captures with a preview and Open link, Copy image, Copy link and Remove buttons." data-i18n-attr="alt:ff.alt" />
+              <img data-shot="history" src="/img/history-en.webp" width="1300" height="903" loading="lazy" decoding="async" alt="darkshot's Screenshot history window: a searchable list of recent captures with a preview and Open link, Copy image, Copy link, Pin and Remove from history buttons." data-i18n-attr="alt:ff.alt" />
             </div>
             <figcaption class="fig-note" data-i18n="ff.note">Real screenshot of the app, using placeholder demo images.</figcaption>
           </figure>
         </article>
 
-        <!-- G. Shortcuts -->
+        <!-- G. Pin -->
+        <article class="feature" id="f-pin" aria-labelledby="fp-title">
+          <div class="feature-copy">
+            <p class="tag">G</p>
+            <h3 id="fp-title" data-i18n="fp.title">Pin to screen</h3>
+            <p class="feature-pitch" data-i18n="fp.pitch">Keep a screenshot in view while you work.</p>
+            <ul class="ticks">
+              <li data-i18n-html="fp.l1">Pin a selection from the overlay with the <strong>Pin</strong> button or <kbd>Ctrl</kbd>+<kbd>P</kbd>. It lands exactly where you selected, with your annotations.</li>
+              <li data-i18n="fp.l2">Or pin any item from the Screenshot history with its Pin button.</li>
+              <li data-i18n="fp.l3">Each pin is its own window, always on top. Drag it anywhere.</li>
+              <li data-i18n-html="fp.l4">Scroll to zoom around the pointer; <kbd>Ctrl</kbd>+scroll to change opacity.</li>
+              <li data-i18n-html="fp.l5">Right-click for a menu (copy, save, zoom, opacity, close); <kbd>Esc</kbd> closes a pin.</li>
+              <li data-i18n="fp.l6">Up to 32 pins at once.</li>
+            </ul>
+            <p class="small" data-i18n="fp.safe">Pins stay on your PC: pinning never uses the network.</p>
+          </div>
+          <figure class="feature-visual">
+            <div class="shot-frame">
+              <img data-shot="history" src="/img/history-en.webp" width="1300" height="903" loading="lazy" decoding="async" alt="darkshot's Screenshot history window with the Pin button next to Copy link, used to pin the selected capture to the screen." data-i18n-attr="alt:fp.alt" />
+            </div>
+            <figcaption class="fig-note" data-i18n="fp.note">Real screenshot: the Pin button in the Screenshot history window.</figcaption>
+          </figure>
+        </article>
+
+        <!-- H. Shortcuts -->
         <article class="feature stack" id="f-keys" aria-labelledby="fg-title">
           <div class="feature-copy wide">
-            <p class="tag">G</p>
+            <p class="tag">H</p>
             <h3 id="fg-title" data-i18n="fg.title">Keyboard shortcuts &amp; workflow</h3>
             <p class="feature-pitch" data-i18n="fg.pitch">Hands on the keys from capture to share.</p>
           </div>
@@ -390,6 +415,7 @@
                 <tr><td><kbd>Ctrl</kbd> + <kbd>D</kbd></td><td data-i18n="fg.r2">Upload and copy link</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td data-i18n="fg.r3">Save PNG</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>C</kbd></td><td data-i18n="fg.r4">Copy image</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd></td><td data-i18n="fg.r8">Pin to screen</td></tr>
                 <tr><td><kbd>Esc</kbd></td><td data-i18n="fg.r5">Cancel or step back</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td data-i18n="fg.r6">Undo annotation</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td data-i18n="fg.r7">Redo annotation</td></tr>
@@ -402,15 +428,15 @@
                 <li data-i18n-html="fg.x2"><kbd>Ctrl</kbd>+<kbd>PrintScreen</kbd> uploads the whole screen and copies the link (off by default).</li>
                 <li data-i18n="fg.x3">All three capture shortcuts can be re-assigned or turned off in Options.</li>
               </ul>
-              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S and Ctrl+C work once you have a selection.</p>
+              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C and Ctrl+P work once you have a selection.</p>
             </div>
           </div>
         </article>
 
-        <!-- H. Customize -->
+        <!-- I. Customize -->
         <article class="feature reverse" id="f-custom" aria-labelledby="fh-title">
           <div class="feature-copy">
-            <p class="tag">H</p>
+            <p class="tag">I</p>
             <h3 id="fh-title" data-i18n="fh.title">Customization &amp; experience</h3>
             <p class="feature-pitch" data-i18n="fh.pitch">Make it fit the way you work.</p>
             <ul class="ticks">
