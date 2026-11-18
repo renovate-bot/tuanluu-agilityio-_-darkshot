@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# Add a "Sitemap:" line with the absolute URL once the production domain is known.
