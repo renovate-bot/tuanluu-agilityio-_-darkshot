@@ -8,10 +8,12 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 - **Chụp lại vùng trước.** Phím mới (mặc định tắt, `Ctrl+Shift+PrintScreen`, bật ở Tùy chọn → Phím tắt) và mục menu khay cùng tên, ngay sau Chụp màn hình. Chụp lại đúng vùng của lần chụp vùng gần nhất (cùng tọa độ màn hình) và làm lại đúng hành động đã chọn (Lưu, Chép, Tải lên hoặc Ghim), không mở lớp phủ, không lặp nét đánh dấu. Lần chụp lặp lại không đổi "lần chụp trước". Chưa có lần chụp vùng nào thì mở lớp phủ như phím chụp vùng. Vùng không còn trên màn hình thì mở lớp phủ để chọn lại, kèm thông báo sau khi đóng. Nhớ qua khởi động lại trong `%APPDATA%\darkshot\last_capture.json`, tệp chỉ chứa tọa độ và hành động.
 - **Giữ vị trí vùng chọn** nay nhớ qua khởi động lại (cùng tệp `last_capture.json`).
+- **Nhận dạng chữ cục bộ.** Chọn vùng rồi bấm Ctrl+T hoặc nút **Nhận dạng chữ** (giữa Ghim và Hủy) để mở cửa sổ **Chữ nhận dạng** với chữ trong vùng. Ảnh nhận dạng gồm cả các nét đã vẽ, nên vùng đã làm mờ không đọc được chữ. Chữ sửa được trong ô; nút Chép (Ctrl+Enter, hoặc Enter khi không ở ô chữ) chép chữ rồi đóng cửa sổ. Ảnh ghim có mục "Nhận dạng chữ" trong menu chuột phải. Tối đa 8 cửa sổ chữ cùng lúc. Nhận dạng dùng OCR của Windows theo danh sách ngôn ngữ trong cài đặt Windows, hoàn toàn trên máy: không mạng, không lưu chữ ra tệp, không vào Lịch sử, không đổi "lần chụp trước". Tiếng Việt chỉ nhận dạng được nếu Windows có gói nhận dạng tiếng Việt.
 
 ### Đã biết
 
 - Chụp lại vùng trước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, trên màn hình có tọa độ âm, và khi rút màn hình. Xem mục "Đợt 10" trong `docs/testing/manual-checklist.md`.
+- Nhận dạng chữ cục bộ chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, và với tiếng Việt (máy thử chỉ có English). Xem mục "Đợt 11" trong `docs/testing/manual-checklist.md`.
 
 ## [0.4.0] - 2026-11-18
 
