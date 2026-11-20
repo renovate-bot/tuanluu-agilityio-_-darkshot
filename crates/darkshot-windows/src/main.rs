@@ -967,29 +967,25 @@ fn on_scroll_result(image: darkshot_core::image::Image, uncertain: u32) {
 
 /// Nút của cửa sổ "Ảnh chụp cuộn" (trên bản sao ảnh): Ghim mở ảnh ghim giữa màn hình có con trỏ
 /// (lỗi chỉ ra thông báo); Lưu/Chép/Tải lên đi đúng đường `run_on_image` (thông báo, Lịch sử, dự
-/// phòng, thiếu R2). `true` khi đã giao việc.
-fn scroll_action(action: Action, image: darkshot_core::image::Image) -> bool {
+/// phòng, thiếu R2).
+fn scroll_action(action: Action, image: darkshot_core::image::Image) {
     if action == Action::Pin {
-        return match pin::open(image, pin::PinPlace::CenterOnCursorMonitor) {
-            Ok(()) => true,
-            Err(e) => {
-                let (kind, title, body) = pin_failure_notice(lang::current(), &e);
-                ocr_notify(kind, title, &body);
-                false
-            }
-        };
+        if let Err(e) = pin::open(image, pin::PinPlace::CenterOnCursorMonitor) {
+            let (kind, title, body) = pin_failure_notice(lang::current(), &e);
+            ocr_notify(kind, title, &body);
+        }
+        return;
     }
     if !matches!(action, Action::Save | Action::Copy | Action::Upload) {
-        return false;
+        return;
     }
     let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
-        return false;
+        return;
     };
     let Some(notifier) = current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>) else {
-        return false;
+        return;
     };
     run_on_image(hwnd, action, image, notifier);
-    true
 }
 
 thread_local! {

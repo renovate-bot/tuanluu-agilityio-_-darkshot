@@ -469,6 +469,8 @@ messages! {
         "Save or close some Scrolling capture windows."
     ),
     ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
+    ScrollCopyMemoryTitle => ("?", "??"),
+    ScrollCopyMemoryBody => ("?", "??"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -1575,6 +1577,17 @@ mod tests {
             assert_eq!(t(Lang::En, m), en, "{m:?}");
         }
         assert!(NOTICE_TITLES.contains(&Msg::ScrollManyOpenTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollCopyMemoryTitle));
+        assert_eq!(t(Lang::Vi, Msg::ScrollCopyMemoryTitle), "Không đủ bộ nhớ");
+        assert_eq!(t(Lang::En, Msg::ScrollCopyMemoryTitle), "Not enough memory");
+        assert_eq!(
+            t(Lang::Vi, Msg::ScrollCopyMemoryBody),
+            "Đóng bớt cửa sổ rồi thử lại."
+        );
+        assert_eq!(
+            t(Lang::En, Msg::ScrollCopyMemoryBody),
+            "Close some windows and try again."
+        );
         assert_eq!(scroll_size(Lang::Vi, 900, 12000), "900 × 12000 px");
         assert_eq!(scroll_size(Lang::En, 1, 2), "1 × 2 px");
         assert_eq!(

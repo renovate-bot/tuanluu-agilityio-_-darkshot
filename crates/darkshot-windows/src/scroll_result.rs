@@ -335,6 +335,19 @@ fn default_client(
     (w, h)
 }
 
+fn warns_on_open(_open_now: usize) -> bool {
+    false
+}
+
+fn rebuild_target(
+    _built: Option<u32>,
+    _img_w: u32,
+    _disp_w: i32,
+    _failed: Option<u32>,
+) -> Option<u32> {
+    None
+}
+
 fn needs_prebuild(img_h: u32) -> bool {
     img_h > PREBUILD_MIN_H
 }
@@ -464,7 +477,7 @@ impl Drop for Win {
 }
 
 /// Hàm `main` đăng ký: thực hiện Lưu/Chép/Tải lên/Ghim trên bản sao ảnh; `true` khi đã giao việc.
-type Sink = fn(Action, Image) -> bool;
+type Sink = fn(Action, Image);
 type Notify = fn(NoticeKind, &str, &str);
 
 thread_local! {
@@ -494,7 +507,10 @@ pub fn set_notifier(f: Notify) {
 
 fn act(action: Action, image: Image) -> bool {
     match SINK.with(|s| s.get()) {
-        Some(f) => f(action, image),
+        Some(f) => {
+            f(action, image);
+            true
+        }
         None => false,
     }
 }
@@ -1736,25 +1752,46 @@ mod tests {
         assert!(downscale(&bad, 5, &no).is_none());
     }
 
+    /// Không bao giờ tự đóng cửa sổ kết quả; từ cửa sổ thứ năm thì báo.
     #[test]
-    fn at_most_four_windows_never_drops_unused() {
-        assert_eq!(open_policy(&[]), OpenPolicy::Open);
-        assert_eq!(open_policy(&[false, false, false]), OpenPolicy::Open);
-        assert_eq!(open_policy(&[true, true, true]), OpenPolicy::Open);
-        assert_eq!(
-            open_policy(&[false, true, false, true]),
-            OpenPolicy::CloseOldestUsed(1)
-        );
-        assert_eq!(
-            open_policy(&[true, true, true, true]),
-            OpenPolicy::CloseOldestUsed(0)
-        );
-        assert_eq!(open_policy(&[false; 4]), OpenPolicy::OpenAndWarn);
-        assert_eq!(
-            open_policy(&[false, false, false, false, true]),
-            OpenPolicy::CloseOldestUsed(4)
-        );
-        assert_eq!(open_policy(&[false; 6]), OpenPolicy::OpenAndWarn);
+    fn never_closes_windows_warns_from_fifth() {
+        assert!(!warns_on_open(0));
+        assert!(!warns_on_open(3));
+        assert!(warns_on_open(4));
+        assert!(warns_on_open(9));
+    }
+
+    /// Chiều cao hiển thị và chiều cao ảnh dựng trước dùng chung một công thức làm tròn: đúng tỉ lệ
+    /// thì vẽ bằng BitBlt, không lệch 1 px.
+    #[test]
+    fn display_height_matches_prebuilt_height() {
+        let no = AtomicBool::new(false);
+        assert_eq!(fit_width(901, 12000, 450), (450, 5993));
+        for (w, h, view) in [
+            (901, 12000, 450),
+            (900, 12000, 450),
+            (1000, 4097, 333),
+            (7, 5000, 3),
+        ] {
+            let (dw, dh) = fit_width(w, h, view);
+            let p =
+                downscale(&solid(w, h, [1, 2, 3, 255]), prebuild_width(w, dw), &no).expect("ok");
+            assert_eq!((p.w as i32, p.h as i32), (dw, dh), "{w}x{h} view {view}");
+        }
+    }
+
+    /// Lượt dựng thất bại ở một bề rộng: không thử lại đúng bề rộng đó, chỉ khi khung xem đổi.
+    #[test]
+    fn rebuild_skips_failed_width() {
+        assert_eq!(rebuild_target(Some(450), 900, 600, None), Some(600));
+        assert_eq!(rebuild_target(Some(450), 900, 600, Some(600)), None);
+        assert_eq!(rebuild_target(Some(450), 900, 650, Some(600)), Some(650));
+        assert_eq!(rebuild_target(Some(450), 900, 450, None), None);
+        assert_eq!(rebuild_target(Some(900), 900, 1200, None), None);
+        // Chưa có ảnh nào (lượt đầu thất bại): thử lại khi bề rộng đổi.
+        assert_eq!(rebuild_target(None, 900, 450, Some(450)), None);
+        assert_eq!(rebuild_target(None, 900, 500, Some(450)), Some(500));
+        assert_eq!(rebuild_target(None, 900, 1200, Some(900)), None);
     }
 
     // ---- Chạy tay (mở cửa sổ thật; không lớp phủ, không dời chuột/phím thật):
@@ -1765,9 +1802,8 @@ mod tests {
         static NOTICES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     }
 
-    fn record_action(a: Action, img: Image) -> bool {
+    fn record_action(a: Action, img: Image) {
         ACTIONS.with(|v| v.borrow_mut().push((a, img.width, img.height)));
-        true
     }
 
     fn record_notice(_: NoticeKind, title: &str, _: &str) {
@@ -1903,7 +1939,7 @@ mod tests {
         assert!(test_windows().is_empty());
     }
 
-    /// Tối đa 4: cái cũ nhất đã dùng bị đóng; cả 4 chưa dùng thì vẫn mở thêm và báo.
+    /// Không bao giờ tự đóng cửa sổ (kể cả cửa sổ đã Lưu); từ cửa sổ thứ năm vẫn mở và báo Info.
     #[test]
     #[ignore = "mở cửa sổ thật; chạy tay"]
     fn manual_window_policy() {
@@ -1918,26 +1954,22 @@ mod tests {
         }
         let wins = test_windows();
         assert_eq!(wins.len(), 4);
+        assert!(NOTICES.with(|v| v.borrow().is_empty()));
         // Lưu trên cửa sổ thứ hai: bản sao ảnh tới hàm hành động, cửa sổ không đóng.
         send(wins[1], WM_COMMAND, ID_SAVE as usize);
         assert_eq!(
             ACTIONS.with(|v| v.borrow().clone()),
             vec![(Action::Save, 300, 500)]
         );
-        assert!(alive(wins[1]) && used_of(wins[1]));
+        assert!(alive(wins[1]));
         open(tall(300, 500), 0);
-        let now = test_windows();
-        assert_eq!(now.len(), 4);
-        assert!(!alive(wins[1]));
-        assert!(NOTICES.with(|v| v.borrow().is_empty()));
-        // Cả 4 chưa dùng: mở cái thứ năm, không đóng gì, báo Info.
         open(tall(300, 500), 0);
-        assert_eq!(test_windows().len(), 5);
-        assert!(now.iter().all(|h| alive(*h)));
-        let lang = crate::lang::current();
+        assert_eq!(test_windows().len(), 6);
+        assert!(wins.iter().all(|h| alive(*h)));
+        let title = t(crate::lang::current(), Msg::ScrollManyOpenTitle).to_string();
         assert_eq!(
             NOTICES.with(|v| v.borrow().clone()),
-            vec![t(lang, Msg::ScrollManyOpenTitle).to_string()]
+            vec![title.clone(), title]
         );
         pump(100, || false);
         close_all();
