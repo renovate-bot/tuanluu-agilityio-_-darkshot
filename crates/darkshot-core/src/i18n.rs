@@ -463,9 +463,12 @@ messages! {
     ScrollUpload => ("Tải lên", "Upload"),
     ScrollPin => ("Ghim", "Pin"),
     ScrollClose => ("Đóng", "Close"),
-    ScrollManyOpenTitle => ("?", "??"),
-    ScrollManyOpenBody => ("?", "??"),
-    ScrollPreparing => ("?", "??"),
+    ScrollManyOpenTitle => ("Có nhiều ảnh chụp cuộn chưa lưu", "Several scrolling captures are not saved"),
+    ScrollManyOpenBody => (
+        "Lưu hoặc đóng bớt các cửa sổ Ảnh chụp cuộn.",
+        "Save or close some Scrolling capture windows."
+    ),
+    ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -494,6 +497,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::StepsEndFailedTitle,
     Msg::ScrollLimitTitle,
     Msg::ScrollNoRoomTitle,
+    Msg::ScrollManyOpenTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -924,8 +928,9 @@ pub fn scroll_height(lang: Lang, px: u32) -> String {
 
 /// Cỡ ảnh trên dòng thông tin của cửa sổ kết quả chụp cuộn: "900 × 12000 px".
 pub fn scroll_size(lang: Lang, w: u32, h: u32) -> String {
-    let _ = (lang, w, h);
-    String::new()
+    match lang {
+        Lang::Vi | Lang::En => format!("{w} × {h} px"),
+    }
 }
 
 /// Dải cảnh báo của cửa sổ kết quả chụp cuộn.

@@ -960,15 +960,36 @@ pub fn scroll_region(rect: Rect, origin: Point, img_w: i32, img_h: i32) -> Optio
     })
 }
 
-/// Kết quả của phiên chụp cuộn (tạm thời, tới khi có cửa sổ kết quả): lưu như Lưu thường.
-fn on_scroll_result(image: darkshot_core::image::Image, _uncertain: u32) {
+/// Kết quả của phiên chụp cuộn: mở cửa sổ "Ảnh chụp cuộn" (không mở được thì ảnh được lưu).
+fn on_scroll_result(image: darkshot_core::image::Image, uncertain: u32) {
+    scroll_result::open(image, uncertain);
+}
+
+/// Nút của cửa sổ "Ảnh chụp cuộn" (trên bản sao ảnh): Ghim mở ảnh ghim giữa màn hình có con trỏ
+/// (lỗi chỉ ra thông báo); Lưu/Chép/Tải lên đi đúng đường `run_on_image` (thông báo, Lịch sử, dự
+/// phòng, thiếu R2). `true` khi đã giao việc.
+fn scroll_action(action: Action, image: darkshot_core::image::Image) -> bool {
+    if action == Action::Pin {
+        return match pin::open(image, pin::PinPlace::CenterOnCursorMonitor) {
+            Ok(()) => true,
+            Err(e) => {
+                let (kind, title, body) = pin_failure_notice(lang::current(), &e);
+                ocr_notify(kind, title, &body);
+                false
+            }
+        };
+    }
+    if !matches!(action, Action::Save | Action::Copy | Action::Upload) {
+        return false;
+    }
     let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
-        return;
+        return false;
     };
     let Some(notifier) = current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>) else {
-        return;
+        return false;
     };
-    run_on_image(hwnd, Action::Save, image, notifier);
+    run_on_image(hwnd, action, image, notifier);
+    true
 }
 
 thread_local! {
@@ -1404,6 +1425,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 ocr_window::relabel();
                 steps_bar::relabel();
                 scroll_session::relabel();
+                scroll_result::relabel();
                 steps_window::relabel();
             }
             if history_window_stale(&config, &new) {
@@ -1528,6 +1550,7 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
+            scroll_result::close_all();
             // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng; chờ trong một hạn chót.
             exit_cleanup();
             // SAFETY: hwnd là cửa sổ của luồng này.
@@ -1728,6 +1751,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 steps_window::close();
                 pin::close_all();
                 ocr_window::close_all();
+                scroll_result::close_all();
                 exit_cleanup();
             }
             LRESULT(0)
@@ -1741,6 +1765,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
+            scroll_result::close_all();
             steps_window::close();
             steps_bar::close();
             scroll_session::cancel();
@@ -1864,6 +1889,8 @@ fn main() {
     steps_bar::set_on_review(steps_window::open);
     steps_bar::set_on_confirm_end(steps_window::open_confirm_end);
     scroll_session::set_on_result(on_scroll_result);
+    scroll_result::set_action_sink(scroll_action);
+    scroll_result::set_notifier(ocr_notify);
     scroll_session::set_on_limit(on_scroll_limit);
     scroll_session::set_on_end(on_scroll_end);
     steps_window::set_main_window(hwnd);
@@ -1901,6 +1928,7 @@ fn main() {
                 || history_window::pre_translate(&msg)
                 || ocr_window::pre_translate(&msg)
                 || steps_window::pre_translate(&msg)
+                || scroll_result::pre_translate(&msg)
             {
                 continue;
             }
