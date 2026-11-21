@@ -11,6 +11,7 @@ use crate::paths;
 use darkshot_core::i18n::Lang;
 use darkshot_core::image::{encode_png, Image};
 use darkshot_core::naming::LocalTime;
+use darkshot_core::privacy::PreparedOutput;
 use darkshot_core::steps::{Step, StepSession, MAX_STEPS};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -811,9 +812,10 @@ pub fn count() -> usize {
     with(|s| s.count())
 }
 
-/// Thêm ảnh bước (ghi nền); bước hiện ra khi `drain_saved` áp kết quả.
-pub fn add(image: Image) -> Result<(), Full> {
-    with(|s| s.add(image))
+/// Thêm ảnh bước đã qua cổng xuất (ghi nền); bước hiện ra khi `drain_saved` áp kết quả. Chỉ
+/// `privacy_gate` tạo được `PreparedOutput`, nên không ảnh nào chưa qua cổng được ghi vào phiên.
+pub fn add(prepared: PreparedOutput) -> Result<(), Full> {
+    with(|s| s.add(prepared.into_image()))
 }
 
 /// Áp các lần ghi ảnh đã xong (ở `WM_STEPS_SAVED`); lỗi được báo qua `set_on_error`.
@@ -1600,7 +1602,7 @@ mod tests {
         use_root_for_test(root.clone());
         set_on_error(record_errors);
         assert!(start());
-        add(img(1)).unwrap();
+        add(PreparedOutput::unscanned(img(1))).unwrap();
         settle(WAIT);
         assert_eq!(count(), 1);
         let held = lock(&root.join("001.png"));

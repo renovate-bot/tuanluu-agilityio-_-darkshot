@@ -540,6 +540,26 @@ messages! {
     PrivacyActionPin => ("Ghim lên màn hình", "Pin to screen"),
     PrivacyActionAddStep => ("Thêm bước", "Add step"),
     PrivacyActionExportSteps => ("Xuất các bước", "Export steps"),
+    ChkPrivacyShield => (
+        "Quét thông tin nhạy cảm trước khi xuất ảnh",
+        "Scan for sensitive information before exporting"
+    ),
+    NotePrivacyShield => (
+        "Nhận dạng chữ trên máy rồi che email, số điện thoại, thẻ, khóa API, token, mật khẩu, khóa riêng. Không phát hiện được mọi thứ; nên tự xem lại ảnh.",
+        "Reads text on this PC, then covers emails, phone numbers, cards, API keys, tokens, passwords and private keys. It can miss things; review your image."
+    ),
+    PrivacyQueueFull => (
+        "Đang có ảnh chờ kiểm tra. Ảnh mới chưa được xuất.",
+        "Images are already waiting to be checked. The new image was not exported."
+    ),
+    PrivacyWindowFailed => (
+        "Không mở được cửa sổ kiểm tra; ảnh chưa được xuất.",
+        "Could not open the review window; the image was not exported."
+    ),
+    PrivacyRedactFailed => (
+        "Không che được ảnh; ảnh chưa được xuất.",
+        "Could not cover the image; it was not exported."
+    ),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.

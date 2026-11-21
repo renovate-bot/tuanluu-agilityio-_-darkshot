@@ -97,6 +97,8 @@ pub struct Form {
     pub jpeg_quality: u8,
     /// Hộp tích "Bật lịch sử ảnh chụp" ở tab Thông thường.
     pub history_enabled: bool,
+    /// Hộp tích "Quét thông tin nhạy cảm trước khi xuất ảnh" ở tab Thông thường.
+    pub privacy_shield: bool,
     /// Hộp tích "Gợi ý cửa sổ khi chọn vùng" ở tab Thông thường.
     pub snap_windows: bool,
 }
@@ -122,6 +124,7 @@ impl std::fmt::Debug for Form {
             .field("upload_format", &self.upload_format)
             .field("jpeg_quality", &self.jpeg_quality)
             .field("history_enabled", &self.history_enabled)
+            .field("privacy_shield", &self.privacy_shield)
             .field("snap_windows", &self.snap_windows)
             .finish()
     }
@@ -301,6 +304,7 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         ocr_single_line: current.ocr_single_line,
         ocr_paragraphs: current.ocr_paragraphs,
         ocr_auto_copy: current.ocr_auto_copy,
+        privacy_shield: form.privacy_shield,
     })
 }
 
@@ -485,6 +489,9 @@ const ID_HISTORY: i32 = 153;
 const ID_HISTORY_NOTE: i32 = 154;
 /// Hộp tích "Gợi ý cửa sổ khi chọn vùng" (ngay dưới "Chụp cả con trỏ").
 const ID_SNAP_WINDOWS: i32 = 155;
+/// Hộp tích Privacy Shield và dòng ghi chú ngay dưới nó (dưới ghi chú Lịch sử).
+const ID_PRIVACY: i32 = 156;
+const ID_PRIVACY_NOTE: i32 = 157;
 /// `TBM_GETPOS` (= `WM_USER`, commctrl.h); crate `windows` không có hằng này.
 const TBM_GETPOS: u32 = 0x0400;
 /// Nút "Đổi…" của dòng phím tắt thứ i có ID `ID_HK_CHANGE0 + i`; ô tích của dòng là `ID_HK_CHECK0 + i`.
@@ -532,6 +539,7 @@ struct Ctl {
     notices: HWND,
     check_updates: HWND,
     history: HWND,
+    privacy: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     snap_windows: HWND,
@@ -670,6 +678,7 @@ fn read_form() -> Option<Form> {
         // Đọc cả khi đang chọn PNG: giá trị được giữ cho lần chọn lại JPEG.
         jpeg_quality: trackbar_pos(c.quality),
         history_enabled: is_checked(c.history),
+        privacy_shield: is_checked(c.privacy),
         snap_windows: is_checked(c.snap_windows),
     })
 }
@@ -1482,7 +1491,7 @@ fn static_colors(from: HWND) -> (Rgb, Rgb) {
     }
     // SAFETY: chỉ đọc mã điều khiển.
     let id = unsafe { GetDlgCtrlID(from) };
-    if id == ID_SECRET_NOTE || id == ID_PNG_NOTE || id == ID_HISTORY_NOTE {
+    if id == ID_SECRET_NOTE || id == ID_PNG_NOTE || id == ID_HISTORY_NOTE || id == ID_PRIVACY_NOTE {
         return (TEXT_MUTED, SURFACE);
     }
     (TEXT, bg_under(from))
@@ -2197,6 +2206,7 @@ struct GeneralCtl {
     notices: HWND,
     check_updates: HWND,
     history: HWND,
+    privacy: HWND,
     keep_selection: HWND,
     include_cursor: HWND,
     snap_windows: HWND,
@@ -2216,6 +2226,8 @@ struct GeneralLayout {
     check_updates: DipRect,
     history: DipRect,
     history_note: DipRect,
+    privacy: DipRect,
+    privacy_note: DipRect,
     keep_selection: DipRect,
     include_cursor: DipRect,
     snap_windows: DipRect,
@@ -2230,13 +2242,15 @@ struct GeneralLayout {
 
 #[cfg(test)]
 impl GeneralLayout {
-    fn rects(&self) -> [DipRect; 13] {
+    fn rects(&self) -> [DipRect; 15] {
         [
             self.autostart,
             self.notices,
             self.check_updates,
             self.history,
             self.history_note,
+            self.privacy,
+            self.privacy_note,
             self.keep_selection,
             self.include_cursor,
             self.snap_windows,
@@ -2266,9 +2280,10 @@ fn general_note_width(l: Layout) -> i32 {
     general_check_width(l) - NOTE_INDENT
 }
 
-/// Vị trí các ô của tab Thông thường; `note_h` là chiều cao (DIP) dòng ghi chú Lịch sử.
-/// Nhóm hệ thống (khởi động, thông báo, bản mới, Lịch sử + ghi chú), rồi nhóm chụp, thư mục, ngôn ngữ.
-fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
+/// Vị trí các ô của tab Thông thường; `note_h` và `privacy_note_h` là chiều cao (DIP) dòng ghi chú
+/// Lịch sử và Privacy Shield. Nhóm hệ thống (khởi động, thông báo, bản mới, Lịch sử + ghi chú,
+/// Privacy Shield + ghi chú), rồi nhóm chụp, thư mục, ngôn ngữ.
+fn general_layout(l: Layout, note_h: i32, privacy_note_h: i32) -> GeneralLayout {
     let cw = general_check_width(l);
     let mut y = 12;
     let autostart = (LX, y, 300.min(cw), CHECK_H);
@@ -2281,6 +2296,10 @@ fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
     y += CHECK_H + 2;
     let history_note = (LX + NOTE_INDENT, y, general_note_width(l), note_h);
     y += note_h + NOTE_GAP;
+    let privacy = (LX, y, cw, CHECK_H);
+    y += CHECK_H + 2;
+    let privacy_note = (LX + NOTE_INDENT, y, general_note_width(l), privacy_note_h);
+    y += privacy_note_h + NOTE_GAP;
     let keep_selection = (LX, y, cw, CHECK_H);
     y += CHECK_STEP;
     let include_cursor = (LX, y, cw, CHECK_H);
@@ -2300,6 +2319,8 @@ fn general_layout(l: Layout, note_h: i32) -> GeneralLayout {
         check_updates,
         history,
         history_note,
+        privacy,
+        privacy_note,
         keep_selection,
         include_cursor,
         snap_windows,
@@ -2353,12 +2374,13 @@ fn note_height_dip(font: HFONT, dpi: i32, texts: &[&str], w_dip: i32) -> Option<
 }
 
 /// Giá trị các ô tích của tab Thông thường theo cấu hình, theo thứ tự Tab.
-fn general_checks(c: &Config) -> [(i32, bool); 7] {
+fn general_checks(c: &Config) -> [(i32, bool); 8] {
     [
         (ID_AUTOSTART, c.autostart),
         (ID_NOTICES, c.show_success_notices),
         (ID_CHECK_UPDATES, c.check_updates),
         (ID_HISTORY, c.history_enabled),
+        (ID_PRIVACY, c.privacy_shield),
         (ID_KEEP_SELECTION, c.keep_selection),
         (ID_INCLUDE_CURSOR, c.include_cursor),
         (ID_SNAP_WINDOWS, c.snap_windows),
@@ -2374,7 +2396,13 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         .font
         .and_then(|f| note_height_dip(f, b.dpi, &notes, note_w))
         .unwrap_or(54);
-    let g = general_layout(b.layout, note_h);
+    let privacy_notes = Lang::ALL.map(|l| t(l, Msg::NotePrivacyShield));
+    // Không đo được: đủ bốn dòng chữ thường.
+    let privacy_note_h = b
+        .font
+        .and_then(|f| note_height_dip(f, b.dpi, &privacy_notes, note_w))
+        .unwrap_or(72);
+    let g = general_layout(b.layout, note_h, privacy_note_h);
     let check = |b: &mut Builder, msg: Msg, r: DipRect, id: i32| {
         b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), r, id)
     };
@@ -2389,6 +2417,14 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         WINDOW_STYLE(0),
         g.history_note,
         ID_HISTORY_NOTE,
+    );
+    let privacy = check(b, Msg::ChkPrivacyShield, g.privacy, ID_PRIVACY);
+    b.make(
+        w!("STATIC"),
+        lang::tr(Msg::NotePrivacyShield),
+        WINDOW_STYLE(0),
+        g.privacy_note,
+        ID_PRIVACY_NOTE,
     );
     let keep_selection = check(
         b,
@@ -2420,6 +2456,7 @@ fn build_general(b: &mut Builder) -> GeneralCtl {
         notices,
         check_updates,
         history,
+        privacy,
         keep_selection,
         include_cursor,
         snap_windows,
@@ -2901,6 +2938,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         g.notices,
         g.check_updates,
         g.history,
+        g.privacy,
         g.keep_selection,
         g.include_cursor,
         g.snap_windows,
@@ -2940,6 +2978,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         notices: g.notices,
         check_updates: g.check_updates,
         history: g.history,
+        privacy: g.privacy,
         keep_selection: g.keep_selection,
         include_cursor: g.include_cursor,
         snap_windows: g.snap_windows,
@@ -3110,6 +3149,7 @@ pub fn show(
             ID_NOTICES => c.notices,
             ID_CHECK_UPDATES => c.check_updates,
             ID_HISTORY => c.history,
+            ID_PRIVACY => c.privacy,
             ID_KEEP_SELECTION => c.keep_selection,
             ID_SNAP_WINDOWS => c.snap_windows,
             _ => c.include_cursor,
@@ -3369,6 +3409,7 @@ mod tests {
             upload_format: c.upload_format,
             jpeg_quality: c.jpeg_quality,
             history_enabled: c.history_enabled,
+            privacy_shield: c.privacy_shield,
             snap_windows: c.snap_windows,
         }
     }
@@ -3424,6 +3465,7 @@ mod tests {
                     ID_NOTICES,
                     ID_CHECK_UPDATES,
                     ID_HISTORY,
+                    ID_PRIVACY,
                     ID_KEEP_SELECTION,
                     ID_INCLUDE_CURSOR,
                     ID_SNAP_WINDOWS
@@ -3433,6 +3475,25 @@ mod tests {
             let mut f = form_of(&c);
             f.history_enabled = !on;
             assert_eq!(apply_form(&c, &f, Lang::Vi).unwrap().history_enabled, !on);
+        }
+    }
+
+    #[test]
+    fn privacy_shield_check_box_round_trips_config() {
+        assert_eq!((ID_PRIVACY, ID_PRIVACY_NOTE), (156, 157));
+        for on in [false, true] {
+            let mut c = base();
+            c.privacy_shield = on;
+            assert!(general_checks(&c).contains(&(ID_PRIVACY, on)));
+            let mut f = form_of(&c);
+            assert_eq!(f.privacy_shield, on);
+            f.privacy_shield = !on;
+            let n = apply_form(&c, &f, Lang::Vi).unwrap();
+            assert_eq!(n.privacy_shield, !on);
+            // Ô này không đụng ô khác.
+            assert_eq!(n.history_enabled, c.history_enabled);
+            assert_eq!(n.snap_windows, c.snap_windows);
+            assert!(!format!("{f:?}").is_empty());
         }
     }
 
@@ -3465,9 +3526,31 @@ mod tests {
                     let _ = DeleteObject(HGDIOBJ(font.0));
                 }
 
-                let g = general_layout(l, note_h);
+                // Ghi chú Privacy Shield: đo như ghi chú Lịch sử, đủ cao cho cả hai ngôn ngữ.
+                let ptexts = Lang::ALL.map(|l| t(l, Msg::NotePrivacyShield));
+                let pfont = crate::winutil::system_font(dpi).expect("system font");
+                let privacy_h = note_height_dip(pfont, dpi as i32, &ptexts, w).expect("measure");
+                for text in ptexts {
+                    let need = text_height_px(pfont, text, scale(w, dpi)).expect("measure px");
+                    assert!(scale(privacy_h, dpi) >= need, "dpi {dpi}: privacy note");
+                }
+                // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn nó.
+                unsafe {
+                    let _ = DeleteObject(HGDIOBJ(pfont.0));
+                }
+
+                let g = general_layout(l, note_h, privacy_h);
                 assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
                 assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
+                // Ô Privacy Shield ngay dưới ghi chú Lịch sử, ghi chú của nó ngay dưới ô.
+                assert_eq!(g.privacy.1, g.history_note.1 + note_h + NOTE_GAP);
+                assert_eq!(g.privacy_note.1, g.privacy.1 + CHECK_H + 2);
+                assert_eq!(g.privacy_note.3, privacy_h);
+                assert_eq!(g.privacy_note.0, g.history_note.0);
+                assert!(
+                    g.privacy_note.1 + privacy_h < g.keep_selection.1,
+                    "dpi {dpi}"
+                );
                 assert!(g.history_note.1 < g.keep_selection.1, "dpi {dpi}");
                 assert!(g.include_cursor.1 < g.snap_windows.1, "dpi {dpi}");
                 assert!(g.snap_windows.1 < g.dir_label.1, "dpi {dpi}");
@@ -4360,7 +4443,7 @@ mod tests {
             // SAFETY: chỉ đọc mã điều khiển.
             let id_of = |h: HWND| unsafe { GetDlgCtrlID(h) };
             let mut seen = vec![id_of(focus())];
-            for _ in 0..14 {
+            for _ in 0..15 {
                 post_key(focus(), VK_TAB.0);
                 pause();
                 seen.push(id_of(focus()));
@@ -4370,6 +4453,7 @@ mod tests {
                 ID_NOTICES,
                 ID_CHECK_UPDATES,
                 ID_HISTORY,
+                ID_PRIVACY,
                 ID_KEEP_SELECTION,
                 ID_INCLUDE_CURSOR,
                 ID_SNAP_WINDOWS,

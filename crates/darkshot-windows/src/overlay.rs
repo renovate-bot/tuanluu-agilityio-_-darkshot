@@ -9237,7 +9237,8 @@ mod tests {
             }
         );
         crate::pin::close_all();
-        crate::pin::open(image, crate::pin::PinPlace::At(at)).unwrap();
+        let prepared = darkshot_core::privacy::PreparedOutput::unscanned(image);
+        crate::pin::open(prepared, crate::pin::PinPlace::At(at)).unwrap();
         let rects = crate::pin::image_rects();
         crate::pin::close_all();
         assert_eq!(crate::pin::count(), 0);

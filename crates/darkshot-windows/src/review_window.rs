@@ -10,9 +10,6 @@
 //! `close_all()` đóng mà không gửi. Không bao giờ hiện chữ OCR hay giá trị trùng khớp: chỉ nhãn loại
 //! và độ tin cậy. Không làm việc tệp hay mạng; không ghi log.
 
-// Task 131 nối cửa sổ vào cổng xuất; tới lúc đó chỉ kiểm thử gọi phần lớn module.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::history_paint::{self, Bmp};
 use crate::lang;
 use crate::ocr;
@@ -612,6 +609,12 @@ fn hwnd_of(token: usize) -> Option<HWND> {
         let v = v.try_borrow().ok()?;
         v.iter().find(|w| w.token == token).map(|w| w.hwnd)
     })
+}
+
+/// Cửa sổ Duyệt của `token` còn mở (cổng dùng để dọn lượt khi cửa sổ mất mà không có kết quả).
+pub fn is_open(token: usize) -> bool {
+    // SAFETY: IsWindow chỉ hỏi tính hợp lệ của handle.
+    hwnd_of(token).is_some_and(|h| unsafe { IsWindow(Some(h)) }.as_bool())
 }
 
 /// Gửi `out` cho cổng. Gửi lỗi thì lấy lại Box (không rò).

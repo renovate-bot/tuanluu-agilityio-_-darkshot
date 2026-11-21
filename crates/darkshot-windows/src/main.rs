@@ -21,6 +21,7 @@ mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
+mod privacy_gate;
 mod record_session;
 mod review_window;
 mod scroll_result;
@@ -46,8 +47,10 @@ use darkshot_core::config::{Config, HotkeyRole, Hotkeys, UploadFormat, JPEG_QUAL
 use darkshot_core::geometry::{monitor_containing, restore_selection, Point, Rect};
 use darkshot_core::i18n::{self, Lang, Msg};
 use darkshot_core::last_capture::{self, LastCapture};
+use darkshot_core::privacy::{PreparedOutput, Protection};
 use darkshot_core::update::{self, Release, Version, RELEASE_URL_PREFIX};
 use darkshot_core::upload::{R2Uploader, Uploader};
+use privacy_gate::OutputAction;
 use secret::DpapiStore;
 use settings::OpenReason;
 use std::cell::{Cell, RefCell};
@@ -839,6 +842,8 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             }
             // Ảnh ghim từ Lịch sử tới lúc lớp phủ mở: mở bây giờ, trước mọi nhánh của kết quả.
             history_window::open_pending_pin();
+            // Cửa sổ Duyệt và ảnh ghim của cổng xuất đã chờ lớp phủ đóng.
+            privacy_gate::on_overlay_closed();
             if custom != before {
                 let write = CONFIG_WRITABLE.with(|w| w.get());
                 store_custom_colors(custom, custom_colors_need_save(&before, &custom, write));
@@ -946,34 +951,113 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     let pin_at = pin_origin(rect, shot.origin);
     // Giải phóng ảnh chụp ngay khi đã cắt xong.
     drop(shot);
-    if action == Action::Pin {
-        // Ảnh ghim không đi qua `run_on_image`: không lưu, không ghi Lịch sử.
-        if let Err(e) = pin::open(image, pin::PinPlace::At(pin_at)) {
-            let (kind, title, body) = pin_failure_notice(lang::current(), &e);
-            notify(kind, title, &body);
-        }
-        return;
-    }
     if action == Action::Ocr {
-        // Nhận dạng chữ: cửa sổ kết quả, luồng nền; không lưu, không ghi Lịch sử.
+        // Nhận dạng chữ: cửa sổ kết quả, luồng nền; không lưu, không ghi Lịch sử. Đường chữ, không
+        // qua cổng xuất ảnh.
         open_ocr(image, None, &notify);
         return;
     }
-    if action == Action::AddStep {
-        // Bước của phiên: ghi nền vào thư mục phiên; không lưu, không ghi Lịch sử.
-        if steps_store::add(image).is_err() {
-            notify(
-                NoticeKind::Info,
-                lang::tr(Msg::StepsFullTitle),
-                lang::tr(Msg::StepsFullBody),
-            );
-        }
-        return;
-    }
-    let Some(notifier) = notifier else {
-        return;
+    // Mọi đầu ra ảnh (Ghim, Thêm bước, Lưu, Chép, Tải lên) đi qua cổng xuất: Shield tắt thì chạy
+    // ngay như trước; bật thì quét (và duyệt) trước. Từ chối (hàng đầy) đã được cổng thông báo.
+    let out = match action {
+        Action::Pin => OutputAction::Pin {
+            place: pin::PinPlace::At(pin_at),
+        },
+        Action::AddStep => OutputAction::AddStep,
+        Action::Save => OutputAction::Save,
+        Action::Copy => OutputAction::Copy,
+        Action::Upload => OutputAction::Upload,
+        Action::Cancel | Action::Ocr | Action::Scroll | Action::RecordGif => return,
     };
-    run_on_image(hwnd, action, image, notifier);
+    // Đầu ra chạy ngay trong `submit` (Shield tắt) dùng đúng cửa sổ và bộ thông báo của lượt này.
+    let _flow = FlowOutput::set(hwnd, notifier);
+    let _ = privacy_gate::submit(out, image);
+}
+
+thread_local! {
+    /// Cửa sổ và bộ thông báo của lượt `capture_flow_with` đang gọi `submit` (chỉ sống trong lời gọi đó).
+    static FLOW_OUTPUT: RefCell<Option<FlowTarget>> = const { RefCell::new(None) };
+}
+
+type FlowTarget = (HWND, Option<Arc<dyn Notifier>>);
+
+struct FlowOutput;
+
+impl FlowOutput {
+    fn set(hwnd: HWND, notifier: Option<Arc<dyn Notifier>>) -> FlowOutput {
+        FLOW_OUTPUT.with(|f| *f.borrow_mut() = Some((hwnd, notifier)));
+        FlowOutput
+    }
+}
+
+impl Drop for FlowOutput {
+    fn drop(&mut self) {
+        FLOW_OUTPUT.with(|f| *f.borrow_mut() = None);
+    }
+}
+
+/// Cửa sổ chính và bộ thông báo cho một đầu ra ảnh: của lượt chụp đang gọi `submit` nếu có; không
+/// thì (đầu ra chạy sau khi quét/duyệt, ảnh ghim, chụp cuộn) cửa sổ ẩn của ứng dụng và khay.
+fn output_target() -> (Option<HWND>, Option<Arc<dyn Notifier>>) {
+    if let Some((hwnd, notifier)) = FLOW_OUTPUT.with(|f| f.borrow().clone()) {
+        return (Some(hwnd), notifier);
+    }
+    (
+        MAIN_HWND.with(|h| h.get()),
+        current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>),
+    )
+}
+
+/// Đầu ra của cổng xuất (`privacy_gate::set_sink`): nơi DUY NHẤT gọi `run_on_image`, `pin::open`,
+/// `steps_store::add`. `prepared` do cổng tạo: Shield bật thì đã quét/duyệt, tắt thì nguyên ảnh.
+fn gate_output(action: OutputAction, prepared: PreparedOutput) {
+    let (hwnd, notifier) = output_target();
+    let notify = |kind: NoticeKind, title: &str, body: &str| {
+        if let Some(n) = &notifier {
+            n.notify(kind, title, body);
+        }
+    };
+    match action {
+        OutputAction::Pin { place } => open_pin(prepared, place, &notify),
+        OutputAction::HistoryPin => {
+            open_pin(prepared, pin::PinPlace::CenterOnCursorMonitor, &notify)
+        }
+        OutputAction::AddStep => {
+            // Bước của phiên: ghi nền vào thư mục phiên; không lưu, không ghi Lịch sử.
+            if steps_store::add(prepared).is_err() {
+                notify(
+                    NoticeKind::Info,
+                    lang::tr(Msg::StepsFullTitle),
+                    lang::tr(Msg::StepsFullBody),
+                );
+            }
+        }
+        OutputAction::Save | OutputAction::Copy | OutputAction::Upload => {
+            let action = match action {
+                OutputAction::Save => Action::Save,
+                OutputAction::Copy => Action::Copy,
+                _ => Action::Upload,
+            };
+            let (Some(hwnd), Some(notifier)) = (hwnd, notifier.clone()) else {
+                return;
+            };
+            run_on_image(hwnd, action, prepared, notifier);
+        }
+        // Chép ảnh từ Lịch sử và xuất các bước: Task 132 nối (xuất các bước nhận ảnh qua `Done`).
+        OutputAction::HistoryCopy | OutputAction::StepExport { .. } => {}
+    }
+}
+
+/// Ảnh ghim không đi qua `run_on_image`: không lưu, không ghi Lịch sử.
+fn open_pin(
+    prepared: PreparedOutput,
+    place: pin::PinPlace,
+    notify: &dyn Fn(NoticeKind, &str, &str),
+) {
+    if let Err(e) = pin::open(prepared, place) {
+        let (kind, title, body) = pin_failure_notice(lang::current(), &e);
+        notify(kind, title, &body);
+    }
 }
 
 /// Trong lúc đang bận (`capture_busy`: chụp cuộn hoặc ghi GIF), cổng coi như đang chụp: yêu cầu
@@ -1018,27 +1102,20 @@ fn on_scroll_result(image: darkshot_core::image::Image, uncertain: u32) {
     scroll_result::open(image, uncertain);
 }
 
-/// Nút của cửa sổ "Ảnh chụp cuộn" (trên bản sao ảnh): Ghim mở ảnh ghim giữa màn hình có con trỏ
-/// (lỗi chỉ ra thông báo); Lưu/Chép/Tải lên đi đúng đường `run_on_image` (thông báo, Lịch sử, dự
-/// phòng, thiếu R2).
+/// Nút của cửa sổ "Ảnh chụp cuộn" (trên bản sao ảnh) và tự Lưu khi không mở được cửa sổ đó: qua
+/// cổng xuất. Ghim mở ảnh ghim giữa màn hình có con trỏ (lỗi chỉ ra thông báo); Lưu/Chép/Tải lên
+/// đi đúng đường `run_on_image` (thông báo, Lịch sử, dự phòng, thiếu R2).
 fn scroll_action(action: Action, image: darkshot_core::image::Image) {
-    if action == Action::Pin {
-        if let Err(e) = pin::open(image, pin::PinPlace::CenterOnCursorMonitor) {
-            let (kind, title, body) = pin_failure_notice(lang::current(), &e);
-            ocr_notify(kind, title, &body);
-        }
-        return;
-    }
-    if !matches!(action, Action::Save | Action::Copy | Action::Upload) {
-        return;
-    }
-    let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
-        return;
+    let out = match action {
+        Action::Pin => OutputAction::Pin {
+            place: pin::PinPlace::CenterOnCursorMonitor,
+        },
+        Action::Save => OutputAction::Save,
+        Action::Copy => OutputAction::Copy,
+        Action::Upload => OutputAction::Upload,
+        _ => return,
     };
-    let Some(notifier) = current_tray().map(|t| Arc::new(t.notifier()) as Arc<dyn Notifier>) else {
-        return;
-    };
-    run_on_image(hwnd, action, image, notifier);
+    let _ = privacy_gate::submit(out, image);
 }
 
 thread_local! {
@@ -1412,22 +1489,32 @@ fn ocr_switches_save(s: ocr_window::Switches) {
     }
 }
 
-/// Lưu/Chép từ menu hay phím của ảnh ghim: đúng đường `run_on_image` (thông báo, Lịch sử);
-/// Nhận dạng chữ mở cửa sổ kết quả với ảnh gốc của ảnh ghim.
-fn pin_action(action: Action, image: darkshot_core::image::Image, pin_rect: Option<Rect>) {
-    if action == Action::Ocr {
-        // Ảnh ghim luôn ở trên cùng: đặt cửa sổ kết quả cạnh nó, không bị nó che.
-        open_ocr(image, pin_rect, &ocr_notify);
-        return;
-    }
-    let Some(hwnd) = MAIN_HWND.with(|h| h.get()) else {
-        return;
+/// Lưu/Chép từ menu hay phím của ảnh ghim: qua cổng xuất rồi đúng đường `run_on_image` (thông
+/// báo, Lịch sử). `protection` là trạng thái của ảnh lúc ghim: Shield đang bật mà ảnh chưa được
+/// quét (ghim lúc Shield tắt, bỏ qua lỗi) thì quét lại. Nhận dạng chữ mở cửa sổ kết quả với ảnh
+/// của ảnh ghim (đường chữ, không qua cổng).
+fn pin_action(
+    action: Action,
+    image: darkshot_core::image::Image,
+    protection: Protection,
+    pin_rect: Option<Rect>,
+) {
+    let out = match action {
+        Action::Ocr => {
+            // Ảnh ghim luôn ở trên cùng: đặt cửa sổ kết quả cạnh nó, không bị nó che.
+            open_ocr(image, pin_rect, &ocr_notify);
+            return;
+        }
+        Action::Save => OutputAction::Save,
+        Action::Copy => OutputAction::Copy,
+        _ => return,
     };
-    let Some(tray) = current_tray() else {
-        return;
-    };
-    let notifier: Arc<dyn Notifier> = Arc::new(tray.notifier());
-    run_on_image(hwnd, action, image, notifier);
+    let _ = privacy_gate::submit_pinned(out, image, protection);
+}
+
+/// Công tắc Privacy Shield theo cấu hình đang dùng (cổng đọc lúc nhận ảnh).
+fn privacy_shield_now() -> bool {
+    with_app(|a| a.config.privacy_shield).unwrap_or(false)
 }
 
 /// Có ghi file cấu hình sau khi lớp phủ đóng không: chỉ khi màu tự chọn đã đổi và cấu hình
@@ -1482,14 +1569,10 @@ pub fn picked_image(
     Ok(out)
 }
 
-/// Thực hiện `action` trên ảnh đã cắt; chung cho cả ba loại chụp. Tải lên dùng sổ `PENDING`,
-/// lưu dự phòng khi không tạo được luồng và mở Tùy chọn khi thiếu cấu hình R2.
-fn run_on_image(
-    hwnd: HWND,
-    action: Action,
-    image: darkshot_core::image::Image,
-    notifier: Arc<dyn Notifier>,
-) {
+/// Thực hiện `action` trên ảnh đã qua cổng xuất; chung cho cả ba loại chụp. Tải lên dùng sổ
+/// `PENDING`, lưu dự phòng khi không tạo được luồng và mở Tùy chọn khi thiếu cấu hình R2. Mọi tệp,
+/// clipboard, tải lên, Lịch sử, lưu dự phòng ở đây đều lấy ảnh của `prepared`.
+fn run_on_image(hwnd: HWND, action: Action, prepared: PreparedOutput, notifier: Arc<dyn Notifier>) {
     let Some(config) = with_app(|a| a.config.clone()) else {
         return;
     };
@@ -1513,8 +1596,8 @@ fn run_on_image(
                 upload_format: UploadFormat::Png,
                 jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
-            let outcome = run_action(&ctx, action, &image);
-            history_service::record_outcome(&outcome, &image, config.expiry, ctx.now);
+            let outcome = run_action(&ctx, action, prepared.image());
+            history_service::record_outcome(&outcome, prepared.image(), config.expiry, ctx.now);
         }
         Action::Upload => {
             let uploader: Option<Arc<dyn Uploader>> = if config.r2.is_complete() {
@@ -1522,7 +1605,7 @@ fn run_on_image(
             } else {
                 None
             };
-            let image = Arc::new(image);
+            let image = Arc::new(prepared.into_image());
             let expiry = config.expiry;
             let hwnd_raw = hwnd.0 as isize;
             let registry = PENDING.with(Arc::clone);
@@ -1763,6 +1846,9 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
             steps_window::close();
             // Lần ghi GIF đang chạy: lưu phần đã ghi trước khi đóng các cửa sổ khác.
             record_session::finish_on_exit(deadline);
+            // Lượt đang chờ quét/duyệt của Privacy Shield: bỏ, không lưu ảnh chưa duyệt (trước khi
+            // lưu ảnh của lượt tải lên dở; không thêm thời gian chờ).
+            privacy_gate::shutdown();
             // Đóng mọi ảnh ghim (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
             history_window::drop_pending_pin();
             pin::close_all();
@@ -1792,6 +1878,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
         }
         return LRESULT(0);
+    }
+    // Kết quả quét, lựa chọn trong cửa sổ Duyệt và hẹn giờ của cổng xuất.
+    if let Some(r) = privacy_gate::handle_message(hwnd, msg, wp, lp) {
+        return r;
     }
     match msg {
         WM_HOTKEY if hotkey::role_of(wp.0 as i32).is_some() => {
@@ -1972,6 +2062,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let deadline = exit_deadline(std::time::Instant::now());
                 steps_window::close();
                 record_session::finish_on_exit(deadline);
+                // Lượt đang chờ quét/duyệt của Privacy Shield: bỏ, không lưu ảnh chưa duyệt.
+                privacy_gate::shutdown();
                 pin::close_all();
                 ocr_window::close_all();
                 scroll_result::close_all();
@@ -1986,6 +2078,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             about::close();
             help::close();
             history_window::close_if_open();
+            // Lưới an toàn cho mọi đường thoát: không lượt Privacy Shield nào sống quá cửa sổ chính.
+            privacy_gate::shutdown();
             // Lưới an toàn cho mọi đường thoát: ảnh ghim không sống quá cửa sổ chính.
             history_window::drop_pending_pin();
             pin::close_all();
@@ -2058,6 +2152,10 @@ fn main() {
     let Ok(hwnd) = create_window() else { return };
     MAIN_HWND.with(|h| h.set(Some(hwnd)));
     pin::set_action_sink(pin_action);
+    privacy_gate::set_window(hwnd);
+    privacy_gate::set_sink(gate_output);
+    privacy_gate::set_notifier(ocr_notify);
+    privacy_gate::set_enabled_source(privacy_shield_now);
     ocr_window::set_notifier(ocr_notify);
     ocr_window::set_switch_store(ocr_switches_load, ocr_switches_save);
     // SAFETY: chuỗi hằng kết thúc bằng 0.
@@ -3144,6 +3242,113 @@ mod tests {
         fn notify(&self, _: NoticeKind, _: &str, _: &str) {}
     }
 
+    fn app_with_save_dir(root: &Path) {
+        std::fs::create_dir_all(root).unwrap();
+        let cfg = Config::defaults(root, Lang::En);
+        APP.with(|a| {
+            *a.borrow_mut() = Some(AppState {
+                config: cfg,
+                config_notice: None,
+                overlay_open: false,
+                update: None,
+            })
+        });
+    }
+
+    fn pngs_in(root: &Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(root)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "png"))
+            .collect()
+    }
+
+    fn sample_image(w: u32, h: u32) -> darkshot_core::image::Image {
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for i in 0..w * h {
+            bgra.extend_from_slice(&[(i % 200) as u8 + 20, 90, (i % 7) as u8 * 30 + 20, 255]);
+        }
+        darkshot_core::image::Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    /// Đầu ra Lưu ghi đúng ảnh của `PreparedOutput` (ảnh đã che), không phải ảnh gốc.
+    #[test]
+    fn gate_output_save_writes_the_prepared_image() {
+        use darkshot_core::privacy::RedactionPlan;
+        let root = temp_dir_for("gate_save");
+        app_with_save_dir(&root);
+        let src = sample_image(120, 60);
+        let plan = RedactionPlan {
+            rects: vec![rc(30, 20, 40, 12)],
+        };
+        let prepared = PreparedOutput::redacted(src.clone(), &plan).unwrap();
+        assert_eq!(prepared.protection(), Protection::Redacted { regions: 1 });
+        let want = prepared.image().clone();
+        assert_ne!(want, src);
+        {
+            let _flow = FlowOutput::set(HWND::default(), Some(Arc::new(NullNotifier)));
+            gate_output(OutputAction::Save, prepared);
+        }
+        let pngs = pngs_in(&root);
+        assert_eq!(pngs.len(), 1, "{pngs:?}");
+        let got = darkshot_core::thumb::decode_png_file(&pngs[0]).unwrap();
+        // PNG ghi RGB: so từng điểm B, G, R; vùng che đen đặc, ngoài vùng giữ nguyên.
+        assert_eq!((got.width, got.height), (120, 60));
+        for (i, (g, w)) in got.bgra.chunks(4).zip(want.bgra.chunks(4)).enumerate() {
+            assert_eq!(g[..3], w[..3], "pixel {i}");
+        }
+        let at = |x: u32, y: u32| ((y * 120 + x) * 4) as usize;
+        assert_eq!(got.bgra[at(45, 25)..at(45, 25) + 3], [0, 0, 0]);
+        assert_eq!(
+            got.bgra[at(5, 5)..at(5, 5) + 3],
+            src.bgra[at(5, 5)..at(5, 5) + 3]
+        );
+        // Không có bộ thông báo (không khay): không lưu, như trước.
+        let prepared = PreparedOutput::unscanned(src);
+        gate_output(OutputAction::Save, prepared);
+        assert_eq!(pngs_in(&root).len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Shield tắt: `submit` chạy đầu ra ngay với đúng ảnh gốc (đường của `capture_flow_with`).
+    #[test]
+    fn shield_off_submit_saves_the_original_image_at_once() {
+        let root = temp_dir_for("gate_off");
+        app_with_save_dir(&root);
+        assert!(!privacy_shield_now());
+        privacy_gate::set_sink(gate_output);
+        privacy_gate::set_enabled_source(privacy_shield_now);
+        let src = sample_image(64, 48);
+        {
+            let _flow = FlowOutput::set(HWND::default(), Some(Arc::new(NullNotifier)));
+            assert_eq!(
+                privacy_gate::submit(OutputAction::Save, src.clone()),
+                Ok(())
+            );
+        }
+        let pngs = pngs_in(&root);
+        assert_eq!(pngs.len(), 1, "{pngs:?}");
+        let got = darkshot_core::thumb::decode_png_file(&pngs[0]).unwrap();
+        assert_eq!((got.width, got.height), (64, 48));
+        for (g, w) in got.bgra.chunks(4).zip(src.bgra.chunks(4)) {
+            assert_eq!(g[..3], w[..3]);
+        }
+        // Bật công tắc: cổng đọc lúc nhận ảnh; không có cửa sổ cổng nên không quét được và KHÔNG
+        // có gì được lưu (không rơi về ảnh thô).
+        with_app(|a| a.config.privacy_shield = true);
+        assert!(privacy_shield_now() && privacy_gate::enabled());
+        {
+            let _flow = FlowOutput::set(HWND::default(), Some(Arc::new(NullNotifier)));
+            assert_eq!(privacy_gate::submit(OutputAction::Save, src), Ok(()));
+        }
+        assert_eq!(pngs_in(&root).len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Chụp màn hình thật rồi ghi PNG vào thư mục tạm; không hiện cửa sổ, không dời chuột.
     #[test]
     #[ignore = "chụp màn hình thật; chạy tay: cargo test -p darkshot-windows -- --ignored repeat_last_saves_png_of_region --test-threads=1"]
@@ -3162,6 +3367,8 @@ mod tests {
         // (0, 0) luôn thuộc màn hình chính.
         let last = lc(rc(0, 0, 200, 120), Action::Save);
         LAST_CAPTURE.with(|l| l.set(Some(last)));
+        // Đầu ra đi qua cổng xuất (Shield tắt theo mặc định: chạy ngay).
+        privacy_gate::set_sink(gate_output);
         capture_flow_with(
             HWND::default(),
             CaptureKind::RepeatLast,
