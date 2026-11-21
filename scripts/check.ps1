@@ -67,8 +67,27 @@ $srcFiles | Where-Object { $_.Name -ne 'i18n.rs' } | ForEach-Object {
 if ($hard) { exit 1 }
 
 Write-Host '== privacy boundary'
-# Ham tao PreparedOutput chi duoc goi trong loi privacy\ va privacy_gate.rs (mod tests duoc mien).
-$prepPattern = 'PreparedOutput::(unscanned|no_findings|reviewed_none|redacted|skipped_after_error)\b'
+# Ham tao PreparedOutput chi duoc goi trong loi privacy\ va privacy_gate.rs.
+# Chi mien phan than cua khoi "#[cfg(test)] mod x { ... }"; "mod x;" khong mien gi.
+# Dau "}" dong khoi la dong chi co "}" cung thut le voi dong mod (rustfmt bao dam, cargo fmt --check chay truoc).
+# Dem ngoac khong dung duoc vi chuoi va ky tu trong kiem thu chua ngoac.
+function Get-TestMask($lines) {
+    $mask = New-Object bool[] $lines.Count
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if (-not (Test-TestMod $lines $i)) { continue }
+        $j = $i + 1
+        while ($lines[$j].Trim() -eq '') { $j++ }
+        if ($lines[$j] -notmatch '^(\s*)mod\s+\w+\s*\{\s*$') { continue }
+        $close = $Matches[1] + '}'
+        $k = $j + 1
+        while ($k -lt $lines.Count -and $lines[$k].TrimEnd() -ne $close) { $k++ }
+        for ($m = $i; $m -le [Math]::Min($k, $lines.Count - 1); $m++) { $mask[$m] = $true }
+        $i = $k
+    }
+    return , $mask
+}
+# Goi ham tao, doi ten (as), goi qua <PreparedOutput>:: hoac xuong dong sau "PreparedOutput::".
+$prepPattern = 'PreparedOutput::(unscanned|no_findings|reviewed_none|redacted|skipped_after_error)\b|PreparedOutput\s+as\b|<\s*PreparedOutput\s*>\s*::|PreparedOutput\s*::\s*$'
 $privDir = 'crates\darkshot-core\src\privacy\'
 $gateFile = 'crates\darkshot-windows\src\privacy_gate.rs'
 $leak = $false
@@ -76,8 +95,9 @@ foreach ($file in $srcFiles) {
     $rel = Get-RelPath $file
     if ($rel.StartsWith($privDir) -or $rel -eq $gateFile) { continue }
     $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName)
+    $mask = Get-TestMask $lines
     for ($i = 0; $i -lt $lines.Count; $i++) {
-        if (Test-TestMod $lines $i) { break }
+        if ($mask[$i]) { continue }
         $code = $lines[$i] -replace '//.*$', ''
         if ($code -match $prepPattern) {
             Write-Host "CHECK FAILED: PreparedOutput constructor outside privacy gate in ${rel}:$($i + 1)"
@@ -88,8 +108,8 @@ foreach ($file in $srcFiles) {
 if ($leak) { exit 1 }
 
 Write-Host '== no logging in privacy'
-# Ke ca trong mod tests: khong eprintln!/println!/dbg! trong privacy\, privacy_gate.rs, review_window.rs.
-$logPattern = '\b(eprintln|println|dbg)!'
+# Ke ca trong mod tests: khong (e)print!/(e)println!/dbg! trong privacy\, privacy_gate.rs, review_window.rs.
+$logPattern = '\b(e?println|e?print|dbg)!'
 $reviewFile = 'crates\darkshot-windows\src\review_window.rs'
 $logged = $false
 foreach ($file in $srcFiles) {
