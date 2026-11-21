@@ -2939,4 +2939,739 @@ mod tests {
         close_all();
         assert!(test_windows().is_empty());
     }
+
+    // ---- Chạy tay: khung ảnh, chọn dòng, công tắc. Chỉ gửi thông điệp thẳng tới HWND của chính cửa
+    // sổ darkshot (không giả lập chuột/phím thật, quyết định 111). Clipboard được lưu ở đầu và trả
+    // lại ở cuối; chỉ ghi chữ tổng hợp.
+
+    const MK_CONTROL: usize = 0x0008;
+
+    /// Giữ chữ đang có trên clipboard của người dùng và trả lại khi bị bỏ (kể cả khi kiểm thử hỏng).
+    struct ClipGuard(Option<String>);
+
+    impl ClipGuard {
+        fn save(owner: HWND) -> ClipGuard {
+            ClipGuard(crate::clipboard::paste_text(owner))
+        }
+    }
+
+    impl Drop for ClipGuard {
+        fn drop(&mut self) {
+            let _ = WinClipboard.set_text(self.0.as_deref().unwrap_or(""));
+        }
+    }
+
+    fn clip(owner: HWND) -> Option<String> {
+        crate::clipboard::paste_text(owner)
+    }
+
+    fn set_clip(s: &str) {
+        WinClipboard.set_text(s).expect("set clipboard");
+    }
+
+    fn view_hwnd(h: HWND) -> HWND {
+        with_win(h, |w| w.view).unwrap_or_default()
+    }
+
+    /// Tâm khung dòng `i` trong tọa độ client của khung ảnh (đã trừ cuộn).
+    fn line_point(h: HWND, i: usize) -> Option<(i32, i32)> {
+        with_win(h, |w| {
+            let l = w.lines.get(i)?;
+            let d = w.geom.line_rect(l.rect);
+            Some((d.x + d.w / 2, d.y + d.h / 2 - w.scroll))
+        })
+        .flatten()
+    }
+
+    fn picked(h: HWND) -> Vec<usize> {
+        with_win(h, |w| w.pick.sel.clone()).unwrap_or_default()
+    }
+
+    fn scroll_state(h: HWND) -> (i32, i32, i32) {
+        with_win(h, |w| (w.scroll, w.geom.max_scroll(), w.geom.view_h)).unwrap_or_default()
+    }
+
+    fn line_texts(h: HWND) -> Vec<String> {
+        with_win(h, |w| {
+            w.lines.iter().map(|l| l.text.trim().to_string()).collect()
+        })
+        .unwrap_or_default()
+    }
+
+    fn lparam_xy(x: i32, y: i32) -> LPARAM {
+        LPARAM((((y as u16 as u32) << 16) | (x as u16 as u32)) as isize)
+    }
+
+    /// Bấm (gửi thẳng `WM_LBUTTONDOWN`/`UP` tới khung ảnh) tại `(x, y)` client, có hay không Ctrl.
+    fn click(h: HWND, x: i32, y: i32, ctrl: bool) {
+        let view = view_hwnd(h);
+        let mk = 0x0001 | if ctrl { MK_CONTROL } else { 0 };
+        // SAFETY: gửi vào hàng đợi khung ảnh của cửa sổ do luồng này tạo.
+        unsafe {
+            PostMessageW(Some(view), WM_LBUTTONDOWN, WPARAM(mk), lparam_xy(x, y)).unwrap();
+            PostMessageW(
+                Some(view),
+                windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP,
+                WPARAM(mk & !0x0001),
+                lparam_xy(x, y),
+            )
+            .unwrap();
+        }
+        pump(60, || false);
+    }
+
+    fn click_line(h: HWND, i: usize, ctrl: bool) {
+        let (x, y) = line_point(h, i).expect("line box");
+        click(h, x, y, ctrl);
+    }
+
+    /// Gõ phím (gửi thẳng `WM_KEYDOWN` vào hàng đợi của khung ảnh; đi qua `pre_translate`).
+    fn key(h: HWND, vk: u16) {
+        let view = view_hwnd(h);
+        // SAFETY: gửi vào hàng đợi khung ảnh của cửa sổ do luồng này tạo.
+        unsafe {
+            PostMessageW(Some(view), WM_KEYDOWN, WPARAM(usize::from(vk)), LPARAM(1)).unwrap();
+        }
+        pump(60, || false);
+    }
+
+    fn post_lines(h: HWND, token: usize, lines: Vec<OcrLine>) {
+        let res = ok_lines(lines);
+        let p = Box::into_raw(Box::new(res));
+        // SAFETY: gửi tới cửa sổ của luồng này; gửi lỗi thì lấy lại Box.
+        unsafe {
+            if PostMessageW(Some(h), WM_OCR_RESULT, WPARAM(token), LPARAM(p as isize)).is_err() {
+                drop(Box::from_raw(p));
+                panic!("PostMessageW failed");
+            }
+        }
+    }
+
+    fn white(w: u32, h: u32) -> Image {
+        Image {
+            width: w,
+            height: h,
+            bgra: vec![255; (w as usize) * (h as usize) * 4],
+        }
+    }
+
+    fn bm_click(b: HWND) {
+        // SAFETY: bấm nút của cửa sổ do luồng này tạo (thông điệp tới chính nút).
+        unsafe {
+            SendMessageW(
+                b,
+                windows::Win32::UI::WindowsAndMessaging::BM_CLICK,
+                None,
+                None,
+            );
+        }
+        pump(30, || false);
+    }
+
+    thread_local! {
+        static TEST_SWITCHES: Cell<Switches> = const { Cell::new(Switches {
+            single_line: false,
+            paragraphs: false,
+            auto_copy: false,
+        }) };
+        static SAVED: RefCell<Vec<Switches>> = const { RefCell::new(Vec::new()) };
+        static NOTICES: RefCell<Vec<(NoticeKind, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn test_load() -> Switches {
+        TEST_SWITCHES.with(|s| s.get())
+    }
+
+    fn test_save(s: Switches) {
+        SAVED.with(|v| v.borrow_mut().push(s));
+    }
+
+    fn test_notify(kind: NoticeKind, title: &str, _: &str) {
+        NOTICES.with(|v| v.borrow_mut().push((kind, title.to_string())));
+    }
+
+    fn reset_hooks(start: Switches) {
+        TEST_SWITCHES.with(|s| s.set(start));
+        SAVED.with(|v| v.borrow_mut().clear());
+        NOTICES.with(|v| v.borrow_mut().clear());
+        set_switch_store(test_load, test_save);
+        set_notifier(test_notify);
+    }
+
+    /// Chữ Anh tổng hợp ba dòng, nhận dạng thật (luồng nền): bấm dòng 2 → clipboard dòng 2;
+    /// Ctrl+bấm dòng 1 rồi 3 → ba dòng theo thứ tự đọc; bấm chỗ trống bỏ chọn, không ghi; Ctrl+bấm
+    /// bỏ dòng cuối → clipboard giữ "x"; ↑/↓/Enter/Space/Ctrl+A/Esc trên khung ảnh.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_pick_lines_after_real_ocr() {
+        close_all();
+        reset_hooks(Switches::default());
+        let wanted = [
+            ("Alpha line one", 50),
+            ("Bravo line two", 150),
+            ("Charlie line three", 250),
+        ];
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            crate::ocr::tests::lines_image(700, 300, 32, &wanted)
+        };
+        open(img).expect("open");
+        let (h, _) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        assert!(pump(30_000, || !busy(h)), "no result within 30 s");
+        let texts = line_texts(h);
+        if text_of(edit_of(h)) == t(lang_now(), Msg::OcrNoLanguage) {
+            println!("NoLanguage: may khong co goi OCR");
+            close_all();
+            return;
+        }
+        assert_eq!(texts.len(), 3, "{texts:?}");
+        let (l1, l2, l3) = (&texts[0], &texts[1], &texts[2]);
+        assert!(l2.to_lowercase().contains("bravo"), "{texts:?}");
+
+        click_line(h, 1, false);
+        assert_eq!(clip(h).as_deref(), Some(l2.as_str()));
+        assert_eq!(picked(h), vec![1]);
+        click_line(h, 0, true);
+        click_line(h, 2, true);
+        assert_eq!(clip(h), Some(format!("{l1}\r\n{l2}\r\n{l3}")));
+        assert_eq!(picked(h), vec![0, 1, 2]);
+
+        // Bấm chỗ trống (đệm trên cùng của khung ảnh): bỏ chọn, clipboard không đổi.
+        set_clip("x");
+        click(h, 2, 2, false);
+        assert!(picked(h).is_empty());
+        assert_eq!(clip(h).as_deref(), Some("x"));
+
+        // Ctrl+bấm chọn rồi bỏ dòng cuối cùng: lần bỏ không ghi clipboard.
+        click_line(h, 0, true);
+        assert_eq!(clip(h).as_deref(), Some(l1.as_str()));
+        set_clip("x");
+        click_line(h, 0, true);
+        assert!(picked(h).is_empty());
+        assert_eq!(clip(h).as_deref(), Some("x"));
+
+        // Bàn phím trên khung ảnh.
+        key(h, VK_DOWN.0);
+        key(h, VK_DOWN.0);
+        key(h, VK_DOWN.0);
+        key(h, VK_UP.0);
+        assert_eq!(with_win(h, |w| w.pick.cursor).flatten(), Some(1));
+        assert_eq!(clip(h).as_deref(), Some("x"), "arrows must not copy");
+        key(h, VK_RETURN.0);
+        assert_eq!(clip(h).as_deref(), Some(l2.as_str()));
+        set_clip("x");
+        key(h, VK_SPACE.0);
+        assert!(picked(h).is_empty());
+        assert_eq!(clip(h).as_deref(), Some("x"));
+        key(h, VK_SPACE.0);
+        assert_eq!(clip(h).as_deref(), Some(l2.as_str()));
+        // Ctrl+A: Ctrl không giả lập được bằng thông điệp; gọi thẳng thao tác của phím.
+        assert_eq!(view_key(u16::from(b'A'), true), Some(PickInput::SelectAll));
+        view_input(h, PickInput::SelectAll);
+        assert_eq!(clip(h), Some(format!("{l1}\r\n{l2}\r\n{l3}")));
+        // Esc: bỏ chọn trước, lần sau mới đóng.
+        key(h, VK_ESCAPE.0);
+        assert!(picked(h).is_empty());
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(unsafe { IsWindow(Some(h)) }.as_bool());
+        key(h, VK_ESCAPE.0);
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(!unsafe { IsWindow(Some(h)) }.as_bool());
+        // Bấm dòng không phát thông báo khay (chỉ nhãn "Đã chép").
+        assert!(NOTICES.with(|v| v.borrow().is_empty()));
+        close_all();
+    }
+
+    /// Review Focus 1: ảnh chụp cuộn 800×12000 (co giữ về 273×4096): khung dòng cuối chỉ hiện sau
+    /// khi cuộn; cuộn tới cuối bằng thanh cuộn, bấm trúng đúng dòng cuối; bánh xe cuộn ngược.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_tall_image_scrolls_to_last_line() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(white(800, 12_000), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        assert_eq!(with_win(h, |w| w.kept_size), Some((273, 4096)));
+        post_lines(
+            h,
+            token,
+            vec![
+                ocr_line("first", 20, 100, 300, 40),
+                ocr_line("middle", 20, 6000, 300, 40),
+                ocr_line("last", 20, 11_900, 300, 40),
+            ],
+        );
+        assert!(pump(2_000, || !busy(h)));
+        let (scroll, max, view_h) = scroll_state(h);
+        assert_eq!(scroll, 0);
+        assert!(max > 0, "tall image must scroll");
+        let (_, y) = line_point(h, 2).unwrap();
+        assert!(y > view_h, "last line starts hidden: {y} > {view_h}");
+        let view = view_hwnd(h);
+        // SAFETY: thông điệp thanh cuộn gửi thẳng tới khung ảnh của cửa sổ này.
+        unsafe {
+            SendMessageW(view, WM_VSCROLL, Some(WPARAM(SB_BOTTOM.0 as usize)), None);
+        }
+        let (scroll, max, view_h) = scroll_state(h);
+        assert_eq!(scroll, max);
+        let (x, y) = line_point(h, 2).unwrap();
+        assert!(
+            (0..view_h).contains(&y),
+            "last line visible after scroll: {y}"
+        );
+        assert_eq!(hit_line(h, x, y), Some(2));
+        click(h, x, y, false);
+        assert_eq!(clip(h).as_deref(), Some("last"));
+        // Bánh xe lên một nấc: cuộn ngược.
+        // SAFETY: thông điệp gửi thẳng tới khung ảnh của cửa sổ này.
+        unsafe {
+            SendMessageW(view, WM_MOUSEWHEEL, Some(WPARAM(120 << 16)), None);
+        }
+        assert!(scroll_state(h).0 < max);
+        // ↑ tới dòng đầu: cuộn cho nó hiện ra (đủ khung, cách mép trên một đệm).
+        for _ in 0..3 {
+            key(h, VK_UP.0);
+        }
+        let (scroll, _, view_h) = scroll_state(h);
+        let (_, y) = line_point(h, 0).unwrap();
+        assert!((0..view_h).contains(&y), "first line visible: {y}");
+        assert!(scroll < max);
+        close_all();
+    }
+
+    /// Review Focus 2: kết quả đến sau khi cửa sổ đã đổi cỡ và đang cuộn; rồi đổi cỡ và DPI lần nữa:
+    /// khung dòng đặt lại đúng, bấm trúng đúng dòng.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_result_after_resize_and_dpi_change() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(white(1600, 3000), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        let resize = |w: i32, hh: i32| {
+            // SAFETY: đổi cỡ chính cửa sổ do luồng này tạo.
+            unsafe {
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    0,
+                    0,
+                    w,
+                    hh,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+            pump(50, || false);
+        };
+        resize(1300, 900);
+        let view = view_hwnd(h);
+        // SAFETY: thông điệp thanh cuộn gửi thẳng tới khung ảnh của cửa sổ này.
+        unsafe {
+            SendMessageW(view, WM_VSCROLL, Some(WPARAM(SB_PAGEDOWN.0 as usize)), None);
+        }
+        assert!(scroll_state(h).0 > 0);
+        let lines: Vec<OcrLine> = (0..10)
+            .map(|i| ocr_line(&format!("row {i}"), 100, 100 + i * 290, 900, 60))
+            .collect();
+        post_lines(h, token, lines);
+        assert!(pump(2_000, || !busy(h)));
+        let check_all = |ctx: &str| {
+            let (_, _, view_h) = scroll_state(h);
+            let mut hits = 0;
+            for i in 0..10 {
+                let (x, y) = line_point(h, i).unwrap();
+                if !(0..view_h).contains(&y) {
+                    continue;
+                }
+                hits += 1;
+                set_clip("x");
+                click(h, x, y, false);
+                assert_eq!(clip(h), Some(format!("row {i}")), "{ctx} line {i}");
+            }
+            assert!(hits > 0, "{ctx}: no visible line");
+        };
+        check_all("after resize + scroll");
+        resize(900, 500);
+        check_all("smaller");
+        let mut rc = RECT::default();
+        // SAFETY: rc là biến cục bộ; hỏi khung của chính cửa sổ này.
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut rc);
+        }
+        let big = RECT {
+            right: rc.left + (rc.right - rc.left) * 3 / 2,
+            bottom: rc.top + (rc.bottom - rc.top) * 3 / 2,
+            ..rc
+        };
+        // SAFETY: thông điệp gửi thẳng tới cửa sổ của luồng này; RECT sống suốt lời gọi.
+        unsafe {
+            SendMessageW(
+                h,
+                WM_DPICHANGED,
+                Some(WPARAM((144 << 16) | 144)),
+                Some(LPARAM(&big as *const RECT as isize)),
+            );
+        }
+        pump(50, || false);
+        assert_eq!(with_win(h, |w| w.dpi), Some(144));
+        check_all("dpi 144");
+        // SAFETY: như trên, trả về 96 DPI.
+        unsafe {
+            SendMessageW(
+                h,
+                WM_DPICHANGED,
+                Some(WPARAM((96 << 16) | 96)),
+                Some(LPARAM(&rc as *const RECT as isize)),
+            );
+        }
+        pump(50, || false);
+        check_all("dpi 96");
+        close_all();
+    }
+
+    /// Review Focus 4 và công tắc: đổi khi đang nhận dạng hay khi lỗi → không panic, ô chữ giữ thông
+    /// báo; khi có chữ → ô chữ dựng lại, cấu hình lưu mỗi lần đổi; "Tách đoạn" vô hiệu khi "Gộp một
+    /// dòng" bật; đổi công tắc không ghi clipboard.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_switches_rebuild_text_and_save() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(tiny(), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        set_clip("x");
+        let checks = with_win(h, |w| w.checks).unwrap();
+        let edit = edit_of(h);
+        let enabled = |b: HWND| {
+            // SAFETY: chỉ hỏi trạng thái bật của nút.
+            unsafe { IsWindowEnabled(b) }.as_bool()
+        };
+        // Đang nhận dạng.
+        bm_click(checks[0]);
+        assert_eq!(text_of(edit), t(lang_now(), Msg::OcrBusy));
+        assert!(!enabled(checks[1]), "paragraphs disabled with single line");
+        assert_eq!(
+            SAVED.with(|v| v.borrow().clone()),
+            vec![Switches {
+                single_line: true,
+                paragraphs: false,
+                auto_copy: false
+            }]
+        );
+        // Lỗi.
+        let p = Box::into_raw(Box::new(Err::<OcrResult, OcrError>(OcrError::NoLanguage)));
+        // SAFETY: gửi tới cửa sổ của luồng này.
+        unsafe {
+            PostMessageW(Some(h), WM_OCR_RESULT, WPARAM(token), LPARAM(p as isize)).unwrap();
+        }
+        assert!(pump(2_000, || !busy(h)));
+        bm_click(checks[0]);
+        assert_eq!(text_of(edit), t(lang_now(), Msg::OcrNoLanguage));
+        assert!(enabled(checks[1]));
+        close_all();
+
+        // Có chữ: cửa sổ mới đọc giá trị đầu từ cấu hình (hàm do main đưa vào).
+        reset_hooks(Switches {
+            single_line: true,
+            paragraphs: true,
+            auto_copy: false,
+        });
+        open_with(tiny(), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        let checks = with_win(h, |w| w.checks).unwrap();
+        assert!(is_checked(checks[0]) && is_checked(checks[1]) && !is_checked(checks[2]));
+        assert!(!enabled(checks[1]));
+        post_lines(
+            h,
+            token,
+            vec![
+                ocr_line("a", 10, 10, 80, 20),
+                ocr_line("b", 10, 34, 80, 20),
+                ocr_line("c", 10, 120, 80, 20),
+            ],
+        );
+        assert!(pump(2_000, || !busy(h)));
+        let edit = edit_of(h);
+        assert_eq!(text_of(edit), "a b c");
+        bm_click(checks[0]);
+        assert_eq!(text_of(edit), "a\r\nb\r\n\r\nc");
+        assert!(enabled(checks[1]));
+        bm_click(checks[1]);
+        assert_eq!(text_of(edit), "a\r\nb\r\nc");
+        bm_click(checks[2]);
+        assert_eq!(
+            SAVED.with(|v| v.borrow().clone()),
+            vec![
+                Switches {
+                    single_line: false,
+                    paragraphs: true,
+                    auto_copy: false
+                },
+                Switches {
+                    single_line: false,
+                    paragraphs: false,
+                    auto_copy: false
+                },
+                Switches {
+                    single_line: false,
+                    paragraphs: false,
+                    auto_copy: true
+                },
+            ]
+        );
+        // Bật "Tự chép" sau khi kết quả đã về: không chép bù; đổi công tắc không ghi clipboard.
+        assert_eq!(clip(h).as_deref(), Some("x"));
+        // Chọn dòng rồi đổi công tắc: không chép lại vùng chọn.
+        click_line(h, 0, false);
+        set_clip("x");
+        bm_click(checks[0]);
+        assert_eq!(clip(h).as_deref(), Some("x"));
+        close_all();
+    }
+
+    /// Tự chép khi xong: bật lúc kết quả về → chép chữ theo công tắc, báo như nút, cửa sổ ở lại;
+    /// tắt → clipboard giữ nguyên. Chép tất cả: chép ô chữ (kể cả đã sửa), cửa sổ ở lại.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_auto_copy_and_copy_all_keep_window() {
+        close_all();
+        let lines = || {
+            vec![
+                ocr_line("one", 10, 10, 80, 20),
+                ocr_line("two", 10, 34, 80, 20),
+            ]
+        };
+        reset_hooks(Switches {
+            single_line: true,
+            paragraphs: false,
+            auto_copy: true,
+        });
+        open_with(tiny(), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        set_clip("x");
+        post_lines(h, token, lines());
+        assert!(pump(2_000, || !busy(h)));
+        assert_eq!(clip(h).as_deref(), Some("one two"));
+        assert_eq!(
+            NOTICES.with(|v| v.borrow().clone()),
+            vec![(
+                NoticeKind::Success,
+                t(lang_now(), Msg::OcrCopiedTitle).to_string()
+            )]
+        );
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(unsafe { IsWindow(Some(h)) }.as_bool());
+        close_all();
+
+        reset_hooks(Switches::default());
+        open_with(tiny(), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        set_clip("x");
+        post_lines(h, token, lines());
+        assert!(pump(2_000, || !busy(h)));
+        assert_eq!(clip(h).as_deref(), Some("x"));
+        // Chép tất cả lấy chữ đã sửa trong ô; cửa sổ ở lại.
+        // SAFETY: ô chữ của cửa sổ do luồng này tạo; chuỗi sống suốt lời gọi.
+        unsafe {
+            let _ = SetWindowTextW(edit_of(h), &HSTRING::from("edited"));
+        }
+        let copy = with_win(h, |w| w.copy).unwrap();
+        bm_click(copy);
+        assert_eq!(clip(h).as_deref(), Some("edited"));
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(unsafe { IsWindow(Some(h)) }.as_bool());
+        assert_eq!(NOTICES.with(|v| v.borrow().len()), 1);
+        close_all();
+    }
+
+    /// Khung dòng suy biến (`w == 0`/`h == 0`): vẽ không panic, chỉ trúng trong vùng nới 2 px.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_degenerate_boxes_paint_and_hit() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(white(400, 200), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        post_lines(
+            h,
+            token,
+            vec![
+                ocr_line("zero", 100, 100, 0, 0),
+                ocr_line("flat", 200, 50, 50, 0),
+            ],
+        );
+        assert!(pump(2_000, || !busy(h)));
+        let view = view_hwnd(h);
+        // SAFETY: vẽ lại ngay khung ảnh của cửa sổ này.
+        unsafe {
+            let _ = windows::Win32::Graphics::Gdi::RedrawWindow(
+                Some(view),
+                None,
+                None,
+                windows::Win32::Graphics::Gdi::RDW_INVALIDATE
+                    | windows::Win32::Graphics::Gdi::RDW_UPDATENOW,
+            );
+        }
+        let g = with_win(h, |w| w.geom).unwrap();
+        // Ảnh 1:1: px ảnh = điểm khung trừ chỗ ảnh.
+        let at = |px: i32, py: i32| hit_line(h, g.img.x + px, g.img.y + py);
+        assert_eq!(at(100, 100), Some(0));
+        assert_eq!(at(101, 101), Some(0));
+        assert_eq!(at(103, 100), None);
+        assert_eq!(at(225, 50), Some(1));
+        assert_eq!(at(225, 53), None);
+        close_all();
+    }
+
+    /// Mở/đóng 20 lần với ảnh lớn, kết quả có dòng, bấm và cuộn: không rò GDI/USER.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_pick_windows_no_leak() {
+        close_all();
+        reset_hooks(Switches::default());
+        let img = white(2400, 1600);
+        let lines = || {
+            (0..5)
+                .map(|i| ocr_line(&format!("r{i}"), 100, 100 + i * 200, 900, 60))
+                .collect::<Vec<_>>()
+        };
+        let mut guard = None;
+        let round = || {
+            open_with(img.clone(), no_ocr).expect("open");
+            let (h, token) = test_windows()[0];
+            post_lines(h, token, lines());
+            assert!(pump(2_000, || !busy(h)));
+            click_line(h, 1, false);
+            click_line(h, 2, true);
+            // SAFETY: đổi cỡ chính cửa sổ do luồng này tạo (dựng lại bản đã co).
+            unsafe {
+                let _ = SetWindowPos(
+                    h,
+                    None,
+                    0,
+                    0,
+                    1100,
+                    700,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
+            pump(80, || false);
+            h
+        };
+        for _ in 0..2 {
+            let h = round();
+            guard.get_or_insert_with(|| ClipGuard::save(h));
+            close_all();
+        }
+        pump(200, || false);
+        let before = gui_counts();
+        for _ in 0..20 {
+            round();
+            close_all();
+            assert!(test_windows().is_empty());
+        }
+        pump(300, || false);
+        let after = gui_counts();
+        assert!(
+            after.0 <= before.0 && after.1 <= before.1,
+            "GDI/USER grew: {before:?} -> {after:?}"
+        );
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn PrintWindow(hwnd: HWND, hdc: HDC, flags: u32) -> i32;
+    }
+
+    /// Ảnh của cửa sổ `h` bằng PrintWindow (PW_RENDERFULLCONTENT), không đọc màn hình.
+    fn print_window(h: HWND) -> Image {
+        use windows::Win32::Graphics::Gdi::{
+            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, SelectObject,
+            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        };
+        let mut rc = RECT::default();
+        // SAFETY: rc là biến cục bộ; hỏi khung của chính cửa sổ này.
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut rc);
+        }
+        let (w, hh) = (rc.right - rc.left, rc.bottom - rc.top);
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -hh,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let len = (w as usize) * (hh as usize) * 4;
+        let mut out = vec![0u8; len];
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        // SAFETY: DC và DIB chỉ dùng trong khối và đều được giải phóng; chép đúng `len` byte.
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            let bmp =
+                CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).expect("dib");
+            let old = SelectObject(dc, bmp.into());
+            assert_ne!(PrintWindow(h, dc, 2), 0, "PrintWindow");
+            let _ = GdiFlush();
+            std::ptr::copy_nonoverlapping(bits.cast::<u8>(), out.as_mut_ptr(), len);
+            SelectObject(dc, old);
+            let _ = DeleteObject(bmp.into());
+            let _ = DeleteDC(dc);
+        }
+        for p in out.chunks_mut(4) {
+            p[3] = 255;
+        }
+        Image {
+            width: w as u32,
+            height: hh as u32,
+            bgra: out,
+        }
+    }
+
+    /// Ảnh PrintWindow của cửa sổ có kết quả (chữ Anh tổng hợp, nhận dạng thật) và hai dòng đã chọn.
+    /// Biến môi trường `DARKSHOT_OCR_SHOT` = đường dẫn PNG để lưu (ngoài repo).
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_print_window_with_selection() {
+        close_all();
+        reset_hooks(Switches::default());
+        let wanted = [
+            ("Quarterly report summary", 60),
+            ("Revenue grew 12 percent", 120),
+            ("Costs stayed flat", 180),
+            ("Next review in March", 300),
+            ("Contact the finance team", 360),
+        ];
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            crate::ocr::tests::lines_image(720, 420, 30, &wanted)
+        };
+        open(img).expect("open");
+        let (h, _) = test_windows()[0];
+        let _clip = ClipGuard::save(h);
+        assert!(pump(30_000, || !busy(h)), "no result within 30 s");
+        if line_texts(h).len() >= 3 {
+            click_line(h, 1, false);
+            click_line(h, 2, true);
+        }
+        pump(100, || false);
+        let shot = print_window(h);
+        assert!(shot.bgra.chunks(4).any(|p| p[..3] != shot.bgra[..3]));
+        if let Ok(path) = std::env::var("DARKSHOT_OCR_SHOT") {
+            let png = darkshot_core::image::encode_png(&shot).expect("png");
+            std::fs::write(&path, png).expect("write shot");
+            println!("saved {path}: lines {:?}", line_texts(h));
+        }
+        close_all();
+    }
 }
