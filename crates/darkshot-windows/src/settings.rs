@@ -298,6 +298,9 @@ pub fn apply_form(current: &Config, form: &Form, lang: Lang) -> Result<Config, F
         update_notified: current.update_notified,
         history_enabled: form.history_enabled,
         snap_windows: form.snap_windows,
+        ocr_single_line: current.ocr_single_line,
+        ocr_paragraphs: current.ocr_paragraphs,
+        ocr_auto_copy: current.ocr_auto_copy,
     })
 }
 

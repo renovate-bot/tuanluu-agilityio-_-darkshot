@@ -372,6 +372,15 @@ messages! {
     ),
     OcrFailed => ("Không nhận dạng được chữ. Thử lại.", "Couldn't recognize text. Try again."),
     OcrCopy => ("Chép", "Copy"),
+    OcrCopyAll => ("Chép tất cả", "Copy all"),
+    OcrSingleLine => ("Gộp thành một dòng", "Single line"),
+    OcrParagraphs => ("Tách đoạn", "Separate paragraphs"),
+    OcrAutoCopy => ("Tự chép khi xong", "Copy automatically when done"),
+    OcrPickHint => (
+        "Bấm khung để chép dòng · Ctrl+bấm để chọn nhiều dòng",
+        "Click a box to copy the line · Ctrl+click to pick several lines"
+    ),
+    OcrCopiedTip => ("Đã chép", "Copied"),
     OcrClose => ("Đóng", "Close"),
     OcrCopiedTitle => ("Đã chép chữ", "Text copied"),
     OcrCopyFailedTitle => ("Không chép được chữ", "Couldn't copy the text"),
@@ -761,6 +770,8 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 - Esc lùi một bước (đóng bảng, hủy chữ, bỏ chọn) rồi đóng lớp phủ.\n\
 - Ctrl+P: ghim ảnh lên màn hình (hoặc bấm nút Ghim trong Lịch sử ảnh chụp). Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn chuột để phóng, Ctrl+cuộn để làm mờ, chuột phải để mở menu, Esc để đóng.\n\
 - Ctrl+T: nhận dạng chữ trong vùng đã chọn rồi chép ra (ảnh ghim có mục \"Nhận dạng chữ\" trong menu chuột phải).\n\
+- Cửa sổ chữ nhận dạng: bấm một khung để chép dòng đó, Ctrl+bấm để chọn nhiều dòng.\n\
+- Windows chưa có bộ nhận dạng tiếng Việt, chữ có dấu có thể bị mất dấu.\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
@@ -806,6 +817,8 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 - Esc steps back (closes a panel, cancels text, deselects), then closes the overlay.\n\
 - Ctrl+P: pin the image to the screen (or click Pin in Screenshot History). A pinned image stays on top: drag to move, scroll to zoom, Ctrl+scroll to change opacity, right-click for a menu, Esc to close.\n\
 - Ctrl+T: recognize the text in the selected region and copy it (a pinned image has \"Recognize text\" in its right-click menu).\n\
+- In the recognized-text window, click a box to copy that line; Ctrl+click picks several lines.\n\
+- Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks.\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\
@@ -1694,5 +1707,37 @@ mod tests {
             assert!(h.contains(t(l, Msg::TrayStepsStart)), "{l:?}");
             assert!(h.contains("Ctrl+N"), "{l:?}");
         }
+    }
+
+    #[test]
+    fn ocr_pro_strings_present_in_both_languages() {
+        for m in [
+            Msg::OcrCopyAll,
+            Msg::OcrSingleLine,
+            Msg::OcrParagraphs,
+            Msg::OcrAutoCopy,
+            Msg::OcrPickHint,
+            Msg::OcrCopiedTip,
+        ] {
+            for l in Lang::ALL {
+                assert!(!t(l, m).trim().is_empty(), "{m:?} {l:?}");
+            }
+        }
+        assert_eq!(t(Lang::Vi, Msg::OcrCopyAll), "Chép tất cả");
+        assert_eq!(t(Lang::En, Msg::OcrCopiedTip), "Copied");
+    }
+
+    #[test]
+    fn help_text_mentions_ocr_pick_and_vietnamese_caveat() {
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("Ctrl+bấm"));
+        assert!(
+            vi.contains("Windows chưa có bộ nhận dạng tiếng Việt, chữ có dấu có thể bị mất dấu.")
+        );
+        assert!(en.contains("Ctrl+click"));
+        assert!(en.contains(
+            "Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks."
+        ));
     }
 }
