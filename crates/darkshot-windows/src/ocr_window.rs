@@ -50,8 +50,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
     WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_DISABLED, WS_EX_APPWINDOW,
-    WS_EX_CONTROLPARENT, WS_GROUP, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_TABSTOP,
-    WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+    WS_EX_CONTROLPARENT, WS_EX_TOPMOST, WS_GROUP, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU,
+    WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
 
 /// Kết quả nhận dạng gửi về cửa sổ: WPARAM = token, LPARAM = `Box` của `ocr::start`.
@@ -596,9 +596,9 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
     // Tạo thẳng trên màn hình đó, theo DPI của nó: không có WM_DPICHANGED lúc mở.
     let dpi = monitor_dpi(mon);
     let (ww, wh) = window_size(DEFAULT_W, DEFAULT_H, dpi);
-    let (x, y) = match work_area(mon) {
+    let (x, y, covered) = match work_area(mon) {
         Some(work) => place_avoiding(work, ww, wh, avoid, scale(GAP, dpi)),
-        None => (100, 100),
+        None => (100, 100, avoid.is_some()),
     };
     let title = HSTRING::from(t(lang, Msg::OcrWindowTitle));
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; đăng ký lại lần hai báo lỗi vô hại.
@@ -614,7 +614,7 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
         };
         RegisterClassW(&wc);
         CreateWindowExW(
-            EX_STYLE,
+            ex_style(covered),
             CLASS,
             &title,
             STYLE,
@@ -1101,17 +1101,34 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
+/// Kiểu mở rộng của cửa sổ kết quả: chồng lên khung cần tránh (ảnh ghim, luôn ở trên cùng) thì
+/// thêm `WS_EX_TOPMOST` để cửa sổ nằm trên ảnh ghim; không thì như thường.
+fn ex_style(overlaps: bool) -> WINDOW_EX_STYLE {
+    if overlaps {
+        WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0)
+    } else {
+        EX_STYLE
+    }
+}
+
 /// Góc trên trái cho cửa sổ `w`×`h` trong vùng làm việc `work` (tọa độ màn hình), tránh khung
 /// `avoid` (ảnh ghim, luôn ở trên cùng): thử bên phải, rồi trái, dưới, trên khung, cách khung `gap`;
 /// không chỗ nào đủ (hay không có khung) thì giữa vùng làm việc. Luôn kẹp góc vào vùng làm việc.
-fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> (i32, i32) {
+/// Phần tử thứ ba (`overlaps`): cửa sổ ở vị trí trả về chồng lên `avoid`.
+fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> (i32, i32, bool) {
     let clamp = |v: i32, lo: i32, hi: i32| v.min(hi).max(lo);
     let center = (
         (work.x + (work.w - w) / 2).max(work.x),
         (work.y + (work.h - h) / 2).max(work.y),
     );
     let Some(a) = avoid else {
-        return center;
+        return (center.0, center.1, false);
+    };
+    // Phép so trên i64: khung ảnh ghim có thể ở tọa độ rất lớn.
+    let hit = |x: i32, y: i32| {
+        let (x, y, w, h) = (x as i64, y as i64, w as i64, h as i64);
+        let (ax, ay, aw, ah) = (a.x as i64, a.y as i64, a.w as i64, a.h as i64);
+        x < ax + aw && ax < x + w && y < ay + ah && ay < y + h
     };
     let (fits_w, fits_h) = (w <= work.w, h <= work.h);
     let y_beside = clamp(a.y, work.y, work.bottom() - h);
@@ -1119,22 +1136,22 @@ fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> 
     if fits_w && fits_h {
         let right = a.right() + gap;
         if right >= work.x && right + w <= work.right() {
-            return (right, y_beside);
+            return (right, y_beside, false);
         }
         let left = a.x - gap - w;
         if left >= work.x && left + w <= work.right() {
-            return (left, y_beside);
+            return (left, y_beside, false);
         }
         let below = a.bottom() + gap;
         if below >= work.y && below + h <= work.bottom() {
-            return (x_beside, below);
+            return (x_beside, below, false);
         }
         let above = a.y - gap - h;
         if above >= work.y && above + h <= work.bottom() {
-            return (x_beside, above);
+            return (x_beside, above, false);
         }
     }
-    center
+    (center.0, center.1, hit(center.0, center.1))
 }
 
 /// Thứ cửa sổ đang hiện, đủ để dựng lại chữ giao diện khi đổi ngôn ngữ.
@@ -1407,7 +1424,10 @@ mod tests {
         assert!(!place_avoiding(work, 2000, 1200, Some(r(500, 2000, 10, 10)), g).2);
 
         assert_eq!(ex_style(false), EX_STYLE);
-        assert_eq!(ex_style(true), WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0));
+        assert_eq!(
+            ex_style(true),
+            WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0)
+        );
     }
 
     /// `WM_OCR_RESULT` gửi tới cửa sổ không phải cửa sổ kết quả: `pre_translate` không đụng LPARAM.

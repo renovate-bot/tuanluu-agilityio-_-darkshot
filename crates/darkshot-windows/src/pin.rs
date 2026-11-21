@@ -78,7 +78,8 @@ const ID_OPACITY_BASE: u32 = 2000;
 pub enum PinPlace {
     /// Ảnh hiện 100% với góc trên trái của ẢNH tại điểm màn hình này (cửa sổ = ảnh nới một viền ra ngoài).
     At(Point),
-    /// Căn giữa vùng làm việc của màn hình chứa con trỏ, mức `pin::fit_zoom`.
+    /// Căn giữa vùng làm việc của màn hình chứa con trỏ, mức `pin::fit_zoom`; ảnh vẫn lớn hơn vùng
+    /// thì neo mép trên/trái (`pin::placed_in`) để phần đầu ảnh luôn thấy.
     CenterOnCursorMonitor,
 }
 
@@ -285,7 +286,7 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
             if !core_pin::zoom_allowed(iw, ih, z) {
                 return Err(too_large());
             }
-            (z, core_pin::centered(iw, ih, z, area))
+            (z, core_pin::placed_in(iw, ih, z, area))
         }
     };
     ensure_class()?;

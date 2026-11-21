@@ -696,18 +696,27 @@ impl Annotations {
         }
     }
 
+    /// Áp ngược mục cuối ngăn hoàn tác và chuyển nó sang ngăn làm lại. `apply` thất bại (sổ không
+    /// nhất quán): mục ở lại ngăn hoàn tác, ngăn làm lại không đổi, trả None.
     pub fn undo(&mut self) -> Option<Applied> {
         let edit = self.undo.pop()?;
-        let applied = self.apply(&edit, false);
+        let Some(applied) = self.apply(&edit, false) else {
+            self.undo.push(edit);
+            return None;
+        };
         self.redo.push(edit);
-        applied
+        Some(applied)
     }
 
+    /// Như `undo`, theo chiều thuận, từ ngăn làm lại sang ngăn hoàn tác.
     pub fn redo(&mut self) -> Option<Applied> {
         let edit = self.redo.pop()?;
-        let applied = self.apply(&edit, true);
+        let Some(applied) = self.apply(&edit, true) else {
+            self.redo.push(edit);
+            return None;
+        };
         self.undo.push(edit);
-        applied
+        Some(applied)
     }
 
     pub fn can_undo(&self) -> bool {
