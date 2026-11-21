@@ -1927,6 +1927,44 @@ mod live {
         }
     }
 
+    thread_local! {
+        static CAPTURE_FAILS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    fn count_capture_failed() {
+        CAPTURE_FAILS.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Xong khi chưa có khung nào mà chụp vùng lỗi: báo lỗi chụp, không giao ảnh, phiên vẫn dọn.
+    #[test]
+    #[ignore]
+    fn done_without_frames_reports_capture_failure() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        dpi_aware();
+        PAGE.with(|p| *p.borrow_mut() = make_page());
+        let (tw, region) = test_window();
+        pump_for(100);
+        set_on_result(keep_result);
+        set_on_capture_failed(count_capture_failed);
+        CAPTURE_FAILS.with(|c| c.set(0));
+        assert_eq!(start(region), Ok(()));
+        // Trước nhịp hẹn giờ đầu: chưa có khung.
+        done_with(|_| Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_FAIL)));
+        assert!(!active());
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_none());
+        // Chụp được: không báo lỗi.
+        assert_eq!(start(region), Ok(()));
+        done();
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_some());
+        // SAFETY: hủy cửa sổ thử của chính kiểm thử.
+        unsafe {
+            let _ = DestroyWindow(tw);
+        }
+        pump_for(50);
+    }
+
     #[test]
     #[ignore]
     fn session_stitches_test_window_scroll() {

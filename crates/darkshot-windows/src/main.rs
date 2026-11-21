@@ -2028,6 +2028,41 @@ mod tests {
 
     /// Trong lúc phiên chụp cuộn chạy, cổng coi như đang chụp: phím chụp và mục Chụp của menu bị
     /// bỏ qua; bấm khay (mở menu), hẹn giờ menu, Tùy chọn vẫn đi như thường.
+    /// Không bắt đầu được chụp cuộn: không có chỗ cho thanh → Info; lỗi tạo cửa sổ/hẹn giờ → Error
+    /// "Không chụp được màn hình"; đã có phiên (phím bị chặn trước đó) hay vùng rỗng → im lặng.
+    #[test]
+    fn scroll_start_notices() {
+        use scroll_session::StartError;
+        for lang in Lang::ALL {
+            assert_eq!(
+                scroll_start_notice(lang, StartError::NoRoom),
+                Some((
+                    NoticeKind::Info,
+                    i18n::t(lang, Msg::ScrollNoRoomTitle),
+                    i18n::t(lang, Msg::ScrollNoRoomBody)
+                ))
+            );
+            assert_eq!(
+                scroll_start_notice(lang, StartError::Failed),
+                Some((
+                    NoticeKind::Error,
+                    i18n::t(lang, Msg::CaptureFailedTitle),
+                    i18n::t(lang, Msg::CaptureFailedBody)
+                ))
+            );
+            assert_eq!(scroll_start_notice(lang, StartError::Busy), None);
+            assert_eq!(scroll_start_notice(lang, StartError::Empty), None);
+        }
+    }
+
+    /// Đang chụp cuộn: mục "Chụp từng bước" của menu khay không bắt đầu phiên (thanh phiên mới có thể
+    /// lọt vào vùng chụp trên Windows cũ).
+    #[test]
+    fn steps_start_blocked_while_scrolling() {
+        assert!(steps_start_allowed(false));
+        assert!(!steps_start_allowed(true));
+    }
+
     #[test]
     fn scroll_session_blocks_capture_requests() {
         for ev in [MenuCapture, Hotkey] {
