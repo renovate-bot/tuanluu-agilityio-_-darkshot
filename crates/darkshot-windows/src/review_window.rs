@@ -146,16 +146,33 @@ fn body_of(p: ReviewPhase) -> Body {
     }
 }
 
-/// Nhóm nút trái và phải của hàng dưới.
+/// Nhóm nút trái và phải của hàng dưới. Trên thanh xác nhận, "Quay lại" nằm đúng chỗ nút chính
+/// (phải) và nút đi tiếp nằm bên trái: bấm đúp vào nút chính không bao giờ trúng nút đi tiếp.
 fn footer(body: Body, confirm: Confirm) -> (&'static [Ctl], &'static [Ctl]) {
     if confirm != Confirm::None {
-        return (&[], &[Ctl::Back, Ctl::Yes]);
+        return (&[Ctl::Yes], &[Ctl::Back]);
     }
     match body {
         Body::Scanning => (&[Ctl::Cancel], &[]),
         Body::Findings => (&[Ctl::Cancel], &[Ctl::Add, Ctl::Primary]),
         Body::Error => (&[Ctl::Cancel, Ctl::Retry], &[Ctl::Add, Ctl::Primary]),
     }
+}
+
+/// Nút đi tiếp trên thanh xác nhận chỉ nhận bấm khi thanh đã hiện ít nhất `dbl_ms` (thời gian bấm
+/// đúp của hệ thống) tính từ `shown_ms` (đồng hồ `GetTickCount`, tính cả lúc quay vòng).
+fn yes_allowed(shown_ms: u32, now_ms: u32, dbl_ms: u32) -> bool {
+    now_ms.wrapping_sub(shown_ms) >= dbl_ms
+}
+
+fn tick_ms() -> u32 {
+    // SAFETY: hàm hệ thống không tham số.
+    unsafe { windows::Win32::System::SystemInformation::GetTickCount() }
+}
+
+fn double_click_ms() -> u32 {
+    // SAFETY: hàm hệ thống không tham số.
+    unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() }
 }
 
 /// Điều khiển nhận tiêu điểm theo thứ tự Tab.
@@ -317,7 +334,15 @@ fn layout(
     let mut want: Vec<(Ctl, i32)> = left
         .iter()
         .chain(right)
-        .map(|&c| (c, button_width(widths(c), dpi)))
+        .map(|&c| {
+            // "Quay lại" phủ hết chỗ của nút chính cũ: lần bấm thứ hai của cú bấm đúp trúng nó.
+            let tw = if c == Ctl::Back {
+                widths(c).max(widths(Ctl::Primary))
+            } else {
+                widths(c)
+            };
+            (c, button_width(tw, dpi))
+        })
         .collect();
     let n = want.len() as i32;
     let split = if !left.is_empty() && !right.is_empty() {
@@ -562,6 +587,8 @@ struct Win {
     hot: Option<Ctl>,
     hot_remove: Option<usize>,
     press: Press,
+    /// Lúc thanh xác nhận hiện (`GetTickCount`), để chặn bấm đúp đi xuyên.
+    confirm_at: u32,
     list_scroll: i32,
     tracking: bool,
     /// Bề rộng cột độ tin cậy và nút Xóa (px, đo lúc bố cục).
@@ -685,6 +712,7 @@ pub fn open(req: ReviewRequest, notify: HWND, msg: u32) -> Result<(), String> {
             hot: None,
             hot_remove: None,
             press: Press::None,
+            confirm_at: 0,
             list_scroll: 0,
             tracking: false,
             conf_w: 0,
@@ -721,13 +749,22 @@ pub fn update(token: usize, r: Result<Vec<Finding>, ScanError>) -> bool {
     let Some(hwnd) = hwnd_of(token) else {
         return false;
     };
-    with_win(hwnd, |w| {
+    let changed = with_win(hwnd, |w| {
+        let before = w.model.phase();
         w.model.set_result(r);
+        if w.model.phase() == before {
+            // Kết quả muộn (không còn Scanning): bỏ, không đụng trạng thái người dùng.
+            return false;
+        }
         w.focus = default_focus(body_of(w.model.phase()), w.model.confirm());
         w.list_scroll = 0;
-        w.press = Press::None;
+        w.model.cancel_drag();
+        true
     });
-    relayout(hwnd);
+    if changed == Some(true) {
+        release_capture(hwnd);
+        relayout(hwnd);
+    }
     true
 }
 
@@ -911,7 +948,11 @@ fn on_key(hwnd: HWND, vk: u16, ctrl: bool, shift: bool) -> bool {
             });
         }
         v if v == u16::from(b'A') && ctrl && body != Body::Scanning => {
-            with_win(hwnd, |w| w.model.select_all());
+            with_win(hwnd, |w| {
+                w.model.select_all();
+                fix_focus(w);
+            });
+            relayout(hwnd);
         }
         v if v == VK_DELETE.0 && focus == Ctl::List => {
             with_win(hwnd, |w| {
@@ -945,9 +986,23 @@ fn clamp_scroll(w: &mut Win) {
     w.list_scroll = w.list_scroll.clamp(0, (content - w.layout.list.h).max(0));
 }
 
+/// Tiêu điểm hợp lệ cho trạng thái hiện tại (mặc định khi điều khiển cũ không còn).
+fn fix_focus(w: &mut Win) {
+    let body = body_of(w.model.phase());
+    let confirm = w.model.confirm();
+    if !focusables(body, confirm, w.model.row_count() > 0).contains(&w.focus) {
+        w.focus = default_focus(body, confirm);
+    }
+}
+
 /// Bấm điều khiển `ctl` (chuột, Enter hay Space).
 fn activate(hwnd: HWND, ctl: Ctl) {
     let Some(out) = with_win(hwnd, |w| {
+        let shown_before = w.model.confirm() != Confirm::None;
+        if ctl == Ctl::Yes && !yes_allowed(w.confirm_at, tick_ms(), double_click_ms()) {
+            // Lần bấm thứ hai của một cú bấm đúp vào nút chính: bỏ qua.
+            return None;
+        }
         let out = match ctl {
             Ctl::Cancel => Some(ReviewOutcome::Cancel),
             Ctl::Retry => w.model.retry(),
@@ -980,6 +1035,9 @@ fn activate(hwnd: HWND, ctl: Ctl) {
         }
         if confirm != Confirm::None {
             w.focus = Ctl::Back;
+            if !shown_before {
+                w.confirm_at = tick_ms();
+            }
         }
         out
     }) else {
@@ -1245,6 +1303,14 @@ fn on_button_up(hwnd: HWND, x: i32, y: i32) {
         }
     }
     match (press, s) {
+        (Press::Button(Ctl::Back), Spot::Button(Ctl::Back))
+            if with_win(hwnd, |w| {
+                !yes_allowed(w.confirm_at, tick_ms(), double_click_ms())
+            }) == Some(true) =>
+        {
+            // Lần bấm thứ hai của cú bấm đúp vào nút chính: giữ thanh xác nhận.
+            invalidate(hwnd);
+        }
         (Press::Button(c), Spot::Button(d)) if c == d => activate(hwnd, c),
         (Press::Remove(r), Spot::Remove(q)) if r == q => {
             with_win(hwnd, |w| {
@@ -2107,6 +2173,50 @@ mod tests {
     }
 
     #[test]
+    fn confirm_bar_keeps_continue_away_from_primary() {
+        for dpi in DPIS {
+            for lang in LANGS {
+                for (cw_dip, ch_dip) in [(MIN_W, MIN_H), (DEFAULT_W, DEFAULT_H)] {
+                    let (cw, ch) = (scale(cw_dip, dpi), scale(ch_dip, dpi));
+                    for (body, confirm) in [
+                        (Body::Findings, Confirm::EmptySelection),
+                        (Body::Error, Confirm::Unscanned),
+                    ] {
+                        let ctx = format!("dpi {dpi} {lang:?} {cw}x{ch} {body:?}");
+                        let before = layout(cw, ch, dpi, body, Confirm::None, (100, 100), &|c| {
+                            text_px(label(c, body, Confirm::None, lang), dpi)
+                        });
+                        let after = layout(cw, ch, dpi, body, confirm, (100, 100), &|c| {
+                            text_px(label(c, body, confirm, lang), dpi)
+                        });
+                        let find = |l: &Layout, c: Ctl| {
+                            l.buttons.iter().find(|b| b.0 == c).map(|b| b.1).unwrap()
+                        };
+                        let primary = find(&before, Ctl::Primary);
+                        let yes = find(&after, Ctl::Yes);
+                        let back = find(&after, Ctl::Back);
+                        assert!(!overlaps(yes, primary), "{ctx} {yes:?} {primary:?}");
+                        assert_eq!(back.right(), primary.right(), "{ctx}");
+                        let (cx, cy) = (primary.x + primary.w / 2, primary.y + primary.h / 2);
+                        assert!(inside(back, cx, cy), "{ctx}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn continue_ignored_within_double_click_time() {
+        assert!(!yes_allowed(1000, 1000, 500));
+        assert!(!yes_allowed(1000, 1499, 500));
+        assert!(yes_allowed(1000, 1500, 500));
+        assert!(yes_allowed(1000, 9000, 500));
+        // GetTickCount quay vòng sau ~49,7 ngày.
+        assert!(!yes_allowed(u32::MAX - 100, 200, 500));
+        assert!(yes_allowed(u32::MAX - 100, 400, 500));
+    }
+
+    #[test]
     fn layout_shrinks_buttons_instead_of_overlapping_when_tiny() {
         let widths = |_: Ctl| 400;
         let l = layout(300, 200, 96, Body::Error, Confirm::None, (10, 10), &widths);
@@ -2459,6 +2569,21 @@ mod tests {
         }
     }
 
+    /// Chờ qua thời gian bấm đúp (nút đi tiếp trên thanh xác nhận mới nhận bấm).
+    fn wait_double_click() {
+        pump(u64::from(double_click_ms()) + 60, || false);
+    }
+
+    /// Bấm đúp (hai cặp DOWN/UP cùng tọa độ, không có CS_DBLCLKS nên không có WM_LBUTTONDBLCLK).
+    fn double_press(h: HWND, c: Ctl) {
+        let (x, y) = button(h, c).unwrap_or_else(|| panic!("no button {c:?}"));
+        post_mouse(h, WM_LBUTTONDOWN, x, y, 1);
+        post_mouse(h, WM_LBUTTONUP, x, y, 0);
+        post_mouse(h, WM_LBUTTONDOWN, x, y, 1);
+        post_mouse(h, WM_LBUTTONUP, x, y, 0);
+        pump(60, || false);
+    }
+
     fn close_msg(h: HWND) {
         // SAFETY: gửi vào hàng đợi cửa sổ do luồng này tạo (như bấm ✕).
         unsafe {
@@ -2521,7 +2646,6 @@ mod tests {
         pump(300, || false);
         assert!(WINS.with(|v| v.borrow().is_empty()));
         let after = gui_counts();
-        println!("gdi/user before {before:?} after {after:?}");
         assert!(
             after.0 <= before.0 && after.1 <= before.1,
             "GDI/USER grew: {before:?} -> {after:?}"
@@ -2729,6 +2853,7 @@ mod tests {
         assert_eq!(model_of(h).phase(), ReviewPhase::Scanning { tile: None });
         assert!(update(20, Err(ScanError::Timeout)));
         press(h, Ctl::Primary);
+        wait_double_click();
         press(h, Ctl::Yes);
         pump(100, || !alive(h));
         assert!(!alive(h));
@@ -2756,10 +2881,54 @@ mod tests {
         assert_eq!(model_of(h).confirm(), Confirm::None);
         assert!(alive(h));
         press(h, Ctl::Primary);
+        wait_double_click();
         press(h, Ctl::Yes);
         pump(100, || !alive(h));
         assert_eq!(outcomes()[2], (21, ReviewOutcome::ContinueNone));
         assert_eq!(outcomes().len(), 3);
+    }
+
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_double_click_on_primary_never_passes_confirmation() {
+        close_all();
+        let gate = Gate::new();
+        // Có phát hiện, bỏ chọn hết.
+        let h = open_test(50, &gate, ReviewPhase::Findings, findings());
+        press(h, Ctl::DeselectAll);
+        double_press(h, Ctl::Primary);
+        assert_eq!(model_of(h).confirm(), Confirm::EmptySelection);
+        assert!(alive(h));
+        // Bấm nút đi tiếp ngay (trong thời gian bấm đúp): bỏ qua.
+        press(h, Ctl::Yes);
+        assert_eq!(model_of(h).confirm(), Confirm::EmptySelection);
+        assert!(outcomes().is_empty());
+        // Ctrl+A khi thanh đang hiện: bỏ thanh, tiêu điểm về nút chính, bố cục về hàng nút thường.
+        assert!(on_key(h, u16::from(b'A'), true, false));
+        assert_eq!(model_of(h).confirm(), Confirm::None);
+        assert_eq!(with_win(h, |w| w.focus), Some(Ctl::Primary));
+        assert!(button(h, Ctl::Yes).is_none() && button(h, Ctl::Primary).is_some());
+        close(50);
+        // Lỗi quét.
+        let h = open_test(51, &gate, ReviewPhase::Error(ScanError::Failed), Vec::new());
+        double_press(h, Ctl::Primary);
+        assert_eq!(model_of(h).confirm(), Confirm::Unscanned);
+        assert!(alive(h));
+        assert!(outcomes().is_empty());
+        // Kết quả muộn khi không còn Scanning: bỏ, thanh xác nhận và tiêu điểm giữ nguyên.
+        assert!(update(51, Ok(findings())));
+        assert_eq!(model_of(h).confirm(), Confirm::Unscanned);
+        assert_eq!(with_win(h, |w| w.focus), Some(Ctl::Back));
+        wait_double_click();
+        press(h, Ctl::Yes);
+        pump(100, || !alive(h));
+        assert_eq!(
+            outcomes(),
+            vec![(
+                51,
+                ReviewOutcome::ContinueUnscanned(RedactionPlan::default())
+            )]
+        );
     }
 
     #[test]
@@ -2822,7 +2991,6 @@ mod tests {
                         assert!(!overlaps(b, o), "{ctx} {c:?} vs {d:?}");
                     }
                 }
-                println!("{ctx}: client buttons {buttons:?}");
             }
         }
         crate::lang::set(Lang::Vi);
