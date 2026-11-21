@@ -48,7 +48,8 @@ function Test-TestMod($lines, [int]$i) {
 #   Code: bo chu thich // (ca /// va //!) nhung GIU noi dung chuoi ("https://..." khong bi cat);
 #   Bare: bo noi dung chuoi truoc ("..." -> "", 'x' -> ''), roi moi bo chu thich.
 # Nhan ra chuoi thuong (co \ thoat), chuoi tho r"..", r#".."#, b"..", br"..", ky tu 'x', '\n', '\u{..}'
-# va lifetime 'a. Ma hien khong co /* */; neu them thi phai mo rong ham nay.
+# va lifetime 'a. Chu thich khoi /* ... */ (nhieu dong, long nhau) bi bo khoi ca hai ban.
+# Da biet (chua xu ly): chuoi C cr".." / c".." va macro tu viet (macro_rules!) co the lach cac luat grep.
 function Split-Rust([string[]]$lines) {
     $code = New-Object string[] $lines.Count
     $bare = New-Object string[] $lines.Count
@@ -57,10 +58,11 @@ function Split-Rust([string[]]$lines) {
     $bs = [char]92
     $inStr = $false
     $hashes = -1
+    $block = 0
     $special = [char[]]@($q, $ap, [char]47)
     for ($n = 0; $n -lt $lines.Count; $n++) {
         $line = $lines[$n]
-        if (-not $inStr -and $line.IndexOfAny($special) -lt 0) {
+        if (-not $inStr -and $block -eq 0 -and $line.IndexOfAny($special) -lt 0) {
             $code[$n] = $line
             $bare[$n] = $line
             continue
@@ -71,6 +73,13 @@ function Split-Rust([string[]]$lines) {
         $i = 0
         while ($i -lt $len) {
             $ch = $line[$i]
+            $two = if (($i + 1) -lt $len) { $line.Substring($i, 2) } else { '' }
+            if ($block -gt 0) {
+                if ($two -eq '*/') { $block--; $i += 2 }
+                elseif ($two -eq '/*') { $block++; $i += 2 }
+                else { $i++ }
+                continue
+            }
             if ($inStr) {
                 if ($hashes -lt 0 -and $ch -eq $bs) {
                     [void]$c.Append($line, $i, [Math]::Min(2, $len - $i))
@@ -93,7 +102,14 @@ function Split-Rust([string[]]$lines) {
                 $i++
                 continue
             }
-            if ($ch -eq '/' -and ($i + 1) -lt $len -and $line[$i + 1] -eq '/') { break }
+            if ($two -eq '//') { break }
+            if ($two -eq '/*') {
+                $block = 1
+                [void]$c.Append(' ')
+                [void]$b.Append(' ')
+                $i += 2
+                continue
+            }
             # Chuoi tho r"..", r#".."#, br"..": 'r' dung dau tu (hoac sau 'b' dung dau tu).
             if ($ch -ceq 'r') {
                 $startOk = ($i -eq 0) -or ($line[$i - 1] -notmatch '[A-Za-z0-9_]') -or
@@ -230,8 +246,11 @@ Write-Host '== raw image sinks'
 # PreparedOutput (main.rs: run_on_image / gate_output / save_pending_uploads; in ra duoi day de
 # nguoi ra soat doc). history_window.rs chi trong fn copy_prepared (nhanh dispatch cua cong) va
 # kiem thu. Tep khac: cam ca trong kiem thu.
-$sinkPattern = '\.set_image\s*\(|\brun_action\s*\(|\bspawn_upload\s*\(|\brecord_outcome(_arc)?\s*\(|\bencode_for_upload\s*\('
+# Ca loi goi dang ham (Clipboard::set_image(c, i)) va ten dung khong kem "(" (let f = run_action;).
+$sinkPattern = '\b(set_image|run_action|spawn_upload|record_outcome(_arc)?|encode_for_upload)\b'
 $sinkDefinition = '\bfn\s+(set_image|run_action|spawn_upload|record_outcome(_arc)?|encode_for_upload)\b'
+# Dau mot ham: pub / pub(crate) / pub(in path), const, async, unsafe, extern "abi", roi fn ten.
+$fnHead = '^\s*(pub(\s*\([^)]*\))?\s+)?((const|async|unsafe)\s+|extern\s+("[^"]*"\s+)?)*fn\s+(\w+)'
 $sinkFiles = @(
     'crates\darkshot-core\src\actions.rs',
     'crates\darkshot-core\src\image.rs',
@@ -250,7 +269,7 @@ foreach ($file in $srcFiles) {
     $fn = ''
     for ($i = 0; $i -lt $p.Lines.Count; $i++) {
         $code = $p.Bare[$i]
-        if ($code -match '^\s*(pub(\([a-z]+\))?\s+)?(unsafe\s+)?fn\s+(\w+)') { $fn = $Matches[4] }
+        if ($code -match $fnHead) { $fn = $Matches[6] }
         if ($code -notmatch $sinkPattern -or $code -match $sinkDefinition) { continue }
         if ($sinkFiles -contains $rel) {
             if ($rel -eq $mainFile -and -not $mask[$i]) { Write-Host "  main.rs:$($i + 1) in fn ${fn}: $($code.Trim())" }

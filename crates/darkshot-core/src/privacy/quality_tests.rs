@@ -203,6 +203,7 @@ fn positives() -> Vec<(Category, Sample)> {
         "O912345678",
         "+84 9l2 345 678",
         "Call 09I2 345 678",
+        "+84(0) 912 345 678",
     ] {
         v.push((Phone, s(t)));
     }
@@ -351,6 +352,9 @@ fn positives() -> Vec<(Category, Sample)> {
         "passw0rd: abc",
         "Pass word: hunter2",
         "PASSWORD=/not/a/path?x",
+        "SECRETS=abc",
+        "APP_SECRETS=abc123",
+        "CLIENT_SECRETS_FILE=x",
     ] {
         v.push((Password, s(t)));
     }
@@ -473,6 +477,7 @@ fn negatives() -> Vec<String> {
         "MONKEY=banana",
         "HOTKEY=ctrl+shift+s",
         "TURKEY=bird",
+        "SECRETSANTA=bob",
         "DONKEY=kong",
         "TOKENIZER=bpe",
         "NODE_ENV=production",
@@ -683,14 +688,14 @@ fn corpus_is_large_enough() {
 /// Số đo hiện tại (Task 133). Mỗi loại: (tp tối thiểu, fp tối đa, fp trên bộ âm tính tối đa).
 const FLOOR: [(u32, u32, u32); 7] = [
     (20, 0, 0), // Email: 24 mẫu
-    (22, 1, 1), // Phone: 25 mẫu
+    (23, 1, 1), // Phone: 26 mẫu
     (25, 1, 1), // CreditCard: 25 mẫu
     (30, 0, 0), // ApiKey: 31 mẫu
     (22, 0, 0), // Token: 23 mẫu
-    (23, 4, 4), // Password: 25 mẫu
+    (26, 4, 4), // Password: 28 mẫu
     (17, 0, 0), // PrivateKey: 20 mẫu
 ];
-/// Số dòng âm tính (trên 195) có ít nhất một phát hiện.
+/// Số dòng âm tính (trên 196) có ít nhất một phát hiện.
 const MAX_NEGATIVES_FLAGGED: u32 = 6;
 
 #[test]

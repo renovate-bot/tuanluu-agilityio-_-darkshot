@@ -50,12 +50,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, IsWindow,
     LoadCursorW, PeekMessageW, PostMessageW, RegisterClassW, SetCursor, SetForegroundWindow,
-    SetWindowPos, ShowWindow, HTCLIENT, IDC_ARROW, IDC_CROSS, IDC_HAND, MINMAXINFO, MSG, PM_REMOVE,
-    SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO,
-    WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-    WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WNDCLASSW, WS_CAPTION,
-    WS_EX_APPWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
+    SetWindowDisplayAffinity, SetWindowPos, ShowWindow, HTCLIENT, IDC_ARROW, IDC_CROSS, IDC_HAND,
+    MINMAXINFO, MSG, PM_REMOVE, SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WDA_EXCLUDEFROMCAPTURE,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCDESTROY, WM_PAINT, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
+    WNDCLASSW, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_TOPMOST, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+    WS_SYSMENU, WS_THICKFRAME,
 };
 
 /// Kết quả gửi cho cổng: WPARAM = token, LPARAM = `Box<ReviewOutcome>` (lấy bằng `take_outcome`).
@@ -677,6 +678,14 @@ fn invalidate(hwnd: HWND) {
     }
 }
 
+/// Cửa sổ Duyệt hiện ảnh CHƯA che: loại nó khỏi ảnh chụp màn hình (chụp mới, chụp cuộn, ghi GIF
+/// không quét, chia sẻ màn hình) như thanh phiên (quyết định 122), khi Windows hỗ trợ
+/// `WDA_EXCLUDEFROMCAPTURE` (bản dựng ≥ 19041; bản cũ coi cờ này như ô đen). Không đặt khi chạy
+/// kiểm thử: cờ này làm `PrintWindow` ra ảnh trắng, mà QA dùng `PrintWindow` (quyết định 121).
+fn exclude_from_capture(testing: bool, build: Option<u32>) -> bool {
+    !testing && crate::scroll_session::exclude_supported(build)
+}
+
 /// Mở cửa sổ Duyệt. Kết quả người dùng gửi tới `notify` bằng thông điệp `msg` (WPARAM = token,
 /// LPARAM = `Box<ReviewOutcome>`).
 pub fn open(req: ReviewRequest, notify: HWND, msg: u32) -> Result<(), String> {
@@ -688,6 +697,11 @@ pub fn open(req: ReviewRequest, notify: HWND, msg: u32) -> Result<(), String> {
     let (w, h) = (req.image.width, req.image.height);
     let base = base_bitmap(&req.image);
     let hwnd = create(lang, req.step).ok_or_else(|| "CreateWindowExW failed".to_string())?;
+    if exclude_from_capture(cfg!(test), crate::scroll_session::os_build()) {
+        // SAFETY: hwnd là cửa sổ cấp cao nhất vừa tạo của tiến trình này. Hệ thống từ chối thì bỏ
+        // qua (cửa sổ vẫn dùng được).
+        let _ = unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) };
+    }
     // SAFETY: hwnd vừa tạo ở luồng này.
     let dpi = match unsafe { GetDpiForWindow(hwnd) } {
         0 => 96,
@@ -2050,6 +2064,15 @@ mod tests {
     use windows::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, SendMessageW, TranslateMessage, HWND_MESSAGE,
     };
+
+    #[test]
+    fn excluded_from_capture_only_outside_tests_on_2004_or_later() {
+        assert!(exclude_from_capture(false, Some(19041)));
+        assert!(exclude_from_capture(false, Some(26300)));
+        assert!(!exclude_from_capture(false, Some(19040)));
+        assert!(!exclude_from_capture(false, None));
+        assert!(!exclude_from_capture(true, Some(26300)));
+    }
 
     const LANGS: [Lang; 2] = [Lang::Vi, Lang::En];
     const DPIS: [u32; 4] = [96, 120, 144, 192];

@@ -35,13 +35,18 @@ fn eq(a: &str, b: &[char]) -> bool {
     a.len() == b.len() && a.chars().zip(b).all(|(x, &y)| x == y)
 }
 
-/// `SECRET` là cả đoạn, hoặc theo sau là `_`, `KEY` hay hết tên (không nhận `SECRETARY`).
+/// `SECRET`/`SECRETS` là cả đoạn, hoặc `SECRET` theo sau là `_`, `KEY` hay hết tên (không nhận
+/// `SECRETARY`, `SECRETSANTA`).
 fn has_secret(name: &[char]) -> bool {
     const S: &str = "SECRET";
     (0..name.len().saturating_sub(S.len() - 1)).any(|k| {
         let rest = &name[k + S.len()..];
         eq(S, &name[k..k + S.len()])
-            && (rest.is_empty() || rest[0] == '_' || rest.starts_with(&['K', 'E', 'Y']))
+            && (rest.is_empty()
+                || rest[0] == '_'
+                || rest.starts_with(&['K', 'E', 'Y'])
+                || rest == ['S']
+                || rest.starts_with(&['S', '_']))
     })
 }
 

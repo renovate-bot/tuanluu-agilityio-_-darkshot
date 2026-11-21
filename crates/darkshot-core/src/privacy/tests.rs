@@ -929,3 +929,24 @@ fn phone_with_trunk_zero_in_parentheses() {
     let f = single("+44(0)2079460000", Category::Phone);
     assert_eq!(f.rule, RuleId::PhoneIntl);
 }
+
+// ---------- Task 133: sửa sau rà soát ----------
+
+#[test]
+fn secrets_plural_env_names() {
+    for t in ["SECRETS=abc", "APP_SECRETS=abc123", "CLIENT_SECRETS_FILE=x"] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rects, vec![word_rect(t, 0)]);
+    }
+    none("SECRETSANTA=bob");
+    none("SECRETARY=alice");
+}
+
+#[test]
+fn phone_trunk_zero_then_space() {
+    let f = single("+84(0) 912 345 678", Category::Phone);
+    assert_eq!(
+        (f.confidence, f.rule),
+        (Confidence::High, RuleId::PhoneVnMobile)
+    );
+}

@@ -95,8 +95,12 @@ fn read_groups(c: &[char], i: usize) -> (Vec<Group>, Vec<char>) {
                 seps.push(')');
                 j = k;
             }
-            // số 0 trung kế ngay sau mã nước: "+84(0)912345678"
-            _ if plus && groups.len() == 1 && trunk_at(c, k) && digit(k + 3) => {
+            // số 0 trung kế ngay sau mã nước: "+84(0)912345678", "+84(0) 912 345 678"
+            _ if plus
+                && groups.len() == 1
+                && trunk_at(c, k)
+                && (digit(k + 3) || (c.get(k + 3).is_some_and(|&x| is_sep(x)) && digit(k + 4))) =>
+            {
                 seps.push('(');
                 j = k;
             }

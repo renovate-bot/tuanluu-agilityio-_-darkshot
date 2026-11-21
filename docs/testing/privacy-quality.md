@@ -7,30 +7,30 @@ Mọi số dưới đây là số đo thật, chạy ngày 2026-11-22 trên máy
 Nguồn: `crates/darkshot-core/src/privacy/quality_tests.rs` (`cargo test -p darkshot-core --lib privacy::quality`). Kiểm thử `quality_does_not_regress` khẳng định ngưỡng = số đo dưới đây (số đúng tối thiểu, số nhận nhầm tối đa mỗi loại; tối đa 6 dòng âm tính bị nhận nhầm). Sửa bộ dò làm tốt hơn thì nâng ngưỡng.
 
 Cách đo:
-- Mẫu dương tính: 173 mẫu (mỗi mẫu một hoặc vài dòng OCR tổng hợp, khung từ 10 px/ký tự), mỗi mẫu mong đúng một loại. Gồm biến thể định dạng, nhóm số, nhãn tiếng Việt/Anh, lỗi OCR hay gặp (`I/l/1`, `O/0`, `S/5`, `rn`/`m`, dấu `,` thay `.`), từ bị OCR tách sát nhau.
-- Mẫu âm tính: 195 dòng (ngày, giờ, IP, MAC, phiên bản, tiền, mã băm, UUID, mã đơn, đường dẫn, URL, biến môi trường thường gặp như `PWD=/home/x`, `SECRETARY=…`, `HOTKEY=…`, chữ giao diện "Password"/"Forgot password?", chữ thường vi/en, đoạn mã, 20 dòng "khó" gần giống dữ liệu nhạy cảm).
+- Mẫu dương tính: 177 mẫu (mỗi mẫu một hoặc vài dòng OCR tổng hợp, khung từ 10 px/ký tự), mỗi mẫu mong đúng một loại. Gồm biến thể định dạng, nhóm số, nhãn tiếng Việt/Anh, lỗi OCR hay gặp (`I/l/1`, `O/0`, `S/5`, `rn`/`m`, dấu `,` thay `.`), từ bị OCR tách sát nhau.
+- Mẫu âm tính: 196 dòng (ngày, giờ, IP, MAC, phiên bản, tiền, mã băm, UUID, mã đơn, đường dẫn, URL, biến môi trường thường gặp như `PWD=/home/x`, `SECRETARY=…`, `HOTKEY=…`, `SECRETSANTA=…`, chữ giao diện "Password"/"Forgot password?", chữ thường vi/en, đoạn mã, 20 dòng "khó" gần giống dữ liệu nhạy cảm).
 - Một mẫu "đúng" khi có ít nhất một phát hiện cùng loại (không chấm vị trí khung ở đây; khung được kiểm ở `privacy/tests.rs`). "Nhận nhầm" loại X: có phát hiện loại X trên mẫu không mong X.
-- Độ chính xác = đúng / (đúng + nhận nhầm). Độ phủ = đúng / số mẫu. Tỉ lệ nhận nhầm = số dòng âm tính có phát hiện loại đó / 195.
+- Độ chính xác = đúng / (đúng + nhận nhầm). Độ phủ = đúng / số mẫu. Tỉ lệ nhận nhầm = số dòng âm tính có phát hiện loại đó / 196.
 
 | Loại | Mẫu | Đúng | Bỏ sót | Nhận nhầm | Độ chính xác | Độ phủ | Tỉ lệ nhận nhầm |
 |---|---|---|---|---|---|---|---|
 | Email | 24 | 20 | 4 | 0 | 100,0 % | 83,3 % | 0,00 % |
-| Điện thoại | 25 | 22 | 3 | 1 | 95,7 % | 88,0 % | 0,51 % |
+| Điện thoại | 26 | 23 | 3 | 1 | 95,8 % | 88,5 % | 0,51 % |
 | Thẻ | 25 | 25 | 0 | 1 | 96,2 % | 100,0 % | 0,51 % |
 | Khóa API | 31 | 30 | 1 | 0 | 100,0 % | 96,8 % | 0,00 % |
 | JWT / token | 23 | 22 | 1 | 0 | 100,0 % | 95,7 % | 0,00 % |
-| Mật khẩu / bí mật | 25 | 23 | 2 | 4 | 85,2 % | 92,0 % | 2,05 % |
+| Mật khẩu / bí mật | 28 | 26 | 2 | 4 | 86,7 % | 92,9 % | 2,04 % |
 | Khóa riêng PEM | 20 | 17 | 3 | 0 | 100,0 % | 85,0 % | 0,00 % |
-| **Tổng** | **173** | **159** | **14** | **6** | **96,4 %** | **91,9 %** | **3,08 %** (6/195 dòng) |
+| **Tổng** | **177** | **163** | **14** | **6** | **96,4 %** | **92,1 %** | **3,06 %** (6/196 dòng) |
 
-Trước các tinh chỉnh của Task 133 (cùng bộ mẫu, mã bộ dò ở `990e17c`): tổng độ chính xác 93,9 %, độ phủ 88,4 %, 10/195 dòng âm tính bị nhận nhầm (5,13 %). Thay đổi theo loại: Điện thoại đúng 21 → 22; Khóa API 27 → 30; Mật khẩu đúng 21 → 23, nhận nhầm 8 → 4.
+Trước các tinh chỉnh của Task 133 (bộ mẫu bản đầu 173/195, trước khi thêm 4 mẫu dương tính `SECRETS`/`+84(0) …` và 1 dòng âm tính; mã bộ dò ở `990e17c`): tổng độ chính xác 93,9 %, độ phủ 88,4 %, 10/195 dòng âm tính bị nhận nhầm (5,13 %). Trên cùng bộ mẫu bản đầu, sau tinh chỉnh: 93,9 % → 96,4 % độ chính xác, 88,4 % → 91,9 % độ phủ, 10 → 6 dòng nhận nhầm (Điện thoại đúng 21 → 22; Khóa API 27 → 30; Mật khẩu đúng 21 → 23, nhận nhầm 8 → 4).
 
 Các tinh chỉnh (mỗi điều có kiểm thử trong `privacy/tests.rs`, mục "Task 133"):
 - Khóa AWS (`AKIA`/`ASIA`) và GitHub `gh?_`: chấp nhận `l`/`|` ở vị trí chữ hoa `I` (tiền tố và thân), trên một bản sao cục bộ bị ghi đè sau khi dò. Đã xác nhận trên OCR thật: dòng `aws id AKIA…` vẽ bằng Segoe UI 32 px, OCR đọc `I` thành `l`; trước tinh chỉnh 0 phát hiện, sau 1 (`ocr::tests::manual_scan_aws_key_with_capital_i`).
 - `PWD=`/`OLDPWD=` (và nhãn `pwd:`) có giá trị là đường dẫn tuyệt đối (`/…`, `~/…`, `X:\…`, `X:/…`, `\\máy\…`): không phải mật khẩu.
-- `SECRET` trong tên biến chỉ tính khi là cả đoạn hoặc theo sau là `_`, `KEY` hay hết tên (`SECRETARY`, `SECRETARIAT_NAME` không khớp).
+- `SECRET` trong tên biến chỉ tính khi là cả đoạn hoặc theo sau là `_`, `KEY` hay hết tên; `SECRETS` khi hết tên hoặc trước `_` (`SECRETS=`, `APP_SECRETS=`, `CLIENT_SECRETS_FILE=` khớp; `SECRETARY`, `SECRETARIAT_NAME`, `SECRETSANTA` không).
 - Đoạn cuối `…KEY` có ≥ 3 chữ trước `KEY` là bí mật (`MASTERKEY`, `SSHKEY`, `APP_SIGNINGKEY`), trừ `MONKEY`, `HOTKEY`, `TURKEY`, `DONKEY` (và `KEYBOARD` vốn không kết thúc bằng `KEY`).
-- Điện thoại `+84(0)912345678`, `+84 (0) 912 345 678`: `(0)` ngay sau mã nước là số trung kế, bỏ khi đếm chữ số (thành VN di động, Cao). `+44(0)2079460000` thành quốc tế.
+- Điện thoại `+84(0)912345678`, `+84(0) 912 345 678`, `+84 (0) 912 345 678`: `(0)` ngay sau mã nước là số trung kế, bỏ khi đếm chữ số (thành VN di động, Cao). `+44(0)2079460000` thành quốc tế.
 
 ### Còn bỏ sót (14)
 
@@ -51,7 +51,7 @@ Các tinh chỉnh (mỗi điều có kiểm thử trong `privacy/tests.rs`, mụ
 | PEM | `… PRlVATE KEY-----` | `I` thành `l` trong `PRIVATE` |
 | PEM | `-----BEGIN 0PENSSH …` | `O` thành `0` (luật chỉ nhận chữ hoa và space giữa `BEGIN` và `PRIVATE KEY`) |
 
-### Còn nhận nhầm (6 dòng âm tính)
+### Còn nhận nhầm (6/196 dòng âm tính)
 
 | Dòng (giả) | Loại nhận | Ghi chú |
 |---|---|---|

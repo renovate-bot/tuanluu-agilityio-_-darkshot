@@ -107,16 +107,24 @@ $session = '{"version":1,"steps":[{"file":"001.png","caption":"Sign in"},{"file"
 
 Write-Host "Demo: $profileDir (privacy_shield=$shield, lang=$Lang)"
 Write-Host "Tep mau: $sample"
-Write-Host 'Thu tung duong (Shield bat: moi duong phai hien cua so Kiem tra truoc khi xuat):'
+if ($Off) {
+    Write-Host 'Shield TAT (-Off): moi duong duoi day xuat ngay nhu truoc, KHONG co cua so Kiem tra (de so sanh):'
+} else {
+    Write-Host 'Thu tung duong (Shield bat: moi duong phai hien cua so Kiem tra truoc khi xuat):'
+}
 Write-Host '  1. Chup vung Ctrl+Alt+Shift+F10 quanh tep mau -> Luu / Chep / Tai len (khong R2: luu du phong) / Ghim.'
-Write-Host '  2. Huy trong cua so Kiem tra: khong co tep moi trong Pictures\darkshot, khong co muc Lich su.'
+if (-not $Off) { Write-Host '  2. Huy trong cua so Kiem tra: khong co tep moi trong Pictures\darkshot, khong co muc Lich su.' }
 Write-Host '  3. Lap lai lan chup truoc: Ctrl+Alt+Shift+F11. Toan man hinh: Ctrl+Alt+Shift+F9 (Luu), F8 (Tai len).'
 Write-Host '  4. Chup cuon: trong lop phu bam Ctrl+L, cuon tep mau, roi Luu/Chep/Tai len/Ghim o cua so ket qua.'
 Write-Host '  5. Chup tung buoc: phien co san 2 buoc chua quet -> Xuat (moi buoc co phat hien deu hoi); them buoc Ctrl+N trong lop phu.'
 Write-Host '  6. Lich su (menu khay): Chep anh / Ghim mot muc -> luon quet lai.'
 Write-Host '  7. Anh ghim: Chep/Luu tu menu anh ghim.'
-Write-Host '  So sanh: chay lai voi -Off (Shield tat: khong cua so, xuat ngay nhu truoc).'
-Write-Host '  Ghi GIF khong duoc quet (thanh ghi hien dong canh bao khi Shield bat).'
+if ($Off) {
+    Write-Host '  So sanh: chay lai khong co -Off (Shield bat: cua so Kiem tra truoc moi lan xuat).'
+} else {
+    Write-Host '  So sanh: chay lai voi -Off (Shield tat: khong cua so, xuat ngay nhu truoc).'
+}
+if (-not $Off) { Write-Host '  Ghi GIF khong duoc quet (thanh ghi hien dong canh bao khi Shield bat).' }
 if ($NoLaunch) { exit 0 }
 $env:DARKSHOT_PROFILE_DIR = $profileDir
 Start-Process -FilePath 'notepad.exe' -ArgumentList $sample
