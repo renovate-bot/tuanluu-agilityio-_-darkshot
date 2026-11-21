@@ -865,8 +865,14 @@ fn create(
     };
     // Tạo thẳng trên màn hình đó, theo DPI của nó: không có WM_DPICHANGED lúc mở.
     let dpi = monitor_dpi(mon);
-    let (ww, wh) = window_size(DEFAULT_W, DEFAULT_H, dpi);
-    let (x, y, covered) = match work_area(mon) {
+    let want = window_size(DEFAULT_W, DEFAULT_H, dpi);
+    let work = work_area(mon);
+    // Màn hình nhỏ (ví dụ 1366×768 ở 125%): kẹp cỡ mặc định vào vùng làm việc.
+    let (ww, wh) = match work {
+        Some(a) => fit_window_size(want, window_size(MIN_W, MIN_H, dpi), (a.w, a.h)),
+        None => want,
+    };
+    let (x, y, covered) = match work {
         Some(work) => place_avoiding(work, ww, wh, avoid, scale(GAP, dpi)),
         None => (100, 100, avoid.is_some()),
     };
@@ -1152,13 +1158,14 @@ fn copy_all(hwnd: HWND) {
     copy_and_notify(hwnd, &text);
 }
 
-/// Chép chữ của các dòng vừa bấm; thành công thì hiện "Đã chép" cạnh dòng `at` 1,2 s, lỗi thì báo.
-fn copy_lines(hwnd: HWND, text: &str, at: usize) {
+/// Chép chữ của các dòng vừa bấm; thành công thì hiện "Đã chép" cạnh dòng `at` 1,2 s (`None`: không
+/// nhãn), lỗi thì báo.
+fn copy_lines(hwnd: HWND, text: &str, at: Option<usize>) {
     let lang = lang::current();
     match WinClipboard.set_text(text) {
         Ok(()) => {
             if let Some(view) = with_win(hwnd, |w| {
-                w.tip = Some(at);
+                w.tip = at;
                 w.view
             }) {
                 // SAFETY: hẹn giờ của khung ảnh thuộc cửa sổ này (đặt lại nếu đang chạy); hủy cùng
@@ -1202,7 +1209,18 @@ fn view_input(hwnd: HWND, input: PickInput) {
         }
     }
     match out {
-        PickOutcome::Copy { text, at } => copy_lines(hwnd, &text, at),
+        PickOutcome::Copy { text, at } => {
+            // Ctrl+A: nhãn ở dòng đầu tiên đang thấy trong khung (không thấy dòng nào: không nhãn).
+            let at = if input == PickInput::SelectAll {
+                with_win(hwnd, |w| {
+                    ocr_view::first_visible_line(&w.lines, &w.geom, w.scroll)
+                })
+                .flatten()
+            } else {
+                Some(at)
+            };
+            copy_lines(hwnd, &text, at);
+        }
         PickOutcome::Close => {
             destroy(hwnd);
             return;
@@ -1423,8 +1441,29 @@ fn scroll_to(hwnd: HWND, target: i32) {
     };
     if changed {
         update_scrollbar(hwnd);
+        rehover(hwnd, view);
         invalidate(view);
     }
+}
+
+/// Tính lại dòng "rê chuột" theo vị trí con trỏ hiện tại sau khi nội dung cuộn dưới nó (chỉ đọc vị
+/// trí con trỏ, không di chuyển).
+fn rehover(hwnd: HWND, view: HWND) {
+    let mut pt = POINT::default();
+    let mut rc = RECT::default();
+    // SAFETY: biến cục bộ; chỉ đọc vị trí con trỏ và client của khung ảnh thuộc cửa sổ này.
+    let ok = unsafe {
+        GetCursorPos(&mut pt).is_ok()
+            && ScreenToClient(view, &mut pt).as_bool()
+            && GetClientRect(view, &mut rc).is_ok()
+    };
+    let inside = ok && pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom;
+    let hit = if inside {
+        hit_line(hwnd, pt.x, pt.y)
+    } else {
+        None
+    };
+    with_win(hwnd, |w| w.hover = hit);
 }
 
 /// Đổi DPI: phông mới cho mọi điều khiển, xóa phông cũ sau khi không ai dùng.
@@ -1980,8 +2019,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 /// Cỡ cửa sổ (pixel) mở ra: cỡ mặc định `want`, kẹp vào vùng làm việc `work` nhưng không dưới cỡ
 /// tối thiểu `min`; vùng làm việc nhỏ hơn cả cỡ tối thiểu thì lấy vùng làm việc.
 fn fit_window_size(want: (i32, i32), min: (i32, i32), work: (i32, i32)) -> (i32, i32) {
-    let _ = (want, min, work);
-    todo!()
+    let axis = |want: i32, min: i32, work: i32| {
+        if work <= min {
+            work.max(0)
+        } else {
+            want.clamp(min, work)
+        }
+    };
+    (axis(want.0, min.0, work.0), axis(want.1, min.1, work.1))
 }
 
 /// Kiểu mở rộng của cửa sổ kết quả: chồng lên khung cần tránh (ảnh ghim, luôn ở trên cùng) thì
@@ -2832,11 +2877,18 @@ mod tests {
     #[ignore = "mở cửa sổ thật; chạy tay"]
     fn manual_open_close_no_leak() {
         close_all();
+        // Khởi động: cho cửa sổ vẽ một lần để các chổi dùng chung (`theme::brush`, sống suốt tiến
+        // trình) đã được tạo trước khi đếm, và chạy một lượt nhận dạng thật (WinRT khởi tạo một lần
+        // trên luồng nền).
         for _ in 0..2 {
             open_with(tiny(), no_ocr).expect("open");
+            pump(100, || false);
             close_all();
         }
-        pump(200, || false);
+        open(tiny()).expect("open");
+        pump(100, || false);
+        close_all();
+        pump(5_000, || false);
         let before = gui_counts();
         for _ in 0..20 {
             open(tiny()).expect("open");

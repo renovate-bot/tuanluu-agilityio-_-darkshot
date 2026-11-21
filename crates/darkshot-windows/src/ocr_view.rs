@@ -207,8 +207,13 @@ impl Pick {
 /// Dòng đầu tiên (thứ tự đọc) có khung không suy biến chạm vùng nhìn `[scroll, scroll + view_h)`
 /// (tọa độ nội dung); không có thì `None`.
 pub fn first_visible_line(lines: &[OcrLine], g: &Geom, scroll: i32) -> Option<usize> {
-    let _ = (lines, g, scroll);
-    todo!()
+    lines.iter().position(|l| {
+        if l.rect.w <= 0 || l.rect.h <= 0 {
+            return false;
+        }
+        let d = g.line_rect(l.rect);
+        d.w > 0 && d.h > 0 && d.bottom() > scroll && d.y < scroll + g.view_h
+    })
 }
 
 /// Áp `input` lên vùng chọn `p` của `lines`; trả việc cần làm (chữ cần chép ghép theo `o`).
