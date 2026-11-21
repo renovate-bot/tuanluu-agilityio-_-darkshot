@@ -5,13 +5,13 @@ Cập nhật: 2026-11-21
 ## Đang ở đâu
 
 - **Đợt 15 (OCR nâng cao: chọn dòng trên ảnh): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-ocr-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-ocr-pro.md`, gói `docs/tasks/97-…` đến `100-…` (Task 101 sửa sau rà soát toàn đợt, không có gói riêng), quyết định 133–135.
-- **Phát hành v0.5.0** (2026-11-21, chủ dự án đã thử bản build `b25936c` và yêu cầu): gồm đợt 10–15 (Chụp lại vùng trước, Nhận dạng chữ cục bộ và OCR nâng cao, Chụp từng bước, Chụp cuộn, gia cố đợt 14). Tag `v0.5.0`, release kèm `darkshot-v0.5.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`; nội dung từ `CHANGELOG.md` (quyết định 136). Exe 2.256.896 byte, chưa ký số. Website thêm hai mục Nhận dạng chữ và Chụp từng bước/chụp cuộn.
+- **Phát hành v0.5.0** (2026-11-21, chủ dự án đã thử bản build `b25936c` và yêu cầu): gồm đợt 10–15 (Chụp lại vùng trước, Nhận dạng chữ cục bộ và OCR nâng cao, Chụp từng bước, Chụp cuộn, gia cố đợt 14). Tag `v0.5.0`, release kèm `darkshot-v0.5.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`; nội dung từ `CHANGELOG.md` (quyết định 136). Exe 2.256.896 byte, chưa ký số. Website thêm hai mục Nhận dạng chữ và Chụp từng bước/chụp cuộn; Task 108 thêm ảnh chụp thật cho Ghim, Nhận dạng chữ, Các bước, Ảnh chụp cuộn (quyết định 137).
 - Còn mở: checklist "Đợt 9"–"Đợt 15" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
 - Task đang làm: không.
 
 ## Bước kế tiếp
 
-Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/108-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên task mới đánh số từ 108.
+Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/109-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên task mới đánh số từ 109 (108 = ảnh website).
 
 ## Lưu trữ: đợt 14 (đã gộp `main`)
 
