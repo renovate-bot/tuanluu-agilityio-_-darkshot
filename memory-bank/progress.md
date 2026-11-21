@@ -118,6 +118,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 93 Website: biểu tượng thanh ngang (Ghim, Nhận dạng chữ, Chụp cuộn), chính sách cửa sổ kết quả trong README | task/93-scroll-website-fixes | builder | sonnet | xong | 81.124 | phiên điều phối đọc báo cáo | 0 | 81.124 |
 | Rà soát toàn đợt 13 | feature/scroll-capture | specialist | fable | xong | | 199.597 | | 199.597 |
 | 94 Chụp cuộn: sửa sau rà soát toàn đợt (thông báo lỗi, pre_translate trong Tùy chọn, chặn Chụp từng bước khi đang chụp cuộn) | task/94-scroll-final-fixes | specialist (agent Task 90) | opus | xong | 25.786 | phiên điều phối đọc báo cáo | 0 | 25.786 |
+| 95 Dọn CLAUDE.md (dòng đợt 9: đã phát hành 0.4.0, câu thừa) | task/95-claude-md-cleanup | phiên chính | opus | xong | không đo | phiên điều phối | 0 | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
