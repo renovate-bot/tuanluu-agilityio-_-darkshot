@@ -22,7 +22,7 @@ use crate::naming;
 
 pub const FPS: u32 = 10;
 pub const FRAME_INTERVAL_MS: u64 = 100;
-pub const MAX_DURATION_MS: u64 = 15_000;
+pub const MAX_DURATION_MS: u64 = 60_000;
 /// Đo ở Task 122: khung 1 MP nhiều màu mất ~270 ms (NeuQuant tốc độ 10); 0,5 MP ở tốc độ 20 ~95 ms.
 pub const MAX_FRAME_PIXELS: u64 = 500_000;
 pub const MAX_SOURCE_PIXELS: u64 = 64_000_000;

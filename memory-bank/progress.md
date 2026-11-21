@@ -129,6 +129,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 123 Ghi GIF: phiên ghi, thanh ghi, lớp phủ, nối ứng dụng | task/123-gif-session | specialist | opus | xong | 255.682 | 142.780 (reviewer fable) | 19.733 | 418.195 |
 | 124 Ghi GIF: tài liệu, website | task/124-gif-docs | scaffolder | sonnet | xong | 77.281 | phiên điều phối (thêm nút vào hình SVG thanh ngang) | – | 77.281 |
 | 125 Ghi GIF: gia cố sau rà soát toàn đợt 20 | task/125-gif-polish | specialist | opus | xong | 20.772 (cùng agent Task 123) | 45.842 (reviewer fable); rà soát toàn đợt: 172.703 (specialist fable) | – | 239.317 |
+| 126 Ghi GIF: tối đa 60 giây (quyết định 143) | task/126-gif-60s | builder | sonnet | xong | 60.504 | 27.353 (reviewer sonnet) | – | 87.857 |
 
 Task 122–125 là đợt 20 (kế hoạch `docs/superpowers/plans/2026-11-21-gif-recording.md`). Cộng agent con: 1.055.974 (làm 557.092; rà soát 464.006 gồm rà soát toàn đợt; sửa 34.876). Theo model: opus 514.687 (làm và sửa 122, 123, 125); fable 464.006 (mọi rà soát); sonnet 77.281 (Task 124).
 

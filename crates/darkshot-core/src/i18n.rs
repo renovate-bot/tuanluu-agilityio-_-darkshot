@@ -489,7 +489,7 @@ messages! {
     RecordInvalidRegion => ("Vùng ghi không hợp lệ.", "Invalid recording region."),
     RecordTooLarge => ("Vùng ghi quá lớn.", "The recording region is too large."),
     RecordNoFrames => ("Chưa ghi được khung hình nào.", "No frames were recorded."),
-    RecordMaxDuration => ("Đã đạt thời lượng ghi tối đa (15 giây).", "Maximum recording length reached (15 seconds)."),
+    RecordMaxDuration => ("Đã đạt thời lượng ghi tối đa (60 giây).", "Maximum recording length reached (60 seconds)."),
     RecordMaxSize => ("Tệp GIF đã đạt kích thước tối đa (256 MB).", "The GIF file reached its maximum size (256 MB)."),
     RecordSourceLost => ("Không chụp tiếp được vùng ghi nên đã dừng.", "The recording region could no longer be captured, so recording stopped."),
     RecordEncodeFailed => ("Không mã hóa được GIF", "Could not encode the GIF"),
@@ -827,7 +827,7 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px.
 
 9. Ghi GIF
-Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 15 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000)."
+Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000)."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -877,7 +877,7 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall.
 
 9. Recording a GIF
-To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 15 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels."
+To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels."
         ),
     }
 }
@@ -1830,8 +1830,8 @@ mod tests {
             ),
             (
                 Msg::RecordMaxDuration,
-                "Đã đạt thời lượng ghi tối đa (15 giây).",
-                "Maximum recording length reached (15 seconds).",
+                "Đã đạt thời lượng ghi tối đa (60 giây).",
+                "Maximum recording length reached (60 seconds).",
             ),
         ];
         for (m, vi, en) in pairs {
@@ -1851,7 +1851,7 @@ mod tests {
         );
         assert_eq!(
             record_saved_with_note(Lang::Vi, t(Lang::Vi, Msg::RecordMaxDuration), "C:/a.gif"),
-            "Đã đạt thời lượng ghi tối đa (15 giây). Đã lưu GIF: C:/a.gif"
+            "Đã đạt thời lượng ghi tối đa (60 giây). Đã lưu GIF: C:/a.gif"
         );
         assert_eq!(
             record_saved_with_note(Lang::En, "Note.", "a.gif"),
@@ -1870,7 +1870,10 @@ mod tests {
             let h = help_text(l, &HelpKeys::default());
             assert!(h.contains("Ctrl+G"), "{l:?}");
             assert!(h.contains("9. "), "{l:?}");
-            assert!(h.contains("15"), "{l:?}");
+            assert!(
+                h.contains(&(crate::gif_record::MAX_DURATION_MS / 1000).to_string()),
+                "{l:?}"
+            );
         }
         let vi = help_text(Lang::Vi, &HelpKeys::default());
         let en = help_text(Lang::En, &HelpKeys::default());
