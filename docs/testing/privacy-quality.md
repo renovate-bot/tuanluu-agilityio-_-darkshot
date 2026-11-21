@@ -87,9 +87,11 @@ Không thêm feature `Win32_System_ProcessStatus` (`GetProcessMemoryInfo` chưa 
 |---|---|---|
 | `manual_mem_baseline` (không làm gì) | 9,0 MB | nền của tiến trình kiểm thử |
 | `manual_mem_scan_1000x20000` | 200,7 MB | dựng ảnh bằng GDI lên 165 MB (DIB + bản sao); nền trước quét 89 MB (ảnh 80 MB); trong quét lên 201 MB, tức lượt quét thêm ≈ 112 MB (bản dải ≤ 10000 hàng × 1000 × 4 = 40 MB cho `SoftwareBitmap` cộng bộ đệm của Windows OCR); sau quét về 16 MB |
-| `manual_mem_steps_export_10x4k` | 349,9 MB | 10 ảnh thay thế 4K trong `ExportJob.replacements` (10 × 33,2 MB = 331,8 MB) + mã hóa PNG; ghi xong 1,37–1,52 s |
+| `manual_mem_steps_export_10x4k` (Task 133, trước Task 135) | 349,9 MB | 10 ảnh thay thế 4K BGRA trong `ExportJob.replacements` (10 × 33,2 MB = 331,8 MB) + mã hóa PNG; ghi xong 1,37–1,52 s |
+| `manual_mem_steps_export_10x4k` (Task 135, ảnh phẳng như trên) | 65,2–65,3 MB | mỗi ảnh mã hóa PNG ngay rồi thả, chỉ giữ byte PNG (tổng 0,3 MB); mã hóa 10 ảnh 1,75–1,84 s, ghi 24–37 ms |
+| `manual_mem_steps_export_10x4k_noisy` (Task 135) | 94,2–94,4 MB | như trên, cứ 10 hàng có 1 hàng nhiễu để PNG còn cỡ ảnh chụp thật (tổng 24,5 MB, ≈ 2,5 MB/bước); mã hóa 4,8–5,0 s, ghi 62–75 ms |
 
-Xuất phiên các bước giữ mọi ảnh đã che tới khi ghi xong: 10 bước 4K ≈ 350 MB đo được; 99 bước 4K sẽ ≈ 3,3 GB (suy từ cùng công thức, chưa đo). Đề xuất (chưa làm, ngoài phạm vi sửa nhỏ): mã hóa PNG ngay khi mỗi bước duyệt xong và giữ byte PNG thay cho ảnh BGRA (ảnh chụp màn hình nén thường còn vài MB), hoặc ghi thẳng vào thư mục tạm của lượt xuất.
+Task 135: xuất phiên các bước mã hóa PNG mỗi ảnh đã che ngay khi cổng trả ảnh (ảnh > 4 MP trên luồng nền `darkshot-steps-encode`) và chỉ giữ byte PNG trong `ExportJob.replacements` tới khi ghi; mỗi lúc chỉ một ảnh BGRA (33,2 MB cho 4K) cộng bộ đệm RGB của bộ mã hóa. Đo lại (bản release, cùng máy, cùng cách đo; số trước đo lại hôm nay: 349,9–354,5 MB): 10 bước 4K từ 349,9 MB xuống 65,2 MB (ảnh phẳng) và 94,4 MB (PNG 24,5 MB). 99 bước 4K cỡ ảnh nhiễu trên ≈ 60 MB + 99 × 2,5 MB ≈ 310 MB (suy ra, chưa đo), thay vì ≈ 3,3 GB. Mã hóa lỗi thì hủy lượt xuất và báo lỗi xuất (không tạo thư mục).
 
 ## 4. Khởi động khi Shield tắt
 

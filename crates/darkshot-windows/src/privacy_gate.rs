@@ -1,8 +1,9 @@
 //! Cổng xuất của Privacy Shield: mọi ảnh sắp rời ứng dụng (Lưu, Chép, Tải lên, Ghim, Thêm bước,
 //! Chép/Ghim từ Lịch sử, xuất các bước) đi qua `submit`. Shield tắt: ảnh đi tiếp ngay dưới dạng
-//! `PreparedOutput::unscanned`. Shield bật: quét nền (`ocr::start_scan`), không phát hiện thì đi
-//! tiếp; có phát hiện hoặc lỗi thì cửa sổ Duyệt (`review_window`) quyết định. Đây là nơi DUY NHẤT
-//! tạo `PreparedOutput` (luật "privacy boundary" của `scripts/check.ps1`).
+//! `PreparedOutput::unscanned`. Shield bật: quét nền (`ocr::start_scan_with_progress`), không phát
+//! hiện thì đi tiếp; có phát hiện hoặc lỗi thì cửa sổ Duyệt (`review_window`) quyết định. Các lượt
+//! Shield bật được duyệt và xuất theo thứ tự nhận (lượt sau xong trước thì chờ lượt trước xuất hay
+//! bị bỏ). Đây là nơi DUY NHẤT tạo `PreparedOutput` (luật "privacy boundary" của `scripts/check.ps1`).
 //!
 //! Hai lớp: `GateCore` là máy trạng thái thuần (không Win32, không ảnh) quyết định mỗi yêu cầu chạy
 //! đúng một lần hoặc không chạy; phần vỏ giữ ảnh theo mã lượt và thực hiện lệnh của lõi. Mọi thứ ở
@@ -183,6 +184,10 @@ pub enum Event {
     StepsSession {
         current: u64,
     },
+    /// Bên gửi bỏ lượt `id` (lượt xuất các bước đã bị bỏ): đóng cửa sổ Duyệt của nó, không xuất.
+    Cancel {
+        id: Id,
+    },
     Shutdown,
 }
 
@@ -246,8 +251,8 @@ enum State {
         found: usize,
     },
     Flattening,
-    /// Sẵn sàng, chờ lớp phủ đóng (đầu ra mở cửa sổ).
-    Held(Ready),
+    /// Sẵn sàng; chờ mọi lượt nhận trước nó xuất hoặc bị bỏ, và (đầu ra mở cửa sổ) chờ lớp phủ đóng.
+    Prepared(Ready),
 }
 
 struct Entry {
@@ -379,7 +384,7 @@ impl GateCore {
             return out;
         }
         match ev {
-            Event::ScanDone { scan, result } => self.on_scan(scan, result, overlay, &mut out),
+            Event::ScanDone { scan, result } => self.on_scan(scan, result, &mut out),
             Event::Timer { id } => {
                 if let Some(e) = self.entries.iter_mut().find(|e| e.id == id) {
                     if let State::Scanning { slow, .. } = &mut e.state {
@@ -387,7 +392,7 @@ impl GateCore {
                     }
                 }
             }
-            Event::Outcome { id, outcome } => self.on_outcome(id, outcome, overlay, &mut out),
+            Event::Outcome { id, outcome } => self.on_outcome(id, outcome, &mut out),
             Event::OpenFailed { id } => {
                 if self.open == Some(id) {
                     out.push(Cmd::Notify(Note::WindowFailed));
@@ -403,7 +408,7 @@ impl GateCore {
                 if let Some(i) = self.index(id) {
                     if matches!(self.entries[i].state, State::Flattening) {
                         if ok {
-                            self.ready(i, Ready::Flattened, overlay, &mut out);
+                            self.ready(i, Ready::Flattened);
                         } else {
                             out.push(Cmd::Notify(Note::RedactFailed));
                             self.discard(id, &mut out);
@@ -439,16 +444,14 @@ impl GateCore {
                     self.discard(id, &mut out);
                 }
             }
-            Event::OverlayClosed => {
-                let mut i = 0;
-                // Còn bị chặn (lớp phủ khác, chụp cuộn, ghi GIF): giữ nguyên.
-                while !overlay && i < self.entries.len() {
-                    if let State::Held(how) = self.entries[i].state {
-                        let e = self.entries.remove(i);
-                        out.push(Cmd::Dispatch { id: e.id, how });
-                    } else {
-                        i += 1;
+            // Ảnh ghim đang giữ chạy ở `flush` bên dưới (còn bị chặn thì vẫn giữ).
+            Event::OverlayClosed => {}
+            Event::Cancel { id } => {
+                if self.index(id).is_some() {
+                    if self.open == Some(id) {
+                        out.push(Cmd::CloseReview { id });
                     }
+                    self.discard(id, &mut out);
                 }
             }
             Event::Shutdown => {
@@ -459,6 +462,7 @@ impl GateCore {
                 return out;
             }
         }
+        self.flush(overlay, &mut out);
         self.try_open(overlay, &mut out);
         out
     }
@@ -504,24 +508,27 @@ impl GateCore {
         }
     }
 
-    /// Ảnh của lượt thứ `i` đã sẵn sàng: chạy ngay (lượt rời bảng TRƯỚC khi chạy), trừ đầu ra mở
-    /// cửa sổ khi lớp phủ đang mở.
-    fn ready(&mut self, i: usize, how: Ready, overlay: bool, out: &mut Vec<Cmd>) {
-        if self.entries[i].windowed && overlay {
-            self.entries[i].state = State::Held(how);
-        } else {
-            let e = self.entries.remove(i);
+    /// Ảnh của lượt thứ `i` đã sẵn sàng; chạy ở `flush` khi tới lượt.
+    fn ready(&mut self, i: usize, how: Ready) {
+        self.entries[i].state = State::Prepared(how);
+    }
+
+    /// Chạy các lượt sẵn sàng ở đầu hàng, theo thứ tự nhận (lượt rời bảng TRƯỚC khi chạy). Dừng ở
+    /// lượt đầu chưa sẵn sàng, hay ở đầu ra mở cửa sổ khi lớp phủ đang mở: lượt sau chờ nó.
+    fn flush(&mut self, overlay: bool, out: &mut Vec<Cmd>) {
+        while let Some(e) = self.entries.first() {
+            let State::Prepared(how) = e.state else {
+                return;
+            };
+            if e.windowed && overlay {
+                return;
+            }
+            let e = self.entries.remove(0);
             out.push(Cmd::Dispatch { id: e.id, how });
         }
     }
 
-    fn on_scan(
-        &mut self,
-        scan: Id,
-        result: Result<Vec<Finding>, ScanError>,
-        overlay: bool,
-        out: &mut Vec<Cmd>,
-    ) {
+    fn on_scan(&mut self, scan: Id, result: Result<Vec<Finding>, ScanError>, out: &mut Vec<Cmd>) {
         // Chỉ lượt quét hiện hành của một lượt đang quét; mã cũ, trùng hay lạ thì bỏ.
         let found = self
             .entries
@@ -545,7 +552,7 @@ impl GateCore {
                 out.push(Cmd::CloseReview { id });
                 self.open = None;
             }
-            self.ready(i, Ready::NoFindings, overlay, out);
+            self.ready(i, Ready::NoFindings);
         } else if shown {
             self.entries[i].state = State::Reviewing {
                 scan_ok: result.is_ok(),
@@ -557,7 +564,7 @@ impl GateCore {
         }
     }
 
-    fn on_outcome(&mut self, id: Id, outcome: ReviewOutcome, overlay: bool, out: &mut Vec<Cmd>) {
+    fn on_outcome(&mut self, id: Id, outcome: ReviewOutcome, out: &mut Vec<Cmd>) {
         // Chỉ cửa sổ đang mở của đúng lượt này mới có tiếng nói.
         if self.open != Some(id) {
             return;
@@ -603,7 +610,7 @@ impl GateCore {
                 } else {
                     Ready::ReviewedNone
                 };
-                self.ready(i, how, overlay, out);
+                self.ready(i, how);
             }
             (ReviewOutcome::ContinueUnscanned(plan), Some((false, _))) => {
                 self.entries[i].since = self.now;
@@ -624,25 +631,30 @@ impl GateCore {
     }
 
     /// Mở cửa sổ Duyệt cho lượt chờ đầu tiên (theo thứ tự nhận) nếu chưa có cửa sổ nào và lớp phủ
-    /// không mở.
+    /// không mở. Lượt nhận trước còn quét (chưa tới 800 ms) thì lượt sau chờ: duyệt theo thứ tự nhận.
     fn try_open(&mut self, overlay: bool, out: &mut Vec<Cmd>) {
         if overlay || self.open.is_some() {
             return;
         }
-        let wants = |e: &Entry| {
-            matches!(
-                e.state,
-                State::Waiting(_)
-                    | State::Scanning {
-                        slow: true,
-                        shown: false,
-                        ..
-                    }
-            )
-        };
-        let Some(e) = self.entries.iter_mut().find(|e| wants(e)) else {
+        let Some(e) = self
+            .entries
+            .iter_mut()
+            .find(|e| !matches!(e.state, State::Flattening | State::Prepared(_)))
+        else {
             return;
         };
+        let wants = matches!(
+            e.state,
+            State::Waiting(_)
+                | State::Scanning {
+                    slow: true,
+                    shown: false,
+                    ..
+                }
+        );
+        if !wants {
+            return;
+        }
         let (phase, findings, next) = match std::mem::replace(&mut e.state, State::Flattening) {
             State::Waiting(Ok(f)) => {
                 let found = f.len();
@@ -807,12 +819,19 @@ fn shield_setting() -> Option<bool> {
 /// Nhận ảnh đã phẳng. Shield tắt → chạy ngay với `PreparedOutput::unscanned`. Shield bật → luôn
 /// quét; đầu ra chỉ chạy sau khi quét sạch hoặc người dùng quyết định trong cửa sổ Duyệt.
 pub fn submit(action: OutputAction, image: Image) -> Result<(), SubmitError> {
-    submit_inner(action, image, None)
+    submit_inner(action, image, None).map(|_| ())
 }
 
-/// Như `submit`, kết quả về `done` thay vì đầu ra thường (lượt xuất các bước).
-pub fn submit_with(action: OutputAction, image: Image, done: Done) -> Result<(), SubmitError> {
+/// Như `submit`, kết quả về `done` thay vì đầu ra thường (lượt xuất các bước). Trả mã lượt để bên
+/// gửi bỏ lượt bằng `cancel` (Shield tắt: lượt đã chạy xong khi hàm trả về, mã không còn dùng).
+pub fn submit_with(action: OutputAction, image: Image, done: Done) -> Result<Id, SubmitError> {
     submit_inner(action, image, Some(done))
+}
+
+/// Bỏ lượt `id` (mã do `submit_with` trả): đóng cửa sổ Duyệt của nó nếu đang mở, gọi `done(None)`,
+/// không xuất gì. Lượt đã xong, mã lạ hay cổng đã đóng thì không làm gì.
+pub fn cancel(id: Id) {
+    feed(Event::Cancel { id });
 }
 
 /// Lưu/Chép từ ảnh ghim: ảnh ghim mang `protection` của lần qua cổng trước. Shield tắt → như
@@ -841,7 +860,7 @@ pub fn submit_pinned(
     submit(action, image)
 }
 
-fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Result<(), SubmitError> {
+fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Result<Id, SubmitError> {
     debug_assert!(on_gate_thread(), "privacy_gate::submit off the UI thread");
     // Chưa nối nguồn cấu hình: không biết Shield bật hay tắt, nên không xuất (không coi như tắt).
     let Some(shield) = shield_setting() else {
@@ -865,7 +884,7 @@ fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Resul
                     session,
                 })
             });
-            Ok(())
+            Ok(id)
         }
         // Ảnh bị bỏ ở đây (không xuất).
         None if cmds.is_empty() => Err(SubmitError::WindowFailed),
@@ -926,7 +945,7 @@ pub fn shutdown() {
 pub fn handle_message(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LRESULT> {
     match msg {
         WM_PRIVACY_SCAN => {
-            // SAFETY: thông điệp do `ocr::start_scan` gửi tới cửa sổ này, lấy đúng một lần.
+            // SAFETY: thông điệp do `ocr::start_scan_with_progress` gửi tới cửa sổ này, lấy đúng một lần.
             let report = unsafe { ocr::take_scan_result(lp) };
             let scan = wp.0;
             // Cửa sổ "Đang quét…" đã bị đóng (Hủy còn nằm trong hàng đợi): Hủy thắng kết quả quét.
@@ -1831,26 +1850,201 @@ mod tests {
         let (a, sa) = accept(&mut g, false);
         let (b, sb) = accept(&mut g, false);
         let (c, sc) = accept(&mut g, false);
-        // b xong trước: mở cho b.
-        let cmds = g.step(done(sb, &[finding(0, 1)]), false);
-        assert!(matches!(cmds.as_slice(), [Cmd::OpenReview { id, .. }] if *id == b));
-        // c lỗi, a có phát hiện: chờ.
+        // b xong trước nhưng a (nhận trước) còn quét: chưa mở cửa sổ nào (duyệt theo thứ tự nhận).
+        assert!(g.step(done(sb, &[finding(0, 1)]), false).is_empty());
         assert!(g.step(failed(sc, ScanError::Failed), false).is_empty());
-        assert!(g.step(done(sa, &[finding(0, 9)]), false).is_empty());
-        // a quét chậm trong lúc chờ: không mở cửa sổ thứ hai.
-        assert!(g.step(Event::Timer { id: a }, false).is_empty());
-        assert_eq!(g.open(), Some(b));
-        // b xong: tới a (nhận trước c), rồi c.
-        let cmds = g.step(outcome(b, ReviewOutcome::ContinueNone), false);
-        assert_eq!(dispatches(&cmds), vec![(b, Ready::ReviewedNone)]);
+        assert_eq!(g.open(), None);
+        // a có phát hiện: mở cho a.
+        let cmds = g.step(done(sa, &[finding(0, 9)]), false);
+        assert!(matches!(cmds.as_slice(),
+            [Cmd::OpenReview { id, phase: ReviewPhase::Findings, findings }] if *id == a && findings.len() == 1));
+        // b quét chậm trong lúc chờ: không mở cửa sổ thứ hai.
+        assert!(g.step(Event::Timer { id: b }, false).is_empty());
+        assert_eq!(g.open(), Some(a));
+        // a xong: tới b, rồi c.
+        let cmds = g.step(outcome(a, ReviewOutcome::ContinueNone), false);
+        assert_eq!(dispatches(&cmds), vec![(a, Ready::ReviewedNone)]);
         assert!(cmds.iter().any(|x| matches!(x,
-            Cmd::OpenReview { id, phase: ReviewPhase::Findings, findings } if *id == a && findings.len() == 1)));
-        let cmds = g.step(outcome(a, ReviewOutcome::Cancel), false);
-        assert_eq!(cmds[0], Cmd::Drop { id: a });
+            Cmd::OpenReview { id, phase: ReviewPhase::Findings, findings } if *id == b && findings.len() == 1)));
+        let cmds = g.step(outcome(b, ReviewOutcome::Cancel), false);
+        assert_eq!(cmds[0], Cmd::Drop { id: b });
         assert!(matches!(&cmds[1],
             Cmd::OpenReview { id, phase: ReviewPhase::Error(ScanError::Failed), .. } if *id == c));
         assert_eq!(cmds.len(), 2);
         assert_eq!(g.open(), Some(c));
+    }
+
+    /// Task 135: lượt sau quét xong sạch trước thì chờ; xuất theo thứ tự nhận, kể cả khi lượt trước
+    /// phải duyệt và làm phẳng.
+    #[test]
+    fn later_clean_scan_waits_and_exports_in_submit_order() {
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        // B nhanh, sạch: chưa xuất (A còn quét).
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        assert_eq!(g.pending(), 2);
+        // A sạch: A rồi B.
+        assert_eq!(
+            dispatches(&g.step(done(sa, &[]), false)),
+            vec![(a, Ready::NoFindings), (b, Ready::NoFindings)]
+        );
+        assert_eq!(g.pending(), 0);
+        // A có phát hiện: B, C sạch chờ suốt lúc A được duyệt và làm phẳng.
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        let (c, sc) = accept(&mut g, false);
+        g.step(done(sa, &[finding(0, 1)]), false);
+        assert_eq!(g.open(), Some(a));
+        assert!(dispatches(&g.step(done(sc, &[]), false)).is_empty());
+        assert!(dispatches(&g.step(done(sb, &[]), false)).is_empty());
+        let cmds = g.step(outcome(a, ReviewOutcome::Apply(plan(&[1]))), false);
+        assert!(dispatches(&cmds).is_empty());
+        assert!(g.is_flattening(a));
+        assert_eq!(
+            dispatches(&g.step(Event::Flattened { id: a, ok: true }, false)),
+            vec![
+                (a, Ready::Flattened),
+                (b, Ready::NoFindings),
+                (c, Ready::NoFindings)
+            ]
+        );
+        assert_eq!((g.pending(), g.open()), (0, None));
+    }
+
+    /// Task 135: lượt trước bị Hủy, hết hạn, làm phẳng lỗi, đổi phiên hay hủy theo mã thì lượt sau
+    /// đã sẵn sàng chạy ngay (không bao giờ kẹt vì lượt trước).
+    #[test]
+    fn earlier_request_gone_releases_the_later_one_at_once() {
+        // Hủy trong cửa sổ Duyệt.
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        g.step(done(sa, &[finding(0, 1)]), false);
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        assert_eq!(
+            g.step(outcome(a, ReviewOutcome::Cancel), false),
+            vec![
+                Cmd::Drop { id: a },
+                Cmd::Dispatch {
+                    id: b,
+                    how: Ready::NoFindings
+                }
+            ]
+        );
+        // Quét quá hạn.
+        let mut g = GateCore::new();
+        let (a, _sa) = accept(&mut g, false);
+        g.set_clock(1_000);
+        let (b, sb) = accept(&mut g, false);
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        g.set_clock(SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS + 1);
+        assert_eq!(
+            g.step(Event::Tick, false),
+            vec![
+                Cmd::Notify(Note::ScanStalled),
+                Cmd::Drop { id: a },
+                Cmd::Dispatch {
+                    id: b,
+                    how: Ready::NoFindings
+                }
+            ]
+        );
+        // Làm phẳng lỗi.
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        g.step(done(sa, &[finding(0, 1)]), false);
+        g.step(outcome(a, ReviewOutcome::Apply(plan(&[1]))), false);
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        assert_eq!(
+            dispatches(&g.step(Event::Flattened { id: a, ok: false }, false)),
+            vec![(b, Ready::NoFindings)]
+        );
+        // Phiên chụp từng bước đổi: "Thêm bước" của phiên cũ bị bỏ, lượt sau chạy.
+        let mut g = GateCore::new();
+        let a = g.submit(true, false, Some(1)).0.unwrap();
+        let (b, sb) = accept(&mut g, false);
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        let cmds = g.step(Event::StepsSession { current: 2 }, false);
+        assert!(cmds.contains(&Cmd::Drop { id: a }));
+        assert_eq!(dispatches(&cmds), vec![(b, Ready::NoFindings)]);
+        // Hủy theo mã lượt (lượt xuất các bước đã bị bỏ).
+        let mut g = GateCore::new();
+        let (a, _sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        assert!(g.step(done(sb, &[]), false).is_empty());
+        assert_eq!(
+            g.step(Event::Cancel { id: a }, false),
+            vec![
+                Cmd::Drop { id: a },
+                Cmd::Dispatch {
+                    id: b,
+                    how: Ready::NoFindings
+                }
+            ]
+        );
+        assert_eq!(g.pending(), 0);
+    }
+
+    /// Task 135: lượt sau có phát hiện trước khi lượt trước được duyệt: cửa sổ mở theo thứ tự nhận.
+    #[test]
+    fn review_windows_open_in_submit_order() {
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        assert!(g.step(done(sb, &[finding(0, 1)]), false).is_empty());
+        assert_eq!(g.open(), None);
+        // A quét chậm: cửa sổ "Đang quét…" là của A.
+        let cmds = g.step(Event::Timer { id: a }, false);
+        assert!(matches!(cmds.as_slice(),
+            [Cmd::OpenReview { id, phase: ReviewPhase::Scanning { tile: None }, .. }] if *id == a));
+        // A sạch: cửa sổ của A đóng, A xuất, rồi mới mở cho B.
+        let cmds = g.step(done(sa, &[]), false);
+        assert_eq!(cmds[0], Cmd::CloseReview { id: a });
+        assert_eq!(
+            cmds[1],
+            Cmd::Dispatch {
+                id: a,
+                how: Ready::NoFindings
+            }
+        );
+        assert!(matches!(&cmds[2],
+            Cmd::OpenReview { id, phase: ReviewPhase::Findings, .. } if *id == b));
+        assert_eq!(cmds.len(), 3);
+    }
+
+    /// Task 135: hủy theo mã lượt đóng cửa sổ Duyệt của lượt đó; mã lạ, đã xong hay sau Shutdown
+    /// thì không làm gì.
+    #[test]
+    fn cancel_by_id_closes_its_window_and_drops_it() {
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (b, sb) = accept(&mut g, false);
+        g.step(done(sa, &[finding(0, 1)]), false);
+        g.step(done(sb, &[finding(0, 1)]), false);
+        assert_eq!(g.open(), Some(a));
+        // Lượt đang chờ (chưa có cửa sổ): chỉ bỏ.
+        assert_eq!(
+            g.step(Event::Cancel { id: b }, false),
+            vec![Cmd::Drop { id: b }]
+        );
+        assert_eq!(g.open(), Some(a));
+        assert_eq!(
+            g.step(Event::Cancel { id: a }, false),
+            vec![Cmd::CloseReview { id: a }, Cmd::Drop { id: a }]
+        );
+        assert_eq!((g.pending(), g.open()), (0, None));
+        for id in [a, b, 999] {
+            assert!(g.step(Event::Cancel { id }, false).is_empty());
+        }
+        // Kết quả muộn của cửa sổ đã đóng: không chạy gì.
+        assert!(g
+            .step(outcome(a, ReviewOutcome::ContinueNone), false)
+            .is_empty());
+        let (c, _) = accept(&mut g, false);
+        g.step(Event::Shutdown, false);
+        assert!(g.step(Event::Cancel { id: c }, false).is_empty());
     }
 
     #[test]
@@ -1875,24 +2069,33 @@ mod tests {
     #[test]
     fn overlay_holds_windowed_outputs_only() {
         let mut g = GateCore::new();
-        let (pin, sp) = accept(&mut g, true);
+        // Lưu một mình: chạy ngay cả khi lớp phủ mở (không mở cửa sổ nào).
         let (save, ss) = accept(&mut g, false);
-        // Lưu: chạy ngay cả khi lớp phủ mở (không mở cửa sổ nào).
         assert_eq!(
             dispatches(&g.step(done(ss, &[]), true)),
             vec![(save, Ready::NoFindings)]
         );
-        // Ghim: giữ tới khi lớp phủ đóng; vẫn tính trong hàng.
+        let (pin, sp) = accept(&mut g, true);
+        let (save, ss) = accept(&mut g, false);
+        // Lưu nhận sau Ghim: chờ Ghim (xuất theo thứ tự nhận).
+        assert!(g.step(done(ss, &[]), true).is_empty());
+        // Ghim: giữ tới khi lớp phủ đóng; cả hai vẫn tính trong hàng.
         assert!(g.step(done(sp, &[]), true).is_empty());
-        assert_eq!(g.pending(), 1);
+        assert_eq!(g.pending(), 2);
         assert!(g.step(done(sp, &[]), true).is_empty());
         let cmds = g.step(Event::OverlayClosed, false);
         assert_eq!(
             cmds,
-            vec![Cmd::Dispatch {
-                id: pin,
-                how: Ready::NoFindings
-            }]
+            vec![
+                Cmd::Dispatch {
+                    id: pin,
+                    how: Ready::NoFindings
+                },
+                Cmd::Dispatch {
+                    id: save,
+                    how: Ready::NoFindings
+                }
+            ]
         );
         assert!(g.step(Event::OverlayClosed, false).is_empty());
         assert_eq!(g.pending(), 0);
@@ -2028,12 +2231,16 @@ mod tests {
         assert!(g.step(done(sp, &[]), true).is_empty());
         assert!(g.step(Event::OverlayClosed, true).is_empty());
         assert_eq!((g.pending(), g.open()), (2, None));
-        // Phiên kết thúc: ảnh ghim chạy, cửa sổ Duyệt mở.
+        // Phiên kết thúc: cửa sổ Duyệt của a mở; ảnh ghim (nhận sau a) chờ a.
         let cmds = g.step(Event::OverlayClosed, false);
-        assert_eq!(dispatches(&cmds), vec![(pin, Ready::NoFindings)]);
+        assert!(dispatches(&cmds).is_empty());
         assert!(cmds
             .iter()
             .any(|c| matches!(c, Cmd::OpenReview { id, .. } if *id == a)));
+        assert_eq!(
+            dispatches(&g.step(outcome(a, ReviewOutcome::ContinueNone), false)),
+            vec![(a, Ready::ReviewedNone), (pin, Ready::NoFindings)]
+        );
     }
 
     #[test]
@@ -2224,6 +2431,8 @@ mod tests {
             let mut shut = false;
             let mut clock = 0u64;
             let mut session = 1u64;
+            let mut last_dispatch: Id = 0;
+            let mut last_review: Id = 0;
             let steps = 60 + rng.next(60);
             for step in 0..=steps {
                 let ids: Vec<Id> = seen.iter().map(|(i, _)| *i).collect();
@@ -2338,6 +2547,26 @@ mod tests {
                 };
                 let mut opened = 0;
                 for c in &cmds {
+                    // Lượt Shield bật xuất và mở cửa sổ Duyệt theo thứ tự nhận (Task 135).
+                    match c {
+                        Cmd::Dispatch { id, .. }
+                            if seen.iter().any(|(i, s)| i == id && s.shield) =>
+                        {
+                            assert!(
+                                *id > last_dispatch,
+                                "seed {seed}: {id} after {last_dispatch}"
+                            );
+                            last_dispatch = *id;
+                        }
+                        Cmd::OpenReview { id, .. } => {
+                            assert!(
+                                *id > last_review,
+                                "seed {seed}: review {id} after {last_review}"
+                            );
+                            last_review = *id;
+                        }
+                        _ => {}
+                    }
                     match c {
                         Cmd::StartScan { id, scan } => {
                             let s = &mut seen.iter_mut().find(|(i, _)| i == id).unwrap().1;
@@ -2383,6 +2612,14 @@ mod tests {
                     }
                 }
                 assert!(opened <= 1, "seed {seed}: two review windows in one step");
+                // Không kẹt: lượt đầu hàng đã sẵn sàng thì đã chạy (trừ Ghim khi lớp phủ mở).
+                if let Some(e) = g.entries.first() {
+                    assert!(
+                        !matches!(e.state, State::Prepared(_)) || (e.windowed && overlay),
+                        "seed {seed}: ready head request {} is stuck",
+                        e.id
+                    );
+                }
                 assert!(g.pending() <= MAX_PENDING, "seed {seed}");
                 for (id, s) in &seen {
                     assert!(
@@ -2658,7 +2895,7 @@ mod tests {
         let action = OutputAction::StepExport { step: 2, steps: 5 };
         assert_eq!(action.step(), Some((2, 5)));
         assert!(action.label() == Msg::PrivacyActionExportSteps);
-        assert_eq!(submit_with(action, img, done), Ok(()));
+        assert!(submit_with(action, img, done).is_ok());
         assert_eq!(calls.get(), 1);
         assert_eq!(got(), 0);
         assert_eq!(Rc::strong_count(&calls), 1);
@@ -2724,7 +2961,7 @@ mod tests {
             c.set(c.get() + 1);
         });
         let action = OutputAction::StepExport { step: 1, steps: 1 };
-        assert_eq!(submit_with(action, sample(20, 20), done), Ok(()));
+        assert!(submit_with(action, sample(20, 20), done).is_ok());
         assert_eq!((calls.get(), got(), pending()), (1, 0, 0));
     }
 
@@ -2738,7 +2975,7 @@ mod tests {
         assert_eq!(submit(OutputAction::Save, invalid()), Ok(()));
         assert_eq!(submit(OutputAction::Upload, invalid()), Ok(()));
         let action = OutputAction::StepExport { step: 1, steps: 2 };
-        assert_eq!(submit_with(action, invalid(), done), Ok(()));
+        assert!(submit_with(action, invalid(), done).is_ok());
         assert_eq!((got(), pending()), (0, 3));
         assert_eq!(
             submit(OutputAction::Copy, sample(8, 8)),
@@ -2880,6 +3117,70 @@ mod tests {
         Some(h)
     }
 
+    /// Task 135: `cancel(id)` với mã `submit_with` trả về bỏ đúng lượt đó (`done(None)` một lần,
+    /// không xuất); kết quả quét tới muộn không làm gì; mã lạ hay đã xong thì vô hại.
+    #[test]
+    fn cancel_by_id_drops_the_request_and_late_results_do_nothing() {
+        let host = Host::new(true);
+        let calls = Rc::new(Cell::new((0u32, 0u32)));
+        let make = |c: Rc<Cell<(u32, u32)>>| -> Done {
+            Box::new(move |p| {
+                let (some, none) = c.get();
+                c.set(if p.is_some() {
+                    (some + 1, none)
+                } else {
+                    (some, none + 1)
+                });
+            })
+        };
+        let action = OutputAction::StepExport { step: 1, steps: 2 };
+        let a = submit_with(action, invalid(), make(calls.clone())).expect("accepted");
+        let action = OutputAction::StepExport { step: 2, steps: 2 };
+        let b = submit_with(action, invalid(), make(calls.clone())).expect("accepted");
+        assert_ne!(a, b);
+        assert_eq!(pending(), 2);
+        cancel(a);
+        assert_eq!((pending(), calls.get()), (1, (0, 1)));
+        cancel(a);
+        cancel(9999);
+        assert_eq!((pending(), calls.get()), (1, (0, 1)));
+        cancel(b);
+        assert_eq!((pending(), calls.get()), (0, (0, 2)));
+        // Kết quả quét (lỗi) của hai lượt tới sau: không mở cửa sổ, không xuất.
+        assert!(!pump(&host, 400, || review_hwnd().is_some() || got() > 0));
+        assert_eq!((pending(), calls.get(), got()), (0, (0, 2), 0));
+    }
+
+    #[test]
+    #[ignore = "Windows OCR thật, mở cửa sổ thật; chạy tay"]
+    fn manual_cancel_by_id_closes_the_open_review_window() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        let host = Host::new(true);
+        let calls = Rc::new(Cell::new(0u32));
+        let c = calls.clone();
+        let done: Done = Box::new(move |p| {
+            assert!(p.is_none());
+            c.set(c.get() + 1);
+        });
+        let action = OutputAction::StepExport { step: 2, steps: 5 };
+        let id = submit_with(action, email_image(900, 160), done).expect("accepted");
+        // Có phát hiện hay lỗi quét: cửa sổ Duyệt của lượt đang mở.
+        assert!(pump(&host, 30_000, || {
+            CORE.with(|c| {
+                c.borrow()
+                    .entries
+                    .iter()
+                    .any(|e| matches!(e.state, State::Reviewing { .. }))
+            })
+        }));
+        assert!(review_hwnd().is_some());
+        cancel(id);
+        assert_eq!((pending(), calls.get()), (0, 1));
+        assert!(pump(&host, 2000, || review_hwnd().is_none()));
+        assert!(!pump(&host, 300, || got() > 0));
+        assert_eq!(calls.get(), 1);
+    }
+
     #[test]
     #[ignore = "Windows OCR thật; chạy tay"]
     fn manual_clean_image_runs_once_without_a_window() {
@@ -2961,7 +3262,7 @@ mod tests {
             });
         });
         let action = OutputAction::StepExport { step: 3, steps: 12 };
-        assert_eq!(submit_with(action, email_image(900, 160), done), Ok(()));
+        assert!(submit_with(action, email_image(900, 160), done).is_ok());
         let Some(h) = wait_findings(&host) else {
             return;
         };
@@ -2997,17 +3298,52 @@ mod tests {
         assert_eq!((got(), pending()), (1, 0));
     }
 
+    /// Lượt đang có cửa sổ Duyệt mở ở trạng thái đã quét xong (có phát hiện hay lỗi).
+    fn reviewing_id() -> Option<Id> {
+        CORE.with(|c| {
+            let c = c.borrow();
+            let open = c.open()?;
+            c.entries
+                .iter()
+                .any(|e| e.id == open && matches!(e.state, State::Reviewing { .. }))
+                .then_some(open)
+        })
+    }
+
+    /// Hai lượt có phát hiện: duyệt và xuất theo thứ tự nhận (Lưu nhận trước, ảnh lớn hơn nên
+    /// thường quét chậm hơn Chép), mỗi lúc một cửa sổ. Theo dõi theo mã lượt của lõi, không theo
+    /// HWND (Windows có thể dùng lại giá trị HWND của cửa sổ vừa hủy).
     #[test]
     #[ignore = "Windows OCR thật, mở cửa sổ thật; chạy tay"]
     fn manual_two_requests_are_reviewed_one_at_a_time() {
         let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let host = Host::new(true);
-        assert_eq!(submit(OutputAction::Save, email_image(900, 160)), Ok(()));
-        assert_eq!(submit(OutputAction::Copy, email_image(800, 160)), Ok(()));
-        let Some(h1) = wait_findings(&host) else {
-            return;
+        assert_eq!(submit(OutputAction::Save, email_image(1400, 160)), Ok(()));
+        assert_eq!(submit(OutputAction::Copy, email_image(600, 160)), Ok(()));
+        let (first, second) = CORE.with(|c| {
+            let c = c.borrow();
+            (c.entries[0].id, c.entries[1].id)
+        });
+        // Cửa sổ đầu tiên luôn là của lượt nhận trước, dù lượt sau quét xong trước.
+        assert!(pump(&host, 30_000, || reviewing_id().is_some()));
+        assert_eq!(reviewing_id(), Some(first));
+        let scan_ok = |id: Id| {
+            CORE.with(|c| {
+                c.borrow().entries.iter().any(|e| {
+                    e.id == id && matches!(e.state, State::Reviewing { scan_ok: true, .. })
+                })
+            })
         };
-        // Cả hai quét xong: vẫn chỉ một cửa sổ.
+        if !scan_ok(first) {
+            // Máy không quét được (không có gói OCR): đóng cả hai cửa sổ lỗi, không xuất gì.
+            post(review_hwnd().expect("review window"), WM_CLOSE, 0);
+            assert!(pump(&host, 30_000, || reviewing_id() == Some(second)));
+            post(review_hwnd().expect("review window"), WM_CLOSE, 0);
+            assert!(pump(&host, 2000, || pending() == 0));
+            assert_eq!(got(), 0);
+            return;
+        }
+        // Cả hai quét xong: vẫn chỉ một cửa sổ, chưa xuất gì.
         assert!(pump(&host, 30_000, || {
             CORE.with(|c| {
                 c.borrow()
@@ -3016,16 +3352,17 @@ mod tests {
                     .all(|e| !matches!(e.state, State::Scanning { .. }))
             })
         }));
-        assert_eq!((got(), pending()), (0, 2));
-        post(h1, WM_KEYDOWN, VK_RETURN);
+        assert_eq!((got(), pending(), reviewing_id()), (0, 2, Some(first)));
+        post(review_hwnd().expect("review window"), WM_KEYDOWN, VK_RETURN);
         assert!(pump(&host, 5000, || got() == 1));
-        // Lượt thứ hai được mở sau khi lượt đầu xong; Hủy nó.
-        assert!(pump(&host, 2000, || review_hwnd().is_some_and(|h| h != h1)));
-        let h2 = review_hwnd().unwrap();
-        post(h2, WM_CLOSE, 0);
-        assert!(pump(&host, 2000, || pending() == 0));
-        assert_eq!(got(), 1);
         assert!(GOT.with(|g| g.borrow()[0].0 == Msg::PrivacyActionSave));
+        // Lượt thứ hai được mở sau khi lượt đầu xong; Hủy nó.
+        assert!(pump(&host, 5000, || reviewing_id() == Some(second)));
+        post(review_hwnd().expect("review window"), WM_CLOSE, 0);
+        assert!(pump(&host, 2000, || pending() == 0));
+        assert!(!pump(&host, 300, || got() > 1));
+        assert_eq!(got(), 1);
+        assert!(review_hwnd().is_none());
     }
 
     // ---- Task 133: JPEG đã che, giải mã bằng bộ giải mã ảnh của Windows ----

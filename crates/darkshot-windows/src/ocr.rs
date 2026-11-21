@@ -579,14 +579,9 @@ fn scan(image: &Image, progress: impl Fn(u32, u32)) -> Result<ScanReport, ScanEr
 
 /// Tạo luồng `darkshot-ocr`, quét ảnh: OCR (en-US nếu có, không thì hồ sơ) theo dải, `privacy::detect`
 /// trên luồng nền, gửi `Box<Result<ScanReport, ScanError>>` tới `hwnd` bằng `msg` (WPARAM = token).
-/// Chữ OCR không bao giờ rời luồng nền. Không tạo được luồng → Err.
-#[cfg_attr(not(test), allow(dead_code))] // Cổng xuất dùng `start_scan_with_progress`.
-pub fn start_scan(image: Arc<Image>, hwnd: HWND, msg: u32, token: usize) -> Result<(), String> {
-    start_scan_with_progress(image, hwnd, msg, None, token)
-}
-
-/// Như `start_scan`, thêm thông báo tiến độ: nếu có `progress_msg`, trước mỗi dải gửi
-/// `PostMessage(hwnd, progress_msg, token, (k << 16) | n)` (k từ 1; không có Box, không cần giải phóng).
+/// Chữ OCR không bao giờ rời luồng nền. Không tạo được luồng → Err. Nếu có `progress_msg`, trước
+/// mỗi dải gửi `PostMessage(hwnd, progress_msg, token, (k << 16) | n)` (k từ 1; không có Box,
+/// không cần giải phóng).
 pub fn start_scan_with_progress(
     image: Arc<Image>,
     hwnd: HWND,
@@ -614,9 +609,9 @@ pub fn start_scan_with_progress(
 /// Bên nhận lấy lại quyền sở hữu: gọi đúng một lần cho mỗi thông điệp kết quả nhận được.
 ///
 /// # Safety
-/// `lp` phải là LPARAM của một thông điệp kết quả do `start_scan` gửi và chưa được lấy lần nào.
+/// `lp` phải là LPARAM của một thông điệp kết quả do `start_scan_with_progress` gửi và chưa được lấy lần nào.
 pub unsafe fn take_scan_result(lp: LPARAM) -> Box<Result<ScanReport, ScanError>> {
-    // SAFETY: theo hợp đồng của hàm, `lp` là con trỏ Box do `start_scan` tạo, chưa ai lấy lại.
+    // SAFETY: theo hợp đồng của hàm, `lp` là con trỏ Box do `start_scan_with_progress` tạo, chưa ai lấy lại.
     unsafe { Box::from_raw(lp.0 as *mut Result<ScanReport, ScanError>) }
 }
 
@@ -1439,7 +1434,7 @@ pub(crate) mod tests {
             height: 3,
             bgra: vec![0; 5],
         });
-        start_scan(img, w.0, msg, 5).expect("start_scan");
+        start_scan_with_progress(img, w.0, msg, None, 5).expect("start_scan");
         let b = wait_scan(&w, msg, None, Duration::from_secs(10)).0;
         assert_eq!(*b.expect("no result"), Err(ScanError::Failed));
     }
@@ -1466,7 +1461,7 @@ pub(crate) mod tests {
             }
             // SAFETY: lấy thông điệp của cửa sổ do luồng này tạo.
             if unsafe { PeekMessageW(&mut m, Some(w.0), msg, msg, PM_REMOVE) }.as_bool() {
-                // SAFETY: thông điệp do `start_scan` gửi, lấy đúng một lần.
+                // SAFETY: thông điệp do `start_scan_with_progress` gửi, lấy đúng một lần.
                 let b = unsafe { take_scan_result(m.lParam) };
                 if let Some(pm) = progress {
                     // SAFETY: như trên.
@@ -1924,25 +1919,45 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    #[ignore]
-    fn manual_mem_steps_export_10x4k() {
+    /// Xuất 10 bước 4K như `steps_window` (Task 135): mỗi ảnh đã qua cổng được mã hóa PNG ngay và
+    /// chỉ byte PNG được giữ trong `ExportJob.replacements`. `noise_rows`: cứ mỗi `noise_rows` hàng
+    /// có một hàng nhiễu (0 = ảnh phẳng như số đo cũ), để ảnh nén còn vài MB như ảnh chụp thật.
+    fn mem_steps_export_10x4k(noise_rows: u32) {
         use darkshot_core::steps::Step;
         let dir = std::env::temp_dir().join(format!("darkshot-mem-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (w, h) = (3840u32, 2160u32);
-        let replacements: Vec<(usize, Image)> = (0..10)
+        let mut seed = 0x1234_5678u32;
+        let t = Instant::now();
+        let replacements: Vec<(usize, Vec<u8>)> = (0..10)
             .map(|i| {
-                (
-                    i,
-                    Image {
-                        width: w,
-                        height: h,
-                        bgra: vec![(i * 20) as u8; w as usize * h as usize * 4],
-                    },
-                )
+                let mut bgra = vec![(i * 20) as u8; w as usize * h as usize * 4];
+                if noise_rows > 0 {
+                    for y in (0..h).step_by(noise_rows as usize) {
+                        for x in 0..w {
+                            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                            let k = ((y * w + x) * 4) as usize;
+                            bgra[k..k + 3].copy_from_slice(&seed.to_le_bytes()[..3]);
+                        }
+                    }
+                }
+                for px in bgra.chunks_mut(4) {
+                    px[3] = 255;
+                }
+                let img = Image {
+                    width: w,
+                    height: h,
+                    bgra,
+                };
+                (i, darkshot_core::image::encode_png(&img).expect("png"))
             })
             .collect();
+        let png: usize = replacements.iter().map(|(_, b)| b.len()).sum();
+        println!(
+            "mem export 10x4K noise_rows={noise_rows}: png_total={:.1} MB encode_ms={}",
+            png as f64 / 1_048_576.0,
+            t.elapsed().as_millis()
+        );
         let job = crate::steps_export::ExportJob {
             parent: dir.clone(),
             when: darkshot_core::naming::LocalTime {
@@ -1968,9 +1983,21 @@ pub(crate) mod tests {
         };
         let t = Instant::now();
         let out = crate::steps_export::export(&job).expect("export");
-        println!("mem export 10x4K: wall_ms={}", t.elapsed().as_millis());
+        println!("mem export 10x4K: write_ms={}", t.elapsed().as_millis());
         drop(job);
         let _ = std::fs::remove_dir_all(&out);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_mem_steps_export_10x4k() {
+        mem_steps_export_10x4k(0);
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_mem_steps_export_10x4k_noisy() {
+        mem_steps_export_10x4k(10);
     }
 }

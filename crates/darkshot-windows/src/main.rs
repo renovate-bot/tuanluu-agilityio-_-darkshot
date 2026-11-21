@@ -1539,9 +1539,10 @@ fn pin_action(
     let _ = privacy_gate::submit_pinned(out, image, protection);
 }
 
-/// Công tắc Privacy Shield theo cấu hình đang dùng (cổng đọc lúc nhận ảnh).
+/// Công tắc Privacy Shield theo cấu hình đang dùng (cổng đọc lúc nhận ảnh). Chưa có trạng thái
+/// ứng dụng thì coi là bật (không bao giờ coi như tắt), như `privacy_gate::enabled`.
 fn privacy_shield_now() -> bool {
-    with_app(|a| a.config.privacy_shield).unwrap_or(false)
+    with_app(|a| a.config.privacy_shield).unwrap_or(true)
 }
 
 /// Có ghi file cấu hình sau khi lớp phủ đóng không: chỉ khi màu tự chọn đã đổi và cấu hình
@@ -3358,6 +3359,14 @@ mod tests {
         gate_output(OutputAction::Save, prepared);
         assert_eq!(pngs_in(&root).len(), 1);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Task 135: chưa có trạng thái ứng dụng thì coi như Shield bật (như `privacy_gate::enabled`),
+    /// không bao giờ coi như tắt.
+    #[test]
+    fn privacy_shield_is_on_without_app_state() {
+        APP.with(|a| *a.borrow_mut() = None);
+        assert!(privacy_shield_now());
     }
 
     /// Shield tắt: `submit` chạy đầu ra ngay với đúng ảnh gốc (đường của `capture_flow_with`).
