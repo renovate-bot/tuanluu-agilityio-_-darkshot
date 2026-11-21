@@ -125,6 +125,12 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 99 OCR nâng cao: cửa sổ hai khung, chọn dòng, công tắc (đợt 15) | task/99-ocr-pro-window | specialist | opus | xong | 337.136 (gồm hai vòng sửa) | 144.771 (reviewer fable) | – | 481.907 |
 | 100 OCR nâng cao: tài liệu, website, demo (đợt 15) | task/100-ocr-pro-docs | scaffolder | sonnet | xong | 66.993 | phiên điều phối | – | 66.993 |
 | 101 OCR nâng cao: nhiều cửa sổ không ghi đè công tắc của nhau (sau rà soát toàn đợt 15) | task/101-ocr-switch-sync | specialist | opus | xong | 9.388 (cùng agent Task 99) | rà soát toàn đợt: 167.117 (specialist fable); kiểm thiết kế: 51.311 (sonnet) | – | 227.816 |
+| 122 Ghi GIF: lõi (mã hóa, tệp tạm, luồng ghi) (đợt 20) | task/122-gif-core | specialist | opus | xong | 203.357 | 102.681 (reviewer fable) | 15.143 | 321.181 |
+| 123 Ghi GIF: phiên ghi, thanh ghi, lớp phủ, nối ứng dụng | task/123-gif-session | specialist | opus | xong | 255.682 | 142.780 (reviewer fable) | 19.733 | 418.195 |
+| 124 Ghi GIF: tài liệu, website | task/124-gif-docs | scaffolder | sonnet | xong | 77.281 | phiên điều phối (thêm nút vào hình SVG thanh ngang) | – | 77.281 |
+| 125 Ghi GIF: gia cố sau rà soát toàn đợt 20 | task/125-gif-polish | specialist | opus | xong | 20.772 (cùng agent Task 123) | 45.842 (reviewer fable); rà soát toàn đợt: 172.703 (specialist fable) | – | 239.317 |
+
+Task 122–125 là đợt 20 (kế hoạch `docs/superpowers/plans/2026-11-21-gif-recording.md`). Cộng agent con: 1.055.974 (làm 557.092; rà soát 464.006 gồm rà soát toàn đợt; sửa 34.876). Theo model: opus 514.687 (làm và sửa 122, 123, 125); fable 464.006 (mọi rà soát); sonnet 77.281 (Task 124).
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 
