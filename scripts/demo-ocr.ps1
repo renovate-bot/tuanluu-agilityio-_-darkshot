@@ -35,11 +35,16 @@ $json = @"
 "@
 # UTF-8 khong BOM: serde_json khong doc duoc tep co BOM.
 [System.IO.File]::WriteAllText((Join-Path $profileDir 'Roaming\darkshot\config.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
-# File mau co chu de nhan dang (Notepad mo san).
+# File mau co chu de nhan dang (Notepad mo san): hai doan chu Anh de thu chon dong va tach doan.
 $sample = Join-Path $profileDir 'ocr-sample.txt'
 $text = @"
 Hello darkshot 123
-Nhan dang chu cuc bo tren may.
+Local text recognition works on this PC.
+Lines are boxed so you can click one to copy it.
+
+Second paragraph starts here.
+Try Ctrl+click to pick several lines,
+and the Separate paragraphs switch.
 "@
 [System.IO.File]::WriteAllText($sample, $text, (New-Object System.Text.UTF8Encoding($false)))
 $env:DARKSHOT_PROFILE_DIR = $profileDir
