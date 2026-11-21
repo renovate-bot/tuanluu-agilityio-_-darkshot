@@ -464,10 +464,10 @@ Tùy chọn, **mặc định tắt**. Bật ở Tùy chọn, tab **Thông thư�
 
 1. Bạn chọn Lưu, Chép, Tải lên hoặc Ghim như thường.
 2. Không phát hiện gì thì hành động chạy ngay, không hỏi. Ảnh lớn thì có thể hiện cửa sổ "Đang quét" ngắn rồi tự đóng.
-3. Có phát hiện thì cửa sổ **Kiểm tra thông tin nhạy cảm** hiện ra: liệt kê loại và độ tin cậy (không hiện giá trị), bỏ chọn được từng mục, kéo trên ảnh để **+ Thêm vùng che** của riêng bạn, rồi **Che và tiếp tục** hoặc **Hủy**. Che hết bỏ chọn thì có thanh xác nhận "Tiếp tục không che". Hủy không để lại tệp hay mục Lịch sử. Vùng che là ô đặc, được in vào ảnh xuất.
+3. Có phát hiện thì cửa sổ **Kiểm tra thông tin nhạy cảm** hiện ra: liệt kê loại và độ tin cậy (không hiện giá trị), bỏ chọn được từng mục, kéo trên ảnh để **+ Thêm vùng che** của riêng bạn, rồi **Che và tiếp tục** hoặc **Hủy**. Bỏ chọn hết rồi bấm tiếp thì có thanh xác nhận "Tiếp tục không che". Hủy không để lại tệp hay mục Lịch sử. Vùng che là ô đặc, được in vào ảnh xuất.
 4. Quét lỗi (ví dụ Windows thiếu gói nhận dạng chữ): cửa sổ báo "Ảnh CHƯA được kiểm tra", có **Thử lại** hoặc **Tiếp tục không quét** (cần xác nhận thêm một lần).
 
-**Được bảo vệ:** Lưu, Chép, Tải lên, Ghim; Chép và Ghim từ Lịch sử; Chụp lại vùng trước; phím chụp toàn màn hình; ảnh Chụp cuộn; Thêm bước và xuất phiên Chụp từng bước. Ảnh ghim và Lịch sử khi Lưu/Chép với Shield bật luôn được quét lại.
+**Được bảo vệ:** Lưu, Chép, Tải lên, Ghim; Chép và Ghim từ Lịch sử; Chụp lại vùng trước; phím chụp toàn màn hình; ảnh Chụp cuộn; Thêm bước và xuất phiên Chụp từng bước. Chép/Ghim từ Lịch sử với Shield bật luôn được quét lại; Lưu/Chép từ ảnh ghim được quét lại, trừ ảnh ghim đã quét mà không có gì phải che.
 
 **Không được bảo vệ:** Ghi GIF; chữ từ Nhận dạng chữ; **Mở** và **Hiện trong thư mục** của Lịch sử; mục Lịch sử và ảnh bước đã tạo lúc Shield tắt (không được che lại trên đĩa).
 
