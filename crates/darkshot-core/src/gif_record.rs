@@ -481,15 +481,22 @@ fn is_temp_name(n: &str) -> bool {
         .is_some_and(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
-/// Xóa các tệp tạm sót lại (đúng mẫu `.darkshot-rec-<16 ký tự>.gif.part`) trong `dir`; trả số
-/// tệp đã xóa. Chỉ gọi khi không có lần ghi nào đang chạy (lúc khởi động).
-pub fn sweep_stale(dir: &Path) -> usize {
+/// Xóa các tệp tạm sót lại (đúng mẫu `.darkshot-rec-<16 ký tự>.gif.part`) trong `dir`, sửa lần
+/// cuối trước mốc `older_than` (lúc khởi động tiến trình); trả số tệp đã xóa. Tệp mới hơn mốc (lần
+/// ghi vừa bắt đầu, hay bản darkshot khác đang ghi cùng thư mục) được giữ, nên gọi được trên luồng
+/// nền song song với lần ghi.
+pub fn sweep_stale(dir: &Path, older_than: std::time::SystemTime) -> usize {
     let Ok(rd) = fs::read_dir(dir) else {
         return 0;
     };
     rd.flatten()
         .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
         .filter(|e| e.file_name().to_str().is_some_and(is_temp_name))
+        .filter(|e| {
+            e.metadata()
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| t < older_than)
+        })
         .filter(|e| fs::remove_file(e.path()).is_ok())
         .count()
 }
@@ -1285,12 +1292,35 @@ mod tests {
         std::fs::create_dir(d.join(".darkshot-rec-DDDDDDDDDDDDDDDD.gif.part")).unwrap();
         std::fs::write(d.join(".darkshot-rec-AAAAAAAAAAAAAAAA.gif.part"), b"s").unwrap();
         std::fs::write(d.join(".darkshot-rec-0123456789abcdef.gif.part"), b"s").unwrap();
-        assert_eq!(sweep_stale(&d), 2);
+        // Mốc sau mọi tệp vừa tạo: mọi tệp đúng mẫu đều cũ hơn mốc.
+        let after = std::time::SystemTime::now() + Duration::from_secs(60);
+        assert_eq!(sweep_stale(&d, after), 2);
         let mut want: Vec<String> = keep.iter().map(|s| s.to_string()).collect();
         want.push(".darkshot-rec-DDDDDDDDDDDDDDDD.gif.part".into());
         want.sort();
         assert_eq!(names(&d), want);
-        assert_eq!(sweep_stale(&d.join("missing")), 0);
+        assert_eq!(sweep_stale(&d.join("missing"), after), 0);
+    }
+
+    /// Chỉ xóa tệp tạm sửa lần cuối TRƯỚC mốc (khởi động tiến trình): tệp của một lần ghi vừa
+    /// bắt đầu, hay của bản darkshot khác đang ghi cùng thư mục, mới hơn mốc nên được giữ.
+    #[test]
+    fn sweep_stale_keeps_temp_files_newer_than_cutoff() {
+        let d = temp_dir();
+        let old = d.join(".darkshot-rec-OOOOOOOOOOOOOOOO.gif.part");
+        let new = d.join(".darkshot-rec-NNNNNNNNNNNNNNNN.gif.part");
+        std::fs::write(&old, b"o").unwrap();
+        std::fs::write(&new, b"n").unwrap();
+        let cutoff = std::time::SystemTime::now();
+        let f = OpenOptions::new().write(true).open(&old).unwrap();
+        f.set_modified(cutoff - Duration::from_secs(3600)).unwrap();
+        drop(f);
+        let f = OpenOptions::new().write(true).open(&new).unwrap();
+        f.set_modified(cutoff + Duration::from_secs(5)).unwrap();
+        drop(f);
+        assert_eq!(sweep_stale(&d, cutoff), 1);
+        assert!(!old.exists());
+        assert!(new.exists());
     }
 
     // --- Recorder ---

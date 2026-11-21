@@ -31,8 +31,8 @@ use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, DeleteObject, EndPaint, InvalidateRect, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE,
-    DT_VCENTER, HFONT, HGDIOBJ, PAINTSTRUCT,
+    BeginPaint, DeleteObject, EndPaint, InvalidateRect, UpdateWindow, DT_LEFT, DT_NOPREFIX,
+    DT_SINGLELINE, DT_VCENTER, HFONT, HGDIOBJ, PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
@@ -693,6 +693,20 @@ pub fn cancel() {
 /// Quá hạn thì chỉ bỏ chờ: luồng nền tự chốt tệp nếu còn kịp, tệp `.part` sót được
 /// `gif_record::sweep_stale` dọn ở lần khởi động sau. Không gọi hàm kết quả.
 pub fn finish_on_exit(deadline: Instant) {
+    // Thanh hiện "Đang lưu…" (nút mờ) ngay, trước khi chặn chờ.
+    let bar = with(|s| {
+        s.saving = true;
+        s.ui.hover = None;
+        s.ui.pressed = None;
+        s.bar
+    });
+    if let Some(b) = bar {
+        invalidate(b);
+        // SAFETY: vẽ lại ngay thanh của phiên trên luồng này (không giữ mượn `SESSION`).
+        unsafe {
+            let _ = UpdateWindow(b);
+        }
+    }
     let Some(mut s) = SESSION.with(|c| c.try_borrow_mut().ok().and_then(|mut x| x.take())) else {
         return;
     };

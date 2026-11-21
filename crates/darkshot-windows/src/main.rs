@@ -1241,16 +1241,21 @@ pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static st
 /// Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
 const EXIT_BUDGET: Duration = Duration::from_secs(4);
 
+/// Hạn chót chung của một đường thoát bắt đầu lúc `now`: mọi lần chờ (GIF, tải lên dở, ảnh bước,
+/// xuất) dùng chung `EXIT_BUDGET`.
+fn exit_deadline(now: std::time::Instant) -> std::time::Instant {
+    now + EXIT_BUDGET
+}
+
 /// Thời gian còn lại tới hạn chót `deadline` (0 khi đã qua).
 fn remaining(deadline: std::time::Instant, now: std::time::Instant) -> Duration {
     deadline.saturating_duration_since(now)
 }
 
 /// Việc lúc thoát (Thoát, tắt máy): lưu ảnh của lượt tải lên còn dở, ghi Lịch sử, chờ ảnh bước và
-/// lượt xuất, tất cả trong một hạn chót chung `EXIT_BUDGET`. Cửa sổ Xem lại đóng trước tiên để
-/// ghi chú đang sửa được lưu trước mọi lần chờ.
-fn exit_cleanup() {
-    let deadline = std::time::Instant::now() + EXIT_BUDGET;
+/// lượt xuất, tất cả trong hạn chót chung `deadline` (tính MỘT lần ở đầu đường thoát, xem
+/// `exit_deadline`). Cửa sổ Xem lại đóng trước tiên để ghi chú đang sửa được lưu trước mọi lần chờ.
+fn exit_cleanup(deadline: std::time::Instant) {
     // Lần ghi GIF đang chạy: lưu phần đã ghi (trong hạn chót chung) trước khi hủy cửa sổ khác.
     record_session::finish_on_exit(deadline);
     // Phiên chụp cuộn đang chạy: bỏ (hẹn giờ, cửa sổ, phím Esc tạm).
@@ -1741,16 +1746,17 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
         }
         AppEvent::Quit => {
             // Lưu ghi chú đang sửa của cửa sổ Xem lại trước mọi việc khác.
+            let deadline = exit_deadline(std::time::Instant::now());
             steps_window::close();
             // Lần ghi GIF đang chạy: lưu phần đã ghi trước khi đóng các cửa sổ khác.
-            record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
+            record_session::finish_on_exit(deadline);
             // Đóng mọi ảnh ghim (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
             history_window::drop_pending_pin();
             pin::close_all();
             ocr_window::close_all();
             scroll_result::close_all();
-            // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng; chờ trong một hạn chót.
-            exit_cleanup();
+            // Thoát lúc đang tải lên: lưu ảnh vào máy trước, không chờ mạng; chờ trong cùng hạn chót.
+            exit_cleanup(deadline);
             // SAFETY: hwnd là cửa sổ của luồng này.
             unsafe {
                 let _ = DestroyWindow(hwnd);
@@ -1950,18 +1956,19 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 // Phiên sắp kết thúc (tắt máy, đăng xuất): đóng ảnh ghim, ghi file ảnh của các lượt
                 // còn dở. Ghi chú đang sửa của cửa sổ Xem lại được lưu trước tiên; lần ghi GIF
                 // đang chạy được lưu trước khi đóng các cửa sổ khác.
+                let deadline = exit_deadline(std::time::Instant::now());
                 steps_window::close();
-                record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
+                record_session::finish_on_exit(deadline);
                 pin::close_all();
                 ocr_window::close_all();
                 scroll_result::close_all();
-                exit_cleanup();
+                exit_cleanup(deadline);
             }
             LRESULT(0)
         }
         WM_DESTROY => {
             // Lưới an toàn: lần ghi GIF còn chạy được lưu (trong hạn chót) trước khi hủy cửa sổ.
-            record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
+            record_session::finish_on_exit(exit_deadline(std::time::Instant::now()));
             // Cửa sổ Thông tin, Trợ giúp và Lịch sử thuộc cửa sổ ẩn này: hủy cả ba, trả tài nguyên.
             about::close();
             help::close();
@@ -2079,9 +2086,16 @@ fn main() {
         migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
-    // Tệp GIF tạm sót từ lần chạy trước (thoát quá hạn, mất điện): xóa, một lần đọc thư mục, trước
-    // khi có lần ghi nào bắt đầu được (vòng lặp thông điệp chưa chạy).
-    darkshot_core::gif_record::sweep_stale(&state.config.save_dir);
+    // Tệp GIF tạm sót từ lần chạy trước (thoát quá hạn, mất điện): xóa trên luồng nền ngắn, chỉ
+    // tệp cũ hơn lúc khởi động (không đụng lần ghi vừa bắt đầu hay bản khác đang ghi). Không tạo
+    // được luồng thì bỏ qua: lần khởi động sau dọn.
+    {
+        let dir = state.config.save_dir.clone();
+        let started = std::time::SystemTime::now();
+        let _ = std::thread::Builder::new()
+            .name("darkshot-gif-sweep".into())
+            .spawn(move || darkshot_core::gif_record::sweep_stale(&dir, started));
+    }
     APP.with(|a| *a.borrow_mut() = Some(state));
     // Lần chụp trước (nếu có) cho phím lặp lại và cho "giữ vị trí vùng"; lỗi đọc thì coi như chưa có.
     let last = read_last_capture(&paths::last_capture_path());
@@ -2148,7 +2162,7 @@ fn main() {
         }
     }
     // Lưới an toàn: vòng lặp kết thúc theo đường nào thì ảnh của lượt còn dở cũng được lưu.
-    let deadline = std::time::Instant::now() + EXIT_BUDGET;
+    let deadline = exit_deadline(std::time::Instant::now());
     save_pending_uploads(remaining(deadline, std::time::Instant::now()));
     steps_store::flush(remaining(deadline, std::time::Instant::now()));
 }
@@ -2219,8 +2233,12 @@ mod tests {
     #[test]
     fn exit_waits_share_one_deadline() {
         let now = std::time::Instant::now();
-        let deadline = now + EXIT_BUDGET;
+        let deadline = exit_deadline(now);
+        assert_eq!(deadline, now + EXIT_BUDGET);
         assert_eq!(remaining(deadline, now), EXIT_BUDGET);
+        // GIF chờ 3 s rồi tải lên dở/ảnh bước chỉ còn 1 s: tổng không vượt EXIT_BUDGET.
+        let after_gif = now + Duration::from_secs(3);
+        assert_eq!(remaining(deadline, after_gif), Duration::from_secs(1));
         assert_eq!(
             remaining(deadline, now + Duration::from_secs(1)),
             EXIT_BUDGET - Duration::from_secs(1)
