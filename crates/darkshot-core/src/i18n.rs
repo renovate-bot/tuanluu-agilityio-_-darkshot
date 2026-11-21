@@ -371,7 +371,6 @@ messages! {
         "Windows has no text recognition pack for your languages. Add a language in Settings > Time & language > Language & region."
     ),
     OcrFailed => ("Không nhận dạng được chữ. Thử lại.", "Couldn't recognize text. Try again."),
-    OcrCopy => ("Chép", "Copy"),
     OcrCopyAll => ("Chép tất cả", "Copy all"),
     OcrSingleLine => ("Gộp thành một dòng", "Single line"),
     OcrParagraphs => ("Tách đoạn", "Separate paragraphs"),
