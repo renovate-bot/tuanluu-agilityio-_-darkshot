@@ -501,7 +501,6 @@ messages! {
     RecordFaultThreadEnded => ("Luồng ghi GIF dừng mà không có kết quả.", "The GIF recording thread ended without a result."),
     RecordFaultSizeChanged => ("Kích thước vùng ghi đã thay đổi.", "The size of the recording region changed."),
     RecordFaultInternal => ("Lỗi nội bộ của bộ ghi GIF.", "Internal error in the GIF recorder."),
-    RecordBusy => ("Đang ghi GIF. Dừng lần ghi hiện tại trước.", "A GIF is being recorded. Stop the current recording first."),
     RecordNoRoomTitle => ("Không có chỗ cho thanh ghi GIF", "No room for the recording bar"),
 }
 

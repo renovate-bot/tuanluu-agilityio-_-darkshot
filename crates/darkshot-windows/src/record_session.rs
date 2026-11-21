@@ -573,9 +573,13 @@ pub fn start(region: Rect, save_dir: PathBuf) -> Result<(), StartError> {
         destroy_all(frames);
         return Err(StartError::Failed);
     }
-    // Lớp phủ vừa đóng: chờ DWM trình bày một khung để khung GIF đầu không còn lớp phủ.
+    // Lớp phủ vừa đóng: chờ DWM trình bày HAI khung để khung GIF đầu không còn lớp phủ hay vùng
+    // mờ. Một lần có thể trả về ngay ở lượt hợp thành đã bắt đầu trước khi lớp phủ bị hủy; lượt thứ
+    // hai chắc chắn hợp thành sau đó (~2 khung màn hình, một lần, trên luồng giao diện; luồng nền
+    // không gọi hàm hiển thị nào). Mốc 0 của GIF vẫn tính từ khung đầu.
     // SAFETY: chỉ chờ DWM; lỗi (DWM tắt) thì bỏ qua.
     unsafe {
+        let _ = DwmFlush();
         let _ = DwmFlush();
     }
     let wake_to = Arc::new(AtomicIsize::new(host.0 as isize));
@@ -648,11 +652,20 @@ pub fn start(region: Rect, save_dir: PathBuf) -> Result<(), StartError> {
 /// Dừng và lưu phần đã ghi. Thanh đổi sang "Đang lưu…" (nút mờ) tới khi có kết quả. An toàn khi
 /// gọi nhiều lần hoặc không có lần ghi.
 pub fn stop() {
+    stop_with(false);
+}
+
+/// Dừng; `lost`: vì vùng ghi không còn trên màn hình (lý do `SourceLost`, thông báo Info).
+fn stop_with(lost: bool) {
     let bar = with(|s| {
         if s.saving {
             return None;
         }
-        s.recorder.request_stop();
+        if lost {
+            s.recorder.request_stop_lost();
+        } else {
+            s.recorder.request_stop();
+        }
         s.saving = true;
         s.ui.hover = None;
         s.ui.pressed = None;
@@ -816,7 +829,7 @@ fn on_display_change() {
         .map(|(m, _)| m)
         .collect();
     if !scroll_session::region_valid(region, &screens) {
-        stop();
+        stop_with(true);
     }
     relayout_bar(None);
 }
