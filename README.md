@@ -1,6 +1,6 @@
 # darkshot
 
-darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình (hoặc bấm một lần để chọn đúng một cửa sổ), đánh dấu nếu cần, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, ghim ảnh lên màn hình, hoặc hủy. Vùng đã chọn cũng nhận dạng được chữ (Ctrl+T) và chép chữ ra, hoàn toàn trên máy. Có lịch sử ảnh chụp cục bộ (tùy chọn). Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
+darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintScreen`, kéo chọn vùng màn hình (hoặc bấm một lần để chọn đúng một cửa sổ), đánh dấu nếu cần, rồi chọn một trong bốn việc: tải ảnh lên Cloudflare R2 và chép link, lưu PNG vào máy, chép ảnh vào clipboard, ghim ảnh lên màn hình, hoặc hủy. Vùng đã chọn cũng nhận dạng được chữ (Ctrl+T) và chép chữ ra, hoàn toàn trên máy. Với nội dung dài hơn màn hình, chụp cuộn (Ctrl+L) ghép các phần thành một ảnh dọc; bạn tự cuộn, chỉ cuộn dọc. Có lịch sử ảnh chụp cục bộ (tùy chọn). Ứng dụng viết bằng Rust thuần, không có máy chủ trung gian.
 
 ## Tải về
 
@@ -8,7 +8,7 @@ Bản mới nhất: **0.4.0** ở [trang Releases](https://github.com/tuanluu-ag
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
-Chụp lại vùng trước, Nhận dạng chữ cục bộ và Chụp từng bước đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
+Chụp lại vùng trước, Nhận dạng chữ cục bộ, Chụp từng bước và Chụp cuộn đã có trong mã nguồn ở nhánh `main` nhưng chưa có trong bản 0.4.0; muốn dùng ngay thì build từ mã nguồn (mục dưới). Xem mục "Chưa phát hành" của CHANGELOG.
 
 
 ## Build
@@ -51,7 +51,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi sáu nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Hủy). Khi đang có phiên chụp từng bước, thanh có thêm nút **Thêm bước** ngay trước Hủy. Rê chuột vào nút để xem tên và phím tắt.
+Thanh có chín nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi bảy nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn, Hủy). Khi đang có phiên chụp từng bước, thanh có thêm nút **Thêm bước** ngay trước Hủy (tổng mười nút). Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
@@ -62,10 +62,11 @@ Thanh có tám nút chỉ có biểu tượng: Hoàn tác, Làm lại, một v�
 | Chép ảnh | `Ctrl+C` | Chép ảnh vào clipboard. |
 | Ghim lên màn hình | `Ctrl+P` | Ghim vùng chọn lên màn hình thành một ảnh ghim. Xem "Ghim ảnh lên màn hình". |
 | Nhận dạng chữ | `Ctrl+T` | Nhận dạng chữ trong vùng đã chọn và mở cửa sổ "Chữ nhận dạng". Xem mục "Nhận dạng chữ". |
+| Chụp cuộn | `Ctrl+L` | Bắt đầu ghép một ảnh dọc từ vùng đã chọn; bạn tự cuộn nội dung. Xem mục "Chụp cuộn". |
 | Thêm bước (chỉ khi có phiên) | `Ctrl+N` | Thêm vùng chọn (đã đánh dấu nếu có) làm một bước của phiên chụp từng bước. Lớp phủ đóng. Xem "Chụp từng bước". |
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
-- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
+- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T`, `Ctrl+L` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
 - `Ctrl+N` chỉ có tác dụng khi đã có vùng chọn và đang có phiên chụp từng bước. Khi không có phiên, phím này không làm gì và nút Thêm bước không hiện.
 - `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo khung chọn vùng. Khi đang có bảng mở, ô chữ, lần kéo hình hoặc hình được chọn, `Esc` chỉ lùi một bước (xem "Đánh dấu ảnh").
 
@@ -362,6 +363,59 @@ powershell -File scripts/demo-steps.ps1 -Exe target\demo12\release\darkshot.exe
 
 Thêm `-Lang en` để chạy giao diện English. Khi darkshot khởi động, thanh phiên hiện ngay với 3 bước mẫu (phiên được khôi phục từ thư mục cách ly). Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 12".
 
+### Chụp cuộn
+
+Ghép nội dung đang cuộn dọc trong một vùng cố định thành **một ảnh dọc**, ví dụ một trang web dài hay một tài liệu. Chạy hoàn toàn trên máy, không dùng mạng.
+
+**Phạm vi hỗ trợ (đọc trước):**
+
+- Chỉ cuộn **dọc**, và **bạn tự cuộn** nội dung trong lúc darkshot chụp (con lăn chuột, thanh cuộn hoặc phím). darkshot không tự gửi lệnh cuộn vào ứng dụng khác.
+- Nội dung phải nằm trong **vùng cố định** đã chọn; không đổi vùng giữa chừng.
+- Không đảm bảo mọi ứng dụng hay mọi trang. Kết quả phụ thuộc vào cách ứng dụng hiển thị và cuộn nội dung.
+- Hình đánh dấu **không** được kèm vào ảnh chụp cuộn (nút có chú thích "Không kèm hình đánh dấu").
+
+Cách dùng:
+
+1. Chọn vùng trong lớp phủ như thường (có thể dùng gợi ý cửa sổ).
+2. Bấm nút **Chụp cuộn** trên thanh ngang (giữa Nhận dạng chữ và Hủy) hoặc `Ctrl+L`.
+3. Trong lúc chụp, một khung nét đứt bao quanh vùng và một thanh điều khiển nổi hiện lên: chấm đỏ, "Chụp cuộn · Cuộn xuống từ từ", chiều cao hiện có (px), rồi nút **Xong** và **Hủy**. Tự cuộn xuống từ từ.
+4. Nếu khung vừa cuộn không ghép được, trạng thái chuyển vàng "Cuộn chậm hơn". Cuộn chậm lại. Cuộn ngược lên sẽ làm khung đó bị bỏ.
+5. Bấm **Xong** để xem kết quả, hoặc **Hủy** (hay `Esc`) để bỏ.
+
+Thanh điều khiển:
+
+- Không lấy tiêu điểm, nên gõ chữ ở ứng dụng khác vẫn vào ứng dụng đó. Trên Windows 10 2004 trở lên, khung và thanh không xuất hiện trong ảnh chụp. Windows cũ hơn: không có khung, thanh đặt ngoài vùng.
+- Không có chỗ cho thanh (vùng chọn gần kín màn hình): hiện "Không có chỗ cho thanh chụp cuộn". Chọn vùng nhỏ hơn màn hình.
+- Trong lúc chụp, các phím chụp khác bị bỏ qua.
+
+Cửa sổ **Ảnh chụp cuộn** (sau khi bấm Xong):
+
+- Xem trước cuộn được bằng con lăn, thanh cuộn, `PgUp`, `PgDn`, `Home` và `End`. Dòng thông tin ghi "W × H px".
+- Nếu có chỗ ghép không chắc chắn, dải vàng ghi "Có N chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng." Kiểm tra ảnh trước khi dùng.
+- Nút **Lưu** (`Enter`), **Chép**, **Tải lên**, **Ghim** và **Đóng** (`Esc`). Lưu, Chép và Tải lên hoạt động như các ảnh khác (có thông báo và có vào Lịch sử ảnh chụp nếu bạn bật Lịch sử). Đóng mà không lưu thì ảnh bị bỏ.
+- Tối đa 4 cửa sổ Ảnh chụp cuộn cùng lúc. darkshot không tự đóng ảnh chưa dùng; khi đã đủ 4, hiện "Có nhiều ảnh chụp cuộn chưa lưu" và bạn phải lưu hoặc đóng bớt.
+
+Cách ghép và khi nào bỏ khung:
+
+- darkshot so khớp nội dung giữa các khung liên tiếp, tự nhận tiêu đề và chân trang dính, nên các phần đó không lặp lại trong ảnh.
+- Khung không ghép được (nền một màu, nội dung lặp lại đều, cuộn quá nhanh với bước lớn hơn khoảng 2/3 vùng, hay cuộn ngược) bị bỏ khỏi ảnh. Nếu đã có ghép trước đó, kết quả được đánh dấu không chắc chắn.
+- Cú nhảy lớn hơn một nửa vùng vẫn được ghép nhưng tính là không chắc chắn. darkshot không âm thầm ghép sai một trang không có phần lặp.
+
+Giới hạn đã biết:
+
+- Trang có khối lặp cao hơn 1/3 vùng, hoặc cuộn quá nhanh, có thể mất một đoạn đúng bằng bội số của khối lặp. Hiếm, và gần như luôn có cảnh báo.
+- Lớp phủ mỏng thoáng qua ở đáy vùng có thể bị ghép vào một lần.
+- Thanh cuộn của trang nằm trong ảnh ghép sẽ thấy ở nhiều vị trí, vì nó trượt theo nội dung.
+- Chiều cao tối đa 30 000 px hoặc 256 MB. Đạt giới hạn thì chụp tự dừng và hiện "Đã đạt giới hạn chiều cao".
+
+Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay khóa R2 thật, không mạng):
+
+```powershell
+powershell -File scripts/demo-scroll.ps1 -Exe target\demo13\release\darkshot.exe
+```
+
+Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một tệp mẫu nhiều dòng trong Notepad: chọn vùng bao quanh tệp, bấm `Ctrl+L`, rồi tự cuộn xuống từ từ. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 13: Chụp cuộn".
+
 ### Menu khay
 
 | Mục | Việc làm |
@@ -499,6 +553,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 - Cửa sổ Thông tin và Trợ giúp không mở trang web và không gọi mạng. Ứng dụng chỉ mở trình duyệt khi bạn bấm mục hoặc thông báo "Có bản mới", và chỉ tới trang release của repo darkshot trên GitHub.
 - Ứng dụng không ghi log ra file. Không gửi thống kê. Việc kiểm tra bản mới chỉ gửi tên và phiên bản ứng dụng (xem mục "Cập nhật") và tắt được.
 - Nhận dạng chữ (Ctrl+T) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử.
+- Chụp cuộn chạy hoàn toàn trên máy, không dùng mạng. Ảnh ghép chỉ nằm trong bộ nhớ cho đến khi bạn Lưu, Chép, Tải lên hoặc Ghim; chụp cuộn không ghi tệp tạm.
 - Chụp từng bước: ảnh bước nằm trong `%LOCALAPPDATA%\darkshot\steps\current` cho đến khi bạn xuất ra thư mục bạn chọn. Không gửi đi đâu, không vào Lịch sử. Kết thúc phiên sẽ xóa các ảnh này.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.

@@ -515,3 +515,41 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-steps.ps1 -Exe target
 - [ ] Tiếng Việt: tên mục, nút, thẻ xác nhận, thông báo và `steps.md` đều tiếng Việt.
 - [ ] Tắt mạng rồi thực hiện cả luồng: vẫn chạy đủ.
 - [ ] Windows 10: thanh phiên, lớp phủ và cửa sổ Các bước hoạt động như trên Windows 11.
+
+## Đợt 13: Chụp cuộn
+
+Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe target\demo13\release\darkshot.exe` (thêm `-Lang en`). Demo mở sẵn một tệp mẫu nhiều dòng trong Notepad để cuộn. Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và ngày vào cuối dòng khi đã thử.
+
+- [ ] Lớp phủ: nút "Chụp cuộn (Ctrl+L)" nằm giữa Nhận dạng chữ và Hủy; khi có phiên chụp từng bước thì Thêm bước đứng trước Hủy và Chụp cuộn vẫn ở giữa Nhận dạng chữ và Thêm bước; rê chuột thấy đúng tên và chú thích "Không kèm hình đánh dấu".
+- [ ] Thanh ngang: 9 nút khi không có phiên (Hoàn tác, Làm lại, Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn, Hủy), 10 nút khi có phiên.
+- [ ] Ctrl+L khi chưa có vùng chọn: không làm gì. Khi có vùng chọn: bắt đầu chụp cuộn.
+- [ ] Trong lúc chụp: khung nét đứt quanh vùng và thanh điều khiển nổi (chấm đỏ, "Chụp cuộn · Cuộn xuống từ từ", chiều cao px, nút Xong và Hủy) hiện đúng vị trí; thanh không lấy tiêu điểm (gõ chữ ở ứng dụng khác vẫn vào ứng dụng đó).
+- [ ] Khung và thanh điều khiển không nằm trong ảnh chụp (Windows 11): ảnh kết quả không có khung nét đứt và không có thanh.
+- [ ] Cuộn chậm hơn: trạng thái chuyển vàng "Cuộn chậm hơn" khi khung không ghép được, rồi trở lại bình thường khi khung ghép được.
+- [ ] Esc trong lúc chụp: hủy, không mở cửa sổ kết quả.
+- [ ] Xong: mở cửa sổ "Ảnh chụp cuộn" với dòng "W × H px" đúng kích thước ảnh.
+- [ ] Cửa sổ kết quả: cuộn bằng con lăn, thanh cuộn, PgUp, PgDn, Home và End đều xem được toàn bộ ảnh.
+- [ ] Ảnh có chỗ ghép không chắc chắn: dải vàng "Có N chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng." hiện; ảnh không có chỗ nghi ngờ thì không có dải.
+- [ ] Nút Lưu (và Enter) lưu PNG như thường, có thông báo; Chép chép ảnh; Tải lên đăng và chép link (thử với bucket thử của chính bạn); Ghim mở ảnh ghim giữa màn hình.
+- [ ] Đóng (và Esc) không lưu thì ảnh bị bỏ; mở lại chụp cuộn không còn ảnh cũ.
+- [ ] Mở 4 cửa sổ Ảnh chụp cuộn chưa lưu, rồi thử thêm một lần chụp: thông báo "Có nhiều ảnh chụp cuộn chưa lưu" hiện, không có cửa sổ thứ năm và không cửa sổ nào tự đóng.
+- [ ] Lịch sử ảnh chụp (nếu bật): Lưu, Chép và Tải lên của ảnh cuộn có mục mới; chụp cuộn không đổi "lần chụp trước" (đo bằng thời gian sửa `last_capture.json`).
+- [ ] Cuộn dọc trong trang web dài ở trình duyệt (Chrome hoặc Edge): ảnh ghép đúng thứ tự, không lặp và không mất hàng.
+- [ ] Tài liệu Word và PDF dài: ảnh ghép đúng thứ tự, không lặp đoạn.
+- [ ] Danh sách trong Explorer (cuộn dọc trong khung danh sách): ảnh ghép đúng thứ tự, tên tệp không bị cắt.
+- [ ] Trang có tiêu đề dính (header cố định) và chân trang dính: tiêu đề và chân trang không lặp lại nhiều lần trong ảnh.
+- [ ] Cuộn nhanh (một cú lăn lớn): khung bị bỏ hoặc có cảnh báo; không có đoạn ghép sai mà không báo.
+- [ ] Cuộn ngược giữa chừng: khung ngược bị bỏ, nội dung tiếp tục ghép đúng khi cuộn xuống lại.
+- [ ] Nội dung nền một màu (trang trắng gần như hết): kết quả có cảnh báo hoặc khung bị bỏ, không ghép sai âm thầm.
+- [ ] Vùng chọn gần kín màn hình: hiện "Không có chỗ cho thanh chụp cuộn" và không bắt đầu chụp.
+- [ ] Chạm giới hạn 30 000 px (hoặc giảm giới hạn trong thử nghiệm): chụp tự dừng và hiện "Đã đạt giới hạn chiều cao".
+- [ ] Nhiều màn hình: vùng trên màn phụ (DPI khác màn chính) được chụp và ghép đúng; thanh điều khiển hiện trên đúng màn.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): chụp cuộn đúng vùng trên màn đó.
+- [ ] DPI 100%, 150% và 200%: chữ trong ảnh ghép rõ, không mờ, không bị cắt mép.
+- [ ] Windows 10 từ bản 2004 trở lên: khung và thanh không lọt vào ảnh chụp, như Windows 11.
+- [ ] Windows 10 trước bản 2004 (nếu có máy thử): không có khung nét đứt; thanh đặt ngoài vùng.
+- [ ] English: nút "Scrolling capture (Ctrl+L)", chú thích "Annotations are not included", thanh "Scrolling capture", "Scroll down slowly", "Scroll more slowly", "Done", "Cancel", cửa sổ "Scrolling capture", các nút Save, Copy, Upload, Pin, Close và các thông báo đều tiếng Anh; không cắt chữ.
+- [ ] Tiếng Việt: nút, thanh, cửa sổ, nút và thông báo đều tiếng Việt; không cắt chữ.
+- [ ] Hình đánh dấu đã vẽ: ảnh chụp cuộn không có nét đánh dấu nào.
+- [ ] Tắt mạng rồi thực hiện cả luồng: vẫn chạy đủ.
+- [ ] Chạy tay các kiểm thử `#[ignore]` của cửa sổ kết quả (mở cửa sổ thật; khi không chạm chuột hoặc bàn phím): `cargo test -p darkshot-windows scroll_result -- --ignored --test-threads=1`.
