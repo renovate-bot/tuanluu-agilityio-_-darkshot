@@ -596,7 +596,7 @@ Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và n
 - [ ] GIF lặp liên tục: mở trong trình duyệt, phát hết rồi tự lặp lại, không dừng ở khung cuối.
 - [ ] Thanh ghi và khung viền không có trong GIF (Windows 11 và Windows 10 từ bản 2004); Windows 10 trước 2004 (nếu có): không có khung, thanh đặt ngoài vùng. Thanh không lấy tiêu điểm.
 - [ ] Dừng: lưu tệp và hiện "Đã lưu GIF" kèm đường dẫn (tắt công tắc thông báo thì không hiện). Hủy: không tạo tệp, không thông báo, không còn tệp `.part`.
-- [ ] Tối đa 15 giây: để ghi đến hết, tự dừng ở 15 giây, lưu tệp và có thông báo; đồng hồ hiện "00:15 / 00:15".
+- [ ] Tối đa 60 giây: để ghi đến hết, tự dừng ở 60 giây, lưu tệp và có thông báo; đồng hồ hiện "01:00 / 01:00"; thanh ghi đủ rộng cho "00:00 / 01:00". Thử cả nội dung chuyển động nhiều: tệp lớn nhưng vẫn lưu được, chạm 256 MiB thì tự dừng.
 - [ ] Nhiều màn hình: vùng trên màn phụ ghi đúng nội dung, thanh ghi hiện trên đúng màn.
 - [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): ghi đúng vùng trên màn đó.
 - [ ] DPI hỗn hợp (màn chính 100%, màn phụ 150% hoặc ngược lại) và DPI 100%, 150%, 200%: kích thước và độ nét đúng; vùng lớn (4K) được thu nhỏ còn khoảng 942×530 giữ tỉ lệ.

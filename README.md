@@ -427,13 +427,13 @@ Ghi một đoạn ngắn của vùng đã chọn thành **ảnh GIF động**. C
 
 1. Bấm `PrintScreen`, chọn vùng.
 2. Bấm nút **Ghi GIF** trên thanh ngang (giữa Chụp cuộn và Hủy) hoặc `Ctrl+G`. Hình đánh dấu không được kèm vào GIF.
-3. Một thanh ghi nổi hiện lên: chấm đỏ, "Đang ghi 00:05 / 00:15", nút **Dừng** và **Hủy**. Thanh không lấy tiêu điểm, và thanh cùng khung viền quanh vùng không nằm trong GIF (Windows 10 bản 2004 trở lên; bản cũ hơn không có khung và thanh đặt ngoài vùng). Không có phím Esc toàn cục để dừng.
+3. Một thanh ghi nổi hiện lên: chấm đỏ, "Đang ghi 00:05 / 01:00", nút **Dừng** và **Hủy**. Thanh không lấy tiêu điểm, và thanh cùng khung viền quanh vùng không nằm trong GIF (Windows 10 bản 2004 trở lên; bản cũ hơn không có khung và thanh đặt ngoài vùng). Không có phím Esc toàn cục để dừng.
 4. **Dừng** lưu tệp và hiện thông báo "Đã lưu GIF" kèm đường dẫn (theo công tắc hiện thông báo). **Hủy** không tạo tệp và không thông báo.
-5. Tự dừng và lưu phần đã ghi khi đạt 15 giây, khi tệp đạt 256 MiB, hoặc khi vùng không còn trên màn hình (kèm thông báo).
+5. Tự dừng và lưu phần đã ghi khi đạt 60 giây, khi tệp đạt 256 MiB, hoặc khi vùng không còn trên màn hình (kèm thông báo).
 
 **Giới hạn**
 
-- 10 khung hình mỗi giây (máy chậm thì ít khung hơn, nhưng thời gian vẫn đúng), tối đa 15 giây, lặp vô hạn, không có con trỏ chuột, không âm thanh.
+- 10 khung hình mỗi giây (máy chậm thì ít khung hơn, nhưng thời gian vẫn đúng), tối đa 60 giây, lặp vô hạn, không có con trỏ chuột, không âm thanh. Nội dung chuyển động nhiều (video, cuộn liên tục) có thể cho tệp rất lớn; chạm 256 MiB thì tự dừng và lưu phần đã ghi.
 - Mỗi khung tối đa 256 màu. Vùng lớn hơn 500 000 điểm ảnh được thu nhỏ giữ tỉ lệ (ví dụ 4K còn khoảng 942×530). Vùng quá 64 MP bị từ chối.
 - Trong lúc ghi, phím tắt chụp, mục Chụp của menu khay, Chụp lại vùng trước và nút Chụp bước bị bỏ qua; không bắt đầu được Chụp từng bước.
 
