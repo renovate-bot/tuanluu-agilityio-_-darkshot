@@ -120,6 +120,10 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 94 Chụp cuộn: sửa sau rà soát toàn đợt (thông báo lỗi, pre_translate trong Tùy chọn, chặn Chụp từng bước khi đang chụp cuộn) | task/94-scroll-final-fixes | specialist (agent Task 90) | opus | xong | 25.786 | phiên điều phối đọc báo cáo | 0 | 25.786 |
 | 95 Dọn CLAUDE.md (dòng đợt 9: đã phát hành 0.4.0, câu thừa) | task/95-claude-md-cleanup | phiên chính | opus | xong | không đo | phiên điều phối | 0 | |
 | 96 Gia cố: cửa sổ OCR trên ảnh ghim, ghim ảnh rất cao, undo/redo (đợt 14) | task/96-polish-pin-ocr-undo | specialist | opus | xong | 87.433 | 58.923 (reviewer fable) | 8.623 | 154.979 |
+| 97 OCR nâng cao: lõi (dòng, ghép, chia đoạn, dò trúng), cấu hình, chuỗi (đợt 15) | task/97-ocr-pro-core | builder | sonnet | chờ | | | | |
+| 98 OCR nâng cao: khung dòng từ Windows OCR (đợt 15) | task/98-ocr-pro-engine | specialist | opus | chờ | | | | |
+| 99 OCR nâng cao: cửa sổ hai khung, chọn dòng, công tắc (đợt 15) | task/99-ocr-pro-window | specialist | opus | chờ | | | | |
+| 100 OCR nâng cao: tài liệu, website, demo (đợt 15) | task/100-ocr-pro-docs | scaffolder | sonnet | chờ | | | | |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

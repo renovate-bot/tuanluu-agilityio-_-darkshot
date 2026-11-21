@@ -1,6 +1,6 @@
 # Thiết kế: Nhận dạng chữ nâng cao: chọn dòng trên ảnh (đợt 15 nội bộ)
 
-Ngày: 2026-11-21. Trạng thái: chờ chủ dự án duyệt.
+Ngày: 2026-11-21. Trạng thái: chủ dự án duyệt 2026-11-21.
 
 ## 1. Vì sao
 
