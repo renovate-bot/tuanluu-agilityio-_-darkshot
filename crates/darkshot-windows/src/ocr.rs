@@ -2,13 +2,17 @@
 //! Ảnh chỉ ở bộ nhớ; không ghi tệp, không nhật ký chữ, không mạng.
 
 use std::ffi::c_void;
-use std::sync::Once;
+use std::sync::{Arc, Once};
+use std::time::{Duration, Instant};
 
 use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
-use darkshot_core::ocr_text::{compose_all, map_rect, ocr_scale, OcrLine, TextOptions};
+use darkshot_core::ocr_text::{compose_all, map_rect, ocr_scale, OcrLine, OcrWord, TextOptions};
+use darkshot_core::privacy::{self, text::wipe, Finding, ScanError, ScanReport};
+use windows::core::HSTRING;
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap};
-use windows::Media::Ocr::OcrEngine;
+use windows::Media::Ocr::{OcrEngine, OcrResult as WinOcrResult};
 use windows::Storage::Streams::DataWriter;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{
@@ -116,59 +120,17 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
     let max = OcrEngine::MaxImageDimension().map_err(fail("MaxImageDimension"))?;
     let (w, h) = ocr_scale(image.width, image.height, max).unwrap_or((image.width, image.height));
     let pixels = scale_bgra(&image.bgra, image.width, image.height, w, h);
-    let (Ok(wi), Ok(hi)) = (i32::try_from(w), i32::try_from(h)) else {
-        return Err(OcrError::Failed("image too large".into()));
-    };
-
-    let writer = DataWriter::new().map_err(fail("DataWriter"))?;
-    writer.WriteBytes(&pixels).map_err(fail("WriteBytes"))?;
+    let bitmap = bitmap_from(&pixels, w, h).map_err(fail("SoftwareBitmap"))?;
     drop(pixels);
-    let buffer = writer.DetachBuffer().map_err(fail("DetachBuffer"))?;
-    drop(writer);
-    // OCR nhận Bgra8 (hoặc Gray8); alpha đã là 255 nên Premultiplied đúng nghĩa.
-    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
-        &buffer,
-        BitmapPixelFormat::Bgra8,
-        wi,
-        hi,
-        BitmapAlphaMode::Premultiplied,
-    )
-    .map_err(fail("SoftwareBitmap"))?;
-    drop(buffer);
 
     let result = engine
         .RecognizeAsync(&bitmap)
         .map_err(fail("RecognizeAsync"))?
         .join()
         .map_err(fail("RecognizeAsync.join"))?;
-    let lines = result.Lines().map_err(fail("Lines"))?;
-    let n = lines.Size().map_err(fail("Lines.Size"))?;
-    let mut detail = Vec::with_capacity(n as usize);
-    let mut boxes = Vec::new();
-    for i in 0..n {
-        let line = lines.GetAt(i).map_err(fail("Lines.GetAt"))?;
-        let text = line.Text().map_err(fail("OcrLine.Text"))?.to_string_lossy();
-        if text.trim().is_empty() {
-            continue;
-        }
-        let words = line.Words().map_err(fail("OcrLine.Words"))?;
-        let nw = words.Size().map_err(fail("Words.Size"))?;
-        boxes.clear();
-        for k in 0..nw {
-            let word = words.GetAt(k).map_err(fail("Words.GetAt"))?;
-            let r = word.BoundingRect().map_err(fail("OcrWord.BoundingRect"))?;
-            boxes.push((r.X, r.Y, r.Width, r.Height));
-        }
-        // Dòng không có từ (hay mọi khung hỏng) thì không có khung: bỏ (thiết kế 7b.1).
-        let Some(r) = union_rect(&boxes) else {
-            continue;
-        };
-        detail.push(OcrLine {
-            text,
-            rect: map_rect(r, w, h, image.width, image.height),
-            words: Vec::new(),
-        });
-    }
+    drop(bitmap);
+    let mut detail = Vec::new();
+    read_lines(&result, w, h, image.width, image.height, &mut detail).map_err(fail("Lines"))?;
     let text = compose_all(&detail, TextOptions::default());
 
     let lang = engine
@@ -190,6 +152,79 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         lang_name,
         lines_detail: detail,
     })
+}
+
+/// `SoftwareBitmap` Bgra8 `w×h` từ điểm ảnh BGRA (alpha 255; Premultiplied đúng nghĩa).
+fn bitmap_from(pixels: &[u8], w: u32, h: u32) -> windows::core::Result<SoftwareBitmap> {
+    let (Ok(wi), Ok(hi)) = (i32::try_from(w), i32::try_from(h)) else {
+        return Err(windows::core::Error::empty());
+    };
+    let writer = DataWriter::new()?;
+    writer.WriteBytes(pixels)?;
+    let buffer = writer.DetachBuffer()?;
+    drop(writer);
+    // OCR nhận Bgra8 (hoặc Gray8).
+    SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
+        &buffer,
+        BitmapPixelFormat::Bgra8,
+        wi,
+        hi,
+        BitmapAlphaMode::Premultiplied,
+    )
+}
+
+/// Thêm vào `out` các dòng có chữ của kết quả WinRT, kèm chữ và khung từng từ; khung đổi từ px ảnh
+/// đã đưa vào OCR (`fw×fh`) về px `tw×th`. `OcrLine.rect` = hợp khung từ; dòng không có khung nào
+/// bị bỏ (thiết kế 7b.1). Từ khung hỏng: giữ chữ, khung rỗng. Chữ của dòng bị bỏ được ghi đè.
+fn read_lines(
+    result: &WinOcrResult,
+    fw: u32,
+    fh: u32,
+    tw: u32,
+    th: u32,
+    out: &mut Vec<OcrLine>,
+) -> windows::core::Result<()> {
+    let lines = result.Lines()?;
+    let n = lines.Size()?;
+    out.reserve(n as usize);
+    let mut boxes = Vec::new();
+    for i in 0..n {
+        let line = lines.GetAt(i)?;
+        let mut g = LineGuard(OcrLine {
+            text: hstring_text(&line.Text()?),
+            rect: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
+            words: Vec::new(),
+        });
+        if g.0.text.trim().is_empty() {
+            continue;
+        }
+        let words = line.Words()?;
+        let nw = words.Size()?;
+        g.0.words.reserve_exact(nw as usize);
+        boxes.clear();
+        for k in 0..nw {
+            let word = words.GetAt(k)?;
+            let text = hstring_text(&word.Text()?);
+            let r = word.BoundingRect()?;
+            let b = (r.X, r.Y, r.Width, r.Height);
+            g.0.words.push(OcrWord {
+                text,
+                rect: word_rect(b, fw, fh, tw, th),
+            });
+            boxes.push(b);
+        }
+        let Some(r) = union_rect(&boxes) else {
+            continue;
+        };
+        g.0.rect = map_rect(r, fw, fh, tw, th);
+        out.push(g.take());
+    }
+    Ok(())
 }
 
 /// Hợp các khung `(x, y, rộng, cao)` (f32, px ảnh đã đưa vào OCR): góc trên-trái làm tròn xuống,
@@ -226,10 +261,18 @@ fn union_rect(boxes: &[(f32, f32, f32, f32)]) -> Option<Rect> {
 /// (thu nhỏ = hộp trung bình; phóng to = láng giềng gần nhất). Alpha luôn 255.
 /// Đầu vào sai cỡ → ảnh đích toàn 0 (không panic; `recognize` đã kiểm tra trước).
 pub(crate) fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8> {
+    try_scale_bgra(src, w, h, nw, nh).unwrap_or_else(|| vec![0u8; nw as usize * nh as usize * 4])
+}
+
+/// Như `scale_bgra`, nhưng không cấp được bộ nhớ đích → None (không hủy tiến trình).
+fn try_scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Option<Vec<u8>> {
     let (w, h, nw, nh) = (w as usize, h as usize, nw as usize, nh as usize);
-    let mut out = vec![0u8; nw * nh * 4];
+    let len = nw.checked_mul(nh)?.checked_mul(4)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(len).ok()?;
+    out.resize(len, 0u8);
     if w == 0 || h == 0 || nw == 0 || nh == 0 || src.len() != w * h * 4 {
-        return out;
+        return Some(out);
     }
     if (w, h) == (nw, nh) {
         out.copy_from_slice(src);
@@ -264,11 +307,332 @@ pub(crate) fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8
     for p in out.as_chunks_mut::<4>().0 {
         p[3] = 255;
     }
+    Some(out)
+}
+
+// ---- Privacy Shield: quét OCR theo dải trên luồng nền (Task 128) ----
+
+/// Hai dải liền nhau chồng ít nhất chừng này px (lớn hơn chiều cao dòng thường gặp).
+pub const SCAN_TILE_OVERLAP: u32 = 128;
+/// Thời hạn nhận dạng một dải; quá hạn = cả lượt quét lỗi `Timeout`.
+pub const SCAN_TILE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Giá trị `Windows.Foundation.AsyncStatus` (crate `windows` không tái xuất kiểu này).
+const ASYNC_STARTED: i32 = 0;
+const ASYNC_COMPLETED: i32 = 1;
+
+/// Một dải quét: hàng đầu `y` và chiều cao `h` (px ảnh gốc, cả chiều rộng ảnh).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Tile {
+    pub y: u32,
+    pub h: u32,
+}
+
+/// Cắt chiều cao `height` thành dải ngang cao ≤ `max`: `height ≤ max` → một dải; không thì các dải
+/// cao `max` cách nhau `max - overlap`, dải cuối áp sát đáy (chồng ≥ `overlap` với dải trước).
+/// `max ≤ overlap` (không xảy ra với WinRT) thì bước = nửa `max`. `height == 0` hay `max == 0` → rỗng.
+pub(crate) fn scan_tiles(height: u32, max: u32, overlap: u32) -> Vec<Tile> {
+    if height == 0 || max == 0 {
+        return Vec::new();
+    }
+    if height <= max {
+        return vec![Tile { y: 0, h: height }];
+    }
+    let step = if max > overlap {
+        max - overlap
+    } else {
+        max.div_ceil(2)
+    };
+    let last = height - max;
+    let mut out = Vec::with_capacity(((last / step) + 2) as usize);
+    let mut y = 0u32;
+    while y < last {
+        out.push(Tile { y, h: max });
+        y = y.saturating_add(step);
+    }
+    out.push(Tile { y: last, h: max });
     out
 }
 
-/// Đăng kết quả bằng `PostMessageW`; gửi không được thì tự giải phóng Box. Trả về đã gửi hay chưa.
-fn post_result(hwnd: isize, msg: u32, token: usize, res: Result<OcrResult, OcrError>) -> bool {
+/// Các hàng của dải `t` trong ảnh BGRA rộng `w` (hàng liền nhau nên là một lát cắt, không sao chép).
+fn tile_rows(src: &[u8], w: u32, t: Tile) -> &[u8] {
+    let row = w as usize * 4;
+    &src[t.y as usize * row..(t.y as usize + t.h as usize) * row]
+}
+
+/// Đọc trạng thái thao tác bất đồng bộ tới khi rời `Started` (→ `Some(trạng thái)`) hoặc hết
+/// `timeout` (→ `None`). Ngủ ngắn giữa các lượt đọc (2 ms, tăng dần tới 20 ms).
+fn wait_status(
+    timeout: Duration,
+    mut status: impl FnMut() -> windows::core::Result<i32>,
+) -> Result<Option<i32>, ScanError> {
+    let deadline = Instant::now() + timeout;
+    let mut nap = Duration::from_millis(2);
+    loop {
+        let s = status().map_err(|_| ScanError::Failed)?;
+        if s != ASYNC_STARTED {
+            return Ok(Some(s));
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(None);
+        }
+        std::thread::sleep(nap.min(deadline - now));
+        nap = (nap * 2).min(Duration::from_millis(20));
+    }
+}
+
+/// Khung một từ `(x, y, rộng, cao)` ở px ảnh đưa vào OCR (`fw×fh`) → px ảnh `tw×th`.
+/// Khung hỏng (không hữu hạn, cỡ ≤ 0, rơi ngoài ảnh) → khung rỗng (bộ dò rơi về khung dòng).
+fn word_rect(b: (f32, f32, f32, f32), fw: u32, fh: u32, tw: u32, th: u32) -> Rect {
+    const EMPTY: Rect = Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
+    let (_, _, bw, bh) = b;
+    if !(bw > 0.0 && bh > 0.0) {
+        return EMPTY;
+    }
+    match union_rect(&[b]) {
+        Some(r) if r.w > 0 && r.h > 0 => {
+            let m = map_rect(r, fw, fh, tw, th);
+            if m.w > 0 && m.h > 0 {
+                m
+            } else {
+                EMPTY
+            }
+        }
+        _ => EMPTY,
+    }
+}
+
+/// LPARAM của thông báo tiến độ: `(k << 16) | n`, mỗi số kẹp ở 0xFFFF.
+fn progress_lparam(k: u32, n: u32) -> LPARAM {
+    LPARAM(((k.min(0xFFFF) << 16) | n.min(0xFFFF)) as isize)
+}
+
+/// Chép chữ WinRT sang `String` cấp đủ chỗ một lần (mỗi đơn vị UTF-16 ≤ 3 byte UTF-8), để không
+/// bản sao nào bị bỏ lại khi chuỗi nới ra. Bản HSTRING gốc thuộc WinRT, không ghi đè được.
+fn hstring_text(h: &HSTRING) -> String {
+    let wide: &[u16] = h;
+    let mut s = String::with_capacity(wide.len() * 3);
+    s.extend(char::decode_utf16(wide.iter().copied()).map(|c| c.unwrap_or('\u{FFFD}')));
+    s
+}
+
+/// Ghi đè chữ của dòng và từng từ bằng 0 rồi làm rỗng.
+fn wipe_line(l: &mut OcrLine) {
+    wipe(&mut l.text);
+    for w in &mut l.words {
+        wipe(&mut w.text);
+    }
+}
+
+/// Một dòng đang dựng: chữ bị ghi đè khi thả (bỏ dòng hay lỗi giữa chừng), trừ khi đã `take`.
+struct LineGuard(OcrLine);
+
+impl LineGuard {
+    fn take(mut self) -> OcrLine {
+        std::mem::replace(
+            &mut self.0,
+            OcrLine {
+                text: String::new(),
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    w: 0,
+                    h: 0,
+                },
+                words: Vec::new(),
+            },
+        )
+    }
+}
+
+impl Drop for LineGuard {
+    fn drop(&mut self) {
+        wipe_line(&mut self.0);
+    }
+}
+
+/// Các dòng OCR của một dải; mọi chữ bị ghi đè khi thả, trên mọi đường đi.
+struct ScanLines(Vec<OcrLine>);
+
+impl Drop for ScanLines {
+    fn drop(&mut self) {
+        for l in &mut self.0 {
+            wipe_line(l);
+        }
+    }
+}
+
+/// Bộ nhận dạng của lượt quét: `en-US` nếu Windows có, không thì ngôn ngữ hồ sơ; không có → NoLanguage.
+fn scan_engine() -> Result<OcrEngine, ScanError> {
+    if let Some(e) = english_engine() {
+        return Ok(e);
+    }
+    OcrEngine::TryCreateFromUserProfileLanguages().map_err(|_| ScanError::NoLanguage)
+}
+
+fn english_engine() -> Option<OcrEngine> {
+    let lang = Language::CreateLanguage(&HSTRING::from("en-US")).ok()?;
+    if !OcrEngine::IsLanguageSupported(&lang).ok()? {
+        return None;
+    }
+    OcrEngine::TryCreateFromLanguage(&lang).ok()
+}
+
+/// Mọi điểm có alpha 255 (khi đó gửi thẳng điểm ảnh gốc cho OCR, không cần bản sao).
+fn opaque(bgra: &[u8]) -> bool {
+    bgra.as_chunks::<4>().0.iter().all(|p| p[3] == 255)
+}
+
+/// Nhận dạng một dải (px gốc), trả các dòng có khung ở px của dải. Một dải trong bộ nhớ một lúc.
+fn recognize_tile(
+    engine: &OcrEngine,
+    image: &Image,
+    t: Tile,
+    max: u32,
+) -> Result<ScanLines, ScanError> {
+    let w = image.width;
+    let src = tile_rows(&image.bgra, w, t);
+    let (ow, oh) = ocr_scale(w, t.h, max).unwrap_or((w, t.h));
+    let bitmap = if (ow, oh) == (w, t.h) && opaque(src) {
+        bitmap_from(src, ow, oh)
+    } else {
+        let px = try_scale_bgra(src, w, t.h, ow, oh).ok_or(ScanError::TooLarge)?;
+        bitmap_from(&px, ow, oh)
+    }
+    .map_err(|_| ScanError::Failed)?;
+
+    let op = engine
+        .RecognizeAsync(&bitmap)
+        .map_err(|_| ScanError::Failed)?;
+    match wait_status(SCAN_TILE_TIMEOUT, || op.Status().map(|s| s.0)) {
+        Ok(Some(ASYNC_COMPLETED)) => {}
+        Ok(Some(_)) => return Err(ScanError::Failed),
+        Ok(None) => {
+            // Hết hạn: xin hủy (tốt nhất có thể); kết quả muộn không ai đọc.
+            let _ = op.Cancel();
+            return Err(ScanError::Timeout);
+        }
+        Err(e) => {
+            let _ = op.Cancel();
+            return Err(e);
+        }
+    }
+    let result = op.GetResults().map_err(|_| ScanError::Failed)?;
+    drop(op);
+    drop(bitmap);
+    let mut lines = ScanLines(Vec::new());
+    read_lines(&result, ow, oh, w, t.h, &mut lines.0).map_err(|_| ScanError::Failed)?;
+    Ok(lines)
+}
+
+/// Quét trên luồng hiện tại (đã ở MTA): OCR từng dải, dò, dịch tọa độ, gộp. Chữ OCR chỉ sống
+/// trong `ScanLines` của từng dải và bị ghi đè trước khi sang dải sau.
+fn scan_in_mta(
+    image: &Image,
+    t0: Instant,
+    progress: impl Fn(u32, u32),
+) -> Result<ScanReport, ScanError> {
+    let engine = scan_engine()?;
+    let max = OcrEngine::MaxImageDimension().map_err(|_| ScanError::Failed)?;
+    let tiles = scan_tiles(image.height, max, SCAN_TILE_OVERLAP);
+    if tiles.is_empty() {
+        return Err(ScanError::Failed);
+    }
+    let n = u32::try_from(tiles.len()).map_err(|_| ScanError::TooLarge)?;
+    if i32::try_from(image.height).is_err() {
+        return Err(ScanError::TooLarge);
+    }
+    let mut findings: Vec<Finding> = Vec::new();
+    for (k, &t) in tiles.iter().enumerate() {
+        progress(k as u32 + 1, n);
+        let lines = recognize_tile(&engine, image, t, max)?;
+        let found = privacy::detect(&lines.0);
+        drop(lines);
+        privacy::merge_tile(&mut findings, found, t.y as i32);
+    }
+    Ok(ScanReport {
+        findings,
+        tiles: n,
+        elapsed_ms: u32::try_from(t0.elapsed().as_millis()).unwrap_or(u32::MAX),
+    })
+}
+
+/// Đồng bộ, chỉ gọi trên luồng nền (tự vào/ra MTA). `progress(k, n)` trước dải thứ k (từ 1).
+fn scan(image: &Image, progress: impl Fn(u32, u32)) -> Result<ScanReport, ScanError> {
+    let t0 = Instant::now();
+    if !image.is_valid() {
+        return Err(ScanError::Failed);
+    }
+    let _apartment = Mta::enter().map_err(|_| ScanError::Failed)?;
+    // Mọi đối tượng WinRT sống trong hàm dưới và đã được nhả trước khi `_apartment` hủy apartment.
+    scan_in_mta(image, t0, progress)
+}
+
+/// Tạo luồng `darkshot-ocr`, quét ảnh: OCR (en-US nếu có, không thì hồ sơ) theo dải, `privacy::detect`
+/// trên luồng nền, gửi `Box<Result<ScanReport, ScanError>>` tới `hwnd` bằng `msg` (WPARAM = token).
+/// Chữ OCR không bao giờ rời luồng nền. Không tạo được luồng → Err.
+#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
+pub fn start_scan(image: Arc<Image>, hwnd: HWND, msg: u32, token: usize) -> Result<(), String> {
+    start_scan_with_progress(image, hwnd, msg, None, token)
+}
+
+/// Như `start_scan`, thêm thông báo tiến độ: nếu có `progress_msg`, trước mỗi dải gửi
+/// `PostMessage(hwnd, progress_msg, token, (k << 16) | n)` (k từ 1; không có Box, không cần giải phóng).
+#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
+pub fn start_scan_with_progress(
+    image: Arc<Image>,
+    hwnd: HWND,
+    msg: u32,
+    progress_msg: Option<u32>,
+    token: usize,
+) -> Result<(), String> {
+    // HWND không Send; chuyển sang luồng nền dưới dạng số.
+    let target = hwnd.0 as isize;
+    std::thread::Builder::new()
+        .name("darkshot-ocr".into())
+        .spawn(move || {
+            let res = scan(&image, |k, n| {
+                if let Some(pm) = progress_msg {
+                    post_progress(target, pm, token, k, n);
+                }
+            });
+            drop(image);
+            post_box(target, msg, token, res);
+        })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Bên nhận lấy lại quyền sở hữu: gọi đúng một lần cho mỗi thông điệp kết quả nhận được.
+///
+/// # Safety
+/// `lp` phải là LPARAM của một thông điệp kết quả do `start_scan` gửi và chưa được lấy lần nào.
+#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
+pub unsafe fn take_scan_result(lp: LPARAM) -> Box<Result<ScanReport, ScanError>> {
+    // SAFETY: theo hợp đồng của hàm, `lp` là con trỏ Box do `start_scan` tạo, chưa ai lấy lại.
+    unsafe { Box::from_raw(lp.0 as *mut Result<ScanReport, ScanError>) }
+}
+
+fn post_progress(hwnd: isize, msg: u32, token: usize, k: u32, n: u32) {
+    // SAFETY: PostMessageW an toàn từ luồng bất kỳ; LPARAM chỉ là số, không có tài nguyên nào.
+    let _ = unsafe {
+        PostMessageW(
+            Some(HWND(hwnd as *mut c_void)),
+            msg,
+            WPARAM(token),
+            progress_lparam(k, n),
+        )
+    };
+}
+
+/// Đăng `Box<T>` bằng `PostMessageW`; gửi không được thì tự giải phóng Box. Trả về đã gửi hay chưa.
+fn post_box<T>(hwnd: isize, msg: u32, token: usize, res: T) -> bool {
     let p = Box::into_raw(Box::new(res));
     // SAFETY: PostMessageW an toàn từ luồng bất kỳ; khi thất bại không ai nhận con trỏ nên lấy lại.
     unsafe {
@@ -284,6 +648,11 @@ fn post_result(hwnd: isize, msg: u32, token: usize, res: Result<OcrResult, OcrEr
         }
         ok
     }
+}
+
+/// Đăng kết quả nhận dạng (cửa sổ OCR); gửi không được thì tự giải phóng Box.
+fn post_result(hwnd: isize, msg: u32, token: usize, res: Result<OcrResult, OcrError>) -> bool {
+    post_box(hwnd, msg, token, res)
 }
 
 #[cfg(test)]
@@ -750,5 +1119,615 @@ pub(crate) mod tests {
             Err(OcrError::NoLanguage) => println!("NoLanguage: may khong co goi OCR"),
             Err(e) => panic!("{e:?}"),
         }
+    }
+
+    // ---- Privacy Shield: quét theo dải (Task 128) ----
+
+    use darkshot_core::privacy::{Category, ScanError, ScanReport};
+    use std::sync::Arc;
+
+    /// Bất biến của bộ cắt dải: phủ kín [0, h), mỗi dải ≤ max, dải đầu ở 0, dải cuối chạm đáy,
+    /// y tăng ngặt, hai dải liền nhau chồng ít nhất `overlap` (khi max > overlap).
+    fn check_tiles(h: u32, max: u32, overlap: u32) -> Vec<Tile> {
+        let t = scan_tiles(h, max, overlap);
+        assert!(!t.is_empty(), "h={h} max={max}");
+        assert_eq!(t[0].y, 0);
+        let last = t[t.len() - 1];
+        assert_eq!(last.y + last.h, h, "last tile must end at the bottom");
+        for x in &t {
+            assert!(x.h >= 1 && x.h <= max, "{x:?} max={max}");
+            assert!(x.y + x.h <= h);
+        }
+        for p in t.windows(2) {
+            assert!(p[1].y > p[0].y, "{p:?}");
+            // phủ kín: dải sau bắt đầu trước khi dải trước kết thúc
+            assert!(p[1].y < p[0].y + p[0].h, "gap {p:?}");
+            if max > overlap {
+                assert!(p[0].y + p[0].h - p[1].y >= overlap, "overlap {p:?}");
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn scan_tiles_single_when_fits() {
+        assert_eq!(scan_tiles(1080, 10_000, 128), vec![Tile { y: 0, h: 1080 }]);
+        // đúng max: vẫn một dải
+        assert_eq!(
+            scan_tiles(10_000, 10_000, 128),
+            vec![Tile { y: 0, h: 10_000 }]
+        );
+        assert_eq!(scan_tiles(1, 10_000, 128), vec![Tile { y: 0, h: 1 }]);
+        assert!(scan_tiles(0, 10_000, 128).is_empty());
+        assert!(scan_tiles(100, 0, 128).is_empty());
+    }
+
+    #[test]
+    fn scan_tiles_max_plus_one() {
+        let t = check_tiles(10_001, 10_000, 128);
+        assert_eq!(t, vec![Tile { y: 0, h: 10_000 }, Tile { y: 1, h: 10_000 }]);
+    }
+
+    #[test]
+    fn scan_tiles_three_max_plus_one() {
+        let t = check_tiles(30_001, 10_000, 128);
+        // bước 9872; dải cuối áp sát đáy (30001 - 10000 = 20001).
+        assert_eq!(
+            t,
+            vec![
+                Tile { y: 0, h: 10_000 },
+                Tile {
+                    y: 9_872,
+                    h: 10_000
+                },
+                Tile {
+                    y: 19_744,
+                    h: 10_000
+                },
+                Tile {
+                    y: 20_001,
+                    h: 10_000
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn scan_tiles_exact_steps() {
+        // 10000 + 9872 = 19872: hai dải, không có dải thứ ba thừa.
+        let t = check_tiles(19_872, 10_000, 128);
+        assert_eq!(
+            t,
+            vec![
+                Tile { y: 0, h: 10_000 },
+                Tile {
+                    y: 9_872,
+                    h: 10_000
+                }
+            ]
+        );
+        let t = check_tiles(19_873, 10_000, 128);
+        assert_eq!(t.len(), 3);
+    }
+
+    #[test]
+    fn scan_tiles_invariants_many_heights() {
+        for h in 1..2_000 {
+            check_tiles(h, 300, 128);
+        }
+        for h in [20_000, 30_000, 99_999, 1_000_000] {
+            check_tiles(h, 10_000, 128);
+        }
+        // max ≤ overlap (không xảy ra với WinRT): vẫn dừng và phủ kín.
+        for h in [1, 99, 100, 101, 1_000] {
+            check_tiles(h, 100, 128);
+            check_tiles(h, 128, 128);
+        }
+    }
+
+    #[test]
+    fn tile_rows_are_the_tile_slice() {
+        // ảnh 2×5: hàng y có mọi byte = y
+        let w = 2u32;
+        let mut src = Vec::new();
+        for y in 0..5u8 {
+            src.extend(std::iter::repeat_n(y, (w * 4) as usize));
+        }
+        let r = tile_rows(&src, w, Tile { y: 1, h: 3 });
+        assert_eq!(r.len(), 3 * 8);
+        assert!(r[..8].iter().all(|&b| b == 1));
+        assert!(r[16..].iter().all(|&b| b == 3));
+        assert_eq!(tile_rows(&src, w, Tile { y: 0, h: 5 }).len(), src.len());
+    }
+
+    #[test]
+    fn wide_tile_is_shrunk_and_maps_back() {
+        // Chiều rộng > max: dải co theo tỉ lệ như `ocr_scale`; khung về lại px gốc trong ảnh.
+        let (ow, oh) = ocr_scale(12_000, 10_000, 10_000).unwrap();
+        assert_eq!((ow, oh), (10_000, 8_333));
+        let r = word_rect((9_990.0, 8_300.0, 10.0, 33.0), ow, oh, 12_000, 10_000);
+        assert!(r.w > 0 && r.h > 0, "{r:?}");
+        assert!(r.x + r.w <= 12_000 && r.y + r.h <= 10_000, "{r:?}");
+        assert!(r.x >= 11_980, "{r:?}");
+    }
+
+    #[test]
+    fn word_rect_maps_and_rejects_broken_boxes() {
+        assert_eq!(
+            word_rect((10.0, 20.0, 30.0, 8.0), 100, 100, 100, 100),
+            Rect {
+                x: 10,
+                y: 20,
+                w: 30,
+                h: 8
+            }
+        );
+        // ảnh đã phóng 2×: về px gốc, làm tròn ra ngoài
+        assert_eq!(
+            word_rect((11.0, 20.0, 30.0, 9.0), 200, 200, 100, 100),
+            Rect {
+                x: 5,
+                y: 10,
+                w: 16,
+                h: 5
+            }
+        );
+        let zero = Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        };
+        assert_eq!(
+            word_rect((f32::NAN, 0.0, 5.0, 5.0), 100, 100, 100, 100),
+            zero
+        );
+        assert_eq!(
+            word_rect((1.0, 1.0, f32::INFINITY, 5.0), 100, 100, 100, 100),
+            zero
+        );
+        assert_eq!(word_rect((1.0, 1.0, -4.0, 5.0), 100, 100, 100, 100), zero);
+        assert_eq!(word_rect((1.0, 1.0, 5.0, 0.0), 100, 100, 100, 100), zero);
+        // nằm ngoài ảnh hoàn toàn: kẹp thành rỗng
+        assert_eq!(word_rect((500.0, 1.0, 5.0, 5.0), 100, 100, 100, 100), zero);
+    }
+
+    #[test]
+    fn word_rects_inside_line_rect_after_mapping() {
+        let boxes = [
+            (10.3, 20.7, 50.2, 30.1),
+            (70.9, 18.2, 40.0, 33.3),
+            (120.0, 21.0, 0.0, 30.0),
+        ];
+        for (fw, fh, tw, th) in [
+            (800, 72, 400, 36),
+            (1000, 500, 1000, 500),
+            (833, 1000, 1000, 1200),
+        ] {
+            let line = map_rect(union_rect(&boxes).unwrap(), fw, fh, tw, th);
+            for b in boxes {
+                let r = word_rect(b, fw, fh, tw, th);
+                if r.w == 0 {
+                    continue;
+                }
+                assert!(
+                    r.x >= line.x
+                        && r.y >= line.y
+                        && r.x + r.w <= line.x + line.w
+                        && r.y + r.h <= line.y + line.h,
+                    "{r:?} not in {line:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wait_status_finishes_and_times_out() {
+        // Xong ngay
+        assert_eq!(wait_status(Duration::from_secs(1), || Ok(1)), Ok(Some(1)));
+        // Xong sau vài lượt đọc
+        let mut n = 0;
+        let got = wait_status(Duration::from_secs(5), || {
+            n += 1;
+            Ok(if n < 4 { 0 } else { 3 })
+        });
+        assert_eq!(got, Ok(Some(3)));
+        assert_eq!(n, 4);
+        // Không bao giờ xong: hết hạn, không treo
+        let t0 = Instant::now();
+        assert_eq!(wait_status(Duration::from_millis(60), || Ok(0)), Ok(None));
+        let el = t0.elapsed();
+        assert!(el >= Duration::from_millis(60), "{el:?}");
+        assert!(el < Duration::from_secs(2), "{el:?}");
+        // Lỗi đọc trạng thái → Failed (không mang mã lỗi)
+        assert_eq!(
+            wait_status(
+                Duration::from_secs(1),
+                || Err(windows::core::Error::empty())
+            ),
+            Err(ScanError::Failed)
+        );
+    }
+
+    #[test]
+    fn progress_lparam_packs_k_and_n() {
+        assert_eq!(progress_lparam(1, 3), LPARAM((1 << 16) | 3));
+        assert_eq!(progress_lparam(3, 3), LPARAM((3 << 16) | 3));
+        assert_eq!(
+            progress_lparam(70_000, 80_000),
+            LPARAM((0xFFFF << 16) | 0xFFFF)
+        );
+    }
+
+    #[test]
+    fn hstring_text_decodes_without_regrowth() {
+        let h = windows::core::HSTRING::from("ab\u{00e9}\u{1F600}");
+        let s = hstring_text(&h);
+        assert_eq!(s, "ab\u{00e9}\u{1F600}");
+        // đủ chỗ ngay từ đầu (mỗi đơn vị UTF-16 ≤ 3 byte UTF-8): không bản sao cũ nào bị bỏ lại
+        assert!(s.capacity() >= h.len() * 3);
+        assert_eq!(hstring_text(&windows::core::HSTRING::new()), "");
+    }
+
+    #[test]
+    fn wipe_line_clears_line_and_word_text() {
+        let rect = Rect {
+            x: 1,
+            y: 1,
+            w: 1,
+            h: 1,
+        };
+        let mut l = OcrLine {
+            text: "secret words".into(),
+            rect,
+            words: vec![
+                darkshot_core::ocr_text::OcrWord {
+                    text: "secret".into(),
+                    rect,
+                },
+                darkshot_core::ocr_text::OcrWord {
+                    text: "words".into(),
+                    rect,
+                },
+            ],
+        };
+        wipe_line(&mut l);
+        assert!(l.text.is_empty());
+        assert!(l.words.iter().all(|w| w.text.is_empty()));
+    }
+
+    #[test]
+    fn scan_rejects_invalid_image() {
+        let img = Image {
+            width: 2,
+            height: 2,
+            bgra: vec![0; 3],
+        };
+        assert_eq!(scan(&img, |_, _| {}), Err(ScanError::Failed));
+    }
+
+    #[test]
+    fn scan_result_box_delivered_once_and_freed_on_failure() {
+        let w = MsgWindow::new();
+        let raw = w.0 .0 as isize;
+        let rep: Result<ScanReport, ScanError> = Ok(ScanReport {
+            findings: Vec::new(),
+            tiles: 2,
+            elapsed_ms: 5,
+        });
+        assert!(post_box(raw, WM_APP + 21, 9, rep.clone()));
+        let mut m = MSG::default();
+        // SAFETY: lấy thông điệp của cửa sổ do luồng này tạo.
+        let got = unsafe { PeekMessageW(&mut m, Some(w.0), WM_APP + 21, WM_APP + 21, PM_REMOVE) };
+        assert!(got.as_bool());
+        assert_eq!(m.wParam, WPARAM(9));
+        // SAFETY: thông điệp vừa nhận do post_box gửi kiểu này, lấy đúng một lần.
+        let b = unsafe { take_scan_result(m.lParam) };
+        assert_eq!(*b, rep);
+        drop(w);
+        let e: Result<ScanReport, ScanError> = Err(ScanError::Timeout);
+        assert!(!post_box(raw, WM_APP + 21, 9, e));
+    }
+
+    #[test]
+    fn start_scan_invalid_image_posts_failed() {
+        let w = MsgWindow::new();
+        let msg = WM_APP + 22;
+        let img = Arc::new(Image {
+            width: 3,
+            height: 3,
+            bgra: vec![0; 5],
+        });
+        start_scan(img, w.0, msg, 5).expect("start_scan");
+        let b = wait_scan(&w, msg, None, Duration::from_secs(10)).0;
+        assert_eq!(*b.expect("no result"), Err(ScanError::Failed));
+    }
+
+    type ScanBox = Box<Result<ScanReport, ScanError>>;
+
+    /// Chờ kết quả quét (và gom thông báo tiến độ nếu có) trên cửa sổ thông điệp `w`.
+    fn wait_scan(
+        w: &MsgWindow,
+        msg: u32,
+        progress: Option<u32>,
+        limit: Duration,
+    ) -> (Option<ScanBox>, Vec<(u32, u32)>) {
+        let mut m = MSG::default();
+        let deadline = Instant::now() + limit;
+        let mut steps = Vec::new();
+        while Instant::now() < deadline {
+            if let Some(pm) = progress {
+                // SAFETY: thông điệp tiến độ của cửa sổ do luồng này tạo (không có Box).
+                while unsafe { PeekMessageW(&mut m, Some(w.0), pm, pm, PM_REMOVE) }.as_bool() {
+                    let v = m.lParam.0 as u32;
+                    steps.push((v >> 16, v & 0xFFFF));
+                }
+            }
+            // SAFETY: lấy thông điệp của cửa sổ do luồng này tạo.
+            if unsafe { PeekMessageW(&mut m, Some(w.0), msg, msg, PM_REMOVE) }.as_bool() {
+                // SAFETY: thông điệp do `start_scan` gửi, lấy đúng một lần.
+                let b = unsafe { take_scan_result(m.lParam) };
+                if let Some(pm) = progress {
+                    // SAFETY: như trên.
+                    while unsafe { PeekMessageW(&mut m, Some(w.0), pm, pm, PM_REMOVE) }.as_bool() {
+                        let v = m.lParam.0 as u32;
+                        steps.push((v >> 16, v & 0xFFFF));
+                    }
+                }
+                return (Some(b), steps);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        (None, steps)
+    }
+
+    /// `MaxImageDimension` và thẻ ngôn ngữ engine quét chọn, đọc trên luồng MTA riêng.
+    fn engine_info() -> Option<(u32, String)> {
+        std::thread::spawn(|| {
+            let _m = Mta::enter().ok()?;
+            let max = OcrEngine::MaxImageDimension().ok()?;
+            let e = scan_engine().ok()?;
+            let tag = e
+                .RecognizerLanguage()
+                .ok()?
+                .LanguageTag()
+                .ok()?
+                .to_string_lossy();
+            Some((max, tag))
+        })
+        .join()
+        .unwrap()
+    }
+
+    fn in_image(r: Rect, w: u32, h: u32) -> bool {
+        r.w > 0 && r.h > 0 && r.x >= 0 && r.y >= 0 && r.x + r.w <= w as i32 && r.y + r.h <= h as i32
+    }
+
+    /// Tâm dọc của khung đã vẽ `d` nằm trong khung `r` (nới `tol`).
+    fn covers_row(r: Rect, d: &RECT, tol: i32) -> bool {
+        let cy = (d.top + d.bottom) / 2;
+        cy >= r.y - tol && cy <= r.y + r.h + tol
+    }
+
+    fn run_scan(img: Image, limit: Duration) -> (Result<ScanReport, ScanError>, Vec<(u32, u32)>) {
+        let w = MsgWindow::new();
+        let (msg, pm) = (WM_APP + 23, WM_APP + 24);
+        start_scan_with_progress(Arc::new(img), w.0, msg, Some(pm), 3).expect("start_scan");
+        let (b, steps) = wait_scan(&w, msg, Some(pm), limit);
+        (*b.expect("no scan result in time"), steps)
+    }
+
+    // Chạy tay (máy có OCR), bản release:
+    // cargo test --release -p darkshot-windows ocr::tests::manual_scan -- --ignored --nocapture --test-threads=1
+    #[test]
+    #[ignore]
+    fn manual_scan_word_boxes_inside_line_boxes() {
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(
+                900,
+                200,
+                32,
+                &[
+                    ("Alpha bravo charlie delta", 60),
+                    ("echo foxtrot 12345", 140),
+                ],
+            )
+        };
+        match recognize(&img) {
+            Ok(r) => {
+                assert_eq!(r.lines_detail.len(), 2, "{:?}", r.lines_detail);
+                for l in &r.lines_detail {
+                    assert!(l.words.len() >= 3, "{l:?}");
+                    for wd in &l.words {
+                        assert!(!wd.text.is_empty());
+                        assert!(in_image(wd.rect, img.width, img.height), "{wd:?}");
+                        let (lr, wr) = (l.rect, wd.rect);
+                        assert!(
+                            wr.x >= lr.x
+                                && wr.y >= lr.y
+                                && wr.x + wr.w <= lr.x + lr.w
+                                && wr.y + wr.h <= lr.y + lr.h,
+                            "{wd:?} not in {l:?}"
+                        );
+                    }
+                }
+            }
+            Err(OcrError::NoLanguage) => println!("NoLanguage: may khong co goi OCR"),
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_scan_finds_email_and_key() {
+        let Some((max, tag)) = engine_info() else {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        };
+        println!("MaxImageDimension={max} scan language={tag}");
+        // Không có chữ "I": phông Segoe UI làm OCR đọc "I" hoa thành "l" thường (ghi trong báo cáo).
+        let key = concat!("AKIA", "TESTKEYZ", "7EXAMPLE");
+        let key_line = format!("aws id {key}");
+        let wanted = [("Contact: user@example.com", 80), (key_line.as_str(), 200)];
+        let (img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1200, 300, 32, &wanted)
+        };
+        let (w, h) = (img.width, img.height);
+        let (res, steps) = run_scan(img, Duration::from_secs(60));
+        let rep = res.expect("scan");
+        println!(
+            "tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
+        assert_eq!(rep.tiles, 1);
+        assert_eq!(steps, vec![(1, 1)]);
+        let dbg = format!("{rep:?}");
+        assert!(
+            !dbg.contains("example") && !dbg.contains("AKIA"),
+            "text leaked"
+        );
+        let email: Vec<_> = rep
+            .findings
+            .iter()
+            .filter(|f| f.category == Category::Email)
+            .collect();
+        let api: Vec<_> = rep
+            .findings
+            .iter()
+            .filter(|f| f.category == Category::ApiKey)
+            .collect();
+        assert_eq!(email.len(), 1, "{:?}", rep.findings);
+        assert_eq!(api.len(), 1, "{:?}", rep.findings);
+        for f in &rep.findings {
+            for &r in &f.rects {
+                assert!(in_image(r, w, h), "{r:?}");
+            }
+        }
+        assert!(email[0].rects.iter().all(|&r| covers_row(r, &drawn[0], 4)));
+        assert!(api[0].rects.iter().all(|&r| covers_row(r, &drawn[1], 4)));
+        // Khung email không phủ chữ "Contact:" bên trái (khung từ, không khung dòng).
+        assert!(
+            email[0].rects.iter().all(|r| r.x > drawn[0].left + 40),
+            "{:?}",
+            email[0]
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_scan_tall_image_every_tile() {
+        let Some((max, tag)) = engine_info() else {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        };
+        let h = 3 * max;
+        let tiles = scan_tiles(h, max, SCAN_TILE_OVERLAP);
+        println!("MaxImageDimension={max} lang={tag} h={h} tiles={tiles:?}");
+        assert!(tiles.len() >= 3);
+        // Một email gần đầu mỗi dải, cộng một email nằm trọn trong vùng chồng dải 1/2.
+        let texts = [
+            "alice@example.com",
+            "bobby@example.org",
+            "carol@example.net",
+            "david@example.com",
+            "erika@example.org",
+            "frank@example.net",
+        ];
+        let mut rows: Vec<i32> = tiles.iter().map(|t| (t.y + 300) as i32).collect();
+        rows.push((tiles[1].y + SCAN_TILE_OVERLAP / 2) as i32);
+        rows.sort_unstable();
+        rows.dedup_by(|a, b| (*a - *b).abs() < 150);
+        let lines: Vec<(&str, i32)> = texts.iter().copied().zip(rows.iter().copied()).collect();
+        assert_eq!(lines.len(), rows.len());
+        let (img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1000, h as i32, 32, &lines)
+        };
+        let (iw, ih) = (img.width, img.height);
+        let (res, steps) = run_scan(img, Duration::from_secs(300));
+        let rep = res.expect("scan");
+        println!(
+            "tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
+        assert_eq!(rep.tiles as usize, tiles.len());
+        let n = tiles.len() as u32;
+        assert_eq!(steps, (1..=n).map(|k| (k, n)).collect::<Vec<_>>());
+        let email: Vec<_> = rep
+            .findings
+            .iter()
+            .filter(|f| f.category == Category::Email)
+            .collect();
+        assert_eq!(email.len(), lines.len(), "{:?}", rep.findings);
+        for d in &drawn {
+            let hits = email
+                .iter()
+                .filter(|f| f.rects.iter().any(|&r| covers_row(r, d, 4)))
+                .count();
+            assert_eq!(hits, 1, "line at {d:?}: {:?}", rep.findings);
+        }
+        for f in &rep.findings {
+            for &r in &f.rects {
+                assert!(in_image(r, iw, ih), "{r:?}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_scan_timing() {
+        let Some((max, tag)) = engine_info() else {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        };
+        println!("MaxImageDimension={max} scan language={tag}");
+        let fhd: Vec<(String, i32)> = (0..12)
+            .map(|i| {
+                (
+                    format!("Row {i} contact user{i}@example.com phone 0912 345 67{i}"),
+                    60 + i * 85,
+                )
+            })
+            .collect();
+        let refs: Vec<(&str, i32)> = fhd.iter().map(|(s, y)| (s.as_str(), *y)).collect();
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1920, 1080, 24, &refs)
+        };
+        let (res, _) = run_scan(img, Duration::from_secs(120));
+        let rep = res.expect("scan 1920x1080");
+        println!(
+            "1920x1080: tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
+        let tall: Vec<(String, i32)> = (0..10)
+            .map(|i| {
+                (
+                    format!("Item {i} mail user{i}@example.com"),
+                    1_000 + i * 2_000,
+                )
+            })
+            .collect();
+        let refs: Vec<(&str, i32)> = tall.iter().map(|(s, y)| (s.as_str(), *y)).collect();
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1000, 20_000, 24, &refs)
+        };
+        let (res, _) = run_scan(img, Duration::from_secs(300));
+        let rep = res.expect("scan 1000x20000");
+        println!(
+            "1000x20000: tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
     }
 }
