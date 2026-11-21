@@ -163,14 +163,16 @@ fn bitmap_from(pixels: &[u8], w: u32, h: u32) -> windows::core::Result<SoftwareB
     writer.WriteBytes(pixels)?;
     let buffer = writer.DetachBuffer()?;
     drop(writer);
-    // OCR nhận Bgra8 (hoặc Gray8).
-    SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
+    // OCR nhận Bgra8 (hoặc Gray8). Bitmap là bản sao: thả bộ đệm ngay sau khi tạo.
+    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
         &buffer,
         BitmapPixelFormat::Bgra8,
         wi,
         hi,
         BitmapAlphaMode::Premultiplied,
-    )
+    );
+    drop(buffer);
+    bitmap
 }
 
 /// Thêm vào `out` các dòng có chữ của kết quả WinRT, kèm chữ và khung từng từ; khung đổi từ px ảnh
@@ -209,8 +211,9 @@ fn read_lines(
         boxes.clear();
         for k in 0..nw {
             let word = words.GetAt(k)?;
-            let text = hstring_text(&word.Text()?);
+            // Khung đọc trước chữ: lỗi `BoundingRect()` không để lại chữ từ chưa ghi đè.
             let r = word.BoundingRect()?;
+            let text = hstring_text(&word.Text()?);
             let b = (r.X, r.Y, r.Width, r.Height);
             g.0.words.push(OcrWord {
                 text,
