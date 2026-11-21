@@ -586,3 +586,23 @@ Chạy `powershell -File scripts/demo-ocr.ps1 -Exe <đường dẫn exe>`: file 
 - [ ] DPI 100%, 150%, 200%: khung dòng khớp chữ, bấm trúng đúng dòng.
 - [ ] Không có mạng: vẫn nhận dạng được; không ghi tệp, không vào Lịch sử.
 
+
+## Đợt 20: Ghi GIF
+
+Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và ngày vào cuối dòng khi đã thử.
+
+- [ ] Vùng nhỏ (khoảng 300×200): nút Ghi GIF (Ctrl+G) nằm giữa Chụp cuộn và Hủy; ghi và Dừng ra một tệp `darkshot_….gif` mở được, đúng kích thước vùng.
+- [ ] Cửa sổ chuyển động (video hoặc hoạt ảnh): GIF phát mượt theo thời gian thật, không nhanh hay chậm bất thường.
+- [ ] GIF lặp liên tục: mở trong trình duyệt, phát hết rồi tự lặp lại, không dừng ở khung cuối.
+- [ ] Thanh ghi và khung viền không có trong GIF (Windows 11 và Windows 10 từ bản 2004); Windows 10 trước 2004 (nếu có): không có khung, thanh đặt ngoài vùng. Thanh không lấy tiêu điểm.
+- [ ] Dừng: lưu tệp và hiện "Đã lưu GIF" kèm đường dẫn (tắt công tắc thông báo thì không hiện). Hủy: không tạo tệp, không thông báo, không còn tệp `.part`.
+- [ ] Tối đa 15 giây: để ghi đến hết, tự dừng ở 15 giây, lưu tệp và có thông báo; đồng hồ hiện "00:15 / 00:15".
+- [ ] Nhiều màn hình: vùng trên màn phụ ghi đúng nội dung, thanh ghi hiện trên đúng màn.
+- [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): ghi đúng vùng trên màn đó.
+- [ ] DPI hỗn hợp (màn chính 100%, màn phụ 150% hoặc ngược lại) và DPI 100%, 150%, 200%: kích thước và độ nét đúng; vùng lớn (4K) được thu nhỏ còn khoảng 942×530 giữ tỉ lệ.
+- [ ] Vùng chọn gần kín màn hình hoặc chồng lên chỗ thanh ghi: thanh đặt chỗ khác hoặc hiện "Không có chỗ cho thanh ghi GIF"; thanh không lọt vào GIF.
+- [ ] Phím chụp trong lúc ghi: PrintScreen, Shift+PrintScreen, Ctrl+PrintScreen, Chụp lại vùng trước, mục Chụp của khay và Chụp từng bước không làm gì (hoặc hiện thông báo đang ghi), phiên ghi không bị ảnh hưởng.
+- [ ] Thoát ứng dụng (menu khay) hoặc tắt máy trong lúc ghi: phần đã ghi được lưu thành GIF hợp lệ, không sót tệp `.part`, thoát trong khoảng 4 giây.
+- [ ] Ghi nhiều lần liên tiếp (10 lần): mỗi lần ra một tệp riêng, không rò bộ nhớ hay cửa sổ, lần sau không bị ảnh hưởng bởi lần trước.
+- [ ] Trùng tên tệp (ghi hai lần trong cùng một giây, hoặc tạo sẵn tệp cùng tên): tệp mới có hậu tố `_2`, `_3`…, tệp cũ không bị ghi đè. Tệp `.darkshot-rec-….gif.part` sót (giả lập bằng cách giết tiến trình) được dọn ở lần khởi động sau.
+- [ ] Hồi quy: chụp (lưu, chép, tải lên), đánh dấu, chụp cuộn, chụp từng bước, nhận dạng chữ, Lịch sử và ghim vẫn chạy đúng; GIF không vào Lịch sử, không tải lên R2, không đổi "lần chụp trước"; English và Tiếng Việt đều đủ chữ, không cắt.
