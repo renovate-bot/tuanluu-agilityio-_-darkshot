@@ -557,3 +557,10 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe targe
 - [ ] Hình đánh dấu đã vẽ: ảnh chụp cuộn không có nét đánh dấu nào.
 - [ ] Tắt mạng rồi thực hiện cả luồng: vẫn chạy đủ.
 - [ ] Chạy tay các kiểm thử `#[ignore]` của cửa sổ kết quả (mở cửa sổ thật; khi không chạm chuột hoặc bàn phím): `cargo test -p darkshot-windows scroll_result -- --ignored --test-threads=1`.
+
+## Đợt 14: gia cố (cửa sổ OCR trên ảnh ghim, ghim ảnh rất cao, hoàn tác)
+
+- [x] (Phiên điều phối, 2026-11-21, không giả lập đầu vào) Lượt kiểm tra sức khỏe trên nhánh `feature/polish-14`: `pin::live` 7/7, `ocr::tests::manual` 3/3, `ocr_window::tests::manual` 8/8 (gồm `manual_topmost_only_when_covered`, `manual_drop_topmost_clears_flag`), `steps_bar::live` 1/1, `steps_window::live` 1/1, `scroll_session::live` 4/4, `scroll_result::` 5/5, `repeat_last_saves_png_of_region` 1/1.
+- [ ] Ghim một ảnh gần kín màn hình, chuột phải → Nhận dạng chữ: cửa sổ chữ nằm trên ảnh ghim; Esc, Chép, Đóng chạy bình thường; đóng ảnh ghim cuối cùng thì cửa sổ chữ hết nằm trên cùng.
+- [ ] Ghim một ảnh chụp cuộn rất cao từ cửa sổ Ảnh chụp cuộn: mép trên ảnh sát mép trên vùng làm việc; kéo để xem phần sau.
+- [ ] Hoàn tác/Làm lại trên lớp phủ vẫn như trước (không đổi hành vi với thao tác thường).
