@@ -17,6 +17,15 @@ use windows::Win32::Graphics::Gdi::{
 /// Ảnh có cạnh dài hơn mức này thì cửa sổ chỉ giữ bản đã co về cạnh dài này (thiết kế 7b.7).
 pub const KEEP_MAX: u32 = 4096;
 
+/// Ngân sách điểm ảnh của bản giữ (16 MP).
+pub const KEEP_PIXELS: u64 = 16_777_216;
+
+/// Chỗ đặt nhãn "Đã chép" cỡ `tw`×`th` cho khung dòng `r` trong vùng nhìn thấy `client`.
+pub fn tip_rect(r: Rect, tw: i32, th: i32, side_gap: i32, gap: i32, client: Rect) -> Rect {
+    let _ = (r, tw, th, side_gap, gap, client);
+    todo!()
+}
+
 /// Cỡ bản giữ của ảnh `w`×`h`: cạnh dài > `KEEP_MAX` thì co giữ tỉ lệ, còn lại giữ nguyên.
 pub fn kept_size(w: u32, h: u32) -> (u32, u32) {
     if w.max(h) > KEEP_MAX {
@@ -423,15 +432,71 @@ mod tests {
     }
 
     #[test]
-    fn kept_size_caps_long_edge() {
+    fn kept_size_keeps_up_to_pixel_budget() {
+        // Trong 16 MP: giữ nguyên độ phân giải, kể cả ảnh chụp cuộn rất cao.
         assert_eq!(kept_size(1920, 1080), (1920, 1080));
-        assert_eq!(kept_size(4096, 100), (4096, 100));
-        assert_eq!(kept_size(800, 12_000), (273, 4096));
-        assert_eq!(kept_size(5000, 3000), (4096, 2458));
-        assert_eq!(kept_size(100_000, 10), (4096, 1));
-        // Ảnh nhỏ không bao giờ bị phóng (khác `ocr_scale`).
+        assert_eq!(kept_size(800, 12_000), (800, 12_000));
+        assert_eq!(kept_size(4096, 4096), (4096, 4096));
+        assert_eq!(kept_size(100_000, 10), (100_000, 10));
+        assert_eq!(kept_size(1, 16_777_216), (1, 16_777_216));
+        // Ảnh nhỏ không bao giờ bị phóng.
         assert_eq!(kept_size(30, 20), (30, 20));
         assert_eq!(kept_size(0, 0), (0, 0));
+        // Vượt 16 MP: co giữ tỉ lệ, diện tích ≤ 16 MP, sát ngân sách.
+        assert_eq!(kept_size(8192, 8192), (4096, 4096));
+        for (w, h) in [
+            (5000u32, 4000u32),
+            (3000, 20_000),
+            (100_000, 1000),
+            (4097, 4096),
+            (70_000, 70_000),
+        ] {
+            let (kw, kh) = kept_size(w, h);
+            let area = u64::from(kw) * u64::from(kh);
+            assert!(area <= KEEP_PIXELS, "{w}x{h} -> {kw}x{kh}");
+            assert!(
+                area * 100 >= KEEP_PIXELS * 99,
+                "{w}x{h} -> {kw}x{kh} too small"
+            );
+            assert!(kw <= w && kh <= h && kw >= 1 && kh >= 1);
+            let (r0, r1) = (w as f64 / h as f64, kw as f64 / kh as f64);
+            assert!((r1 / r0 - 1.0).abs() < 0.01, "{w}x{h} -> {kw}x{kh} ratio");
+        }
+        // Cạnh ngắn rất nhỏ vẫn ≥ 1.
+        let (kw, kh) = kept_size(40_000_000, 1);
+        assert!(kh == 1 && u64::from(kw) <= KEEP_PIXELS, "{kw}x{kh}");
+    }
+
+    #[test]
+    fn copied_tip_prefers_right_then_above_then_below() {
+        let client = r(0, 0, 600, 400);
+        let (tw, th, side, gap) = (60, 20, 6, 4);
+        // Đủ chỗ bên phải: cách 6, căn giữa dọc theo khung.
+        let line = r(20, 100, 200, 30);
+        assert_eq!(
+            tip_rect(line, tw, th, side, gap, client),
+            r(226, 105, 60, 20)
+        );
+        // Sát mép phải: lên trên khung, x theo khung.
+        let wide = r(20, 100, 560, 30);
+        assert_eq!(tip_rect(wide, tw, th, side, gap, client), r(20, 76, 60, 20));
+        // Sát mép phải và mép trên: xuống dưới khung.
+        let top = r(20, 5, 560, 30);
+        assert_eq!(tip_rect(top, tw, th, side, gap, client), r(20, 39, 60, 20));
+        // Bên phải nhưng tràn dọc (khung cắt ở mép trên vùng nhìn): không đặt bên phải.
+        let cut = r(20, -15, 200, 24);
+        let t = tip_rect(cut, tw, th, side, gap, client);
+        assert_eq!(t, r(20, 13, 60, 20));
+        // Trên/dưới: x kẹp trong vùng nhìn.
+        let right_edge = r(570, 100, 30, 30);
+        let t = tip_rect(right_edge, tw, th, side, gap, client);
+        assert_eq!(t, r(540, 76, 60, 20));
+        // Vùng nhìn có gốc khác 0.
+        let c2 = r(10, 50, 300, 300);
+        assert_eq!(
+            tip_rect(r(20, 100, 100, 30), tw, th, side, gap, c2),
+            r(126, 105, 60, 20)
+        );
     }
 
     #[test]

@@ -3193,7 +3193,8 @@ mod tests {
         open_with(white(800, 12_000), no_ocr).expect("open");
         let (h, token) = test_windows()[0];
         let _clip = ClipGuard::save(h);
-        assert_eq!(with_win(h, |w| w.kept_size), Some((273, 4096)));
+        // Trong ngân sách 16 MP: giữ nguyên độ phân giải.
+        assert_eq!(with_win(h, |w| w.kept_size), Some((800, 12_000)));
         post_lines(
             h,
             token,
@@ -3486,6 +3487,39 @@ mod tests {
         // SAFETY: chỉ hỏi tính hợp lệ của handle.
         assert!(unsafe { IsWindow(Some(h)) }.as_bool());
         assert_eq!(NOTICES.with(|v| v.borrow().len()), 1);
+        close_all();
+    }
+
+    /// Kết quả về: ô chữ không bị bôi đen hết (con trỏ ở đầu), để không lẫn với vùng chọn trên ảnh.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_result_leaves_caret_at_start() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(tiny(), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        post_lines(
+            h,
+            token,
+            vec![
+                ocr_line("one", 10, 10, 80, 20),
+                ocr_line("two", 10, 34, 80, 20),
+            ],
+        );
+        assert!(pump(2_000, || !busy(h)));
+        let edit = edit_of(h);
+        assert_eq!(text_of(edit), "one\r\ntwo");
+        let (mut start, mut end) = (u32::MAX, u32::MAX);
+        // SAFETY: EM_GETSEL ghi vào hai biến cục bộ; ô chữ của cửa sổ do luồng này tạo.
+        unsafe {
+            SendMessageW(
+                edit,
+                windows::Win32::UI::Controls::EM_GETSEL,
+                Some(WPARAM(&mut start as *mut u32 as usize)),
+                Some(LPARAM(&mut end as *mut u32 as isize)),
+            );
+        }
+        assert_eq!((start, end), (0, 0));
         close_all();
     }
 
