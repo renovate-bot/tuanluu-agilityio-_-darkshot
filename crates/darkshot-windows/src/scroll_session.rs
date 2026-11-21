@@ -577,7 +577,7 @@ pub fn set_on_end(f: fn()) {
 }
 
 /// Hàm nhận ảnh ghép và số chỗ ghép không chắc chắn khi phiên kết thúc bằng Xong, giới hạn hay
-/// vùng mất (main: tạm thời lưu như Lưu thường; Task 91: cửa sổ kết quả).
+/// vùng mất (main: mở cửa sổ kết quả `scroll_result::open`).
 pub fn set_on_result(f: fn(Image, u32)) {
     ON_RESULT.with(|c| c.set(f));
 }
