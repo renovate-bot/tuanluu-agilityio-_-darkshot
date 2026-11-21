@@ -27,3 +27,6 @@ Thiết kế: `docs/superpowers/specs/2026-11-21-ocr-pro-design.md` mục 2, 6.3
 - Kiểm thử cũ của `ocr_window` (sửa theo bố cục mới nếu cần, không bỏ ý).
 
 TDD `test:` rồi `feat:`. `cargo fmt --all`; `powershell -File scripts/check.ps1` → `ALL CHECKS PASSED`; chạy `ocr_window::tests::manual` với `--ignored --test-threads=1`. Build release `--target-dir target/task99`, ghi kích thước (so 2.229.248 byte; > +60 KB thì dừng báo). Chụp PrintWindow cửa sổ có kết quả lưu ra thư mục tạm (không vào repo) để phiên điều phối xem.
+
+## Bổ sung sau rà soát Task 97
+Tùy chọn lưu ba khóa OCR từ ảnh chụp cấu hình lúc mở (`settings.rs` ~301). Nếu đổi công tắc OCR trong lúc Tùy chọn đang mở, bấm OK sẽ ghi đè. Sửa ở `main.rs` cạnh khối chép `update_notified` (~1429): trước `config::save`, chép `ocr_single_line`, `ocr_paragraphs`, `ocr_auto_copy` mới nhất từ `a.config` vào cấu hình sắp lưu. Kiểm thử nếu tách được hàm thuần.
