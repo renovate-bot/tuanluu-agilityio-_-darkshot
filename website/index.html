@@ -416,7 +416,7 @@
                 <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td data-i18n="fg.r3">Save PNG</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>C</kbd></td><td data-i18n="fg.r4">Copy image</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd></td><td data-i18n="fg.r8">Pin to screen</td></tr>
-                <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td data-i18n="fg.r9">Recognize text on your PC</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td data-i18n="fg.r9">Recognize text on your PC (click a line to copy it)</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td data-i18n="fg.r10">Add step (while a step session is open)</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>L</kbd></td><td data-i18n="fg.r11">Scrolling capture (you scroll)</td></tr>
                 <tr><td><kbd>Esc</kbd></td><td data-i18n="fg.r5">Cancel or step back</td></tr>
@@ -497,7 +497,7 @@
               <li data-i18n="pv.l3">Window selection reads window geometry, not titles or contents.</li>
               <li data-i18n="pv.l4">Your R2 secret key is encrypted with Windows DPAPI.</li>
               <li data-i18n="pv.l5">No analytics, no usage statistics, no log files.</li>
-              <li data-i18n="pv.l6">Text recognition (Ctrl+T) runs on your PC with Windows' built-in OCR: no network, no history entry, no text file written.</li>
+              <li data-i18n="pv.l6">Text recognition (Ctrl+T) runs on your PC with Windows' built-in OCR: no network, no history entry, no text file written. The result window shows your image with a box around each line: click a box to copy that line, Ctrl+click to pick several. Windows has no Vietnamese recognizer yet, so accented letters may lose their marks.</li>
             </ul>
           </div>
           <div class="panel net">
@@ -604,6 +604,7 @@
           <details><summary data-i18n="faq.q7">Can I customize keyboard shortcuts?</summary><p data-i18n="faq.a7">Yes. The four capture shortcuts (region, quick save, quick upload, repeat last region) can be changed or turned off in Options → Hotkeys. Shortcuts inside the overlay, such as Ctrl+S, are fixed.</p></details>
           <details><summary data-i18n="faq.q8">Is darkshot available on macOS or Linux?</summary><p data-i18n="faq.a8">No. darkshot is a Windows-only app and there are no macOS or Linux builds.</p></details>
           <details><summary data-i18n="faq.q9">Why does Windows SmartScreen show a warning?</summary><p data-i18n="faq.a9">The executable is not yet digitally signed, so SmartScreen has no publisher reputation to check. Verify the file against SHA256SUMS.txt, then choose More info → Run anyway if you're comfortable.</p></details>
+          <details><summary data-i18n="faq.q11">Can text recognition read Vietnamese?</summary><p data-i18n="faq.a11">Not reliably yet. It uses the recognizers Windows provides, and Windows has no Vietnamese one, so accented letters may lose their marks. It still runs entirely on your PC, with no network.</p></details>
           <details><summary data-i18n="faq.q10">How can I verify the download?</summary><p data-i18n-html="faq.a10">Each release includes <code>SHA256SUMS.txt</code>. Run <code>Get-FileHash .\darkshot.exe -Algorithm SHA256</code> in PowerShell and compare the result with the matching line.</p></details>
         </div>
       </div>

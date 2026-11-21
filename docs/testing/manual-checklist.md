@@ -564,3 +564,25 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe targe
 - [ ] Ghim một ảnh gần kín màn hình, chuột phải → Nhận dạng chữ: cửa sổ chữ nằm trên ảnh ghim; Esc, Chép, Đóng chạy bình thường; đóng ảnh ghim cuối cùng thì cửa sổ chữ hết nằm trên cùng.
 - [ ] Ghim một ảnh chụp cuộn rất cao từ cửa sổ Ảnh chụp cuộn: mép trên ảnh sát mép trên vùng làm việc; kéo để xem phần sau.
 - [ ] Hoàn tác/Làm lại trên lớp phủ vẫn như trước (không đổi hành vi với thao tác thường).
+
+## Đợt 15: Chữ nhận dạng nâng cao (hai khung, chọn dòng)
+
+Chạy `powershell -File scripts/demo-ocr.ps1 -Exe <đường dẫn exe>`: file mẫu có hai đoạn chữ Anh. [ ] = chưa ai thử.
+
+- [ ] Chụp vùng chữ rồi Ctrl+T: cửa sổ "Chữ nhận dạng" có hai khung; trái là ảnh với khung quanh từng dòng, phải là ô chữ sửa được.
+- [ ] Bấm một khung: dòng đó vào clipboard, khung hiện "Đã chép"; cửa sổ vẫn mở.
+- [ ] Ctrl+bấm dòng 1 rồi dòng 3: cả hai được gom; clipboard có hai dòng theo thứ tự đọc. Ctrl+bấm lại dòng đã chọn để bỏ.
+- [ ] Bấm chỗ trống trên ảnh: bỏ chọn.
+- [ ] Bàn phím trên khung ảnh: ↑/↓ chuyển dòng, Enter và Space chọn dòng, Ctrl+A chọn tất cả, Esc bỏ chọn; Esc lần nữa (không còn chọn) đóng cửa sổ.
+- [ ] Công tắc "Gộp thành một dòng": chữ trong ô và chữ chép ra thành một dòng. "Tách đoạn": hai đoạn của file mẫu tách bằng dòng trống.
+- [ ] "Tự chép khi xong": bật, rồi nhận dạng một vùng mới; chữ tự vào clipboard khi nhận dạng xong.
+- [ ] Ba công tắc mặc định tắt lần đầu; đóng và mở lại ứng dụng thì giữ trạng thái đã đặt.
+- [ ] "Chép tất cả": chép toàn bộ chữ trong ô (kể cả bản đã sửa), hiện "Đã chép chữ", cửa sổ KHÔNG đóng. "Đóng" đóng cửa sổ.
+- [ ] Vùng rất cao (ví dụ ảnh chụp cuộn ghim lên rồi nhận dạng): khung ảnh cuộn dọc, khung dòng vẫn khớp chữ khi cuộn.
+- [ ] Ảnh lớn hơn 16 MP: hiển thị thu nhỏ, bấm khung vẫn chép đúng dòng.
+- [ ] Đổi cỡ cửa sổ: hai khung co giãn, ô chữ và lựa chọn dòng không mất.
+- [ ] English: tên công tắc, "Copy all", "Close", "Copied" đều tiếng Anh, không cắt chữ.
+- [ ] Chữ Việt có dấu: máy không có bộ nhận dạng tiếng Việt có thể mất dấu; không báo lỗi lạ.
+- [ ] DPI 100%, 150%, 200%: khung dòng khớp chữ, bấm trúng đúng dòng.
+- [ ] Không có mạng: vẫn nhận dạng được; không ghi tệp, không vào Lịch sử.
+
