@@ -7,7 +7,7 @@ Nguyên tắc: phần mở rộng nhỏ của chụp màn hình, không phải t
 ## 1. Luồng người dùng
 
 1. Mở lớp phủ như thường (PrintScreen, menu khay). Chọn vùng.
-2. Thanh ngang của lớp phủ có thêm nút **Ghi GIF** (giữa Chụp cuộn và Hủy; phím `G` và `Ctrl+G`, như `L` của Chụp cuộn). Chú thích: "Ghi GIF (Ctrl+G) · Không gồm hình đánh dấu" (dùng lại `Msg::ScrollNoAnnotations`).
+2. Thanh ngang của lớp phủ có thêm nút **Ghi GIF** (giữa Chụp cuộn và Hủy; phím `Ctrl+G`, như `Ctrl+L` của Chụp cuộn; `G` đơn không dùng vì phím một chữ thuộc công cụ vẽ). Chú thích: "Ghi GIF (Ctrl+G) · Không gồm hình đánh dấu" (dùng lại `Msg::ScrollNoAnnotations`).
 3. Bấm: lớp phủ đóng, bắt đầu ghi NGAY vùng đã chọn (tọa độ màn hình vật lý, đổi bằng `capture::to_screen_coords` sau khi kẹp vào ảnh, như `scroll_region`).
 4. Khung mảnh quanh vùng (như chụp cuộn) và thanh ghi nổi: `● Đang ghi 00:05 / 00:15   [Dừng] [Hủy]`.
 5. **Dừng**: nút đổi trạng thái "Đang lưu…" (nút mờ), luồng nền chốt GIF, đổi tên tệp tạm sang tên cuối; thanh và khung đóng; thông báo "Đã lưu GIF" kèm tên tệp. Thông báo thành công tuân theo công tắc "hiện thông báo thành công" như Lưu (loại `NoticeKind::Success`).
@@ -43,7 +43,7 @@ Không phụ thuộc `windows`. Thuần Rust, kiểm thử được hết.
 - `frame_size(w: u32, h: u32) -> Result<(u16, u16), GifError>`: kiểm `MIN_SIDE`, áp thu nhỏ, trả kích thước khung GIF.
 - `scale_bgra(img: &Image, tw: u16, th: u16) -> Result<Image, GifError>` (bỏ qua khi bằng kích thước).
 - `GifWriter<W: Write>`: `new(w: u16, h: u16, out: W)`, `push(rgba: Vec<u8>, at_ms: u64)`, `finish(end_ms: u64) -> Result<W, GifError>`. Giữ đúng **một** khung chờ (RGBA) để biết độ trễ khi khung kế tới: độ trễ = `round(t_next/10) − round(t_prev/10)` theo mốc tích lũy (không trôi), tối thiểu `MIN_DELAY_CS`, tối đa `u16::MAX`. Khung giống hệt khung chờ thì gộp (kéo dài độ trễ), không mã hóa lại. Khung cuối nhận độ trễ tới `end_ms`. Không khung nào → `GifError::NoFrames`.
-- `TempGif`: tệp tạm `.darkshot-rec-<16 ký tự ngẫu nhiên>.gif.part` trong thư mục đích, `create_new`. `commit(self, dir, name) -> Result<PathBuf, GifError>`: `flush` + `sync_all`, đóng tệp, rồi đặt tên cuối KHÔNG ghi đè: `naming::unique_path` + `std::fs::hard_link` (lỗi `AlreadyExists` → thử tên kế), hệ tệp không hỗ trợ liên kết cứng thì `rename` sau khi kiểm lại `exists`; xóa tệp tạm. `Drop` khi chưa commit: xóa tệp tạm. `sweep_stale(dir)`: xóa các tệp đúng mẫu `.darkshot-rec-*.gif.part` (không đụng tệp khác).
+- `TempGif`: tệp tạm `.darkshot-rec-<16 ký tự ngẫu nhiên>.gif.part` trong thư mục đích, `create_new`. `commit(self, dir, name) -> Result<PathBuf, GifError>`: `flush` + `sync_all`, đóng tệp, rồi đặt tên cuối KHÔNG ghi đè: `naming::unique_path` + `std::fs::hard_link` (lỗi `AlreadyExists` → thử tên kế), hệ tệp không hỗ trợ liên kết cứng thì `rename` sau khi kiểm lại `exists`; xóa tệp tạm. `Drop` khi chưa commit: xóa tệp tạm. `sweep_stale(dir, older_than)`: xóa các tệp đúng mẫu `.darkshot-rec-*.gif.part` cũ hơn mốc khởi động (không đụng tệp khác hay tệp của lần ghi đang chạy); chạy trên luồng nền lúc khởi động.
 - `naming::local_gif_name(t) -> String` = `darkshot_YYYY-MM-DD_HH-MM-SS.gif` (dùng chung định dạng với `local_file_name`).
 - Lịch chụp `Pacer`: mốc thứ k là `k·100 ms`; sau một lượt chậm, bỏ các mốc đã lỡ (không xếp hàng), chờ tới mốc kế tiếp chưa qua. Không vòng bận: `Condvar::wait_timeout` (hoặc `park_timeout`) để Dừng/Hủy đánh thức ngay.
 - `Recorder` (luồng nền, chung cho mọi nền tảng):
@@ -69,14 +69,14 @@ Theo mẫu `scroll_session.rs` (thanh, khung, đặt vị trí, `WDA_EXCLUDEFROM
 ### 3.3 Nối vào ứng dụng
 
 - `Action::RecordGif` (lõi, sau `Scroll`): `run_action` no-op, `last_capture::remember` giữ cái cũ, không ghi "record" vào JSON, `remember_after` giữ khung cũ.
-- `overlay.rs`: ô `BarItem::Act(Action::RecordGif)` giữa Scroll và Cancel; biểu tượng tự vẽ (vòng tròn đặc nhỏ trong khung bo góc, cùng lưới 24 với các ô khác); phím `G`/`Ctrl+G`; kiểm thử bố cục thanh ở 96/120/144/192 DPI có và không có phiên các bước.
+- `overlay.rs`: ô `BarItem::Act(Action::RecordGif)` giữa Scroll và Cancel; biểu tượng tự vẽ (vòng tròn đặc nhỏ trong khung bo góc, cùng lưới 24 với các ô khác); phím `Ctrl+G`; kiểm thử bố cục thanh ở 96/120/144/192 DPI có và không có phiên các bước.
 - `main.rs`: nhánh `Action::RecordGif` như `Action::Scroll` (bỏ ảnh tĩnh, hình đánh dấu); `save_dir` lấy từ cấu hình như Lưu; trong lúc ghi cổng chụp bỏ qua yêu cầu chụp (`scroll_blocks` mở rộng thành "đang bận": chụp cuộn hoặc đang ghi), không bắt đầu chụp từng bước, không mở chụp cuộn. Thanh phiên Chụp từng bước không loại được → giữ ẩn tới khi ghi xong (như `STEPS_BAR_HELD`). Thoát (`exit_cleanup`, `WM_ENDSESSION`, `WM_DESTROY`): **chính sách thoát = lưu phần đã ghi** trong hạn chót chung `EXIT_BUDGET`. Khởi động: `sweep_stale(save_dir)`.
 - Thông báo: thành công (Success) "Đã lưu GIF" + tên tệp; đạt tối đa (Info); lỗi (Error) "Ghi GIF thất bại" + lý do; vùng không hợp lệ; mã hóa GIF thất bại.
 - Không đổi định dạng cấu hình, không đổi PNG/JPEG, không tải lên, không Lịch sử.
 
 ### 3.4 Chuỗi (`i18n.rs`, Tiếng Việt và English)
 
-`OverlayRecordGif` (Ghi GIF / Record GIF), `RecordStatus` (Đang ghi / Recording), `RecordSaving` (Đang lưu… / Saving…), `RecordStop` (Dừng / Stop), `RecordCancel` (Hủy / Cancel), `RecordSavedTitle` (Đã lưu GIF / GIF saved), `RecordFailedTitle` (Ghi GIF thất bại / Recording failed), `RecordInvalidRegion`, `RecordMaxDuration`, `RecordMaxSize`, `RecordSourceLost`, `RecordEncodeFailed`, `RecordBusy`, chữ Trợ giúp cho phím `G`. Tên chính xác do Task 122/123 chốt.
+`OverlayRecordGif` (Ghi GIF / Record GIF), `RecordStatus` (Đang ghi / Recording), `RecordSaving` (Đang lưu… / Saving…), `RecordStop` (Dừng / Stop), `RecordCancel` (Hủy / Cancel), `RecordSavedTitle` (Đã lưu GIF / GIF saved), `RecordFailedTitle` (Ghi GIF thất bại / Recording failed), `RecordInvalidRegion`, `RecordMaxDuration`, `RecordMaxSize`, `RecordSourceLost`, `RecordEncodeFailed`, `RecordBusy`, chữ Trợ giúp cho `Ctrl+G`. Tên chính xác do Task 122/123 chốt.
 
 ## 4. Bộ nhớ và hiệu năng
 
