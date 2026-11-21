@@ -770,6 +770,8 @@ Sau khi chọn vùng, dùng nút trên thanh công cụ hoặc phím tắt:\n\
 - Esc lùi một bước (đóng bảng, hủy chữ, bỏ chọn) rồi đóng lớp phủ.\n\
 - Ctrl+P: ghim ảnh lên màn hình (hoặc bấm nút Ghim trong Lịch sử ảnh chụp). Ảnh ghim luôn nằm trên cùng: kéo để dời, cuộn chuột để phóng, Ctrl+cuộn để làm mờ, chuột phải để mở menu, Esc để đóng.\n\
 - Ctrl+T: nhận dạng chữ trong vùng đã chọn rồi chép ra (ảnh ghim có mục \"Nhận dạng chữ\" trong menu chuột phải).\n\
+- Cửa sổ chữ nhận dạng: bấm một khung để chép dòng đó, Ctrl+bấm để chọn nhiều dòng.\n\
+- Windows chưa có bộ nhận dạng tiếng Việt, chữ có dấu có thể bị mất dấu.\n\
 \n\
 3. Tùy chọn\n\
 Mở bằng menu khay, mục \"Tùy chọn...\". Bấm OK để lưu, Hủy để bỏ thay đổi.\n\
@@ -815,6 +817,8 @@ Once a region is selected, use the toolbar buttons or the keys:\n\
 - Esc steps back (closes a panel, cancels text, deselects), then closes the overlay.\n\
 - Ctrl+P: pin the image to the screen (or click Pin in Screenshot History). A pinned image stays on top: drag to move, scroll to zoom, Ctrl+scroll to change opacity, right-click for a menu, Esc to close.\n\
 - Ctrl+T: recognize the text in the selected region and copy it (a pinned image has \"Recognize text\" in its right-click menu).\n\
+- In the recognized-text window, click a box to copy that line; Ctrl+click picks several lines.\n\
+- Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks.\n\
 \n\
 3. Options\n\
 Open it from the tray menu, \"Options...\". Click OK to save, Cancel to discard changes.\n\

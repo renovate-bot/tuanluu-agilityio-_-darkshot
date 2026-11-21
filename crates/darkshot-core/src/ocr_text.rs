@@ -52,29 +52,93 @@ pub struct TextOptions {
 }
 
 /// Chỉ số các dòng mở đoạn; luôn có 0 nếu `lines` không rỗng.
-pub fn paragraphs(_lines: &[OcrLine]) -> Vec<usize> {
-    unimplemented!()
+/// Dòng i mở đoạn khi khe dọc với dòng trước > 0,8 × trung vị chiều cao,
+/// hoặc top(i) < top(i-1) - 0,5 × trung vị (nhảy lên: cột mới).
+pub fn paragraphs(lines: &[OcrLine]) -> Vec<usize> {
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    let mut hs: Vec<i64> = lines.iter().map(|l| i64::from(l.rect.h)).collect();
+    hs.sort_unstable();
+    let m = hs[hs.len() / 2];
+    let mut out = vec![0];
+    for i in 1..lines.len() {
+        let top = i64::from(lines[i].rect.y);
+        let prev_top = i64::from(lines[i - 1].rect.y);
+        let prev_bottom = prev_top + i64::from(lines[i - 1].rect.h);
+        // So sánh nguyên: 10·gap > 8·m  và  10·(prev_top - top) > 5·m.
+        let gap_open = (top - prev_bottom) * 10 > m * 8;
+        let up_open = (prev_top - top) * 10 > m * 5;
+        if gap_open || up_open {
+            out.push(i);
+        }
+    }
+    out
 }
 
 /// Ghép các dòng theo `idx` (sắp xếp, bỏ trùng và chỉ số ngoài dải).
-pub fn compose(_lines: &[OcrLine], _idx: &[usize], _o: TextOptions) -> String {
-    unimplemented!()
+pub fn compose(lines: &[OcrLine], idx: &[usize], o: TextOptions) -> String {
+    let mut sel: Vec<usize> = idx.iter().copied().filter(|&i| i < lines.len()).collect();
+    sel.sort_unstable();
+    sel.dedup();
+    if o.single_line {
+        return sel
+            .iter()
+            .map(|&i| lines[i].text.trim())
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    let opens = if o.paragraphs {
+        paragraphs(lines)
+    } else {
+        Vec::new()
+    };
+    let mut out = String::new();
+    for (n, &i) in sel.iter().enumerate() {
+        if n > 0 {
+            out.push_str("\r\n");
+            if opens.contains(&i) {
+                out.push_str("\r\n");
+            }
+        }
+        out.push_str(lines[i].text.trim());
+    }
+    out
 }
 
 /// `compose` với mọi chỉ số.
-pub fn compose_all(_lines: &[OcrLine], _o: TextOptions) -> String {
-    unimplemented!()
+pub fn compose_all(lines: &[OcrLine], o: TextOptions) -> String {
+    let idx: Vec<usize> = (0..lines.len()).collect();
+    compose(lines, &idx, o)
 }
 
 /// Dòng đầu tiên (chỉ số nhỏ nhất) có khung, nới 2 px mỗi phía, chứa điểm.
-pub fn line_at(_lines: &[OcrLine], _x: i32, _y: i32) -> Option<usize> {
-    unimplemented!()
+pub fn line_at(lines: &[OcrLine], x: i32, y: i32) -> Option<usize> {
+    lines.iter().position(|l| {
+        let r = l.rect;
+        x >= r.x - 2 && x < r.x + r.w + 2 && y >= r.y - 2 && y < r.y + r.h + 2
+    })
 }
 
 /// Đổi khung trong ảnh cỡ (fw,fh) về ảnh cỡ (tw,th): tỉ lệ riêng từng trục,
 /// làm tròn ra ngoài, kẹp trong (0,0,tw,th).
-pub fn map_rect(_r: Rect, _fw: u32, _fh: u32, _tw: u32, _th: u32) -> Rect {
-    unimplemented!()
+pub fn map_rect(r: Rect, fw: u32, fh: u32, tw: u32, th: u32) -> Rect {
+    fn axis(pos: i32, len: i32, from: u32, to: u32) -> (i32, i32) {
+        if from == 0 {
+            return (0, 0);
+        }
+        let (from, to) = (i128::from(from), i128::from(to));
+        let a = i128::from(pos);
+        let b = a + i128::from(len);
+        let lo = (a * to).div_euclid(from);
+        let hi = -((-b * to).div_euclid(from)); // trần
+        let lo = lo.clamp(0, to);
+        let hi = hi.clamp(lo, to);
+        (lo as i32, (hi - lo) as i32)
+    }
+    let (x, w) = axis(r.x, r.w, fw, tw);
+    let (y, h) = axis(r.y, r.h, fh, th);
+    Rect { x, y, w, h }
 }
 
 #[cfg(test)]
