@@ -1709,6 +1709,30 @@ pub(crate) mod tests {
             rep.elapsed_ms,
             rep.findings.len()
         );
+        let uhd: Vec<(String, i32)> = (0..24)
+            .map(|i| {
+                (
+                    format!(
+                        "Row {i} contact user{i}@example.com phone 0912 345 67{}",
+                        i % 10
+                    ),
+                    60 + i * 85,
+                )
+            })
+            .collect();
+        let refs: Vec<(&str, i32)> = uhd.iter().map(|(s, y)| (s.as_str(), *y)).collect();
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(3840, 2160, 24, &refs)
+        };
+        let (res, _) = run_scan(img, Duration::from_secs(120));
+        let rep = res.expect("scan 3840x2160");
+        println!(
+            "3840x2160: tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
         let tall: Vec<(String, i32)> = (0..10)
             .map(|i| {
                 (
@@ -1730,5 +1754,223 @@ pub(crate) mod tests {
             rep.elapsed_ms,
             rep.findings.len()
         );
+    }
+
+    // ---- Task 133: đo đạc (chạy tay, bản release, chỉ in số) ----
+    // cargo test --release -p darkshot-windows ocr::tests::manual_perf -- --ignored --nocapture --test-threads=1
+
+    /// OCR (Segoe UI) đọc `I` hoa thành `l`: khóa AWS có `I` vẫn được nhận (tinh chỉnh Task 133).
+    #[test]
+    #[ignore]
+    fn manual_scan_aws_key_with_capital_i() {
+        if engine_info().is_none() {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        }
+        let key = concat!("AKIA", "IOSFODNN7", "EXAMPLE");
+        let line = format!("aws id {key}");
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1200, 160, 32, &[(line.as_str(), 80)])
+        };
+        let (res, _) = run_scan(img, Duration::from_secs(60));
+        let rep = res.expect("scan");
+        let api = rep
+            .findings
+            .iter()
+            .filter(|f| f.category == Category::ApiKey)
+            .count();
+        println!("api_key findings={api} total={}", rep.findings.len());
+        assert_eq!(api, 1, "{:?}", rep.findings);
+    }
+
+    /// Dòng OCR tổng hợp (khung từ 10 px/ký tự), cho đo `detect` không cần OCR.
+    fn synthetic_line(text: &str, row: i32) -> OcrLine {
+        let mut x = 0;
+        let mut words = Vec::new();
+        for w in text.split(' ').filter(|w| !w.is_empty()) {
+            let width = 10 * w.chars().count() as i32;
+            words.push(darkshot_core::ocr_text::OcrWord {
+                text: w.to_string(),
+                rect: Rect {
+                    x,
+                    y: row * 24,
+                    w: width,
+                    h: 20,
+                },
+            });
+            x += width + 10;
+        }
+        OcrLine {
+            text: text.to_string(),
+            rect: Rect {
+                x: 0,
+                y: row * 24,
+                w: x.max(1),
+                h: 20,
+            },
+            words,
+        }
+    }
+
+    fn median_ms(mut v: Vec<f64>) -> f64 {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[v.len() / 2]
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_perf_detect_and_flatten() {
+        use darkshot_core::privacy::redact::flatten;
+        // 1000 dòng: một nửa có dữ liệu giả nhạy cảm (4 loại), còn lại chữ thường.
+        let key = format!("{}{}", "AK", "IAEXAMPLEKEY012345");
+        let lines: Vec<OcrLine> = (0..1000)
+            .map(|i| {
+                let t = match i % 8 {
+                    0 => format!("Row {i} contact user{i}@example.com now"),
+                    1 => format!("Row {i} phone 0912 345 {:03} call", i % 1000),
+                    2 => format!("Row {i} aws id {key} done"),
+                    3 => format!("Row {i} password: hunter{i}"),
+                    _ => format!("Row {i} the quick brown fox jumps over the lazy dog 2026-11-22"),
+                };
+                synthetic_line(&t, i)
+            })
+            .collect();
+        let mut runs = Vec::new();
+        let mut n = 0;
+        for _ in 0..7 {
+            let t = Instant::now();
+            n = darkshot_core::privacy::detect(&lines).len();
+            runs.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        println!(
+            "detect 1000 lines: median {:.2} ms (runs {:?}), findings={n}",
+            median_ms(runs.clone()),
+            runs.iter()
+                .map(|x| (x * 100.0).round() / 100.0)
+                .collect::<Vec<_>>()
+        );
+
+        let rects = |w: i32, h: i32, k: i32| -> Vec<Rect> {
+            (0..k)
+                .map(|i| Rect {
+                    x: (i * 97) % (w - 300).max(1),
+                    y: (i * 53) % (h - 40).max(1),
+                    w: 280,
+                    h: 24,
+                })
+                .collect()
+        };
+        for (w, h, k) in [(3840u32, 2160u32, 40), (8000, 20000, 400)] {
+            let img = Image {
+                width: w,
+                height: h,
+                bgra: vec![200u8; w as usize * h as usize * 4],
+            };
+            let rs = rects(w as i32, h as i32, k);
+            let mut runs = Vec::new();
+            for _ in 0..3 {
+                let t = Instant::now();
+                let out = flatten(&img, &rs).unwrap();
+                runs.push(t.elapsed().as_secs_f64() * 1000.0);
+                drop(out);
+            }
+            println!(
+                "flatten {w}x{h} rects={k}: median {:.1} ms (runs {:?})",
+                median_ms(runs.clone()),
+                runs.iter().map(|x| x.round()).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    /// Bộ nhớ đỉnh: chạy riêng một kiểm thử mỗi tiến trình, đo PeakWorkingSet từ bên ngoài.
+    #[test]
+    #[ignore]
+    fn manual_mem_baseline() {
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_mem_scan_1000x20000() {
+        if engine_info().is_none() {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        }
+        let tall: Vec<(String, i32)> = (0..10)
+            .map(|i| {
+                (
+                    format!("Item {i} mail user{i}@example.com"),
+                    1_000 + i * 2_000,
+                )
+            })
+            .collect();
+        let refs: Vec<(&str, i32)> = tall.iter().map(|(s, y)| (s.as_str(), *y)).collect();
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1000, 20_000, 24, &refs)
+        };
+        // Nghỉ trước/sau lượt quét để bộ đo bên ngoài thấy mức nền (ảnh 80 MB đã dựng xong).
+        std::thread::sleep(Duration::from_millis(600));
+        let t = Instant::now();
+        let (res, _) = run_scan(img, Duration::from_secs(300));
+        let rep = res.expect("scan");
+        std::thread::sleep(Duration::from_millis(600));
+        println!(
+            "mem scan 1000x20000: tiles={} findings={} wall_ms={}",
+            rep.tiles,
+            rep.findings.len(),
+            t.elapsed().as_millis()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_mem_steps_export_10x4k() {
+        use darkshot_core::steps::Step;
+        let dir = std::env::temp_dir().join(format!("darkshot-mem-export-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (w, h) = (3840u32, 2160u32);
+        let replacements: Vec<(usize, Image)> = (0..10)
+            .map(|i| {
+                (
+                    i,
+                    Image {
+                        width: w,
+                        height: h,
+                        bgra: vec![(i * 20) as u8; w as usize * h as usize * 4],
+                    },
+                )
+            })
+            .collect();
+        let job = crate::steps_export::ExportJob {
+            parent: dir.clone(),
+            when: darkshot_core::naming::LocalTime {
+                year: 2026,
+                month: 11,
+                day: 22,
+                hour: 10,
+                minute: 0,
+                second: 0,
+            },
+            lang: darkshot_core::i18n::Lang::En,
+            steps: (0..10)
+                .map(|i| Step {
+                    file: format!("{:03}.png", i + 1),
+                    caption: String::new(),
+                    scanned: false,
+                })
+                .collect(),
+            sources: (0..10)
+                .map(|i| dir.join(format!("missing-{i}.png")))
+                .collect(),
+            replacements,
+        };
+        let t = Instant::now();
+        let out = crate::steps_export::export(&job).expect("export");
+        println!("mem export 10x4K: wall_ms={}", t.elapsed().as_millis());
+        drop(job);
+        let _ = std::fs::remove_dir_all(&out);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
