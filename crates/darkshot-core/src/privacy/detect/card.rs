@@ -3,11 +3,10 @@
 
 use super::{has_label, Detector, LineCtx, RawMatch};
 use crate::privacy::model::{Category, Confidence, RuleId};
-use crate::privacy::text::wipe_bytes;
 
 pub struct Card;
 
-const LABELS: &[&str] = &["card", "the", "visa", "mastercard", "cvv", "exp"];
+const LABELS: &[&str] = &["card", "visa", "mastercard", "cvv", "exp"];
 
 /// Nhầm OCR trong chuỗi số: `O/o→0`, `l/I→1`, `S→5`, `B→8`.
 fn digit_of(c: char) -> Option<(u8, bool)> {
@@ -45,13 +44,19 @@ fn read_group(c: &[char], i: usize) -> Option<Group> {
     Some(Group { start: i, end: j })
 }
 
-fn shape_ok(lens: &[usize]) -> bool {
-    match lens {
-        [one] => (13..=19).contains(one),
-        [4, 6, 5] | [4, 6, 4] => true,
-        [init @ .., last] => init.iter().all(|&n| n == 4) && (1..=4).contains(last),
+fn shape_ok(win: &[Group]) -> bool {
+    let len = |g: &Group| g.end - g.start;
+    match win {
+        [one] => (13..=19).contains(&len(one)),
+        [a, b, c] if len(a) == 4 && len(b) == 6 && matches!(len(c), 4 | 5) => true,
+        [init @ .., last] => init.iter().all(|g| len(g) == 4) && (1..=4).contains(&len(last)),
         [] => false,
     }
+}
+
+/// Nhãn thẻ trên dòng. "thẻ" so trên bản chưa bỏ dấu (bỏ dấu thì trùng mạo từ "the").
+fn labeled(ctx: &LineCtx<'_>) -> bool {
+    has_label(ctx.folded(), LABELS) || has_label(ctx.chars(), &["th\u{1ebb}"])
 }
 
 pub(crate) fn luhn(d: &[u8]) -> bool {
@@ -111,28 +116,35 @@ impl Detector for Card {
             }
             let mut next = groups.last().map_or(i + 1, |g| g.end);
             'outer: for a in 0..groups.len() {
-                for b in (a + 1..=groups.len()).rev() {
-                    let lens: Vec<usize> = groups[a..b].iter().map(|g| g.end - g.start).collect();
-                    let total: usize = lens.iter().sum();
-                    if !(13..=19).contains(&total) || !shape_ok(&lens) {
+                // Mỗi nhóm ≥ 1 chữ số nên cửa sổ ≤ 19 nhóm; dài nhất trước.
+                let top = groups.len().min(a + 19);
+                for b in (a + 1..=top).rev() {
+                    let win = &groups[a..b];
+                    let total: usize = win.iter().map(|g| g.end - g.start).sum();
+                    if !(13..=19).contains(&total) || !shape_ok(win) {
                         continue;
                     }
                     let (s, e) = (groups[a].start, groups[b - 1].end);
-                    let mut d: Vec<u8> = c[s..e]
-                        .iter()
-                        .filter_map(|&x| digit_of(x).map(|v| v.0))
-                        .collect();
+                    let mut buf = [0u8; 19];
+                    let mut n = 0;
+                    for &x in &c[s..e] {
+                        if let Some((v, _)) = digit_of(x) {
+                            buf[n] = v;
+                            n += 1;
+                        }
+                    }
+                    let d = &buf[..n];
                     let uniform = d.iter().all(|&x| x == d[0]);
-                    let hit = if uniform || !luhn(&d) {
+                    let hit = if uniform || !luhn(d) {
                         None
-                    } else if brand(&d) {
+                    } else if brand(d) {
                         Some((Confidence::High, RuleId::CardBrand))
-                    } else if has_label(ctx.folded(), LABELS) {
+                    } else if labeled(ctx) {
                         Some((Confidence::Medium, RuleId::CardLabeled))
                     } else {
                         None
                     };
-                    wipe_bytes(&mut d);
+                    buf.fill(0);
                     if let Some((conf, rule)) = hit {
                         out.push(RawMatch::one(
                             ctx.span(s, e),

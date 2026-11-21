@@ -10,7 +10,7 @@ pub struct Pem;
 /// Số dòng tối đa tìm END.
 const MAX_LINES: usize = 200;
 
-/// Dòng có `-----<word> [A-Z ]*PRIVATE KEY-----` (≥ 3 gạch mỗi phía cho OCR).
+/// Dòng có `-----<word> [A-Z ]*PRIVATE KEY-----` (≥ 1 gạch mỗi phía: OCR hay đọc `——`).
 fn marker(c: &[char], word: &str) -> bool {
     let w: Vec<char> = word.chars().collect();
     let key: Vec<char> = "PRIVATE KEY".chars().collect();
@@ -20,9 +20,6 @@ fn marker(c: &[char], word: &str) -> bool {
             continue;
         }
         let d = c[i..].iter().take_while(|&&x| x == '-').count();
-        if d < 3 {
-            continue;
-        }
         let mut j = i + d;
         while c.get(j) == Some(&' ') {
             j += 1;
@@ -41,7 +38,7 @@ fn marker(c: &[char], word: &str) -> bool {
                 while after.get(m) == Some(&' ') {
                     m += 1;
                 }
-                if after[m..].iter().take_while(|&&x| x == '-').count() >= 3 {
+                if after[m..].iter().take_while(|&&x| x == '-').count() >= 1 {
                     return true;
                 }
                 break;

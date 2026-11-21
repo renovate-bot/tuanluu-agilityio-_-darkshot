@@ -52,13 +52,15 @@ impl Detector for Email {
             if c[at] != '@' {
                 continue;
             }
-            let mut spaced = false;
-            // phần trước
-            let mut le = at;
-            if le > 0 && c[le - 1] == ' ' {
-                le -= 1;
-                spaced = true;
+            // Dạng OCR tách: đúng một space ở CẢ hai phía `@` (`@user.name` không phải email).
+            let before = at > 0 && c[at - 1] == ' ';
+            let after = c.get(at + 1) == Some(&' ');
+            if before != after {
+                continue;
             }
+            let spaced = before;
+            // phần trước
+            let le = if spaced { at - 1 } else { at };
             let mut ls = le;
             while ls > 0 && local_char(c[ls - 1]) && le - ls < 64 {
                 ls -= 1;
@@ -66,15 +68,11 @@ impl Detector for Email {
             while ls < le && c[ls] == '.' {
                 ls += 1;
             }
-            if ls == le || (ls > 0 && local_char(c[ls - 1])) {
+            if ls == le || (ls > 0 && local_char(c[ls - 1])) || c[le - 1] == '.' {
                 continue;
             }
             // phần sau
-            let mut ds = at + 1;
-            if c.get(ds) == Some(&' ') {
-                ds += 1;
-                spaced = true;
-            }
+            let ds = if spaced { at + 2 } else { at + 1 };
             if ds >= c.len() || !c[ds].is_ascii_alphanumeric() {
                 continue;
             }

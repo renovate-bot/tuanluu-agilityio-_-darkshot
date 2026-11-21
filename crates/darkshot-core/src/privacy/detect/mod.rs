@@ -99,8 +99,8 @@ pub static ALL: &[&(dyn Detector + Sync)] = &[
 
 // ---- tiện ích chung cho các bộ dò ----
 
-/// So `label` (ASCII thường; space khớp ≥ 1 space) với `folded` từ `pos`,
-/// bỏ qua dấu tổ hợp. Trả vị trí ngay sau nhãn.
+/// So `label` (chữ thường; space khớp ≥ 1 space) với `folded` từ `pos`, không phân biệt
+/// hoa thường, bỏ qua dấu tổ hợp. Nhãn có dấu thì truyền bản chưa bỏ dấu. Trả vị trí ngay sau nhãn.
 pub(crate) fn label_at(folded: &[char], pos: usize, label: &str) -> Option<usize> {
     let mut i = pos;
     for lc in label.chars() {
@@ -116,7 +116,7 @@ pub(crate) fn label_at(folded: &[char], pos: usize, label: &str) -> Option<usize
             }
             continue;
         }
-        if folded.get(i) != Some(&lc) {
+        if folded.get(i).map(|&c| lower(c)) != Some(lc) {
             return None;
         }
         i += 1;
@@ -125,6 +125,15 @@ pub(crate) fn label_at(folded: &[char], pos: usize, label: &str) -> Option<usize
         i += 1;
     }
     Some(i)
+}
+
+/// Chữ thường một ký tự (giữ dấu); bản đã bỏ dấu không đổi.
+fn lower(c: char) -> char {
+    let mut it = c.to_lowercase();
+    match (it.next(), it.next()) {
+        (Some(l), None) => l,
+        _ => c,
+    }
 }
 
 fn word_char(c: char) -> bool {
@@ -190,6 +199,20 @@ pub(crate) fn run_len(chars: &[char], pos: usize, f: impl Fn(char) -> bool) -> u
         .iter()
         .take_while(|&&c| f(c))
         .count()
+}
+
+/// Có cả chữ cái và chữ số.
+pub(crate) fn letters_and_digits(v: &[char]) -> bool {
+    v.iter().any(|c| c.is_ascii_alphabetic()) && v.iter().any(|c| c.is_ascii_digit())
+}
+
+/// Giá trị của luật nhãn + giá trị trông như bí mật: chữ + số, hoặc hoa + thường + ký hiệu.
+/// Loại câu chữ thường bị ghép từ ("pleaseenteryour…").
+pub(crate) fn strong_value(v: &[char]) -> bool {
+    let upper = v.iter().any(|c| c.is_ascii_uppercase());
+    let lower = v.iter().any(|c| c.is_ascii_lowercase());
+    let symbol = v.iter().any(|c| !c.is_ascii_alphanumeric());
+    letters_and_digits(v) || (upper && lower && symbol)
 }
 
 /// So khớp đúng chữ (phân biệt hoa thường) tại `pos`.

@@ -1,6 +1,8 @@
 //! Khóa API: tiền tố đã biết + bộ ký tự + độ dài (Cao), hoặc nhãn + giá trị đủ dài (Trung bình).
 
-use super::{after_separator, find_labels, run_len, starts_with, Detector, LineCtx, RawMatch};
+use super::{
+    after_separator, find_labels, run_len, starts_with, strong_value, Detector, LineCtx, RawMatch,
+};
 use crate::privacy::model::{Category, Confidence, RuleId};
 use crate::privacy::text::is_token_char;
 
@@ -195,14 +197,6 @@ fn sendgrid(c: &[char], i: usize) -> Option<usize> {
     (b == 43).then_some(a + 1 + b)
 }
 
-/// Có ≥ 2 nhóm ký tự trong chữ hoa / chữ thường / số.
-pub(crate) fn mixed(v: &[char]) -> bool {
-    let u = v.iter().any(|c| c.is_ascii_uppercase());
-    let l = v.iter().any(|c| c.is_ascii_lowercase());
-    let d = v.iter().any(|c| c.is_ascii_digit());
-    u as u8 + l as u8 + d as u8 >= 2
-}
-
 impl Detector for ApiKey {
     fn on_joined(&self) -> bool {
         true
@@ -262,7 +256,7 @@ impl Detector for ApiKey {
             };
             let n = run_len(c, vs, labeled_value_char);
             let v = &c[vs..vs + n];
-            if n >= 16 && mixed(v) {
+            if n >= 16 && strong_value(v) {
                 out.push(RawMatch::one(
                     ctx.span(vs, vs + n),
                     Category::ApiKey,

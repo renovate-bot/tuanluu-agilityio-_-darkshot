@@ -641,3 +641,151 @@ fn empty_input() {
     assert!(detect(&[]).is_empty());
     assert!(one("").is_empty());
 }
+
+// ---------- Sau rà soát ----------
+
+#[test]
+fn phone_glued_to_labels_and_separators() {
+    for t in [
+        "Tel:0912345678",
+        "SDT:0912345678",
+        "Phone:+84912345678",
+        "tel:+14155552671",
+        "Hotline 0912 345 678 24/7",
+        "0912345678 25 3",
+        "1 0912345678 Nguyen Van A",
+        "3 0912345678",
+    ] {
+        let f = single(t, Category::Phone);
+        assert_eq!(f.confidence, Confidence::High);
+    }
+    let t = "Hotline 0912 345 678 24/7";
+    let f = single(t, Category::Phone);
+    assert_eq!(f.rects, vec![text::union(word_rect(t, 1), word_rect(t, 3))]);
+    let t = "1 0912345678 Nguyen Van A";
+    assert_eq!(single(t, Category::Phone).rects, vec![word_rect(t, 1)]);
+}
+
+#[test]
+fn phone_two_numbers_with_slash() {
+    // Cả hai số nằm trong một từ OCR: hai trùng khớp cùng khung từ, gộp thành một phát hiện che cả từ.
+    let t = "DT: 0912345678/0987654321";
+    let f = single(t, Category::Phone);
+    assert_eq!(
+        (f.rule, f.rects.clone()),
+        (RuleId::PhoneVnMobile, vec![word_rect(t, 1)])
+    );
+    let v = text::LineText::build(&line(t, 0));
+    let mut raw = Vec::new();
+    let ctx = LineCtx {
+        lines: std::slice::from_ref(&v),
+        index: 0,
+        joined: false,
+    };
+    detect::ALL[6].scan(&ctx, &mut raw);
+    assert_eq!(raw.len(), 2, "both numbers matched");
+    // tách bằng space: hai phát hiện
+    let f = one("DT: 0912345678 / 0987654321");
+    assert_eq!(cats(&f), vec![Category::Phone, Category::Phone]);
+}
+
+#[test]
+fn phone_dates_followed_by_numbers() {
+    none("09-11-2026 12 files");
+    none("08.11.2026 15");
+    none("02 11 2026 153");
+    none("2026.11.08 12");
+}
+
+#[test]
+fn phone_parentheses_and_dotted_groups() {
+    let f = single("(+84) 912 345 678", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnMobile);
+    let t = "(+84) 912 345 678";
+    assert_eq!(f.rects, vec![text::union(word_rect(t, 0), word_rect(t, 3))]);
+    let f = single("+1 (415) 555-2671", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneIntl);
+    let f = single("(028) 3822 1234", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnFixed);
+    let f = single("09.1234.5678", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnMobile);
+}
+
+#[test]
+fn email_spaced_needs_both_sides() {
+    none("ping @john.doe today");
+    none("follow @user.name");
+    none("mail john@ example.com");
+    let f = single("john @ example.com", Category::Email);
+    assert_eq!(f.rule, RuleId::EmailSpaced);
+}
+
+#[test]
+fn card_label_the_needs_diacritic() {
+    none("the 1234 5678 1234 5670");
+    let f = single("Th\u{1ebb} 1234 5678 1234 5670", Category::CreditCard);
+    assert_eq!(f.rule, RuleId::CardLabeled);
+}
+
+#[test]
+fn card_long_digit_runs_are_bounded() {
+    // nhiều nhóm một chữ số: không bậc ba vô hạn, không phát hiện
+    let t = vec!["1"; 200].join(" ");
+    assert!(one(&t).is_empty());
+    let t = format!("{} 4111 1111 1111 1111", vec!["7"; 40].join(" "));
+    assert_eq!(cats(&one(&t)), vec![Category::CreditCard]);
+}
+
+#[test]
+fn joined_sentences_after_labels_are_not_secrets() {
+    for t in [
+        "Token: please enter your access code below",
+        "api_key: Please enter the value below now",
+        "access_token = see the documentation page",
+    ] {
+        let l = line_gap(t, 0, 2);
+        let f = detect(&[l]);
+        assert!(f.is_empty(), "false positive: {:?}", cats(&f));
+        none(t);
+    }
+}
+
+#[test]
+fn pem_with_short_dashes() {
+    let b = format!("\u{2014}BEGIN {}\u{2014}", concat!("PRIVATE", " KEY"));
+    let e = format!("-END {}-", concat!("PRIVATE", " KEY"));
+    let lines = [b.as_str(), "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", e.as_str()];
+    let f = scan(&lines);
+    assert_eq!(cats(&f), vec![Category::PrivateKey]);
+    assert_eq!(f[0].rects.len(), 3);
+}
+
+#[test]
+fn env_names_need_whole_segment() {
+    none("KEYBOARD=us");
+    none("MONKEY=banana");
+    none("TOKENIZER=bpe");
+    for t in ["API_KEY=abc", "GITHUB_TOKEN=abc"] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rule, RuleId::PasswordEnv);
+    }
+    // cũng khớp nhãn mật khẩu: một phát hiện, che cả từ
+    for t in ["DB_PASSWORD=abc", "MYSQL_PWD=abc"] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rects, vec![word_rect(t, 0)]);
+    }
+}
+
+#[test]
+fn bearer_without_authorization_needs_letters_and_digits() {
+    none("Bearer abcdefghijklmnopqrstuv");
+    let f = single("Bearer abcd1234efgh5678ijkl", Category::Token);
+    assert_eq!(f.rule, RuleId::TokenBearer);
+    let f = single(
+        "Authorization: Bearer abcdefghijklmnopqrstuv",
+        Category::Token,
+    );
+    assert_eq!(f.rule, RuleId::TokenBearer);
+    let f = single(&format!("Bearer {}", jwt()), Category::Token);
+    assert_eq!(f.confidence, Confidence::High);
+}

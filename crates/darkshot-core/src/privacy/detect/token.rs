@@ -1,7 +1,10 @@
 //! JWT / token truy cập: JWT giải mã được (Cao), `Bearer <token>` (Cao),
 //! nhãn token + giá trị ≥ 16 (Trung bình). Bản giải mã chỉ nằm trong biến cục bộ và bị xóa ngay.
 
-use super::{after_separator, find_labels, run_len, starts_with, Detector, LineCtx, RawMatch};
+use super::{
+    after_separator, find_labels, has_label, letters_and_digits, run_len, starts_with,
+    strong_value, Detector, LineCtx, RawMatch,
+};
 use crate::privacy::model::{Category, Confidence, RuleId};
 use crate::privacy::text::wipe_bytes;
 
@@ -110,12 +113,15 @@ impl Detector for Token {
                 None => i += 1,
             }
         }
+        let authorization = has_label(ctx.folded(), &["authorization"]);
         for (ls, le) in find_labels(ctx.folded(), LABELS) {
             let is_bearer = ctx.folded()[ls..le].first() == Some(&'b');
             if is_bearer && c.get(le) == Some(&' ') {
                 let vs = le + run_len(c, le, |x| x == ' ');
                 let n = run_len(c, vs, bearer_char);
-                if n >= 16 {
+                // Không có `Authorization:` thì token phải có cả chữ và số (JWT có luật riêng).
+                let v = &c[vs..vs + n];
+                if n >= 16 && (authorization || letters_and_digits(v)) {
                     out.push(RawMatch::one(
                         ctx.span(vs, vs + n),
                         Category::Token,
@@ -129,7 +135,7 @@ impl Detector for Token {
                 continue;
             };
             let n = run_len(c, vs, bearer_char);
-            if n >= 16 {
+            if n >= 16 && strong_value(&c[vs..vs + n]) {
                 out.push(RawMatch::one(
                     ctx.span(vs, vs + n),
                     Category::Token,

@@ -139,13 +139,19 @@ impl LineText {
         let mut joined = Version::default();
         let word_rects: Vec<Rect> = line.words.iter().map(|w| w.rect).collect();
         if line.words.is_empty() {
-            spaced.chars = line.text.chars().map(normalize).collect();
+            // Cấp đủ chỗ trước: không để lại bản sao chưa xóa khi Vec tự nới.
+            spaced.chars.reserve_exact(line.text.len());
+            spaced.chars.extend(line.text.chars().map(normalize));
             joined.chars = spaced.chars.clone();
         } else {
+            let cap: usize = line.words.iter().map(|w| w.text.len() + 1).sum();
+            spaced.chars.reserve_exact(cap);
+            joined.chars.reserve_exact(cap);
             let h = i64::from(line.rect.h.max(0));
             let mut prev: Option<(char, Rect)> = None;
             for (wi, w) in line.words.iter().enumerate() {
-                let mut chars: Vec<char> = w.text.chars().map(normalize).collect();
+                let mut chars: Vec<char> = Vec::with_capacity(w.text.len());
+                chars.extend(w.text.chars().map(normalize));
                 let first = chars.first().copied();
                 if let Some(first) = first {
                     if !spaced.chars.is_empty() {

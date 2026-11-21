@@ -19,7 +19,9 @@ const LABELS: &[&str] = &[
     "pin",
 ];
 
-const ENV_NAMES: &[&str] = &["PASSWORD", "SECRET", "TOKEN", "KEY"];
+/// Tên biến `.env` phải có một đoạn (tách theo `_`/`-`) đúng bằng một trong các từ này
+/// (`API_KEY`, `DB_PASSWORD`, `GITHUB_TOKEN`; không phải `KEYBOARD`, `MONKEY`).
+const ENV_NAMES: &[&str] = &["PASSWORD", "PASSWD", "PWD", "SECRET", "TOKEN", "KEY"];
 
 const MAX_SPACED: usize = 64;
 
@@ -109,9 +111,10 @@ impl Detector for Password {
                 .count();
             let name = &c[i..i + n];
             let hit = c.get(i + n) == Some(&'=')
-                && ENV_NAMES.iter().any(|k| {
-                    let k: Vec<char> = k.chars().collect();
-                    name.windows(k.len()).any(|w| w == k.as_slice())
+                && name.split(|&x| x == '_' || x == '-').any(|seg| {
+                    ENV_NAMES
+                        .iter()
+                        .any(|k| k.len() == seg.len() && k.chars().zip(seg).all(|(a, &b)| a == b))
                 });
             if hit {
                 let vs = i + n + 1;
