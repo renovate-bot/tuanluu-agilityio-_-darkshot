@@ -23,10 +23,11 @@ use crate::naming;
 pub const FPS: u32 = 10;
 pub const FRAME_INTERVAL_MS: u64 = 100;
 pub const MAX_DURATION_MS: u64 = 15_000;
-pub const MAX_FRAME_PIXELS: u64 = 1_000_000;
+/// Đo ở Task 122: khung 1 MP nhiều màu mất ~270 ms (NeuQuant tốc độ 10); 0,5 MP ở tốc độ 20 ~95 ms.
+pub const MAX_FRAME_PIXELS: u64 = 500_000;
 pub const MAX_SOURCE_PIXELS: u64 = 64_000_000;
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
-pub const QUANT_SPEED: i32 = 10;
+pub const QUANT_SPEED: i32 = 20;
 pub const MIN_DELAY_CS: u16 = 2;
 /// Cạnh nhỏ nhất của vùng ghi (pixel).
 pub const MIN_SIDE: u32 = 2;
@@ -913,11 +914,11 @@ mod tests {
         assert_eq!(frame_size(100, 1), Err(GifError::InvalidRegion));
         assert_eq!(frame_size(0, 0), Err(GifError::InvalidRegion));
         assert_eq!(frame_size(2, 2), Ok((2, 2)));
-        assert_eq!(frame_size(1000, 1000), Ok((1000, 1000)));
+        assert_eq!(frame_size(1000, 1000), Ok((707, 707)));
         assert_eq!(frame_size(800, 600), Ok((800, 600)));
-        // 4K: s = sqrt(1e6 / 8 294 400).
-        assert_eq!(frame_size(3840, 2160), Ok((1333, 750)));
-        assert_eq!(frame_size(8000, 8000), Ok((1000, 1000)));
+        // 4K: s = sqrt(5e5 / 8 294 400).
+        assert_eq!(frame_size(3840, 2160), Ok((942, 530)));
+        assert_eq!(frame_size(8000, 8000), Ok((707, 707)));
         assert_eq!(frame_size(8001, 8000), Err(GifError::TooLarge));
         assert_eq!(frame_size(u32::MAX, u32::MAX), Err(GifError::TooLarge));
         // Vùng hẹp dài: cạnh GIF tối đa 65 535.
@@ -994,7 +995,7 @@ mod tests {
         let big = solid(3840, 2160, 9, 8, 7);
         let (tw, th) = frame_size(3840, 2160).unwrap();
         let s = scale_bgra(&big, tw, th).unwrap();
-        assert_eq!((s.width, s.height), (1333, 750));
+        assert_eq!((s.width, s.height), (942, 530));
         assert!(s.is_valid());
         assert!(close(&s.bgra[0..3], &[9, 8, 7], 0));
     }
@@ -1728,7 +1729,7 @@ mod tests {
             t0.elapsed().as_secs_f64() * 1000.0,
             f.palette.as_ref().map_or(0, Vec::len)
         );
-        // Thu nhỏ 4K -> 1333x750, rồi đổi RGBA.
+        // Thu nhỏ 4K -> 942x530, rồi đổi RGBA.
         let big = solid(3840, 2160, 1, 2, 3);
         let t0 = Instant::now();
         let (tw, th) = frame_size(3840, 2160).unwrap();
