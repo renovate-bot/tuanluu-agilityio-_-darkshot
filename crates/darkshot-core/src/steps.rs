@@ -8,11 +8,13 @@ pub const MAX_STEPS: usize = 99;
 pub const MAX_CAPTION: usize = 2000;
 pub const FILE_VERSION: u32 = 1;
 
-/// Một bước: tên tệp ảnh trong thư mục phiên (`NNN.png`) và ghi chú.
+/// Một bước: tên tệp ảnh trong thư mục phiên (`NNN.png`), ghi chú, và ảnh đã được Privacy Shield
+/// quét xong lúc ghi hay chưa (`Protection::scanned`; chưa quét thì xuất phiên quét lại).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
     pub file: String,
     pub caption: String,
+    pub scanned: bool,
 }
 
 /// Phiên đã đủ `MAX_STEPS` bước.
@@ -28,12 +30,18 @@ pub struct StepSession {
 impl StepSession {
     /// Thêm bước cuối với ghi chú rỗng; trả chỉ số bước mới. Đủ `MAX_STEPS` thì `Err(Full)`.
     pub fn add(&mut self, file: String) -> Result<usize, Full> {
+        self.add_with(file, false)
+    }
+
+    /// Như `add`, ghi kèm cờ `scanned` của ảnh bước.
+    pub fn add_with(&mut self, file: String, scanned: bool) -> Result<usize, Full> {
         if self.steps.len() >= MAX_STEPS {
             return Err(Full);
         }
         self.steps.push(Step {
             file,
             caption: String::new(),
+            scanned,
         });
         Ok(self.steps.len() - 1)
     }
@@ -94,13 +102,21 @@ impl StepSession {
         let steps: Vec<serde_json::Value> = self
             .steps
             .iter()
-            .map(|s| serde_json::json!({ "file": s.file, "caption": s.caption }))
+            .map(|s| {
+                let mut v = serde_json::json!({ "file": s.file, "caption": s.caption });
+                // Chỉ ghi khi đúng: thiếu = chưa quét, bản cũ của darkshot bỏ qua khóa lạ.
+                if s.scanned {
+                    v["scanned"] = serde_json::Value::Bool(true);
+                }
+                v
+            })
             .collect();
         serde_json::json!({ "version": FILE_VERSION, "steps": steps }).to_string()
     }
 
     /// `None` khi JSON hỏng, version khác 1, hoặc có `file` không khớp `^\d{3}\.png$`.
-    /// Tên trùng bị bỏ; quá `MAX_STEPS` bước thì bỏ phần thừa; ghi chú dài bị cắt.
+    /// Tên trùng bị bỏ; quá `MAX_STEPS` bước thì bỏ phần thừa; ghi chú dài bị cắt. Khóa lạ bị bỏ
+    /// qua; `scanned` chỉ đúng khi là `true` (thiếu hay giá trị khác = chưa quét).
     pub fn from_json(s: &str) -> Option<StepSession> {
         let v: serde_json::Value = serde_json::from_str(s).ok()?;
         if v.get("version")?.as_u64()? != u64::from(FILE_VERSION) {
@@ -117,9 +133,11 @@ impl StepSession {
             if out.steps.iter().any(|x| x.file == file) || out.steps.len() >= MAX_STEPS {
                 continue;
             }
+            let scanned = item.get("scanned").and_then(serde_json::Value::as_bool) == Some(true);
             out.steps.push(Step {
                 file: file.to_string(),
                 caption: truncate_chars(caption, MAX_CAPTION),
+                scanned,
             });
         }
         Some(out)
@@ -413,7 +431,51 @@ mod tests {
         Step {
             file: file.to_string(),
             caption: caption.to_string(),
+            scanned: false,
         }
+    }
+
+    #[test]
+    fn scanned_round_trips_and_is_written_only_when_true() {
+        let mut s = StepSession::default();
+        assert_eq!(s.add_with("001.png".into(), true), Ok(0));
+        assert_eq!(s.add("002.png".into()), Ok(1));
+        assert_eq!(s.add_with("003.png".into(), false), Ok(2));
+        let j = s.to_json();
+        let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+        assert_eq!(v["version"], 1);
+        assert_eq!(v["steps"][0]["scanned"], true);
+        assert!(v["steps"][1].get("scanned").is_none(), "{j}");
+        assert!(v["steps"][2].get("scanned").is_none(), "{j}");
+        let back = StepSession::from_json(&j).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(
+            back.steps.iter().map(|x| x.scanned).collect::<Vec<_>>(),
+            [true, false, false]
+        );
+    }
+
+    #[test]
+    fn scanned_missing_or_odd_is_false_and_unknown_keys_are_ignored() {
+        // Phiên cũ (không có `scanned`): đọc được, mọi bước chưa quét.
+        let old = r#"{"version":1,"steps":[{"file":"001.png","caption":"a"}]}"#;
+        assert!(!StepSession::from_json(old).unwrap().steps[0].scanned);
+        // Giá trị khác `true` không bao giờ được coi là đã quét.
+        for odd in [r#"false"#, r#""true""#, "1", "null", "{}"] {
+            let j = format!(
+                r#"{{"version":1,"steps":[{{"file":"001.png","caption":"","scanned":{odd}}}]}}"#
+            );
+            assert!(
+                !StepSession::from_json(&j).unwrap().steps[0].scanned,
+                "{odd}"
+            );
+        }
+        // Khóa lạ (của bản mới hơn) bị bỏ qua, như bản cũ của darkshot đọc `scanned`.
+        let j = r#"{"version":1,"extra":5,"steps":[{"file":"001.png","caption":"x","scanned":true,"future":[1]}]}"#;
+        let s = StepSession::from_json(j).unwrap();
+        assert_eq!(s.steps.len(), 1);
+        assert!(s.steps[0].scanned);
+        assert_eq!(s.steps[0].caption, "x");
     }
 
     #[test]

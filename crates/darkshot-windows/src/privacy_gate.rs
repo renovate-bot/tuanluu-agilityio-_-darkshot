@@ -62,12 +62,10 @@ pub enum OutputAction {
         place: pin::PinPlace,
     },
     AddStep,
-    /// Chép ảnh từ Lịch sử (Task 132 nối).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Chép ảnh từ Lịch sử.
     HistoryCopy,
     HistoryPin,
-    /// Một bước của lượt xuất các bước; kết quả về qua `Done` (Task 132 nối).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Một bước của lượt xuất các bước; kết quả về qua `Done` (`steps_window`).
     StepExport {
         step: u32,
         steps: u32,
@@ -812,8 +810,7 @@ pub fn submit(action: OutputAction, image: Image) -> Result<(), SubmitError> {
     submit_inner(action, image, None)
 }
 
-/// Như `submit`, kết quả về `done` thay vì đầu ra thường (lượt xuất các bước, Task 132).
-#[cfg_attr(not(test), allow(dead_code))]
+/// Như `submit`, kết quả về `done` thay vì đầu ra thường (lượt xuất các bước).
 pub fn submit_with(action: OutputAction, image: Image, done: Done) -> Result<(), SubmitError> {
     submit_inner(action, image, Some(done))
 }

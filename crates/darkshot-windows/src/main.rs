@@ -1045,8 +1045,12 @@ fn gate_output(action: OutputAction, prepared: PreparedOutput) {
             };
             run_on_image(hwnd, action, prepared, notifier);
         }
-        // Chép ảnh từ Lịch sử và xuất các bước: Task 132 nối (xuất các bước nhận ảnh qua `Done`).
-        OutputAction::HistoryCopy | OutputAction::StepExport { .. } => {}
+        // Chép ảnh từ Lịch sử: ảnh đã qua cổng lên clipboard, trạng thái trên cửa sổ Lịch sử.
+        OutputAction::HistoryCopy => {
+            history_window::copy_prepared(prepared, &clipboard::WinClipboard)
+        }
+        // Xuất các bước nhận ảnh qua `Done` (`steps_window`), không qua đầu ra này.
+        OutputAction::StepExport { .. } => {}
     }
 }
 
@@ -1620,7 +1624,7 @@ fn run_on_image(hwnd: HWND, action: Action, prepared: PreparedOutput, notifier: 
                 jpeg_quality: JPEG_QUALITY_DEFAULT,
             };
             let outcome = run_action(&ctx, action, prepared.image());
-            history_service::record_outcome(&outcome, prepared.image(), config.expiry, ctx.now);
+            record_history(&outcome, prepared.image(), config.expiry, ctx.now);
         }
         Action::Upload => {
             let uploader: Option<Arc<dyn Uploader>> = if config.r2.is_complete() {
@@ -1681,6 +1685,24 @@ fn run_on_image(hwnd: HWND, action: Action, prepared: PreparedOutput, notifier: 
             }
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Kiểm thử: ảnh `run_on_image` đã đưa cho Lịch sử (Lưu/Chép).
+    static HISTORY_TAP: RefCell<Vec<darkshot_core::image::Image>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Ghi Lịch sử cho ảnh vừa Lưu/Chép (ảnh của `PreparedOutput`, cùng ảnh đã xuất).
+fn record_history(
+    outcome: &darkshot_core::actions::Outcome,
+    img: &darkshot_core::image::Image,
+    expiry: darkshot_core::config::Expiry,
+    now: darkshot_core::naming::LocalTime,
+) {
+    #[cfg(test)]
+    HISTORY_TAP.with(|t| t.borrow_mut().push(img.clone()));
+    history_service::record_outcome(outcome, img, expiry, now);
 }
 
 /// Mở Cài đặt, lưu kết quả. Chỉ gọi qua `gate` (trạng thái `SettingsOpen`).
@@ -3371,6 +3393,84 @@ mod tests {
             assert_eq!(privacy_gate::submit(OutputAction::Save, src), Ok(()));
         }
         assert_eq!(pngs_in(&root).len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Lịch sử nhận đúng ảnh đã xuất (ảnh đã che của `PreparedOutput`), không phải ảnh gốc.
+    #[test]
+    fn history_gets_the_covered_image_of_a_save() {
+        use darkshot_core::privacy::RedactionPlan;
+        let root = temp_dir_for("gate_history");
+        app_with_save_dir(&root);
+        let src = sample_image(90, 50);
+        let plan = RedactionPlan {
+            rects: vec![rc(10, 10, 30, 12)],
+        };
+        let prepared = PreparedOutput::redacted(src.clone(), &plan).unwrap();
+        let want = prepared.image().clone();
+        HISTORY_TAP.with(|t| t.borrow_mut().clear());
+        {
+            let _flow = FlowOutput::set(HWND::default(), Some(Arc::new(NullNotifier)));
+            gate_output(OutputAction::Save, prepared);
+        }
+        let got = HISTORY_TAP.with(|t| std::mem::take(&mut *t.borrow_mut()));
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0], want);
+        assert_ne!(got[0], src);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Tệp và nội dung của thư mục phiên chụp từng bước.
+    fn session_files(dir: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut v: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| {
+                let e = e.unwrap();
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(e.path()).unwrap(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Shield bật: "Thêm bước" chưa qua cổng (bị bỏ như khi Hủy) không ghi `.png`/`.tmp` nào vào
+    /// thư mục phiên, `session.json` không đổi. Shield tắt: bước được thêm như trước.
+    #[test]
+    fn shield_on_add_step_writes_nothing_until_the_gate_has_an_image() {
+        let root = temp_dir_for("gate_step");
+        app_with_save_dir(&root);
+        let dir = root.join("current");
+        steps_store::use_root_for_test(dir.clone());
+        assert!(steps_store::start());
+        privacy_gate::set_sink(gate_output);
+        privacy_gate::set_enabled_source(privacy_shield_now);
+        privacy_gate::set_steps_session_source(steps_store::session_id);
+        let before = session_files(&dir);
+        assert_eq!(before.len(), 1, "{before:?}");
+        assert_eq!(before[0].0, steps_store::SESSION_FILE);
+        with_app(|a| a.config.privacy_shield = true);
+        assert_eq!(
+            privacy_gate::submit(OutputAction::AddStep, sample_image(30, 20)),
+            Ok(())
+        );
+        steps_store::settle(std::time::Duration::from_secs(20));
+        assert_eq!(steps_store::count(), 0);
+        assert_eq!(session_files(&dir), before);
+        // Shield tắt: ghi ngay một bước (chưa quét).
+        with_app(|a| a.config.privacy_shield = false);
+        assert_eq!(
+            privacy_gate::submit(OutputAction::AddStep, sample_image(30, 20)),
+            Ok(())
+        );
+        steps_store::settle(std::time::Duration::from_secs(20));
+        assert_eq!(steps_store::count(), 1);
+        assert!(!steps_store::steps()[0].scanned);
+        let names: Vec<String> = session_files(&dir).into_iter().map(|f| f.0).collect();
+        assert_eq!(names, ["001.png", steps_store::SESSION_FILE]);
+        assert!(steps_store::end());
         let _ = std::fs::remove_dir_all(&root);
     }
 
