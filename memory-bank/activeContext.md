@@ -4,14 +4,16 @@ Cập nhật: 2026-11-21
 
 ## Đang ở đâu
 
+- **Đợt 20 (Ghi GIF): XONG mã, rà soát, tài liệu; gộp `main` qua PR.** Thiết kế `docs/superpowers/specs/2026-11-21-gif-recording-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-gif-recording.md`, gói `docs/tasks/122-…` đến `124-…` (Task 125 sửa sau rà soát toàn đợt, không gói riêng), quyết định 139–142. Lõi `darkshot-core/src/gif_record.rs` (crate `gif`), phiên `darkshot-windows/src/record_session.rs`, nút lớp phủ Ctrl+G. Exe release 2.335.744 byte (+78.848). Chưa phát hành (CHANGELOG mục "Chưa phát hành"). Chưa thử tay: checklist "Đợt 20: Ghi GIF" (nhất là khung đầu sạch, màn hình tọa độ âm, DPI hỗn hợp, Windows 10).
+- Đợt 16–19, task 115–121 dành cho kế hoạch MCP (nhánh máy `task/115-mcp-design`, chưa gộp, chưa đẩy).
 - **Đợt 15 (OCR nâng cao: chọn dòng trên ảnh): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-ocr-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-ocr-pro.md`, gói `docs/tasks/97-…` đến `100-…` (Task 101 sửa sau rà soát toàn đợt, không có gói riêng), quyết định 133–135.
 - **Phát hành v0.5.0** (2026-11-21, chủ dự án đã thử bản build `b25936c` và yêu cầu): gồm đợt 10–15 (Chụp lại vùng trước, Nhận dạng chữ cục bộ và OCR nâng cao, Chụp từng bước, Chụp cuộn, gia cố đợt 14). Tag `v0.5.0`, release kèm `darkshot-v0.5.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`; nội dung từ `CHANGELOG.md` (quyết định 136). Exe 2.256.896 byte, chưa ký số. Website thêm hai mục Nhận dạng chữ và Chụp từng bước/chụp cuộn; Task 108 thêm ảnh chụp thật cho Ghim, Nhận dạng chữ, Các bước, Ảnh chụp cuộn (quyết định 137).
-- Còn mở: checklist "Đợt 9"–"Đợt 15" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
+- Còn mở: checklist "Đợt 9"–"Đợt 15" và "Đợt 20" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
 - Task đang làm: không.
 
 ## Bước kế tiếp
 
-Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/NN-…` từ `main` (số chưa dùng trên `origin`), gộp qua PR (quyết định 138), agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên trước khi đặt số task mới phải xem `git branch -r` (phiên macOS đã dùng tới 113).
+Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/NN-…` từ `main` (số chưa dùng trên `origin`), gộp qua PR (quyết định 138), agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên trước khi đặt số task mới phải xem `git branch -r` (phiên macOS đã dùng tới 113; MCP giữ 115–121; đợt 20 dùng 122–125).
 
 ## Lưu trữ: đợt 14 (đã gộp `main`)
 

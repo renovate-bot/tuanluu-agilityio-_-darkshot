@@ -54,6 +54,7 @@
       <symbol id="i-pin" viewBox="0 0 24 24"><path d="M15.24 4.51L19.49 8.76L14.54 12.29L13.83 17.24L6.76 10.17L11.71 9.46ZM10.29 13.71L5.64 19.36" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-ocr" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M8.5 8.5h7M12 8.5V16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M6 3h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2zM12 7v9.5M8.5 13l3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-record" viewBox="0 0 24 24"><path d="M6 5h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.9" fill="currentColor"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
@@ -441,6 +442,7 @@
               <li data-i18n-html="fs.l3">Reorder steps, add a note to each, delete or preview them, then export a <code>darkshot-steps-…</code> folder with <code>01.png</code>, <code>02.png</code>… and <code>steps.md</code>. The session survives a restart.</li>
               <li data-i18n-html="fs.l4">Scrolling capture: select a region, press <kbd>Ctrl</kbd>+<kbd>L</kbd> or the <strong>Scrolling capture</strong> button, then scroll the content down slowly yourself. darkshot joins the parts into one tall image, up to 30,000 px.</li>
               <li data-i18n="fs.l5">Joins darkshot is unsure about are flagged so you can check the image. The result window offers Save, Copy, Upload and Pin.</li>
+              <li data-i18n-html="fs.l6">Record GIF: select a region, press <kbd>Ctrl</kbd>+<kbd>G</kbd> or the <strong>Record GIF</strong> button, then Stop to save. Up to 15 seconds at 10 frames per second, looping, no mouse pointer, no sound. It is saved in your save folder and never uploaded or added to history.</li>
             </ul>
             <p class="small" data-i18n="fs.safe">Scrolling capture is vertical only, inside the fixed region you chose, and isn't guaranteed for every app; darkshot never sends scroll input to other apps. Step images never go into history. Both run on your PC with no network.</p>
           </div>
@@ -477,6 +479,7 @@
                 <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td data-i18n="fg.r9">Recognize text on your PC (click a line to copy it)</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td data-i18n="fg.r10">Add step (while a step session is open)</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>L</kbd></td><td data-i18n="fg.r11">Scrolling capture (you scroll)</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>G</kbd></td><td data-i18n="fg.r12">Record GIF (up to 15 s)</td></tr>
                 <tr><td><kbd>Esc</kbd></td><td data-i18n="fg.r5">Cancel or step back</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td data-i18n="fg.r6">Undo annotation</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td data-i18n="fg.r7">Redo annotation</td></tr>
@@ -490,7 +493,7 @@
                 <li data-i18n="fg.x3">All four capture shortcuts can be re-assigned or turned off in Options.</li>
                 <li data-i18n-html="fg.x4"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>PrintScreen</kbd> repeats the last region capture: same area, same action, no overlay (off by default).</li>
               </ul>
-              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C, Ctrl+P, Ctrl+T and Ctrl+L work once you have a selection.</p>
+              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C, Ctrl+P, Ctrl+T, Ctrl+L and Ctrl+G work once you have a selection.</p>
             </div>
           </div>
         </article>

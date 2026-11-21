@@ -48,7 +48,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 ### Thanh công cụ
 
-Thanh có chín nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi bảy nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn, Hủy). Khi đang có phiên chụp từng bước, thanh có thêm nút **Thêm bước** ngay trước Hủy (tổng mười nút). Rê chuột vào nút để xem tên và phím tắt.
+Thanh có mười nút chỉ có biểu tượng: Hoàn tác, Làm lại, một vạch ngăn, rồi tám nút hành động (Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn, Ghi GIF, Hủy). Khi đang có phiên chụp từng bước, thanh có thêm nút **Thêm bước** ngay trước Hủy (tổng mười một nút). Rê chuột vào nút để xem tên và phím tắt.
 
 | Nút | Phím | Việc làm |
 |---|---|---|
@@ -60,10 +60,11 @@ Thanh có chín nút chỉ có biểu tượng: Hoàn tác, Làm lại, một v�
 | Ghim lên màn hình | `Ctrl+P` | Ghim vùng chọn lên màn hình thành một ảnh ghim. Xem "Ghim ảnh lên màn hình". |
 | Nhận dạng chữ | `Ctrl+T` | Nhận dạng chữ trong vùng đã chọn và mở cửa sổ "Chữ nhận dạng". Xem mục "Nhận dạng chữ". |
 | Chụp cuộn | `Ctrl+L` | Bắt đầu ghép một ảnh dọc từ vùng đã chọn; bạn tự cuộn nội dung. Xem mục "Chụp cuộn". |
+| Ghi GIF | `Ctrl+G` | Bắt đầu ghi vùng đã chọn thành ảnh GIF động. Xem mục "Ghi GIF". |
 | Thêm bước (chỉ khi có phiên) | `Ctrl+N` | Thêm vùng chọn (đã đánh dấu nếu có) làm một bước của phiên chụp từng bước. Lớp phủ đóng. Xem "Chụp từng bước". |
 | Hủy | `Esc` | Đóng lớp phủ, không làm gì. |
 
-- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T`, `Ctrl+L` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
+- `Ctrl+D`, `Ctrl+S`, `Ctrl+C`, `Ctrl+P`, `Ctrl+T`, `Ctrl+L`, `Ctrl+G` chỉ có tác dụng khi đã có vùng chọn. Khi chưa có vùng chọn, các phím này không làm gì.
 - `Ctrl+N` chỉ có tác dụng khi đã có vùng chọn và đang có phiên chụp từng bước. Khi không có phiên, phím này không làm gì và nút Thêm bước không hiện.
 - `Esc` đóng lớp phủ bất cứ lúc nào, kể cả khi đang kéo khung chọn vùng. Khi đang có bảng mở, ô chữ, lần kéo hình hoặc hình được chọn, `Esc` chỉ lùi một bước (xem "Đánh dấu ảnh").
 
@@ -418,6 +419,36 @@ powershell -File scripts/demo-scroll.ps1 -Exe target\demo13\release\darkshot.exe
 
 Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một tệp mẫu nhiều dòng trong Notepad: chọn vùng bao quanh tệp, bấm `Ctrl+L`, rồi tự cuộn xuống từ từ. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 13: Chụp cuộn".
 
+### Ghi GIF
+
+Ghi một đoạn ngắn của vùng đã chọn thành **ảnh GIF động**. Chạy hoàn toàn trên máy, không dùng mạng.
+
+**Bắt đầu và kết thúc**
+
+1. Bấm `PrintScreen`, chọn vùng.
+2. Bấm nút **Ghi GIF** trên thanh ngang (giữa Chụp cuộn và Hủy) hoặc `Ctrl+G`. Hình đánh dấu không được kèm vào GIF.
+3. Một thanh ghi nổi hiện lên: chấm đỏ, "Đang ghi 00:05 / 00:15", nút **Dừng** và **Hủy**. Thanh không lấy tiêu điểm, và thanh cùng khung viền quanh vùng không nằm trong GIF (Windows 10 bản 2004 trở lên; bản cũ hơn không có khung và thanh đặt ngoài vùng). Không có phím Esc toàn cục để dừng.
+4. **Dừng** lưu tệp và hiện thông báo "Đã lưu GIF" kèm đường dẫn (theo công tắc hiện thông báo). **Hủy** không tạo tệp và không thông báo.
+5. Tự dừng và lưu phần đã ghi khi đạt 15 giây, khi tệp đạt 256 MiB, hoặc khi vùng không còn trên màn hình (kèm thông báo).
+
+**Giới hạn**
+
+- 10 khung hình mỗi giây (máy chậm thì ít khung hơn, nhưng thời gian vẫn đúng), tối đa 15 giây, lặp vô hạn, không có con trỏ chuột, không âm thanh.
+- Mỗi khung tối đa 256 màu. Vùng lớn hơn 500 000 điểm ảnh được thu nhỏ giữ tỉ lệ (ví dụ 4K còn khoảng 942×530). Vùng quá 64 MP bị từ chối.
+- Trong lúc ghi, phím tắt chụp, mục Chụp của menu khay, Chụp lại vùng trước và nút Chụp bước bị bỏ qua; không bắt đầu được Chụp từng bước.
+
+**Nơi lưu**
+
+- Thư mục Lưu trong Tùy chọn, tên `darkshot_YYYY-MM-DD_HH-MM-SS.gif`; trùng tên thì thêm `_2`, `_3`…, không bao giờ ghi đè.
+- Đang ghi thì dữ liệu nằm trong tệp tạm `.darkshot-rec-….gif.part` cùng thư mục, xong mới đổi tên. Nếu ứng dụng bị tắt đột ngột, tệp tạm sót lại được dọn ở lần khởi động sau.
+- GIF **không** được tải lên R2 và **không** vào Lịch sử.
+- Thoát ứng dụng hoặc tắt máy khi đang ghi: phần đã ghi được lưu (trong hạn chót chung 4 giây).
+
+**Giới hạn đã biết**
+
+- Thông báo của Windows hiện trong lúc ghi có thể lọt vào GIF.
+- Chưa thử tay trên Windows 10, nhiều màn hình, DPI hỗn hợp và màn hình có tọa độ âm. Xem mục "Đợt 20: Ghi GIF" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
+
 ### Menu khay
 
 | Mục | Việc làm |
@@ -556,6 +587,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 - Ứng dụng không ghi log ra file. Không gửi thống kê. Việc kiểm tra bản mới chỉ gửi tên và phiên bản ứng dụng (xem mục "Cập nhật") và tắt được.
 - Nhận dạng chữ (Ctrl+T) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử.
 - Chụp cuộn chạy hoàn toàn trên máy, không dùng mạng. Ảnh ghép chỉ nằm trong bộ nhớ cho đến khi bạn Lưu, Chép, Tải lên hoặc Ghim; chụp cuộn không ghi tệp tạm.
+- Ghi GIF chạy hoàn toàn trên máy, không dùng mạng. GIF chỉ được ghi vào thư mục Lưu của bạn (qua tệp tạm `.darkshot-rec-….gif.part`), không tải lên, không vào Lịch sử.
 - Chụp từng bước: ảnh bước nằm trong `%LOCALAPPDATA%\darkshot\steps\current` cho đến khi bạn xuất ra thư mục bạn chọn. Không gửi đi đâu, không vào Lịch sử. Kết thúc phiên sẽ xóa các ảnh này.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.

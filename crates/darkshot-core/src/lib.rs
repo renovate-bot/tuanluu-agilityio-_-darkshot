@@ -4,6 +4,7 @@ pub mod color;
 pub mod config;
 pub mod edit;
 pub mod geometry;
+pub mod gif_record;
 pub mod history;
 pub mod history_store;
 pub mod i18n;

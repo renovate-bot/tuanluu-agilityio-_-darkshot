@@ -19,6 +19,8 @@ pub enum Action {
     AddStep,
     /// Chụp cuộn vùng đã chọn (xử lý ở lớp Windows; lõi không làm gì).
     Scroll,
+    /// Ghi vùng đã chọn thành GIF (xử lý ở lớp Windows; lõi không làm gì).
+    RecordGif,
     Cancel,
 }
 
@@ -72,7 +74,12 @@ pub enum Outcome {
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
     if matches!(
         action,
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll
+        Action::Cancel
+            | Action::Pin
+            | Action::Ocr
+            | Action::AddStep
+            | Action::Scroll
+            | Action::RecordGif
     ) {
         return Outcome::Cancelled;
     }
@@ -85,9 +92,12 @@ pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
         return Outcome::Failed;
     }
     match action {
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll => {
-            Outcome::Cancelled
-        }
+        Action::Cancel
+        | Action::Pin
+        | Action::Ocr
+        | Action::AddStep
+        | Action::Scroll
+        | Action::RecordGif => Outcome::Cancelled,
         Action::Save => match save_png(ctx, img) {
             Ok(path) => {
                 ctx.notifier.notify(
@@ -434,6 +444,27 @@ mod tests {
         assert!(cb.images.lock().unwrap().is_empty());
         assert!(cb.texts.lock().unwrap().is_empty());
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn record_gif_does_nothing_in_core() {
+        let d = temp_dir();
+        let (cb, n) = (FakeClipboard::default(), FakeNotifier::default());
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::RecordGif, &img());
+        assert_eq!(out, Outcome::Cancelled);
+        assert!(n.notes.lock().unwrap().is_empty());
+        assert!(cb.images.lock().unwrap().is_empty());
+        assert!(cb.texts.lock().unwrap().is_empty());
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+        // Ảnh không hợp lệ cũng không thông báo.
+        let bad = Image {
+            width: 0,
+            height: 0,
+            bgra: Vec::new(),
+        };
+        let out = run_action(&ctx(&d, None, &cb, &n), Action::RecordGif, &bad);
+        assert_eq!(out, Outcome::Cancelled);
+        assert!(n.notes.lock().unwrap().is_empty());
     }
 
     #[test]

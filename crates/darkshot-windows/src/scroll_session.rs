@@ -91,13 +91,13 @@ const ESC_HOTKEY_ID: i32 = 0x5C01;
 const EXCLUDE_MIN_BUILD: u32 = 19041;
 
 /// `WDA_EXCLUDEFROMCAPTURE` dùng được ở bản dựng `build` (không biết thì coi là không).
-fn exclude_supported(build: Option<u32>) -> bool {
+pub(crate) fn exclude_supported(build: Option<u32>) -> bool {
     build.is_some_and(|b| b >= EXCLUDE_MIN_BUILD)
 }
 
 /// Số bản dựng Windows (`CurrentBuildNumber` trong registry; không phụ thuộc manifest). Như
 /// `steps_bar` (hàm của nó riêng tư, gói task không cho sửa file đó).
-fn os_build() -> Option<u32> {
+pub(crate) fn os_build() -> Option<u32> {
     let mut buf = [0u16; 64];
     let mut bytes = (buf.len() * 2) as u32;
     // SAFETY: bộ đệm dài `bytes` byte, sống suốt lời gọi; RegGetValueW tự mở và đóng khóa con.
@@ -120,12 +120,12 @@ fn os_build() -> Option<u32> {
 }
 
 /// Bề dày khung (pixel) ở `dpi`.
-fn frame_thickness(dpi: u32) -> i32 {
+pub(crate) fn frame_thickness(dpi: u32) -> i32 {
     scale(FRAME_DIP, dpi).max(1)
 }
 
 /// Bốn ô khung bao ngoài `region`, dày `t`: trên, dưới (gồm góc), trái, phải.
-fn frame_rects(region: Rect, t: i32) -> [Rect; 4] {
+pub(crate) fn frame_rects(region: Rect, t: i32) -> [Rect; 4] {
     let Rect { x, y, w, h } = region;
     [
         Rect {
@@ -238,7 +238,7 @@ fn bar_spot(
 }
 
 /// Vùng còn nằm trọn trên các màn hình `monitors` (tọa độ màn hình, không chồng nhau).
-fn region_valid(region: Rect, monitors: &[Rect]) -> bool {
+pub(crate) fn region_valid(region: Rect, monitors: &[Rect]) -> bool {
     if region.w <= 0 || region.h <= 0 {
         return false;
     }
@@ -626,7 +626,7 @@ fn from_rect(r: RECT) -> Rect {
 }
 
 /// Màn hình (cả màn hình, vùng làm việc) của mọi màn hình.
-fn monitors() -> Vec<(Rect, Rect)> {
+pub(crate) fn monitors() -> Vec<(Rect, Rect)> {
     unsafe extern "system" fn collect(m: HMONITOR, _: HDC, _: *mut RECT, lp: LPARAM) -> BOOL {
         let mut mi = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -657,15 +657,15 @@ fn monitors() -> Vec<(Rect, Rect)> {
 
 /// Màn hình gần một hình chữ nhật nhất: vùng làm việc, cả màn hình, DPI; vùng làm việc các màn
 /// hình khác.
-struct Place {
+pub(crate) struct Place {
     work: Rect,
     mon: Rect,
-    dpi: u32,
+    pub(crate) dpi: u32,
     others: Vec<Rect>,
 }
 
 /// Thông tin màn hình gần `region` nhất (xem `Place`).
-fn placement(region: Rect) -> Place {
+pub(crate) fn placement(region: Rect) -> Place {
     // SAFETY: chỉ hỏi thông tin màn hình; các biến là cục bộ.
     let (work, mon, dpi) = unsafe {
         let m = MonitorFromRect(&to_rect(region), MONITOR_DEFAULTTONEAREST);
@@ -700,7 +700,7 @@ fn placement(region: Rect) -> Place {
 }
 
 /// Góc trên trái của thanh cỡ `size` (DPI `dpi`) cho vùng `region` (xem `bar_spot`).
-fn place(region: Rect, size: (i32, i32), dpi: u32, excluded: bool) -> Option<Point> {
+pub(crate) fn place(region: Rect, size: (i32, i32), dpi: u32, excluded: bool) -> Option<Point> {
     let p = placement(region);
     let gap = scale(BAR_GAP, dpi);
     bar_spot(region, size, gap, p.work, p.mon, &p.others, excluded)
@@ -740,7 +740,7 @@ fn height_text(px: u32) -> Vec<u16> {
 }
 
 /// Đo chữ một dòng bằng phông `font`.
-fn measure(font: Option<HFONT>, parts: &[&[u16]]) -> Vec<(i32, i32)> {
+pub(crate) fn measure(font: Option<HFONT>, parts: &[&[u16]]) -> Vec<(i32, i32)> {
     // SAFETY: DC bộ nhớ tạo và xóa trong hàm; `draw_text` chọn lại phông cũ trước khi trả.
     unsafe {
         let dc = CreateCompatibleDC(None);
@@ -1246,7 +1246,7 @@ fn paint_bar(h: HWND) {
 }
 
 /// Vẽ một cạnh khung: nét đứt màu nhấn xen nền tối (đọc rõ trên nội dung sáng lẫn tối).
-fn paint_frame(h: HWND) {
+pub(crate) fn paint_frame(h: HWND) {
     let mut ps = PAINTSTRUCT::default();
     let mut cr = RECT::default();
     // SAFETY: cặp BeginPaint/EndPaint của cửa sổ này; `theme::fill` tạo và xóa chổi của nó.
