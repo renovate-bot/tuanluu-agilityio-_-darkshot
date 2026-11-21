@@ -837,3 +837,116 @@ fn phone_group_right_after_paren() {
     let f = single("(028)38221234", Category::Phone);
     assert_eq!(f.rule, RuleId::PhoneVnFixed);
 }
+
+// ---------- Task 133: tinh chỉnh đã biết ----------
+
+#[test]
+fn aws_and_github_keys_accept_ocr_i_as_l_or_bar() {
+    // OCR đọc `I` thành `l` hoặc `|` ở vị trí chữ hoa: tiền tố và thân.
+    for k in [
+        format!("{}{}", "AK", "lAEXAMPLEKEY012345"),
+        format!("{}{}", "AK", "|AEXAMPLEKEY012345"),
+        format!("{}{}", "AS", "lAEXAMPLEKEY012345"),
+        format!("{}{}", "AK", "IAEXAMPLElKEY01234"),
+        format!("{}{}", "AK", "lAEXAMP|EKEY012345"),
+    ] {
+        let f = single(&format!("id {k} end"), Category::ApiKey);
+        assert_eq!(
+            (f.confidence, f.rule),
+            (Confidence::High, RuleId::ApiKeyAws)
+        );
+    }
+    let k = format!("{}{}", "gh", "p_EXAMPLEexample0123456789EXAMP|Eexamp");
+    let f = single(&format!("token {k}"), Category::ApiKey);
+    assert_eq!(f.rule, RuleId::ApiKeyGithub);
+    // vẫn đúng độ dài: thừa/thiếu một ký tự thì không nhận
+    none(&format!("{}{}", "AK", "lAEXAMPLEKEY0123456"));
+    none(&format!("{}{}", "AK", "lAEXAMPLEKEY01234"));
+    // chữ thường khác `l` không phải chữ hoa
+    none(&format!("{}{}", "AK", "IAexampleKEY012345"));
+}
+
+#[test]
+fn pwd_paths_are_not_passwords() {
+    none("PWD=/home/demo/projects");
+    none("OLDPWD=/home/demo");
+    none("pwd: /usr/local/bin");
+    none(r"PWD=C:\Users\demo");
+    none("OLDPWD=~/src");
+    // giá trị không phải đường dẫn vẫn là mật khẩu
+    let f = single("PWD=hunter2", Category::Password);
+    assert_eq!(f.category, Category::Password);
+    let f = single("pwd: hunter2", Category::Password);
+    assert_eq!(f.rule, RuleId::PasswordLabeled);
+}
+
+#[test]
+fn secret_env_name_needs_segment_key_or_end() {
+    none("SECRETARY=alice");
+    none("SECRETARIAT_NAME=board");
+    for t in [
+        "SECRET=abc",
+        "APP_SECRET=abc",
+        "SECRET_VALUE=abc",
+        "SECRETKEY=abc",
+        "CLIENTSECRET=abc",
+        "AWS_SECRET_ACCESS=abc",
+    ] {
+        // "SECRET=" cũng khớp nhãn `secret`: một phát hiện, che cả từ.
+        let f = single(t, Category::Password);
+        assert_eq!(f.rects, vec![word_rect(t, 0)]);
+    }
+}
+
+#[test]
+fn key_suffix_with_long_prefix_is_secret() {
+    for t in ["MASTERKEY=abc", "SSHKEY=abc", "APP_SIGNINGKEY=abc"] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rule, RuleId::PasswordEnv, "case {}", t.len());
+    }
+    for t in [
+        "MONKEY=banana",
+        "HOTKEY=ctrl",
+        "TURKEY=bird",
+        "DONKEY=kong",
+        "KEYBOARD=us",
+        "APP_HOTKEY=ctrl",
+        "XKEY=abc",
+    ] {
+        none(t);
+    }
+}
+
+#[test]
+fn phone_with_trunk_zero_in_parentheses() {
+    let f = single("+84(0)912345678", Category::Phone);
+    assert_eq!(
+        (f.confidence, f.rule),
+        (Confidence::High, RuleId::PhoneVnMobile)
+    );
+    let f = single("Call +84 (0) 912 345 678", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnMobile);
+    let f = single("+44(0)2079460000", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneIntl);
+}
+
+// ---------- Task 133: sửa sau rà soát ----------
+
+#[test]
+fn secrets_plural_env_names() {
+    for t in ["SECRETS=abc", "APP_SECRETS=abc123", "CLIENT_SECRETS_FILE=x"] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rects, vec![word_rect(t, 0)]);
+    }
+    none("SECRETSANTA=bob");
+    none("SECRETARY=alice");
+}
+
+#[test]
+fn phone_trunk_zero_then_space() {
+    let f = single("+84(0) 912 345 678", Category::Phone);
+    assert_eq!(
+        (f.confidence, f.rule),
+        (Confidence::High, RuleId::PhoneVnMobile)
+    );
+}

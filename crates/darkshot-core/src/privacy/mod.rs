@@ -51,3 +51,6 @@ pub fn detect(lines: &[OcrLine]) -> Vec<Finding> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod quality_tests;
