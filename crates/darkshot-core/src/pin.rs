@@ -86,13 +86,28 @@ pub fn fit_zoom(img_w: u32, img_h: u32, area: Rect) -> u16 {
 /// Khung ảnh căn giữa `area` ở mức `zoom`.
 pub fn centered(img_w: u32, img_h: u32, zoom: u16, area: Rect) -> Rect {
     let (w, h) = display_size(img_w, img_h, zoom);
-    let c = |a: i32, len: i32, s: i32| -> i32 {
-        (a as i64 + (len as i64 - s as i64).div_euclid(2)).clamp(i32::MIN as i64, i32::MAX as i64)
-            as i32
-    };
     Rect {
-        x: c(area.x, area.w, w),
-        y: c(area.y, area.h, h),
+        x: center1(area.x, area.w, w),
+        y: center1(area.y, area.h, h),
+        w,
+        h,
+    }
+}
+
+/// Đầu đoạn dài `s` căn giữa đoạn `[a, a + len)` (làm tròn xuống), kẹp vào i32.
+fn center1(a: i32, len: i32, s: i32) -> i32 {
+    (a as i64 + (len as i64 - s as i64).div_euclid(2)).clamp(i32::MIN as i64, i32::MAX as i64)
+        as i32
+}
+
+/// Khung ảnh ban đầu trong `area` ở mức `zoom`: mỗi chiều, cỡ hiển thị ≤ cỡ vùng thì căn giữa như
+/// `centered`; lớn hơn thì neo mép trái (ngang) / mép trên (dọc) vào vùng để phần đầu ảnh luôn thấy.
+pub fn placed_in(img_w: u32, img_h: u32, zoom: u16, area: Rect) -> Rect {
+    let (w, h) = display_size(img_w, img_h, zoom);
+    let place = |a: i32, len: i32, s: i32| if s > len { a } else { center1(a, len, s) };
+    Rect {
+        x: place(area.x, area.w, w),
+        y: place(area.y, area.h, h),
         w,
         h,
     }
@@ -271,6 +286,39 @@ mod tests {
             centered(101, 50, 100, r(-1920, 0, 1920, 1080)),
             r(-1920 + 909, 515, 101, 50)
         );
+    }
+
+    /// Ảnh vừa vùng: như `centered`. Chiều nào lớn hơn vùng thì neo mép trên/trái vào vùng.
+    #[test]
+    fn placed_in_centers_or_anchors_start() {
+        // Vừa: căn giữa như cũ.
+        let area = r(0, 0, 1000, 500);
+        assert_eq!(placed_in(100, 50, 100, area), centered(100, 50, 100, area));
+        assert_eq!(placed_in(100, 50, 100, area), r(450, 225, 100, 50));
+        // Vừa khít: như cũ.
+        assert_eq!(placed_in(1000, 500, 100, area), r(0, 0, 1000, 500));
+        // Cao hơn vùng ở 10%: mép trên = mép trên vùng, ngang căn giữa.
+        let work = r(0, 40, 1920, 1040);
+        assert_eq!(fit_zoom(1000, 100_000, work), 10);
+        assert_eq!(placed_in(1000, 100_000, 10, work), r(910, 40, 100, 10_000));
+        // Rộng hơn: mép trái = mép trái vùng, dọc căn giữa.
+        assert_eq!(
+            placed_in(100_000, 1000, 10, work),
+            r(0, 40 + 470, 10_000, 100)
+        );
+        // Cả hai chiều lớn hơn: góc trên trái của vùng.
+        assert_eq!(placed_in(30_000, 20_000, 10, work), r(0, 40, 3000, 2000));
+        // Vùng tọa độ âm.
+        let neg = r(-1920, -200, 1920, 1080);
+        assert_eq!(
+            placed_in(1000, 50_000, 10, neg),
+            r(-1920 + 910, -200, 100, 5000)
+        );
+        assert_eq!(
+            placed_in(50_000, 1000, 10, neg),
+            r(-1920, -200 + 490, 5000, 100)
+        );
+        assert_eq!(placed_in(101, 50, 100, neg), centered(101, 50, 100, neg));
     }
 
     #[test]

@@ -549,7 +549,7 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe targe
 - [ ] Nhiều màn hình: vùng trên màn phụ (DPI khác màn chính) được chụp và ghép đúng; thanh điều khiển hiện trên đúng màn.
 - [ ] Màn hình có tọa độ âm (bên trái hoặc phía trên màn chính): chụp cuộn đúng vùng trên màn đó.
 - [ ] DPI 100%, 150% và 200%: chữ trong ảnh ghép rõ, không mờ, không bị cắt mép.
-- [ ] Ghim ảnh chụp cuộn rất cao (hơn khoảng 8 600 px trên màn 1080p): ảnh ghim ở mức thu nhỏ nhất 10% vẫn cao hơn màn hình, phần trên nằm ngoài màn hình (giới hạn đã biết trong README); Lưu và cuộn trong cửa sổ kết quả vẫn xem được toàn bộ ảnh.
+- [ ] Ghim ảnh chụp cuộn rất cao (hơn khoảng 8 600 px trên màn 1080p): ảnh ghim ở mức thu nhỏ nhất 10% vẫn cao hơn màn hình, mép trên ảnh sát mép trên vùng làm việc (phần đầu ảnh luôn thấy), kéo ảnh ghim để xem phần sau; Lưu và cuộn trong cửa sổ kết quả vẫn xem được toàn bộ ảnh.
 - [ ] Windows 10 từ bản 2004 trở lên: khung và thanh không lọt vào ảnh chụp, như Windows 11.
 - [ ] Windows 10 trước bản 2004 (nếu có máy thử): không có khung nét đứt; thanh đặt ngoài vùng.
 - [ ] English: nút "Scrolling capture (Ctrl+L)", chú thích "Annotations are not included", thanh "Scrolling capture", "Scroll down slowly", "Scroll more slowly", "Done", "Cancel", cửa sổ "Scrolling capture", các nút Save, Copy, Upload, Pin, Close và các thông báo đều tiếng Anh; không cắt chữ.

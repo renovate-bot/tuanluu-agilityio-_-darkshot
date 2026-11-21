@@ -42,16 +42,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetNextDlgTabItem,
-    IsChild, IsDialogMessageW, IsWindow, LoadCursorW, PeekMessageW, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, BS_PUSHBUTTON, EN_KILLFOCUS,
-    EN_SETFOCUS, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_WANTRETURN, HMENU, IDC_ARROW,
-    MINMAXINFO, MSG, NONCLIENTMETRICSW, PM_REMOVE, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
+    GetWindowLongPtrW, IsChild, IsDialogMessageW, IsWindow, LoadCursorW, PeekMessageW,
+    RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
+    BS_PUSHBUTTON, EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL,
+    ES_WANTRETURN, GWL_EXSTYLE, HMENU, HWND_NOTOPMOST, IDC_ARROW, MINMAXINFO, MSG,
+    NONCLIENTMETRICSW, PM_REMOVE, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP,
     WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
     WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_DISABLED, WS_EX_APPWINDOW,
-    WS_EX_CONTROLPARENT, WS_GROUP, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_TABSTOP,
-    WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+    WS_EX_CONTROLPARENT, WS_EX_TOPMOST, WS_GROUP, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU,
+    WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
 
 /// Kết quả nhận dạng gửi về cửa sổ: WPARAM = token, LPARAM = `Box` của `ocr::start`.
@@ -394,6 +395,32 @@ pub fn close_all() {
     prune();
 }
 
+/// Bỏ `WS_EX_TOPMOST` của mọi cửa sổ kết quả đang topmost (gọi khi ảnh ghim cuối cùng đóng: không
+/// còn gì để nằm trên). Không dời, không đổi cỡ, không kích hoạt cửa sổ.
+pub fn drop_topmost() {
+    let all: Vec<HWND> = WINS.with(|v| {
+        v.try_borrow()
+            .map(|v| v.iter().map(|w| w.hwnd).collect())
+            .unwrap_or_default()
+    });
+    for h in all {
+        // SAFETY: cửa sổ kết quả của luồng này; chỉ đọc kiểu và đổi thứ tự Z, ngoài lúc mượn sổ.
+        unsafe {
+            if GetWindowLongPtrW(h, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0 {
+                let _ = SetWindowPos(
+                    h,
+                    Some(HWND_NOTOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
+}
+
 fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
     // SAFETY: chỉ đọc trạng thái phím của luồng này.
     unsafe { GetKeyState(i32::from(vk.0)) < 0 }
@@ -596,9 +623,9 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
     // Tạo thẳng trên màn hình đó, theo DPI của nó: không có WM_DPICHANGED lúc mở.
     let dpi = monitor_dpi(mon);
     let (ww, wh) = window_size(DEFAULT_W, DEFAULT_H, dpi);
-    let (x, y) = match work_area(mon) {
+    let (x, y, covered) = match work_area(mon) {
         Some(work) => place_avoiding(work, ww, wh, avoid, scale(GAP, dpi)),
-        None => (100, 100),
+        None => (100, 100, avoid.is_some()),
     };
     let title = HSTRING::from(t(lang, Msg::OcrWindowTitle));
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; đăng ký lại lần hai báo lỗi vô hại.
@@ -614,7 +641,7 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
         };
         RegisterClassW(&wc);
         CreateWindowExW(
-            EX_STYLE,
+            ex_style(covered),
             CLASS,
             &title,
             STYLE,
@@ -1101,17 +1128,34 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
+/// Kiểu mở rộng của cửa sổ kết quả: chồng lên khung cần tránh (ảnh ghim, luôn ở trên cùng) thì
+/// thêm `WS_EX_TOPMOST` để cửa sổ nằm trên ảnh ghim; không thì như thường.
+fn ex_style(overlaps: bool) -> WINDOW_EX_STYLE {
+    if overlaps {
+        WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0)
+    } else {
+        EX_STYLE
+    }
+}
+
 /// Góc trên trái cho cửa sổ `w`×`h` trong vùng làm việc `work` (tọa độ màn hình), tránh khung
 /// `avoid` (ảnh ghim, luôn ở trên cùng): thử bên phải, rồi trái, dưới, trên khung, cách khung `gap`;
 /// không chỗ nào đủ (hay không có khung) thì giữa vùng làm việc. Luôn kẹp góc vào vùng làm việc.
-fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> (i32, i32) {
+/// Phần tử thứ ba (`overlaps`): cửa sổ ở vị trí trả về chồng lên `avoid`.
+fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> (i32, i32, bool) {
     let clamp = |v: i32, lo: i32, hi: i32| v.min(hi).max(lo);
     let center = (
         (work.x + (work.w - w) / 2).max(work.x),
         (work.y + (work.h - h) / 2).max(work.y),
     );
     let Some(a) = avoid else {
-        return center;
+        return (center.0, center.1, false);
+    };
+    // Phép so trên i64: khung ảnh ghim có thể ở tọa độ rất lớn.
+    let hit = |x: i32, y: i32| {
+        let (x, y, w, h) = (x as i64, y as i64, w as i64, h as i64);
+        let (ax, ay, aw, ah) = (a.x as i64, a.y as i64, a.w as i64, a.h as i64);
+        x < ax + aw && ax < x + w && y < ay + ah && ay < y + h
     };
     let (fits_w, fits_h) = (w <= work.w, h <= work.h);
     let y_beside = clamp(a.y, work.y, work.bottom() - h);
@@ -1119,22 +1163,22 @@ fn place_avoiding(work: Rect, w: i32, h: i32, avoid: Option<Rect>, gap: i32) -> 
     if fits_w && fits_h {
         let right = a.right() + gap;
         if right >= work.x && right + w <= work.right() {
-            return (right, y_beside);
+            return (right, y_beside, false);
         }
         let left = a.x - gap - w;
         if left >= work.x && left + w <= work.right() {
-            return (left, y_beside);
+            return (left, y_beside, false);
         }
         let below = a.bottom() + gap;
         if below >= work.y && below + h <= work.bottom() {
-            return (x_beside, below);
+            return (x_beside, below, false);
         }
         let above = a.y - gap - h;
         if above >= work.y && above + h <= work.bottom() {
-            return (x_beside, above);
+            return (x_beside, above, false);
         }
     }
-    center
+    (center.0, center.1, hit(center.0, center.1))
 }
 
 /// Thứ cửa sổ đang hiện, đủ để dựng lại chữ giao diện khi đổi ngôn ngữ.
@@ -1348,7 +1392,10 @@ mod tests {
     fn placement_avoids_rect() {
         let work = r(-1920, 0, 1920, 1040);
         let (w, h, g) = (600, 400, 8);
-        let place = |avoid| place_avoiding(work, w, h, avoid, g);
+        let place = |avoid| {
+            let (x, y, _) = place_avoiding(work, w, h, avoid, g);
+            (x, y)
+        };
         let center = (-1920 + (1920 - 600) / 2, (1040 - 400) / 2);
         assert_eq!(place(None), center);
         // Đủ chỗ bên phải.
@@ -1366,10 +1413,10 @@ mod tests {
         // Khung tràn ra ngoài vùng làm việc (sát mép trái trên): vẫn bên phải, trong vùng.
         assert_eq!(place(Some(r(-2000, -50, 300, 200))), (-1692, 0));
         // Cửa sổ lớn hơn vùng làm việc: góc trên trái của vùng.
-        assert_eq!(place_avoiding(work, 2000, 1200, None, g), (-1920, 0));
+        assert_eq!(place_avoiding(work, 2000, 1200, None, g), (-1920, 0, false));
         assert_eq!(
             place_avoiding(work, 2000, 1200, Some(r(-1800, 100, 100, 100)), g),
-            (-1920, 0)
+            (-1920, 0, true)
         );
         // Kết quả nằm trong vùng làm việc và không chồng khung cần tránh.
         for avoid in [
@@ -1382,6 +1429,32 @@ mod tests {
             assert!(y >= work.y && y + h <= work.bottom(), "{avoid:?}");
             assert!(!overlaps(r(x, y, w, h), avoid), "{avoid:?}");
         }
+    }
+
+    /// Cờ `overlaps`: có chỗ không chồng → false; không chỗ → true (vị trí giữa chồng lên khung);
+    /// không có khung → false. Chỉ khi chồng thì cửa sổ là topmost.
+    #[test]
+    fn placement_reports_overlap_and_topmost() {
+        let work = r(-1920, 0, 1920, 1040);
+        let (w, h, g) = (600, 400, 8);
+        let flag = |avoid| place_avoiding(work, w, h, avoid, g).2;
+        assert!(!flag(None));
+        assert!(!flag(Some(r(-1800, 100, 400, 300))));
+        assert!(!flag(Some(r(-700, 100, 600, 300))));
+        assert!(!flag(Some(r(-1920, 0, 1920, 300))));
+        assert!(!flag(Some(r(-1920, 700, 1920, 340))));
+        // Che gần hết hoặc phủ kín vùng làm việc: không chỗ, chồng.
+        assert!(flag(Some(r(-1900, 20, 1880, 1000))));
+        assert!(flag(Some(work)));
+        assert!(flag(Some(r(-5000, -5000, 10000, 10000))));
+        // Ngay cả giữa vùng cũng không chồng (cửa sổ lớn hơn vùng, khung nằm ngoài cửa sổ).
+        assert!(!place_avoiding(work, 2000, 1200, Some(r(500, 2000, 10, 10)), g).2);
+
+        assert_eq!(ex_style(false), EX_STYLE);
+        assert_eq!(
+            ex_style(true),
+            WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0)
+        );
     }
 
     /// `WM_OCR_RESULT` gửi tới cửa sổ không phải cửa sổ kết quả: `pre_translate` không đụng LPARAM.
@@ -1772,6 +1845,71 @@ world",
         post_fake(h, token.wrapping_add(7), "late 2");
         close_all();
         assert_eq!(FREED.with(|f| f.get()), 5);
+        assert!(test_windows().is_empty());
+    }
+
+    /// Mở từ ảnh ghim: khung cần tránh phủ kín vùng làm việc → cửa sổ topmost (nằm trên ảnh ghim);
+    /// khung nhỏ (còn chỗ bên cạnh) → không topmost. Không dời chuột, không gửi phím.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_topmost_only_when_covered() {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE};
+        close_all();
+        // SAFETY: chỉ hỏi màn hình chính.
+        let mon = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+        let work = work_area(mon).expect("work area");
+        let topmost = |h: HWND| {
+            // SAFETY: đọc kiểu mở rộng của cửa sổ do luồng này tạo.
+            let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
+            ex & WS_EX_TOPMOST.0 != 0
+        };
+
+        open_inner(tiny(), Some(work), no_ocr).expect("open covered");
+        let (covered, _) = test_windows()[0];
+        assert!(topmost(covered), "covered: must be topmost");
+        close_all();
+
+        let small = Rect {
+            x: work.x,
+            y: work.y,
+            w: 40,
+            h: 40,
+        };
+        open_inner(tiny(), Some(small), no_ocr).expect("open small");
+        let (free, _) = test_windows()[0];
+        assert!(!topmost(free), "room beside: not topmost");
+        close_all();
+        assert!(test_windows().is_empty());
+    }
+
+    /// Ảnh ghim cuối cùng đóng: `drop_topmost` bỏ topmost của cửa sổ kết quả, cửa sổ vẫn mở.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_drop_topmost_clears_flag() {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE};
+        close_all();
+        // SAFETY: chỉ hỏi màn hình chính.
+        let mon = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+        let work = work_area(mon).expect("work area");
+        let topmost = |h: HWND| {
+            // SAFETY: đọc kiểu mở rộng của cửa sổ do luồng này tạo.
+            let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
+            ex & WS_EX_TOPMOST.0 != 0
+        };
+        open_inner(tiny(), Some(work), no_ocr).expect("open covered");
+        let (h, _) = test_windows()[0];
+        assert!(topmost(h));
+        drop_topmost();
+        assert!(!topmost(h), "topmost must be dropped");
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(unsafe { IsWindow(Some(h)) }.as_bool());
+        // Gọi lần nữa (không còn cửa sổ topmost) vô hại.
+        drop_topmost();
+        close_all();
         assert!(test_windows().is_empty());
     }
 
