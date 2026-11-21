@@ -25,6 +25,7 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 - Chụp từng bước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, với tiếng Việt, và trên màn hình có tọa độ âm. Xem mục "Đợt 12" trong `docs/testing/manual-checklist.md`.
 - Chụp lại vùng trước chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, trên màn hình có tọa độ âm, và khi rút màn hình. Xem mục "Đợt 10" trong `docs/testing/manual-checklist.md`.
 - Chữ nhận dạng nâng cao chưa được thử tay ở DPI 100% và 150%, trên màn hình có tọa độ âm, và với đọc màn hình. Xem mục "Đợt 15" trong `docs/testing/manual-checklist.md`.
+- Cửa sổ Chữ nhận dạng giữ ảnh ở độ phân giải gốc tới 16 MP (tới khoảng 64 MB bộ nhớ mỗi cửa sổ, tối đa 8 cửa sổ). Ảnh lớn hơn (ví dụ ảnh chụp cuộn rất dài) được thu nhỏ lúc mở cửa sổ, có thể khựng thoáng; kéo đổi cỡ cửa sổ với ảnh lớn có thể giật.
 - Nhận dạng chữ cục bộ chưa được thử tay trên Windows 10, ở các DPI 100% và 150%, và với tiếng Việt (máy thử chỉ có English). Xem mục "Đợt 11" trong `docs/testing/manual-checklist.md`.
 
 ## [0.4.0] - 2026-11-18

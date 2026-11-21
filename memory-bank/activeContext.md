@@ -1,15 +1,28 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-18
+Cập nhật: 2026-11-21
 
 ## Đang ở đâu
+
+- **Đợt 15 (OCR nâng cao: chọn dòng trên ảnh): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-ocr-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-ocr-pro.md`, gói `docs/tasks/97-…` đến `100-…` (Task 101 sửa sau rà soát toàn đợt, không có gói riêng), quyết định 133–135.
+- Phát hành: bản mới nhất vẫn v0.4.0; chủ dự án sẽ tự kiểm và phát hành sau. Không tag khi chưa được yêu cầu.
+- Còn mở: checklist "Đợt 9"–"Đợt 15" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
+- Task đang làm: không.
+
+## Bước kế tiếp
+
+Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/102-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới.
+
+## Lưu trữ: đợt 14 (đã gộp `main`)
+
+### Đang ở đâu (đợt 14)
 
 - **Đợt 14 (gia cố, không tính năng mới): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-polish-14-design.md`, gói `docs/tasks/96-polish-pin-ocr-undo.md`, quyết định 132. Giai đoạn 3 (Ghim, Lặp lại, OCR, Chụp từng bước, Chụp cuộn) đã xong ở đợt 9–13.
 - Phát hành: bản mới nhất vẫn v0.4.0; chủ dự án sẽ tự kiểm và phát hành sau (CHANGELOG "Chưa phát hành" đã có Mới + Sửa lỗi + Đã biết). Không tag khi chưa được yêu cầu.
 - Còn mở: checklist "Đợt 9"–"Đợt 14" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
 - Task đang làm: không.
 
-## Bước kế tiếp
+### Bước kế tiếp (đợt 14, cũ)
 
 Không còn việc trong hàng đợi. Lỗi chủ dự án báo khi thử tay: nhánh `task/97-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới.
 
