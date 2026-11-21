@@ -18,7 +18,7 @@ fn action_code(a: Action) -> Option<&'static str> {
         Action::Copy => Some("copy"),
         Action::Upload => Some("upload"),
         Action::Pin => Some("pin"),
-        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll => None,
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll | Action::RecordGif => None,
     }
 }
 
@@ -195,6 +195,24 @@ mod tests {
         let prev = lc(rc(5, 5, 10, 10), Action::Pin);
         assert_eq!(remember(None, Action::Scroll, r), None);
         assert_eq!(remember(Some(prev), Action::Scroll, r), Some(prev));
+    }
+
+    #[test]
+    fn remember_record_gif_keeps_prev() {
+        let r = rc(1, 2, 30, 40);
+        let prev = lc(rc(5, 5, 10, 10), Action::Pin);
+        assert_eq!(remember(None, Action::RecordGif, r), None);
+        assert_eq!(remember(Some(prev), Action::RecordGif, r), Some(prev));
+    }
+
+    #[test]
+    fn json_never_writes_record() {
+        let s = to_json(&lc(rc(1, 2, 30, 40), Action::RecordGif));
+        assert!(!s.contains("record"), "{s}");
+        assert!(!s.contains("gif"), "{s}");
+        assert_eq!(from_json(&s.replace("save", "record")), None);
+        assert_eq!(from_json(&s.replace("save", "record_gif")), None);
+        assert_eq!(from_json(&s.replace("save", "gif")), None);
     }
 
     #[test]

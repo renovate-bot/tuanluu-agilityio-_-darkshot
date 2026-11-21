@@ -479,6 +479,21 @@ messages! {
     ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
     ScrollCopyMemoryTitle => ("Không đủ bộ nhớ", "Not enough memory"),
     ScrollCopyMemoryBody => ("Đóng bớt cửa sổ rồi thử lại.", "Close some windows and try again."),
+    OverlayRecordGif => ("Ghi GIF (Ctrl+G)", "Record GIF (Ctrl+G)"),
+    RecordStatus => ("Đang ghi", "Recording"),
+    RecordSaving => ("Đang lưu…", "Saving…"),
+    RecordStop => ("Dừng", "Stop"),
+    RecordCancel => ("Hủy", "Cancel"),
+    RecordSavedTitle => ("Đã lưu GIF", "GIF saved"),
+    RecordFailedTitle => ("Ghi GIF thất bại", "Recording failed"),
+    RecordInvalidRegion => ("Vùng ghi không hợp lệ.", "Invalid recording region."),
+    RecordTooLarge => ("Vùng ghi quá lớn.", "The recording region is too large."),
+    RecordNoFrames => ("Chưa ghi được khung hình nào.", "No frames were recorded."),
+    RecordMaxDuration => ("Đã đạt thời lượng ghi tối đa (15 giây).", "Maximum recording length reached (15 seconds)."),
+    RecordMaxSize => ("Tệp GIF đã đạt kích thước tối đa (256 MB).", "The GIF file reached its maximum size (256 MB)."),
+    RecordSourceLost => ("Không chụp tiếp được vùng ghi nên đã dừng.", "The recording region could no longer be captured, so recording stopped."),
+    RecordEncodeFailed => ("Không mã hóa được GIF", "Could not encode the GIF"),
+    RecordBusy => ("Đang ghi GIF. Dừng lần ghi hiện tại trước.", "A GIF is being recorded. Stop the current recording first."),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -509,6 +524,8 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::ScrollNoRoomTitle,
     Msg::ScrollManyOpenTitle,
     Msg::ScrollCopyMemoryTitle,
+    Msg::RecordSavedTitle,
+    Msg::RecordFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -957,6 +974,27 @@ pub fn scroll_uncertain(lang: Lang, n: u32) -> String {
 }
 
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
+/// Thân thông báo khi GIF đã lưu kèm lý do dừng (`note`, ví dụ `Msg::RecordMaxDuration`).
+pub fn record_saved_with_note(_lang: Lang, _note: &str, _path: &str) -> String {
+    todo!()
+}
+
+pub fn record_capture_failed(_lang: Lang, _err: &str) -> String {
+    todo!()
+}
+
+pub fn record_encode_failed(_lang: Lang, _err: &str) -> String {
+    todo!()
+}
+
+pub fn record_io_failed(_lang: Lang, _err: &str) -> String {
+    todo!()
+}
+
+pub fn record_thread_failed(_lang: Lang, _err: &str) -> String {
+    todo!()
+}
+
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
         Lang::Vi => format!("Phiên bản {version}"),
@@ -1738,5 +1776,69 @@ mod tests {
         assert!(en.contains(
             "Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks."
         ));
+    }
+
+    #[test]
+    fn record_gif_strings() {
+        let pairs = [
+            (
+                Msg::OverlayRecordGif,
+                "Ghi GIF (Ctrl+G)",
+                "Record GIF (Ctrl+G)",
+            ),
+            (Msg::RecordStatus, "Đang ghi", "Recording"),
+            (Msg::RecordSaving, "Đang lưu…", "Saving…"),
+            (Msg::RecordStop, "Dừng", "Stop"),
+            (Msg::RecordCancel, "Hủy", "Cancel"),
+            (Msg::RecordSavedTitle, "Đã lưu GIF", "GIF saved"),
+            (
+                Msg::RecordFailedTitle,
+                "Ghi GIF thất bại",
+                "Recording failed",
+            ),
+            (
+                Msg::RecordInvalidRegion,
+                "Vùng ghi không hợp lệ.",
+                "Invalid recording region.",
+            ),
+            (
+                Msg::RecordMaxDuration,
+                "Đã đạt thời lượng ghi tối đa (15 giây).",
+                "Maximum recording length reached (15 seconds).",
+            ),
+        ];
+        for (m, vi, en) in pairs {
+            assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
+            assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::RecordSavedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::RecordFailedTitle));
+        assert_eq!(
+            record_saved_with_note(Lang::Vi, t(Lang::Vi, Msg::RecordMaxDuration), "C:/a.gif"),
+            "Đã đạt thời lượng ghi tối đa (15 giây). Đã lưu GIF: C:/a.gif"
+        );
+        assert_eq!(
+            record_saved_with_note(Lang::En, "Note.", "a.gif"),
+            "Note. GIF saved: a.gif"
+        );
+        for l in Lang::ALL {
+            for f in [
+                record_capture_failed,
+                record_encode_failed,
+                record_io_failed,
+                record_thread_failed,
+            ] {
+                assert!(f(l, "DETAIL42").contains("DETAIL42"), "{l:?}");
+            }
+            assert!(record_encode_failed(l, "x").starts_with(t(l, Msg::RecordEncodeFailed)));
+            let h = help_text(l, &HelpKeys::default());
+            assert!(h.contains("Ctrl+G"), "{l:?}");
+            assert!(h.contains("9. "), "{l:?}");
+            assert!(h.contains("15"), "{l:?}");
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("9. Ghi GIF"));
+        assert!(en.contains("9. Recording a GIF"));
     }
 }

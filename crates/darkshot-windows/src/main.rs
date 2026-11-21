@@ -188,7 +188,7 @@ pub fn next_kind(current: CaptureKind, requested: CaptureKind, act: GateAction) 
 pub fn remember_after(prev: Option<Rect>, action: Action, picked: Rect) -> Option<Rect> {
     match action {
         Action::Upload | Action::Save | Action::Copy | Action::Pin => Some(picked),
-        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll => prev,
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll | Action::RecordGif => prev,
     }
 }
 
@@ -1357,7 +1357,12 @@ fn run_on_image(
     };
     let clipboard: Arc<dyn Clipboard> = Arc::new(clipboard::WinClipboard);
     match action {
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll => {}
+        Action::Cancel
+        | Action::Pin
+        | Action::Ocr
+        | Action::AddStep
+        | Action::Scroll
+        | Action::RecordGif => {}
         Action::Save | Action::Copy => {
             let ctx = Ctx {
                 save_dir: &config.save_dir,
