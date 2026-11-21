@@ -1,4 +1,4 @@
-//! Phiên ghi GIF: khung vùng (bốn cửa sổ mảnh), thanh ghi nổi `● Đang ghi 00:05 / 00:15  [Dừng]
+//! Phiên ghi GIF: khung vùng (bốn cửa sổ mảnh), thanh ghi nổi `● Đang ghi 00:05 / 01:00  [Dừng]
 //! [Hủy]`, bộ ghi `darkshot_core::gif_record::Recorder` chạy trên luồng nền.
 //!
 //! Mọi cửa sổ của phiên luôn trên cùng, không lấy tiêu điểm, loại khỏi ảnh chụp
@@ -1047,16 +1047,20 @@ mod tests {
     #[test]
     fn time_text_counts_whole_seconds_up_to_max() {
         assert_eq!(time_text(0, 15_000), "00:00 / 00:15");
-        assert_eq!(time_text(5_000, 15_000), "00:05 / 00:15");
         assert_eq!(time_text(5_999, 15_000), "00:05 / 00:15");
-        assert_eq!(time_text(14_999, 15_000), "00:14 / 00:15");
         assert_eq!(time_text(15_000, 15_000), "00:15 / 00:15");
         // Không vượt thời lượng tối đa.
         assert_eq!(time_text(16_400, 15_000), "00:15 / 00:15");
+        let max = gif_record::MAX_DURATION_MS;
+        assert_eq!(time_text(0, 60_000), "00:00 / 01:00");
+        assert_eq!(time_text(5_000, 60_000), "00:05 / 01:00");
+        assert_eq!(time_text(59_900, 60_000), "00:59 / 01:00");
+        assert_eq!(time_text(60_000, 60_000), "01:00 / 01:00");
+        assert_eq!(time_text(75_000, 60_000), "01:00 / 01:00");
         assert_eq!(time_text(61_000, 120_000), "01:01 / 02:00");
-        assert_eq!(time_text(0, gif_record::MAX_DURATION_MS), "00:00 / 00:15");
+        assert_eq!(time_text(0, max), "00:00 / 01:00");
         // Mỗi giây một mẫu đo, từ 0 tới tối đa.
-        assert_eq!(time_samples().len(), 16);
+        assert_eq!(time_samples().len() as u64, max / 1000 + 1);
     }
 
     /// Đo chữ giả: 7 px mỗi ký tự, dòng 16 px (nhân theo DPI).
@@ -1079,7 +1083,7 @@ mod tests {
                 let (status, labels) = labels(lang);
                 let wf = |s: &[u16]| scale(7 * s.len() as i32, dpi);
                 assert_eq!(t.status, wf(&status[0]).max(wf(&status[1])));
-                assert_eq!(t.time, wf(&wide("00:15 / 00:15")));
+                assert_eq!(t.time, wf(&wide("01:00 / 01:00")));
                 assert_eq!(t.buttons, [wf(&labels[0]), wf(&labels[1])]);
                 assert_eq!(t.line, k(16));
                 let l = layout(dpi, &t);
