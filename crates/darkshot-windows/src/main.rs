@@ -21,6 +21,7 @@ mod ocr_window;
 mod overlay;
 mod paths;
 mod pin;
+mod record_session;
 mod scroll_result;
 mod scroll_session;
 mod secret;
@@ -897,6 +898,38 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
         }
         return;
     }
+    if action == Action::RecordGif {
+        // Ghi GIF: như chụp cuộn, không cắt ảnh tĩnh, không vẽ hình đánh dấu.
+        let region = scroll_region(rect, shot.origin, img_w, img_h);
+        drop(shot);
+        drop(shapes);
+        let Some(region) = region else {
+            return;
+        };
+        // Cổng đã chặn lớp phủ khi đang chụp cuộn; giữ cho chắc.
+        if scroll_session::active() {
+            return;
+        }
+        let Some(save_dir) = with_app(|a| a.config.save_dir.clone()) else {
+            return;
+        };
+        match record_session::start(region, save_dir) {
+            Ok(()) => {
+                // Thanh phiên Chụp từng bước không loại khỏi ảnh chụp được đang ẩn: giữ ẩn tới khi
+                // ghi xong (`on_record_outcome`), để nó không vào GIF.
+                if bar_hidden.0 {
+                    bar_hidden.0 = false;
+                    STEPS_BAR_HELD.with(|h| h.set(true));
+                }
+            }
+            Err(e) => {
+                if let Some((kind, title, body)) = record_start_notice(lang::current(), &e) {
+                    notify(kind, title, &body);
+                }
+            }
+        }
+        return;
+    }
     let image = match picked_image(&shot.image, rect, &shapes) {
         Ok(image) => image,
         Err(_) => {
@@ -942,10 +975,21 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     run_on_image(hwnd, action, image, notifier);
 }
 
-/// Trong lúc phiên chụp cuộn chạy, cổng coi như đang chụp: yêu cầu chụp (phím tắt, nút Chụp bước,
-/// mục Chụp của menu khay) bị bỏ qua. Bấm khay (mở menu), hẹn giờ menu và Tùy chọn đi như thường.
+/// Trong lúc đang bận (`capture_busy`: chụp cuộn hoặc ghi GIF), cổng coi như đang chụp: yêu cầu
+/// chụp (phím tắt, nút Chụp bước, mục Chụp và Chụp lại vùng trước của menu khay) bị bỏ qua. Bấm
+/// khay (mở menu), hẹn giờ menu và Tùy chọn đi như thường.
 pub fn scroll_blocks(scrolling: bool, ev: GateEvent) -> bool {
     scrolling && matches!(ev, GateEvent::MenuCapture | GateEvent::Hotkey)
+}
+
+/// Đang bận với một phiên dài: chụp cuộn hoặc ghi GIF.
+pub fn capture_busy(scrolling: bool, recording: bool) -> bool {
+    scrolling || recording
+}
+
+/// Đang bận theo trạng thái thật của hai phiên.
+fn busy_now() -> bool {
+    capture_busy(scroll_session::active(), record_session::active())
 }
 
 /// Vùng chụp cuộn ở tọa độ màn hình: vùng `rect` (tọa độ ảnh) kẹp vào ảnh `img_w`×`img_h` rồi cộng
@@ -1005,6 +1049,80 @@ thread_local! {
 fn on_scroll_end() {
     if STEPS_BAR_HELD.with(|h| h.replace(false)) {
         steps_bar::show_after_capture();
+    }
+}
+
+/// Thông báo cho kết quả một lần ghi GIF (thiết kế 1, 3.3): Dừng → Success "Đã lưu GIF" + đường
+/// dẫn (theo công tắc thông báo thành công); tự dừng (tối đa, quá cỡ, mất nguồn) → Info + lý do +
+/// đường dẫn; lỗi → Error + lý do; Hủy → không báo.
+pub fn record_outcome_notice(
+    lang: Lang,
+    o: &darkshot_core::gif_record::Outcome,
+) -> Option<(NoticeKind, &'static str, String)> {
+    use darkshot_core::gif_record::{Outcome, StopReason};
+    match o {
+        Outcome::Saved { path, reason, .. } => {
+            let shown = path.display().to_string();
+            let title = i18n::t(lang, Msg::RecordSavedTitle);
+            let note = match reason {
+                StopReason::Stopped => return Some((NoticeKind::Success, title, shown)),
+                StopReason::MaxDuration => Msg::RecordMaxDuration,
+                StopReason::MaxSize => Msg::RecordMaxSize,
+                StopReason::SourceLost => Msg::RecordSourceLost,
+            };
+            Some((
+                NoticeKind::Info,
+                title,
+                i18n::record_saved_with_note(lang, i18n::t(lang, note), &shown),
+            ))
+        }
+        Outcome::Failed(e) => Some((
+            NoticeKind::Error,
+            i18n::t(lang, Msg::RecordFailedTitle),
+            e.message(lang),
+        )),
+        Outcome::Cancelled => None,
+    }
+}
+
+/// Thông báo khi không bắt đầu được lần ghi: lỗi bộ ghi (vùng không hợp lệ, quá lớn, tệp tạm,
+/// luồng) → Error + lý do; không có chỗ cho thanh → Info; lỗi cửa sổ/hẹn giờ → Error "Không chụp
+/// được màn hình". Đã có lần ghi (cổng chặn trước đó) hay vùng rỗng → không báo.
+pub fn record_start_notice(
+    lang: Lang,
+    e: &record_session::StartError,
+) -> Option<(NoticeKind, &'static str, String)> {
+    use record_session::StartError;
+    match e {
+        StartError::Recorder(e) => Some((
+            NoticeKind::Error,
+            i18n::t(lang, Msg::RecordFailedTitle),
+            e.message(lang),
+        )),
+        StartError::NoRoom => Some((
+            NoticeKind::Info,
+            i18n::t(lang, Msg::RecordNoRoomTitle),
+            i18n::t(lang, Msg::ScrollNoRoomBody).to_string(),
+        )),
+        StartError::Failed => Some((
+            NoticeKind::Error,
+            i18n::t(lang, Msg::CaptureFailedTitle),
+            i18n::t(lang, Msg::CaptureFailedBody).to_string(),
+        )),
+        StartError::Busy | StartError::Empty => None,
+    }
+}
+
+/// Một lần ghi GIF kết thúc (mọi đường trừ thoát ứng dụng): hiện lại thanh phiên Chụp từng bước
+/// đã giữ ẩn, rồi thông báo theo kết quả.
+fn on_record_outcome(o: darkshot_core::gif_record::Outcome) {
+    if STEPS_BAR_HELD.with(|h| h.replace(false)) {
+        steps_bar::show_after_capture();
+    }
+    if let Some((kind, title, body)) = record_outcome_notice(lang::current(), &o) {
+        if let Some(t) = current_tray() {
+            t.notifier().notify(kind, title, &body);
+        }
     }
 }
 
@@ -1132,10 +1250,12 @@ fn remaining(deadline: std::time::Instant, now: std::time::Instant) -> Duration 
 /// lượt xuất, tất cả trong một hạn chót chung `EXIT_BUDGET`. Cửa sổ Xem lại đóng trước tiên để
 /// ghi chú đang sửa được lưu trước mọi lần chờ.
 fn exit_cleanup() {
+    let deadline = std::time::Instant::now() + EXIT_BUDGET;
+    // Lần ghi GIF đang chạy: lưu phần đã ghi (trong hạn chót chung) trước khi hủy cửa sổ khác.
+    record_session::finish_on_exit(deadline);
     // Phiên chụp cuộn đang chạy: bỏ (hẹn giờ, cửa sổ, phím Esc tạm).
     scroll_session::cancel();
     steps_window::close();
-    let deadline = std::time::Instant::now() + EXIT_BUDGET;
     save_pending_uploads(remaining(deadline, std::time::Instant::now()));
     finish_steps_on_exit(deadline);
 }
@@ -1500,6 +1620,7 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
                 ocr_window::relabel();
                 steps_bar::relabel();
                 scroll_session::relabel();
+                record_session::relabel();
                 scroll_result::relabel();
                 steps_window::relabel();
             }
@@ -1560,7 +1681,7 @@ fn gate(hwnd: HWND, ev: GateEvent) -> GateAction {
 /// yêu cầu `requested` được nhận), rồi làm việc mà cổng yêu cầu. Mọi yêu cầu chụp (ba phím tắt,
 /// "Chụp màn hình" ở menu) gọi thẳng hàm này với loại của mình.
 fn request(hwnd: HWND, ev: GateEvent, requested: CaptureKind) -> GateAction {
-    if scroll_blocks(scroll_session::active(), ev) {
+    if scroll_blocks(busy_now(), ev) {
         return GateAction::Ignore;
     }
     let (next, act) = gate_step(GATE.with(|g| g.get()), ev);
@@ -1621,6 +1742,8 @@ fn handle_event(hwnd: HWND, ev: AppEvent) {
         AppEvent::Quit => {
             // Lưu ghi chú đang sửa của cửa sổ Xem lại trước mọi việc khác.
             steps_window::close();
+            // Lần ghi GIF đang chạy: lưu phần đã ghi trước khi đóng các cửa sổ khác.
+            record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
             // Đóng mọi ảnh ghim (đồng bộ, không chờ gì); ảnh ghim đang chờ thì bỏ.
             history_window::drop_pending_pin();
             pin::close_all();
@@ -1724,9 +1847,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // Lịch sử, Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
                     Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::ClosePins) => pin::close_all(),
-                    // Đang chụp cuộn: bỏ qua (như các yêu cầu chụp khác trong lúc chụp cuộn).
+                    // Đang chụp cuộn hay ghi GIF: bỏ qua (như các yêu cầu chụp khác lúc đó).
                     Some(MenuCommand::StepsStart) => {
-                        if steps_start_allowed(scroll_session::active()) {
+                        if steps_start_allowed(busy_now()) {
                             steps_store::start();
                         }
                     }
@@ -1825,8 +1948,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_ENDSESSION => {
             if wp.0 != 0 {
                 // Phiên sắp kết thúc (tắt máy, đăng xuất): đóng ảnh ghim, ghi file ảnh của các lượt
-                // còn dở. Ghi chú đang sửa của cửa sổ Xem lại được lưu trước tiên.
+                // còn dở. Ghi chú đang sửa của cửa sổ Xem lại được lưu trước tiên; lần ghi GIF
+                // đang chạy được lưu trước khi đóng các cửa sổ khác.
                 steps_window::close();
+                record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
                 pin::close_all();
                 ocr_window::close_all();
                 scroll_result::close_all();
@@ -1835,6 +1960,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_DESTROY => {
+            // Lưới an toàn: lần ghi GIF còn chạy được lưu (trong hạn chót) trước khi hủy cửa sổ.
+            record_session::finish_on_exit(std::time::Instant::now() + EXIT_BUDGET);
             // Cửa sổ Thông tin, Trợ giúp và Lịch sử thuộc cửa sổ ẩn này: hủy cả ba, trả tài nguyên.
             about::close();
             help::close();
@@ -1952,6 +2079,9 @@ fn main() {
         migration_failed |= legacy::sync_autostart(state.config.autostart);
     }
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
+    // Tệp GIF tạm sót từ lần chạy trước (thoát quá hạn, mất điện): xóa, một lần đọc thư mục, trước
+    // khi có lần ghi nào bắt đầu được (vòng lặp thông điệp chưa chạy).
+    darkshot_core::gif_record::sweep_stale(&state.config.save_dir);
     APP.with(|a| *a.borrow_mut() = Some(state));
     // Lần chụp trước (nếu có) cho phím lặp lại và cho "giữ vị trí vùng"; lỗi đọc thì coi như chưa có.
     let last = read_last_capture(&paths::last_capture_path());
@@ -1973,6 +2103,7 @@ fn main() {
     scroll_session::set_on_limit(on_scroll_limit);
     scroll_session::set_on_end(on_scroll_end);
     scroll_session::set_on_capture_failed(on_scroll_capture_failed);
+    record_session::set_on_outcome(on_record_outcome);
     steps_window::set_main_window(hwnd);
     steps_window::set_notifier(ocr_notify);
     steps_window::set_default_dir(steps_export_dir);
@@ -2150,6 +2281,159 @@ mod tests {
         assert!(!steps_start_allowed(true));
     }
 
+    /// Đang bận = đang chụp cuộn hoặc đang ghi GIF: yêu cầu chụp (phím tắt, mục Chụp và Chụp lại
+    /// vùng trước của khay, nút Chụp bước) bị bỏ qua, không bắt đầu chụp từng bước.
+    #[test]
+    fn recording_blocks_capture_requests_and_steps() {
+        assert!(!capture_busy(false, false));
+        assert!(capture_busy(true, false));
+        assert!(capture_busy(false, true));
+        assert!(capture_busy(true, true));
+        for ev in [MenuCapture, Hotkey] {
+            assert!(scroll_blocks(capture_busy(false, true), ev), "{ev:?}");
+            assert!(!scroll_blocks(capture_busy(false, false), ev), "{ev:?}");
+        }
+        for ev in [
+            TimerFired,
+            OverlayClosed,
+            TrayClick,
+            OpenSettings,
+            SettingsClosed,
+        ] {
+            assert!(!scroll_blocks(capture_busy(false, true), ev), "{ev:?}");
+        }
+        assert!(!steps_start_allowed(capture_busy(false, true)));
+        assert!(steps_start_allowed(capture_busy(false, false)));
+    }
+
+    /// Vùng ghi GIF trên màn hình phụ bên trái/trên (gốc âm): kẹp vào ảnh, cộng gốc đúng một lần.
+    #[test]
+    fn record_region_with_negative_origin() {
+        let origin = Point { x: -2560, y: -300 };
+        // Ảnh 2560+1920 × 1440: vùng trên màn hình trái.
+        assert_eq!(
+            scroll_region(rc(200, 100, 640, 360), origin, 4480, 1440),
+            Some(rc(-2360, -200, 640, 360))
+        );
+        // Vùng vắt qua hai màn hình, vượt mép trên ảnh: kẹp rồi cộng gốc.
+        assert_eq!(
+            scroll_region(rc(2400, -50, 400, 300), origin, 4480, 1440),
+            Some(rc(-160, -300, 400, 250))
+        );
+        // Ngoài ảnh: không có vùng.
+        assert_eq!(
+            scroll_region(rc(-500, 0, 100, 100), origin, 4480, 1440),
+            None
+        );
+    }
+
+    /// Kết quả ghi GIF → thông báo: Dừng → Success "Đã lưu GIF" + đường dẫn; tự dừng → Info + lý do
+    /// + đường dẫn; lỗi → Error + lý do; Hủy → không báo.
+    #[test]
+    fn record_outcome_notices() {
+        use darkshot_core::gif_record::{GifError, Outcome, StopReason};
+        let path = std::path::PathBuf::from(r"C:\shots\darkshot_2026-11-21_10-00-00.gif");
+        let shown = path.display().to_string();
+        for lang in Lang::ALL {
+            let saved = |reason| Outcome::Saved {
+                path: path.clone(),
+                reason,
+                frames: 12,
+            };
+            assert_eq!(
+                record_outcome_notice(lang, &saved(StopReason::Stopped)),
+                Some((
+                    NoticeKind::Success,
+                    i18n::t(lang, Msg::RecordSavedTitle),
+                    shown.clone()
+                ))
+            );
+            for (reason, note) in [
+                (StopReason::MaxDuration, Msg::RecordMaxDuration),
+                (StopReason::MaxSize, Msg::RecordMaxSize),
+                (StopReason::SourceLost, Msg::RecordSourceLost),
+            ] {
+                assert_eq!(
+                    record_outcome_notice(lang, &saved(reason)),
+                    Some((
+                        NoticeKind::Info,
+                        i18n::t(lang, Msg::RecordSavedTitle),
+                        i18n::record_saved_with_note(lang, i18n::t(lang, note), &shown)
+                    )),
+                    "{reason:?}"
+                );
+            }
+            // Dừng trước khung đầu: một khung vẫn là Saved bình thường.
+            let one = Outcome::Saved {
+                path: path.clone(),
+                reason: StopReason::Stopped,
+                frames: 1,
+            };
+            assert_eq!(
+                record_outcome_notice(lang, &one).map(|n| n.0),
+                Some(NoticeKind::Success)
+            );
+            for e in [
+                GifError::NoFrames,
+                GifError::Capture("x".into()),
+                GifError::Encode("y".into()),
+                GifError::Io("z".into()),
+            ] {
+                assert_eq!(
+                    record_outcome_notice(lang, &Outcome::Failed(e.clone())),
+                    Some((
+                        NoticeKind::Error,
+                        i18n::t(lang, Msg::RecordFailedTitle),
+                        e.message(lang)
+                    ))
+                );
+            }
+            assert_eq!(record_outcome_notice(lang, &Outcome::Cancelled), None);
+        }
+    }
+
+    /// Không bắt đầu được lần ghi: vùng không hợp lệ/quá lớn và lỗi bộ ghi → Error + lý do; không
+    /// có chỗ cho thanh → Info; lỗi cửa sổ → Error "Không chụp được màn hình"; bận/rỗng → im lặng.
+    #[test]
+    fn record_start_notices() {
+        use darkshot_core::gif_record::GifError;
+        use record_session::StartError;
+        for lang in Lang::ALL {
+            for e in [
+                GifError::InvalidRegion,
+                GifError::TooLarge,
+                GifError::Io("no".into()),
+            ] {
+                assert_eq!(
+                    record_start_notice(lang, &StartError::Recorder(e.clone())),
+                    Some((
+                        NoticeKind::Error,
+                        i18n::t(lang, Msg::RecordFailedTitle),
+                        e.message(lang)
+                    ))
+                );
+            }
+            assert_eq!(
+                record_start_notice(lang, &StartError::NoRoom),
+                Some((
+                    NoticeKind::Info,
+                    i18n::t(lang, Msg::RecordNoRoomTitle),
+                    i18n::t(lang, Msg::ScrollNoRoomBody).to_string()
+                ))
+            );
+            assert_eq!(
+                record_start_notice(lang, &StartError::Failed),
+                Some((
+                    NoticeKind::Error,
+                    i18n::t(lang, Msg::CaptureFailedTitle),
+                    i18n::t(lang, Msg::CaptureFailedBody).to_string()
+                ))
+            );
+            assert_eq!(record_start_notice(lang, &StartError::Busy), None);
+            assert_eq!(record_start_notice(lang, &StartError::Empty), None);
+        }
+    }
+
     #[test]
     fn scroll_session_blocks_capture_requests() {
         for ev in [MenuCapture, Hotkey] {
@@ -2189,6 +2473,25 @@ mod tests {
     fn steps_message_ids() {
         assert_eq!(steps_store::WM_STEPS_SAVED, WM_APP + 13);
         assert_eq!(WM_STEPS_CAPTURE, WM_APP + 14);
+    }
+
+    /// Mã thông điệp của Ghi GIF không trùng mã nào đã dùng (WM_APP+1..+17).
+    #[test]
+    fn record_message_id() {
+        assert_eq!(record_session::WM_RECORD_DONE, WM_APP + 18);
+        for used in [
+            WM_OPEN_SETTINGS,
+            WM_UPDATE_RESULT,
+            WM_OPEN_HISTORY,
+            history_service::WM_HISTORY_CHANGED,
+            steps_store::WM_STEPS_SAVED,
+            WM_STEPS_CAPTURE,
+            steps_window::WM_STEPS_WORK,
+            steps_window::WM_STEPS_EXPORTED,
+            scroll_result::WM_SCROLL_PREPARED,
+        ] {
+            assert_ne!(record_session::WM_RECORD_DONE, used);
+        }
     }
 
     #[test]
@@ -2937,6 +3240,9 @@ mod tests {
         }
         assert_eq!(remember_after(old, Action::Cancel, new), old);
         assert_eq!(remember_after(None, Action::Cancel, new), None);
+        // Ghi GIF không phải lần chụp để giữ: khung cũ còn nguyên.
+        assert_eq!(remember_after(old, Action::RecordGif, new), old);
+        assert_eq!(remember_after(None, Action::RecordGif, new), None);
     }
 
     #[test]

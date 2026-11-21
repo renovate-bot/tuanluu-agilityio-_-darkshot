@@ -502,6 +502,7 @@ messages! {
     RecordFaultSizeChanged => ("Kích thước vùng ghi đã thay đổi.", "The size of the recording region changed."),
     RecordFaultInternal => ("Lỗi nội bộ của bộ ghi GIF.", "Internal error in the GIF recorder."),
     RecordBusy => ("Đang ghi GIF. Dừng lần ghi hiện tại trước.", "A GIF is being recorded. Stop the current recording first."),
+    RecordNoRoomTitle => ("Không có chỗ cho thanh ghi GIF", "No room for the recording bar"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -534,6 +535,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::ScrollCopyMemoryTitle,
     Msg::RecordSavedTitle,
     Msg::RecordFailedTitle,
+    Msg::RecordNoRoomTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -1839,6 +1841,15 @@ mod tests {
         }
         assert!(NOTICE_TITLES.contains(&Msg::RecordSavedTitle));
         assert!(NOTICE_TITLES.contains(&Msg::RecordFailedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::RecordNoRoomTitle));
+        assert_eq!(
+            t(Lang::Vi, Msg::RecordNoRoomTitle),
+            "Không có chỗ cho thanh ghi GIF"
+        );
+        assert_eq!(
+            t(Lang::En, Msg::RecordNoRoomTitle),
+            "No room for the recording bar"
+        );
         assert_eq!(
             record_saved_with_note(Lang::Vi, t(Lang::Vi, Msg::RecordMaxDuration), "C:/a.gif"),
             "Đã đạt thời lượng ghi tối đa (15 giây). Đã lưu GIF: C:/a.gif"
