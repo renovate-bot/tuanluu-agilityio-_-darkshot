@@ -400,7 +400,7 @@ struct Win {
     switches: Switches,
     /// Các dòng của kết quả (khung ở px ảnh gốc); rỗng khi chưa có kết quả hay lỗi.
     lines: Vec<OcrLine>,
-    /// Cỡ ảnh gốc và bản giữ (DIB, cạnh dài tối đa `KEEP_MAX`).
+    /// Cỡ ảnh gốc và bản giữ (DIB, tối đa `KEEP_PIXELS` điểm ảnh).
     orig: (u32, u32),
     kept_size: (u32, u32),
     kept: Option<Bmp>,
@@ -514,7 +514,7 @@ fn open_with(image: Image, start: Starter) -> Result<(), String> {
     open_inner(image, None, start)
 }
 
-/// Bản giữ để hiển thị của `image`: DIB cùng cỡ, hay bản co về cạnh dài `KEEP_MAX` (7b.7).
+/// Bản giữ để hiển thị của `image`: DIB cùng cỡ, hay bản co về ngân sách `KEEP_PIXELS`.
 fn kept_bitmap(image: &Image) -> (Option<Bmp>, (u32, u32)) {
     let (w, h) = (image.width, image.height);
     let (kw, kh) = ocr_view::kept_size(w, h);
@@ -1104,8 +1104,9 @@ fn on_result(hwnd: HWND, wp: WPARAM, lp: LPARAM) {
     if view.editable {
         if let Some(edit) = with_win(hwnd, |w| w.edit) {
             // SAFETY: ô chữ của cửa sổ này; chỉ chuyển tiêu điểm trong cửa sổ đang kích hoạt.
+            // Con trỏ ở đầu, không bôi đen: không lẫn với vùng chọn dòng trên ảnh.
             unsafe {
-                SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+                SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(0)));
                 if GetActiveWindow() == hwnd {
                     let _ = SetFocus(Some(edit));
                 } else {
@@ -1610,18 +1611,20 @@ fn draw_view(dc: HDC, client: &RECT, w: &Win, focused: bool, tip_text: &[u16]) {
             DT_SINGLELINE | DT_NOPREFIX | windows::Win32::Graphics::Gdi::DT_CALCRECT,
         );
         let (tw, th) = (m.right - m.left + 2 * s(6), m.bottom - m.top + 2 * s(2));
-        let gap = s(4);
-        let mut y = r.top - gap - th;
-        if y < client.top {
-            y = r.bottom + gap;
-        }
-        let x = r.left.min(client.right - tw).max(client.left);
-        let rc = RECT {
-            left: x,
-            top: y,
-            right: x + tw,
-            bottom: y + th,
+        let line = Rect {
+            x: r.left,
+            y: r.top,
+            w: r.right - r.left,
+            h: r.bottom - r.top,
         };
+        let view = Rect {
+            x: client.left,
+            y: client.top,
+            w: client.right - client.left,
+            h: client.bottom - client.top,
+        };
+        let t = ocr_view::tip_rect(line, tw, th, s(6), s(4), view);
+        let rc = rect_of(t);
         theme::round_rect(dc, &rc, s(theme::RADIUS), SURFACE, LINE, 1);
         theme::draw_text(
             dc,

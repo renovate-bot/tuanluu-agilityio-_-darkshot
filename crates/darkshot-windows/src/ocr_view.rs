@@ -4,7 +4,7 @@
 use crate::history_paint::{self, Bmp};
 use crate::theme;
 use darkshot_core::geometry::Rect;
-use darkshot_core::ocr_text::{compose, compose_all, ocr_scale, OcrLine, TextOptions};
+use darkshot_core::ocr_text::{compose, compose_all, OcrLine, TextOptions};
 use darkshot_core::theme::Rgb;
 use std::ffi::c_void;
 use windows::Win32::Foundation::RECT;
@@ -14,25 +14,51 @@ use windows::Win32::Graphics::Gdi::{
     BLENDFUNCTION, DIB_RGB_COLORS, HDC, HGDIOBJ, NULL_BRUSH, PS_DOT,
 };
 
-/// Ảnh có cạnh dài hơn mức này thì cửa sổ chỉ giữ bản đã co về cạnh dài này (thiết kế 7b.7).
-pub const KEEP_MAX: u32 = 4096;
-
-/// Ngân sách điểm ảnh của bản giữ (16 MP).
+/// Ngân sách điểm ảnh của bản giữ (16 MP): trong ngân sách thì giữ nguyên độ phân giải.
 pub const KEEP_PIXELS: u64 = 16_777_216;
 
-/// Chỗ đặt nhãn "Đã chép" cỡ `tw`×`th` cho khung dòng `r` trong vùng nhìn thấy `client`.
+/// Chỗ đặt nhãn "Đã chép" cỡ `tw`×`th` cho khung dòng `r` trong vùng nhìn thấy `client`: bên phải
+/// khung (cách `side_gap`, căn giữa dọc) nếu vừa; không thì trên khung (cách `gap`); sát mép trên
+/// thì dưới khung. Trên/dưới: x theo khung, kẹp trong vùng nhìn.
 pub fn tip_rect(r: Rect, tw: i32, th: i32, side_gap: i32, gap: i32, client: Rect) -> Rect {
-    let _ = (r, tw, th, side_gap, gap, client);
-    todo!()
+    let side = Rect {
+        x: r.right() + side_gap,
+        y: r.y + (r.h - th) / 2,
+        w: tw,
+        h: th,
+    };
+    if side.right() <= client.right() && side.y >= client.y && side.bottom() <= client.bottom() {
+        return side;
+    }
+    let x = r.x.min(client.right() - tw).max(client.x);
+    let above = r.y - gap - th;
+    let y = if above >= client.y {
+        above
+    } else {
+        r.bottom() + gap
+    };
+    Rect { x, y, w: tw, h: th }
 }
 
-/// Cỡ bản giữ của ảnh `w`×`h`: cạnh dài > `KEEP_MAX` thì co giữ tỉ lệ, còn lại giữ nguyên.
+/// Cỡ bản giữ của ảnh `w`×`h`: diện tích ≤ `KEEP_PIXELS` thì giữ nguyên; vượt thì co giữ tỉ lệ
+/// sao cho diện tích ≤ `KEEP_PIXELS` (mỗi cạnh ≥ 1). Không bao giờ phóng.
 pub fn kept_size(w: u32, h: u32) -> (u32, u32) {
-    if w.max(h) > KEEP_MAX {
-        ocr_scale(w, h, KEEP_MAX).unwrap_or((w, h))
-    } else {
-        (w, h)
+    let area = u64::from(w) * u64::from(h);
+    if area <= KEEP_PIXELS {
+        return (w, h);
     }
+    let f = (KEEP_PIXELS as f64 / area as f64).sqrt();
+    let mut kw = ((f64::from(w) * f).floor() as u64).clamp(1, u64::from(w));
+    let mut kh = ((f64::from(h) * f).floor() as u64).clamp(1, u64::from(h));
+    // Sai số dấu phẩy động hay cạnh bị kẹp về 1: cắt cạnh dài hơn cho vừa ngân sách.
+    if kw * kh > KEEP_PIXELS {
+        if kw >= kh {
+            kw = (KEEP_PIXELS / kh).max(1);
+        } else {
+            kh = (KEEP_PIXELS / kw).max(1);
+        }
+    }
+    (kw as u32, kh as u32)
 }
 
 /// Hình học khung ảnh. Tọa độ "nội dung": gốc ở góc trên trái vùng cuộn (cuộn = 0).
@@ -77,7 +103,7 @@ pub fn geom(orig: (u32, u32), kept: (u32, u32), vw: i32, vh: i32, pad: i32) -> G
         let a = i64::from(aw);
         (a, ((kh * a + kw / 2) / kw).max(1))
     };
-    // Bản giữ tối đa 4096 px mỗi cạnh nên vừa i32.
+    // Bản giữ tối đa 16 MP nên mỗi cạnh vừa i32.
     let (dw, dh) = (dw as i32, dh as i32);
     let x = pad + (aw - dw) / 2;
     let (y, content_h) = if dh <= ah {
