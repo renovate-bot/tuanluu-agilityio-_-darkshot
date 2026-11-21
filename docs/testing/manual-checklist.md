@@ -532,7 +532,8 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe targe
 - [ ] Ảnh có chỗ ghép không chắc chắn: dải vàng "Có N chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng." hiện; ảnh không có chỗ nghi ngờ thì không có dải.
 - [ ] Nút Lưu (và Enter) lưu PNG như thường, có thông báo; Chép chép ảnh; Tải lên đăng và chép link (thử với bucket thử của chính bạn); Ghim mở ảnh ghim giữa màn hình.
 - [ ] Đóng (và Esc) không lưu thì ảnh bị bỏ; mở lại chụp cuộn không còn ảnh cũ.
-- [ ] Mở 4 cửa sổ Ảnh chụp cuộn chưa lưu, rồi thử thêm một lần chụp: thông báo "Có nhiều ảnh chụp cuộn chưa lưu" hiện, không có cửa sổ thứ năm và không cửa sổ nào tự đóng.
+- [ ] Mở 4 cửa sổ Ảnh chụp cuộn chưa lưu, rồi thử thêm một lần chụp: thông báo "Có nhiều ảnh chụp cuộn chưa lưu" hiện, cửa sổ thứ năm vẫn mở được và không cửa sổ nào tự đóng (darkshot không bao giờ tự đóng cửa sổ Ảnh chụp cuộn).
+- [ ] Thiếu bộ nhớ khi Lưu, Chép hoặc Tải lên ảnh cuộn rất lớn (khó tạo; thử khi máy gần hết RAM): thông báo "Không đủ bộ nhớ" hiện, cửa sổ và ảnh vẫn còn.
 - [ ] Lịch sử ảnh chụp (nếu bật): Lưu, Chép và Tải lên của ảnh cuộn có mục mới; chụp cuộn không đổi "lần chụp trước" (đo bằng thời gian sửa `last_capture.json`).
 - [ ] Cuộn dọc trong trang web dài ở trình duyệt (Chrome hoặc Edge): ảnh ghép đúng thứ tự, không lặp và không mất hàng.
 - [ ] Tài liệu Word và PDF dài: ảnh ghép đúng thứ tự, không lặp đoạn.
