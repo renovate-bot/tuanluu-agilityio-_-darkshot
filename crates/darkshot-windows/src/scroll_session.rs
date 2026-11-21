@@ -567,6 +567,13 @@ thread_local! {
     static ON_RESULT: Cell<fn(Image, u32)> = const { Cell::new(noop_result) };
     static ON_LIMIT: Cell<fn(u32)> = const { Cell::new(noop_limit) };
     static ON_END: Cell<fn()> = const { Cell::new(noop) };
+    static ON_CAPTURE_FAILED: Cell<fn()> = const { Cell::new(noop) };
+}
+
+/// Hàm báo không chụp được vùng (Xong khi chưa có khung nào và lần chụp cuối lỗi; main: thông báo
+/// "Không chụp được màn hình").
+pub fn set_on_capture_failed(f: fn()) {
+    ON_CAPTURE_FAILED.with(|c| c.set(f));
 }
 
 /// Hàm chạy mỗi khi một phiên đã bắt đầu kết thúc (mọi đường: Xong, Hủy, Esc, giới hạn, vùng mất,
@@ -1034,6 +1041,12 @@ fn relayout_bar(dpi: Option<u32>) {
 
 /// Xong: kết thúc phiên và giao ảnh ghép. Chưa có khung nào (bấm rất sớm) thì chụp một khung.
 pub fn done() {
+    done_with(capture::capture_rect);
+}
+
+/// Thân của `done` với hàm chụp `grab`. Chưa có khung mà chụp lỗi: báo lỗi chụp (không có ảnh nào
+/// để giao), rồi vẫn kết thúc và dọn phiên.
+fn done_with(grab: impl FnOnce(Rect) -> windows::core::Result<Image>) {
     let empty = with(|s| {
         s.stitcher
             .as_ref()
@@ -1041,12 +1054,19 @@ pub fn done() {
             .then_some(s.region)
     })
     .flatten();
+    let mut failed = false;
     if let Some(r) = empty {
-        if let Ok(img) = capture::capture_rect(r) {
-            with(|s| s.stitcher.as_mut().map(|st| st.push(&img)));
+        match grab(r) {
+            Ok(img) => {
+                with(|s| s.stitcher.as_mut().map(|st| st.push(&img)));
+            }
+            Err(_) => failed = true,
         }
     }
     end_with(Input::Done);
+    if failed {
+        ON_CAPTURE_FAILED.with(|c| c.get())();
+    }
 }
 
 /// Hủy (nút Hủy, Esc, thoát ứng dụng): bỏ hết, không giao ảnh.
@@ -1925,6 +1945,48 @@ mod live {
         unsafe {
             SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
+    }
+
+    thread_local! {
+        static CAPTURE_FAILS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    fn count_capture_failed() {
+        CAPTURE_FAILS.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Xong khi chưa có khung nào mà chụp vùng lỗi: báo lỗi chụp, không giao ảnh, phiên vẫn dọn.
+    #[test]
+    #[ignore]
+    fn done_without_frames_reports_capture_failure() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        dpi_aware();
+        PAGE.with(|p| *p.borrow_mut() = make_page());
+        let (tw, region) = test_window();
+        pump_for(100);
+        set_on_result(keep_result);
+        set_on_capture_failed(count_capture_failed);
+        CAPTURE_FAILS.with(|c| c.set(0));
+        assert_eq!(start(region), Ok(()));
+        // Trước nhịp hẹn giờ đầu: chưa có khung.
+        done_with(|_| {
+            Err(windows::core::Error::from_hresult(
+                windows::Win32::Foundation::E_FAIL,
+            ))
+        });
+        assert!(!active());
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_none());
+        // Chụp được: không báo lỗi.
+        assert_eq!(start(region), Ok(()));
+        done();
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_some());
+        // SAFETY: hủy cửa sổ thử của chính kiểm thử.
+        unsafe {
+            let _ = DestroyWindow(tw);
+        }
+        pump_for(50);
     }
 
     #[test]
