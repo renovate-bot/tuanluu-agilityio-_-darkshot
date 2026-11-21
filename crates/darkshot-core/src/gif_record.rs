@@ -544,6 +544,8 @@ pub enum Outcome {
 const RUNNING: u8 = 0;
 const STOPPING: u8 = 1;
 const CANCELLING: u8 = 2;
+/// Dừng vì vùng ghi không còn trên màn hình (giao diện báo): lưu như Dừng, lý do `SourceLost`.
+const STOPPING_LOST: u8 = 3;
 
 struct Shared {
     state: AtomicU8,
@@ -653,6 +655,12 @@ impl Recorder {
         self.shared.leave_running(STOPPING)
     }
 
+    /// Dừng và lưu phần đã ghi vì vùng ghi không còn trên màn hình (lý do `SourceLost`). Như
+    /// `request_stop`: chỉ đổi được một lần, `false` khi đã dừng, đã hủy hoặc luồng đã tự dừng.
+    pub fn request_stop_lost(&self) -> bool {
+        self.shared.leave_running(STOPPING_LOST)
+    }
+
     /// Hủy, không tạo GIF. `false` khi đã dừng, đã hủy hoặc luồng đã tự dừng.
     pub fn request_cancel(&self) -> bool {
         self.shared.leave_running(CANCELLING)
@@ -702,16 +710,22 @@ fn lost_thread() -> Outcome {
     Outcome::Failed(GifError::Fault(GifFault::ThreadEnded))
 }
 
-/// Luồng nền tự dừng vì `reason`. `None` khi đã bị hủy trước đó (Hủy thắng); Dừng của người dùng
-/// tới trước thì lý do là `Stopped`.
+/// Lý do lưu của trạng thái dừng `state` do giao diện yêu cầu; `None` khi không phải trạng thái dừng.
+fn requested_stop(state: u8) -> Option<StopReason> {
+    match state {
+        STOPPING => Some(StopReason::Stopped),
+        STOPPING_LOST => Some(StopReason::SourceLost),
+        _ => None,
+    }
+}
+
+/// Luồng nền tự dừng vì `reason`. `None` khi đã bị hủy trước đó (Hủy thắng); Dừng của giao diện
+/// tới trước thì giữ lý do của nó (`Stopped` hay `SourceLost`).
 fn auto_stop(sh: &Shared, reason: StopReason) -> Option<StopReason> {
     if sh.leave_running(STOPPING) {
         return Some(reason);
     }
-    match sh.state() {
-        STOPPING => Some(StopReason::Stopped),
-        _ => None,
-    }
+    requested_stop(sh.state())
 }
 
 /// Thân luồng ghi. Mọi tài nguyên (tệp tạm, bộ mã hóa) là biến cục bộ: trả về hay panic đều xóa
@@ -736,13 +750,14 @@ where
     let mut target = (0u16, 0u16);
 
     let (reason, end_ms) = loop {
-        match sh.state() {
-            RUNNING => {}
+        let state = sh.state();
+        match (state, requested_stop(state)) {
+            (RUNNING, _) => {}
             // Dừng trước khi có khung nào: vẫn chụp đúng một khung rồi lưu.
-            STOPPING if writer.as_ref().is_some_and(|w| w.frames() > 0) => {
-                break (StopReason::Stopped, elapsed().min(max_ms))
+            (_, Some(reason)) if writer.as_ref().is_some_and(|w| w.frames() > 0) => {
+                break (reason, elapsed().min(max_ms))
             }
-            STOPPING => {}
+            (_, Some(_)) => {}
             _ => return Outcome::Cancelled,
         }
         let frames = writer.as_ref().map_or(0, GifWriter::frames);
@@ -1521,6 +1536,58 @@ mod tests {
                 Outcome::Saved {
                     reason: StopReason::Stopped,
                     frames: 1,
+                    ..
+                }
+            ),
+            "{out:?}"
+        );
+    }
+
+    /// Vùng ghi mất màn hình: dừng với lý do `SourceLost` (thông báo Info), đúng một lần; Dừng hay
+    /// Hủy tới sau không đổi được lý do, và ngược lại.
+    #[test]
+    fn recorder_stop_lost_saves_with_source_lost() {
+        let d = temp_dir();
+        let mut c = cfg(&d);
+        c.interval_ms = 5_000;
+        c.max_duration_ms = 60_000;
+        let (_w, wake) = wake_counter();
+        let (calls, source) = counted_source();
+        let mut r = Recorder::start(c, source, wake).unwrap();
+        wait_calls(&calls, 1);
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(r.request_stop_lost());
+        assert!(!r.request_stop_lost());
+        assert!(!r.request_stop());
+        assert!(!r.request_cancel());
+        let out = r.join(WAIT).expect("outcome");
+        assert!(
+            matches!(
+                out,
+                Outcome::Saved {
+                    reason: StopReason::SourceLost,
+                    ..
+                }
+            ),
+            "{out:?}"
+        );
+        // Dừng trước: mất màn hình tới sau không đổi lý do.
+        let d = temp_dir();
+        let mut c = cfg(&d);
+        c.interval_ms = 5_000;
+        c.max_duration_ms = 60_000;
+        let (_w, wake) = wake_counter();
+        let (calls, source) = counted_source();
+        let mut r = Recorder::start(c, source, wake).unwrap();
+        wait_calls(&calls, 1);
+        assert!(r.request_stop());
+        assert!(!r.request_stop_lost());
+        let out = r.join(WAIT).expect("outcome");
+        assert!(
+            matches!(
+                out,
+                Outcome::Saved {
+                    reason: StopReason::Stopped,
                     ..
                 }
             ),

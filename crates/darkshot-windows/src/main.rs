@@ -1241,6 +1241,18 @@ pub fn step_error_notice(lang: Lang, e: &steps_store::StepError) -> (&'static st
 /// Windows cho khoảng 5 giây ở `WM_ENDSESSION`.
 const EXIT_BUDGET: Duration = Duration::from_secs(4);
 
+/// Tuổi tối thiểu (tính từ lúc khởi động) của tệp GIF tạm bị dọn: `.part` của một bản darkshot
+/// khác (demo, sandbox) đang ghi cùng thư mục được ghi liên tục nên luôn mới hơn mốc này.
+const SWEEP_PART_MIN_AGE: Duration = Duration::from_secs(120);
+
+/// Mốc dọn tệp GIF tạm cho lần khởi động lúc `now`: lùi `SWEEP_PART_MIN_AGE`; đồng hồ quá sớm thì
+/// `UNIX_EPOCH` (không xóa gì có thời gian hợp lệ).
+fn sweep_cutoff(now: std::time::SystemTime) -> std::time::SystemTime {
+    now.checked_sub(SWEEP_PART_MIN_AGE)
+        .filter(|t| *t >= std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::UNIX_EPOCH)
+}
+
 /// Hạn chót chung của một đường thoát bắt đầu lúc `now`: mọi lần chờ (GIF, tải lên dở, ảnh bước,
 /// xuất) dùng chung `EXIT_BUDGET`.
 fn exit_deadline(now: std::time::Instant) -> std::time::Instant {
@@ -2087,11 +2099,11 @@ fn main() {
     }
     CONFIG_WRITABLE.with(|w| w.set(config_ok_at_start(state.config_notice, config_existed)));
     // Tệp GIF tạm sót từ lần chạy trước (thoát quá hạn, mất điện): xóa trên luồng nền ngắn, chỉ
-    // tệp cũ hơn lúc khởi động (không đụng lần ghi vừa bắt đầu hay bản khác đang ghi). Không tạo
-    // được luồng thì bỏ qua: lần khởi động sau dọn.
+    // tệp cũ hơn lúc khởi động 2 phút (không đụng lần ghi vừa bắt đầu hay bản khác đang ghi). Không
+    // tạo được luồng thì bỏ qua: lần khởi động sau dọn.
     {
         let dir = state.config.save_dir.clone();
-        let started = std::time::SystemTime::now();
+        let started = sweep_cutoff(std::time::SystemTime::now());
         let _ = std::thread::Builder::new()
             .name("darkshot-gif-sweep".into())
             .spawn(move || darkshot_core::gif_record::sweep_stale(&dir, started));
@@ -2227,6 +2239,20 @@ mod tests {
         let (t, b) = step_error_notice(Lang::En, &StepError::End("x".into()));
         assert_eq!(t, i18n::t(Lang::En, Msg::StepsEndFailedTitle));
         assert_eq!(b, "Reason: x");
+    }
+
+    /// Mốc dọn tệp GIF tạm lúc khởi động lùi `SWEEP_PART_MIN_AGE` (2 phút): `.part` của một bản
+    /// darkshot khác đang ghi cùng thư mục (sửa trong vòng vài giây) không bị xóa.
+    #[test]
+    fn sweep_cutoff_is_two_minutes_before_start() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        assert_eq!(SWEEP_PART_MIN_AGE, Duration::from_secs(120));
+        let now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        assert_eq!(sweep_cutoff(now), now - Duration::from_secs(120));
+        // Đồng hồ hỏng (trước 1970 + 2 phút): mốc là UNIX_EPOCH, không xóa gì mới.
+        let early = UNIX_EPOCH + Duration::from_secs(5);
+        assert_eq!(sweep_cutoff(early), UNIX_EPOCH);
+        assert!(sweep_cutoff(SystemTime::now()) < SystemTime::now());
     }
 
     /// Các lần chờ lúc thoát chia nhau một hạn chót chung.
