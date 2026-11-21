@@ -211,3 +211,5 @@ Task 43 (báo có bản mới, thiết kế `docs/superpowers/specs/2026-11-17-u
 Phát hành v0.4.0 (2026-11-18, task `73-release-0.4.0`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, `check.ps1` ALL CHECKS PASSED, tag `v0.4.0`, GitHub release.
 
 Phát hành v0.5.0 (2026-11-21, task `102-release-0.5.0`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, website (mục H Nhận dạng chữ, mục I Chụp từng bước và chụp cuộn), `check.ps1` ALL CHECKS PASSED, tag `v0.5.0`, GitHub release.
+
+Task 108 ảnh website (2026-11-21, nhánh `task/108-website-shots`): specialist opus làm kiểm thử chụp (134.588 token), reviewer sonnet duyệt (46.930 token; hai góp ý nhỏ không chặn: mutex cho `Profile` khi chạy song song, guard panic cho `webshot_steps`); phiên điều phối đổi WebP và sửa website. Tổng 181.518.

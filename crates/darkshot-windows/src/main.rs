@@ -2018,6 +2018,9 @@ fn main() {
 }
 
 #[cfg(test)]
+mod webshot;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use CaptureGate::*;

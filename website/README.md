@@ -28,7 +28,7 @@ Kết quả nằm ở `website/dist/`. `npm run build` dừng nếu: TypeScript 
 ```text
 website/
   index.html            Toàn bộ nội dung tiếng Anh (nguồn gốc), thuộc tính data-i18n*
-  public/               favicon, robots.txt, ảnh (logo từ darkshot.ico; ảnh chụp thật Lịch sử và Tùy chọn)
+  public/               favicon, robots.txt, ảnh (logo từ darkshot.ico; ảnh chụp thật Lịch sử, Tùy chọn, Ghim, Chữ nhận dạng, Các bước, Ảnh chụp cuộn)
   src/
     main.ts             Khởi tạo
     i18n.ts             EN/VI chuyển ngay không tải lại, nhớ lựa chọn (localStorage)
@@ -64,6 +64,7 @@ website/
 ## Minh họa và ảnh chụp
 
 - Hai ảnh chụp thật: cửa sổ Lịch sử (dữ liệu mẫu giữ chỗ) và cửa sổ Tùy chọn (tab Thông thường, đã cắt bỏ ô Thư mục lưu vì chứa đường dẫn máy). Nguồn: `target/demo7/screens`, `target/demo8/screens`, `target/demo9/screens` (Lịch sử có nút Ghim).
+- Ảnh chụp thật (Task 108): `pin.webp` (một ngôn ngữ, cửa sổ ghim không có chữ giao diện), `ocr-*.webp`, `steps-*.webp`, `scroll-*.webp`. Dữ liệu mẫu bịa vẽ bằng mã (biểu đồ "Weekly sign-ups", chữ "Quarterly report summary", hộp thoại "Example settings", bài viết "Example Journal"). Tạo lại: `$env:DARKSHOT_WEBSHOTS = "<repo>\target\webshots"; cargo test -p darkshot-windows webshot_ -- --ignored --test-threads=1` (PrintWindow cửa sổ của chính tiến trình kiểm thử, hồ sơ tạm, không chuột/phím, không clipboard), rồi đổi PNG sang WebP (rộng 1300 px; cuộn 720 px; chất lượng 86).
 - Mọi hình còn lại (lớp phủ chụp, thanh công cụ, đánh dấu, che thông tin, bắt cửa sổ, thanh hành động) là SVG dựng lại theo bố cục và màu thật trong `crates/darkshot-core/src/theme.rs`, luôn kèm chú thích "Minh họa". Nội dung mẫu (hóa đơn Acme, email `jane.doe@example.com`, khóa `sk_test_EXAMPLE_0000`, link `img.example.com`) đều bịa, không dữ liệu thật.
 - Cần ảnh chụp thật cho lớp phủ: chụp bằng bản build thật rồi thay `scene.ts` trong từng mục (không dùng ảnh có màn hình riêng của ai).
 

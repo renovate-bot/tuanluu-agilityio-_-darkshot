@@ -2010,4 +2010,106 @@ mod tests {
         close_all();
         crate::lang::set(before);
     }
+
+    /// Ảnh mẫu bịa: trang bài viết giả cao 2400 px (tiêu đề, đoạn chữ, khối màu).
+    fn fake_article() -> Image {
+        use crate::webshot::Canvas;
+        let ink = (30, 34, 42);
+        let muted = (100, 108, 120);
+        let mut c = Canvas::new(900, 2400, (255, 255, 255));
+        c.fill(0, 0, 900, 64, (24, 32, 48));
+        c.text(40, 18, 22, true, (255, 255, 255), "Example Journal");
+        c.text(600, 22, 16, false, (190, 200, 215), "Home   Topics   About");
+        c.text(60, 110, 40, true, ink, "A field guide to tidy desks");
+        c.text(
+            60,
+            168,
+            17,
+            false,
+            muted,
+            "Sample article for illustration  -  6 min read",
+        );
+        let para = [
+            "Clutter tends to build up one small item at a time. A short weekly",
+            "reset keeps the surface clear and makes the next task easier to start.",
+            "Begin with the things you touch every day and give each one a home.",
+            "Cables, notes and cups move around the most, so place them first.",
+            "Anything that has not been used for a month can go into a drawer.",
+        ];
+        let mut y = 230;
+        let blocks = [
+            (86, 140, 220),
+            (240, 180, 80),
+            (90, 190, 150),
+            (200, 110, 160),
+        ];
+        for (section, color) in blocks.iter().enumerate() {
+            c.text(
+                60,
+                y,
+                26,
+                true,
+                ink,
+                &format!("Step {}: keep it simple", section + 1),
+            );
+            y += 54;
+            for _ in 0..2 {
+                for line in para {
+                    c.text(60, y, 18, false, ink, line);
+                    y += 30;
+                }
+                y += 18;
+            }
+            c.fill(60, y, 780, 220, *color);
+            c.fill(90, y + 30, 300, 24, (255, 255, 255));
+            c.fill(90, y + 70, 220, 16, (245, 245, 245));
+            c.fill(90, y + 100, 260, 16, (245, 245, 245));
+            c.fill(520, y + 40, 280, 150, (255, 255, 255));
+            y += 260;
+        }
+        c.fill(0, 2340, 900, 60, (236, 238, 242));
+        c.text(
+            60,
+            2358,
+            15,
+            false,
+            muted,
+            "Example Journal  -  sample content",
+        );
+        c.image()
+    }
+
+    /// Ảnh website `scroll-<en|vi>.png`: cửa sổ Ảnh chụp cuộn, ảnh bài viết giả 900×2400, một chỗ
+    /// ghép không chắc chắn (dải vàng cảnh báo).
+    #[test]
+    #[ignore = "ảnh cho website; chạy tay"]
+    fn webshot_scroll() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let _profile = crate::webshot::Profile::new("scroll");
+        crate::webshot::per_monitor();
+        let img = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            fake_article()
+        };
+        close_all();
+        set_action_sink(record_action);
+        set_notifier(record_notice);
+        crate::webshot::each_lang(|_, code| {
+            open(img.clone(), 1);
+            let h = test_windows()[0];
+            assert!(pump(15_000, || !preparing(h)), "prebuild not done in 15 s");
+            pump(400, || false);
+            assert!(strip_of(h).h > 0, "warning strip");
+            let shot = crate::webshot::print_window(h);
+            assert!(crate::webshot::not_blank(&shot));
+            crate::webshot::save(&dir, &format!("scroll-{code}"), &shot);
+            println!("dpi {}", crate::webshot::dpi_of(h));
+            close_all();
+        });
+        assert!(test_windows().is_empty());
+        assert!(ACTIONS.with(|v| v.borrow().is_empty()));
+    }
 }

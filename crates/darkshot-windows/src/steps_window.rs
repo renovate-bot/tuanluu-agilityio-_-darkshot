@@ -3379,4 +3379,153 @@ mod live {
         assert!(hwnd().is_none());
         let _ = std::fs::remove_dir_all(&base);
     }
+
+    /// Ảnh mẫu bịa cho bước `n` (1..=3): hộp thoại cài đặt giả "Example settings".
+    fn fake_dialog(n: u8) -> darkshot_core::image::Image {
+        use crate::webshot::Canvas;
+        let ink = (32, 36, 44);
+        let muted = (96, 104, 116);
+        let mut c = Canvas::new(960, 600, (54, 74, 104));
+        // Nền "màn hình" giả: vài khối mờ.
+        c.fill(0, 560, 960, 40, (30, 38, 52));
+        c.fill(40, 40, 120, 90, (70, 92, 126));
+        c.fill(40, 160, 120, 90, (70, 92, 126));
+        // Hộp thoại.
+        let (x, y, w, h) = (190, 70, 580, 430);
+        c.fill(x + 6, y + 8, w, h, (36, 48, 66));
+        c.fill(x, y, w, h, (250, 250, 252));
+        c.fill(x, y, w, 46, (232, 234, 240));
+        c.text(x + 20, y + 12, 19, true, ink, "Example settings");
+        c.text(x + w - 36, y + 10, 20, false, muted, "x");
+        let rows = [
+            "Theme",
+            "Language",
+            "Check for updates",
+            "Start with Windows",
+        ];
+        let values = ["Dark", "English", "", ""];
+        for (i, (label, value)) in rows.iter().zip(values).enumerate() {
+            let ry = y + 80 + i as i32 * 62;
+            c.text(x + 30, ry, 17, false, ink, label);
+            if value.is_empty() {
+                // Hộp kiểm.
+                let on = i == 2 && n >= 2;
+                c.frame(x + w - 70, ry, 24, 24, 2, (120, 128, 140));
+                if on {
+                    c.fill(x + w - 70, ry, 24, 24, (37, 99, 235));
+                    c.line(
+                        (x + w - 64, ry + 12),
+                        (x + w - 59, ry + 18),
+                        3,
+                        (255, 255, 255),
+                    );
+                    c.line(
+                        (x + w - 59, ry + 18),
+                        (x + w - 51, ry + 6),
+                        3,
+                        (255, 255, 255),
+                    );
+                }
+            } else {
+                c.fill(x + w - 210, ry - 6, 160, 34, (240, 241, 245));
+                c.frame(x + w - 210, ry - 6, 160, 34, 1, (190, 194, 204));
+                c.text(x + w - 198, ry, 16, false, ink, value);
+            }
+            c.fill(x + 30, ry + 44, w - 60, 1, (226, 228, 234));
+        }
+        // Nút.
+        let by = y + h - 64;
+        c.fill(x + w - 280, by, 120, 40, (236, 238, 242));
+        c.frame(x + w - 280, by, 120, 40, 1, (190, 194, 204));
+        c.text(x + w - 250, by + 9, 17, false, ink, "Cancel");
+        let save = if n == 3 { (29, 78, 216) } else { (37, 99, 235) };
+        c.fill(x + w - 150, by, 120, 40, save);
+        c.text(x + w - 115, by + 9, 17, true, (255, 255, 255), "Save");
+        // Khung đỏ đánh dấu chỗ cần bấm.
+        let red = (230, 57, 70);
+        match n {
+            1 => c.frame(x + 8, y + 4, 200, 38, 3, red),
+            2 => c.frame(x + 20, y + 80 + 2 * 62 - 12, w - 40, 48, 3, red),
+            _ => c.frame(x + w - 156, by - 6, 132, 52, 3, red),
+        }
+        c.image()
+    }
+
+    /// Ảnh website `steps-<en|vi>.png` (cửa sổ Các bước: 3 bước mẫu, bước 2 đang chọn) và
+    /// `stepsbar-<en|vi>.png` (thanh phiên). Phiên ở thư mục tạm, không đụng phiên thật.
+    #[test]
+    #[ignore = "ảnh cho website; chạy tay"]
+    fn webshot_steps() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let profile = crate::webshot::Profile::new("steps");
+        crate::webshot::per_monitor();
+        let shots: Vec<_> = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            (1..=3).map(fake_dialog).collect()
+        };
+        let root = profile.dir().join("session").join("current");
+        crate::steps_store::use_root_for_test(root.clone());
+        assert!(root.starts_with(std::env::temp_dir()));
+        assert!(crate::steps_store::start());
+        for img in shots {
+            crate::steps_store::add(img).unwrap();
+        }
+        crate::steps_store::flush(std::time::Duration::from_secs(20));
+        assert_eq!(crate::steps_store::count(), 3);
+        crate::steps_store::on_change(on_store_changed);
+        crate::webshot::each_lang(|lang, code| {
+            let captions = match lang {
+                Lang::En => [
+                    "Open Example settings",
+                    "Turn on Check for updates",
+                    "Click Save to apply",
+                ],
+                Lang::Vi => [
+                    "Mở Example settings",
+                    "Bật Check for updates",
+                    "Bấm Save để áp dụng",
+                ],
+            };
+            for (i, text) in captions.iter().enumerate() {
+                assert!(crate::steps_store::set_caption(i, text));
+            }
+            open();
+            crate::webshot::pump(300, pre_translate, || false);
+            let h = hwnd().expect("steps window");
+            select(1);
+            crate::webshot::pump(600, pre_translate, || false);
+            assert_eq!(selected(), Some(1));
+            let shot = crate::webshot::print_window(h);
+            assert!(crate::webshot::not_blank(&shot));
+            crate::webshot::save(&dir, &format!("steps-{code}"), &shot);
+            println!("dpi {}", crate::webshot::dpi_of(h));
+            close();
+            crate::webshot::pump(100, pre_translate, || false);
+            assert!(hwnd().is_none());
+
+            crate::steps_bar::show();
+            crate::webshot::pump(300, crate::webshot::no_pre, || false);
+            let bar = crate::steps_bar::hwnd().expect("steps bar");
+            // Thanh phiên tự loại khỏi ảnh chụp (WDA_EXCLUDEFROMCAPTURE) nên PrintWindow ra đen:
+            // chỉ trong kiểm thử này, bỏ cờ trên cửa sổ của chính tiến trình rồi mới chụp.
+            // SAFETY: bar là cửa sổ cấp cao nhất còn sống của luồng này.
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_NONE};
+                SetWindowDisplayAffinity(bar, WDA_NONE).expect("display affinity");
+            }
+            crate::webshot::pump(200, crate::webshot::no_pre, || false);
+            let shot = crate::webshot::print_window(bar);
+            assert!(crate::webshot::not_blank(&shot));
+            crate::webshot::save(&dir, &format!("stepsbar-{code}"), &shot);
+            println!("dpi {}", crate::webshot::dpi_of(bar));
+            crate::steps_bar::close();
+            crate::webshot::pump(100, crate::webshot::no_pre, || false);
+        });
+        crate::steps_store::mark_exported();
+        assert!(crate::steps_store::end());
+        crate::steps_store::flush(std::time::Duration::from_secs(5));
+    }
 }
