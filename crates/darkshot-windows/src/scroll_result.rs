@@ -58,7 +58,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Ảnh thu nhỏ dựng xong trên luồng nền: WPARAM = mã lượt dựng; không mang dữ liệu (kết quả nằm
 /// trong `Job` của cửa sổ). WM_APP + 1..+16 đã dùng ở nơi khác.
 pub const WM_SCROLL_PREPARED: u32 = WM_APP + 17;
-/// Mở thêm khi đã có 4 cửa sổ: đóng cái cũ nhất đã dùng; không có thì vẫn mở và báo.
+/// Từ cửa sổ thứ năm: vẫn mở (không bao giờ tự đóng cửa sổ kết quả nào) và báo người dùng.
 const MAX_WINDOWS: usize = 4;
 /// Vùng client tối thiểu (DIP).
 const MIN_W: i32 = 480;
@@ -113,26 +113,6 @@ const STRIP_MAX_LINES: i32 = 3;
 /// Một dòng cuộn (DIP); một nấc con lăn = `WHEEL_LINES` dòng.
 const LINE_DIP: i32 = 40;
 const WHEEL_LINES: i64 = 3;
-
-/// Việc khi mở thêm một cửa sổ, theo cờ "đã dùng" của các cửa sổ đang mở (cũ nhất trước).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OpenPolicy {
-    Open,
-    /// Đóng cửa sổ ở chỉ số này (cũ nhất trong các cửa sổ đã Lưu/Chép/Tải lên/Ghim) rồi mở.
-    CloseOldestUsed(usize),
-    /// Mọi cửa sổ đều có ảnh chưa dùng: mở thêm, không đóng gì, báo người dùng.
-    OpenAndWarn,
-}
-
-fn open_policy(used: &[bool]) -> OpenPolicy {
-    if used.len() < MAX_WINDOWS {
-        return OpenPolicy::Open;
-    }
-    match used.iter().position(|u| *u) {
-        Some(i) => OpenPolicy::CloseOldestUsed(i),
-        None => OpenPolicy::OpenAndWarn,
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Layout {
@@ -238,16 +218,25 @@ fn layout(
     }
 }
 
+/// Chiều cao của ảnh `img_w`×`img_h` khi thu về bề rộng `w` (làm tròn gần nhất, ít nhất 1). Dùng
+/// chung cho cỡ hiển thị và ảnh dựng trước, để đúng tỉ lệ thì vẽ 1:1 (BitBlt).
+fn scaled_height(img_w: u32, img_h: u32, w: u32) -> u32 {
+    if img_w == 0 {
+        return 0;
+    }
+    let (iw, ih, w) = (u64::from(img_w), u64::from(img_h), u64::from(w));
+    ((ih * w + iw / 2) / iw).clamp(1, u64::from(u32::MAX)) as u32
+}
+
 /// Cỡ hiển thị của ảnh `img_w`×`img_h` trong khung xem rộng `view_w`: thu theo bề rộng, không phóng
-/// to; chiều cao làm tròn lên (ít nhất 1 hàng).
+/// to; chiều cao theo `scaled_height`.
 fn fit_width(img_w: u32, img_h: u32, view_w: i32) -> (i32, i32) {
     if img_w == 0 || img_h == 0 || view_w <= 0 {
         return (0, 0);
     }
-    let (iw, ih) = (i64::from(img_w), i64::from(img_h));
-    let dw = iw.min(i64::from(view_w));
-    let dh = ((ih * dw + iw - 1) / iw).max(1);
-    (dw as i32, dh.min(i64::from(i32::MAX)) as i32)
+    let dw = img_w.min(view_w as u32);
+    let dh = scaled_height(img_w, img_h, dw);
+    (dw as i32, dh.min(i32::MAX as u32) as i32)
 }
 
 fn max_scroll(disp_h: i32, view_h: i32) -> i32 {
@@ -335,17 +324,17 @@ fn default_client(
     (w, h)
 }
 
-fn warns_on_open(_open_now: usize) -> bool {
-    false
+/// Mở thêm khi đang có `open_now` cửa sổ: từ cửa sổ thứ năm thì báo (không bao giờ tự đóng cửa sổ).
+fn warns_on_open(open_now: usize) -> bool {
+    open_now >= MAX_WINDOWS
 }
 
-fn rebuild_target(
-    _built: Option<u32>,
-    _img_w: u32,
-    _disp_w: i32,
-    _failed: Option<u32>,
-) -> Option<u32> {
-    None
+/// Bề rộng cần dựng lại, nếu có: khung xem rộng hơn ảnh đang có (`built`, chưa có = 0) và ảnh gốc
+/// còn rộng hơn, trừ khi lượt dựng ở đúng bề rộng đó đã thất bại (`failed`; chỉ thử lại khi khung
+/// xem đổi bề rộng, không lặp vô hạn).
+fn rebuild_target(built: Option<u32>, img_w: u32, disp_w: i32, failed: Option<u32>) -> Option<u32> {
+    let target = prebuild_width(img_w, disp_w);
+    (needs_rebuild(built.unwrap_or(0), img_w, disp_w) && failed != Some(target)).then_some(target)
 }
 
 fn needs_prebuild(img_h: u32) -> bool {
@@ -377,7 +366,7 @@ fn downscale(img: &Image, tw: u32, cancel: &AtomicBool) -> Option<Prepared> {
     }
     let (w, h) = (img.width as usize, img.height as usize);
     let tw = (tw.max(1) as usize).min(w);
-    let th = ((h as u64 * tw as u64 + w as u64 / 2) / w as u64).max(1) as usize;
+    let th = scaled_height(img.width, img.height, tw as u32) as usize;
     let mut px: Vec<u32> = Vec::new();
     px.try_reserve_exact(tw.checked_mul(th)?).ok()?;
     let stride = w * 4;
@@ -439,6 +428,8 @@ fn try_clone(img: &Image) -> Option<Image> {
 /// Một lượt dựng ảnh thu nhỏ trên luồng nền; cửa sổ và luồng cùng giữ.
 struct Job {
     id: usize,
+    /// Bề rộng đích của lượt dựng.
+    tw: u32,
     cancel: AtomicBool,
     out: Mutex<Option<Prepared>>,
 }
@@ -450,12 +441,12 @@ struct Win {
     scrollbar: HWND,
     image: Arc<Image>,
     uncertain: u32,
-    /// Đã Lưu/Chép/Tải lên/Ghim ít nhất một lần.
-    used: bool,
     /// Ảnh để vẽ (gốc, hoặc thu nhỏ khi ảnh cao).
     bmp: Option<Bmp>,
     /// Lượt dựng đang chạy.
     job: Option<Arc<Job>>,
+    /// Bề rộng của lượt dựng gần nhất đã thất bại (không thử lại đúng bề rộng này).
+    failed_w: Option<u32>,
     /// Vị trí cuộn và cỡ hiển thị (pixel).
     scroll: i32,
     disp: (i32, i32),
@@ -476,7 +467,7 @@ impl Drop for Win {
     }
 }
 
-/// Hàm `main` đăng ký: thực hiện Lưu/Chép/Tải lên/Ghim trên bản sao ảnh; `true` khi đã giao việc.
+/// Hàm `main` đăng ký: thực hiện Lưu/Chép/Tải lên/Ghim trên bản sao ảnh.
 type Sink = fn(Action, Image);
 type Notify = fn(NoticeKind, &str, &str);
 
@@ -505,13 +496,9 @@ pub fn set_notifier(f: Notify) {
     NOTIFY.with(|n| n.set(Some(f)));
 }
 
-fn act(action: Action, image: Image) -> bool {
-    match SINK.with(|s| s.get()) {
-        Some(f) => {
-            f(action, image);
-            true
-        }
-        None => false,
+fn act(action: Action, image: Image) {
+    if let Some(f) = SINK.with(|s| s.get()) {
+        f(action, image);
     }
 }
 
@@ -525,21 +512,11 @@ fn notify(kind: NoticeKind, title: &str, body: &str) {
 /// luồng giao diện. Không tạo được cửa sổ thì ảnh được lưu như Lưu thường (không bao giờ mất ảnh).
 pub fn open(image: Image, uncertain: u32) {
     prune();
-    let (hwnds, used): (Vec<HWND>, Vec<bool>) =
-        WINS.with(|v| v.borrow().iter().map(|w| (w.hwnd, w.used)).unzip());
-    let mut warn = false;
-    match open_policy(&used) {
-        OpenPolicy::Open => {}
-        OpenPolicy::CloseOldestUsed(i) => {
-            if let Some(&h) = hwnds.get(i) {
-                destroy(h);
-                prune();
-            }
-        }
-        OpenPolicy::OpenAndWarn => warn = true,
-    }
+    let warn = warns_on_open(WINS.with(|v| v.borrow().len()));
     if let Err(image) = create(image, uncertain) {
+        // Ảnh đã chuyển sang Lưu: không báo "nhiều cửa sổ".
         act(Action::Save, image);
+        return;
     }
     if warn {
         let lang = lang::current();
@@ -853,9 +830,9 @@ fn create(image: Image, uncertain: u32) -> Result<(), Image> {
             scrollbar,
             image: Arc::new(image),
             uncertain,
-            used: false,
             bmp: None,
             job: None,
+            failed_w: None,
             scroll: 0,
             disp: (0, 0),
             layout: Layout {
@@ -908,6 +885,7 @@ fn spawn_job(hwnd: HWND, img: Arc<Image>, tw: u32) {
     });
     let job = Arc::new(Job {
         id,
+        tw,
         cancel: AtomicBool::new(false),
         out: Mutex::new(None),
     });
@@ -948,6 +926,9 @@ fn spawn_job(hwnd: HWND, img: Arc<Image>, tw: u32) {
             w.job = None;
             if bmp.is_some() {
                 w.bmp = bmp;
+                w.failed_w = None;
+            } else {
+                w.failed_w = Some(tw);
             }
         });
         invalidate(hwnd);
@@ -963,12 +944,16 @@ fn on_prepared(hwnd: HWND, id: usize) {
         return;
     }
     let res = job.out.lock().ok().and_then(|mut o| o.take());
+    let tw = job.tw;
     drop(job);
     let bmp = res.and_then(|p| bmp_from_pixels(p.w, p.h, &p.px));
     with_win(hwnd, |w| {
         w.job = None;
         if bmp.is_some() {
             w.bmp = bmp;
+            w.failed_w = None;
+        } else {
+            w.failed_w = Some(tw);
         }
     });
     maybe_rebuild(hwnd);
@@ -978,11 +963,11 @@ fn on_prepared(hwnd: HWND, id: usize) {
 /// Khung xem rộng hơn ảnh thu nhỏ đang có: dựng lại (không lượt nào đang chạy).
 fn maybe_rebuild(hwnd: HWND) {
     let Some(next) = with_win(hwnd, |w| {
-        let built = w.bmp.as_ref().map(|b| b.w.max(0) as u32)?;
-        (w.job.is_none()
-            && needs_prebuild(w.image.height)
-            && needs_rebuild(built, w.image.width, w.disp.0))
-        .then(|| (w.image.clone(), prebuild_width(w.image.width, w.disp.0)))
+        if w.job.is_some() || !needs_prebuild(w.image.height) {
+            return None;
+        }
+        let built = w.bmp.as_ref().map(|b| b.w.max(0) as u32);
+        rebuild_target(built, w.image.width, w.disp.0, w.failed_w).map(|tw| (w.image.clone(), tw))
     })
     .flatten() else {
         return;
@@ -1282,12 +1267,18 @@ fn on_action(hwnd: HWND, action: Action) {
     let Some(img) = with_win(hwnd, |w| w.image.clone()) else {
         return;
     };
-    let Some(copy) = try_clone(&img) else {
-        return;
-    };
+    let copy = try_clone(&img);
     drop(img);
-    if act(action, copy) {
-        with_win(hwnd, |w| w.used = true);
+    match copy {
+        Some(copy) => act(action, copy),
+        None => {
+            let lang = lang::current();
+            notify(
+                NoticeKind::Error,
+                t(lang, Msg::ScrollCopyMemoryTitle),
+                t(lang, Msg::ScrollCopyMemoryBody),
+            );
+        }
     }
 }
 
@@ -1468,11 +1459,6 @@ fn strip_of(h: HWND) -> Rect {
 }
 
 #[cfg(test)]
-fn used_of(h: HWND) -> bool {
-    with_win(h, |w| w.used).unwrap_or(false)
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::winutil::scale;
@@ -1593,7 +1579,7 @@ mod tests {
         assert_eq!(fit_width(900, 12000, 900), (900, 12000));
         // Không phóng to ảnh hẹp hơn khung xem.
         assert_eq!(fit_width(300, 1000, 900), (300, 1000));
-        // Làm tròn lên, không bao giờ 0 hàng.
+        // Làm tròn gần nhất, không bao giờ 0 hàng.
         assert_eq!(fit_width(1000, 3, 999), (999, 3));
         assert_eq!(fit_width(1000, 1, 10), (10, 1));
         assert_eq!(fit_width(900, 12000, 0), (0, 0));

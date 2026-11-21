@@ -469,8 +469,8 @@ messages! {
         "Save or close some Scrolling capture windows."
     ),
     ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
-    ScrollCopyMemoryTitle => ("?", "??"),
-    ScrollCopyMemoryBody => ("?", "??"),
+    ScrollCopyMemoryTitle => ("Không đủ bộ nhớ", "Not enough memory"),
+    ScrollCopyMemoryBody => ("Đóng bớt cửa sổ rồi thử lại.", "Close some windows and try again."),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -500,6 +500,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::ScrollLimitTitle,
     Msg::ScrollNoRoomTitle,
     Msg::ScrollManyOpenTitle,
+    Msg::ScrollCopyMemoryTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
