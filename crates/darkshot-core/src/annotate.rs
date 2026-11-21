@@ -1544,7 +1544,7 @@ mod tests {
         assert_eq!(a.undo(), None);
         assert_eq!(a.undo.len(), 1);
         assert!(a.can_undo() && !a.can_redo());
-        assert_eq!(a.shapes(), &[sa.clone()]);
+        assert_eq!(a.shapes(), std::slice::from_ref(&sa));
         // Làm lại "thêm ở 5": không chèn được.
         let mut a = Annotations {
             shapes: vec![sa.clone()],
@@ -1557,7 +1557,7 @@ mod tests {
         assert_eq!(a.redo(), None);
         assert_eq!(a.redo.len(), 1);
         assert!(!a.can_undo() && a.can_redo());
-        assert_eq!(a.shapes(), &[sa.clone()]);
+        assert_eq!(a.shapes(), std::slice::from_ref(&sa));
         // Thay ở vị trí không có: cả hai chiều.
         let mut a = Annotations {
             shapes: vec![sa.clone()],
