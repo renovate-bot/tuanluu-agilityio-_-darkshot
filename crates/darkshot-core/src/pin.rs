@@ -273,6 +273,30 @@ mod tests {
         );
     }
 
+    /// Ảnh vừa vùng: như `centered`. Chiều nào lớn hơn vùng thì neo mép trên/trái vào vùng.
+    #[test]
+    fn placed_in_centers_or_anchors_start() {
+        // Vừa: căn giữa như cũ.
+        let area = r(0, 0, 1000, 500);
+        assert_eq!(placed_in(100, 50, 100, area), centered(100, 50, 100, area));
+        assert_eq!(placed_in(100, 50, 100, area), r(450, 225, 100, 50));
+        // Vừa khít: như cũ.
+        assert_eq!(placed_in(1000, 500, 100, area), r(0, 0, 1000, 500));
+        // Cao hơn vùng ở 10%: mép trên = mép trên vùng, ngang căn giữa.
+        let work = r(0, 40, 1920, 1040);
+        assert_eq!(fit_zoom(1000, 100_000, work), 10);
+        assert_eq!(placed_in(1000, 100_000, 10, work), r(910, 40, 100, 10_000));
+        // Rộng hơn: mép trái = mép trái vùng, dọc căn giữa.
+        assert_eq!(placed_in(100_000, 1000, 10, work), r(0, 40 + 470, 10_000, 100));
+        // Cả hai chiều lớn hơn: góc trên trái của vùng.
+        assert_eq!(placed_in(30_000, 20_000, 10, work), r(0, 40, 3000, 2000));
+        // Vùng tọa độ âm.
+        let neg = r(-1920, -200, 1920, 1080);
+        assert_eq!(placed_in(1000, 50_000, 10, neg), r(-1920 + 910, -200, 100, 5000));
+        assert_eq!(placed_in(50_000, 1000, 10, neg), r(-1920, -200 + 490, 5000, 100));
+        assert_eq!(placed_in(101, 50, 100, neg), centered(101, 50, 100, neg));
+    }
+
     #[test]
     fn keep_visible_cases() {
         let m1 = r(0, 0, 1920, 1080);

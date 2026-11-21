@@ -1348,7 +1348,10 @@ mod tests {
     fn placement_avoids_rect() {
         let work = r(-1920, 0, 1920, 1040);
         let (w, h, g) = (600, 400, 8);
-        let place = |avoid| place_avoiding(work, w, h, avoid, g);
+        let place = |avoid| {
+            let (x, y, _) = place_avoiding(work, w, h, avoid, g);
+            (x, y)
+        };
         let center = (-1920 + (1920 - 600) / 2, (1040 - 400) / 2);
         assert_eq!(place(None), center);
         // Đủ chỗ bên phải.
@@ -1366,10 +1369,10 @@ mod tests {
         // Khung tràn ra ngoài vùng làm việc (sát mép trái trên): vẫn bên phải, trong vùng.
         assert_eq!(place(Some(r(-2000, -50, 300, 200))), (-1692, 0));
         // Cửa sổ lớn hơn vùng làm việc: góc trên trái của vùng.
-        assert_eq!(place_avoiding(work, 2000, 1200, None, g), (-1920, 0));
+        assert_eq!(place_avoiding(work, 2000, 1200, None, g), (-1920, 0, false));
         assert_eq!(
             place_avoiding(work, 2000, 1200, Some(r(-1800, 100, 100, 100)), g),
-            (-1920, 0)
+            (-1920, 0, true)
         );
         // Kết quả nằm trong vùng làm việc và không chồng khung cần tránh.
         for avoid in [
@@ -1382,6 +1385,29 @@ mod tests {
             assert!(y >= work.y && y + h <= work.bottom(), "{avoid:?}");
             assert!(!overlaps(r(x, y, w, h), avoid), "{avoid:?}");
         }
+    }
+
+    /// Cờ `overlaps`: có chỗ không chồng → false; không chỗ → true (vị trí giữa chồng lên khung);
+    /// không có khung → false. Chỉ khi chồng thì cửa sổ là topmost.
+    #[test]
+    fn placement_reports_overlap_and_topmost() {
+        let work = r(-1920, 0, 1920, 1040);
+        let (w, h, g) = (600, 400, 8);
+        let flag = |avoid| place_avoiding(work, w, h, avoid, g).2;
+        assert!(!flag(None));
+        assert!(!flag(Some(r(-1800, 100, 400, 300))));
+        assert!(!flag(Some(r(-700, 100, 600, 300))));
+        assert!(!flag(Some(r(-1920, 0, 1920, 300))));
+        assert!(!flag(Some(r(-1920, 700, 1920, 340))));
+        // Che gần hết hoặc phủ kín vùng làm việc: không chỗ, chồng.
+        assert!(flag(Some(r(-1900, 20, 1880, 1000))));
+        assert!(flag(Some(work)));
+        assert!(flag(Some(r(-5000, -5000, 10000, 10000))));
+        // Ngay cả giữa vùng cũng không chồng (cửa sổ lớn hơn vùng, khung nằm ngoài cửa sổ).
+        assert!(!place_avoiding(work, 2000, 1200, Some(r(500, 2000, 10, 10)), g).2);
+
+        assert_eq!(ex_style(false), EX_STYLE);
+        assert_eq!(ex_style(true), WINDOW_EX_STYLE(EX_STYLE.0 | WS_EX_TOPMOST.0));
     }
 
     /// `WM_OCR_RESULT` gửi tới cửa sổ không phải cửa sổ kết quả: `pre_translate` không đụng LPARAM.
@@ -1772,6 +1798,42 @@ world",
         post_fake(h, token.wrapping_add(7), "late 2");
         close_all();
         assert_eq!(FREED.with(|f| f.get()), 5);
+        assert!(test_windows().is_empty());
+    }
+
+    /// Mở từ ảnh ghim: khung cần tránh phủ kín vùng làm việc → cửa sổ topmost (nằm trên ảnh ghim);
+    /// khung nhỏ (còn chỗ bên cạnh) → không topmost. Không dời chuột, không gửi phím.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_topmost_only_when_covered() {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE};
+        close_all();
+        // SAFETY: chỉ hỏi màn hình chính.
+        let mon = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+        let work = work_area(mon).expect("work area");
+        let topmost = |h: HWND| {
+            // SAFETY: đọc kiểu mở rộng của cửa sổ do luồng này tạo.
+            let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
+            ex & WS_EX_TOPMOST.0 != 0
+        };
+
+        open_inner(tiny(), Some(work), no_ocr).expect("open covered");
+        let (covered, _) = test_windows()[0];
+        assert!(topmost(covered), "covered: must be topmost");
+        close_all();
+
+        let small = Rect {
+            x: work.x,
+            y: work.y,
+            w: 40,
+            h: 40,
+        };
+        open_inner(tiny(), Some(small), no_ocr).expect("open small");
+        let (free, _) = test_windows()[0];
+        assert!(!topmost(free), "room beside: not topmost");
+        close_all();
         assert!(test_windows().is_empty());
     }
 
