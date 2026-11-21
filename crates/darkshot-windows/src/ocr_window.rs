@@ -1511,6 +1511,7 @@ mod tests {
                 lang_tag: "en-US".into(),
                 lang_name: "English".into(),
                 lines,
+                lines_detail: Vec::new(),
             })
         };
         vec![
@@ -1636,6 +1637,7 @@ world",
                 lang_tag: "en-US".into(),
                 lang_name: "English".into(),
                 lines: 2,
+                lines_detail: Vec::new(),
             });
             let v = view_of(lang, &ok);
             assert_eq!(v.text, "Hello\r\nworld");
@@ -1647,6 +1649,7 @@ world",
                 lang_tag: "en-US".into(),
                 lang_name: "English".into(),
                 lines: 0,
+                lines_detail: Vec::new(),
             });
             let v = view_of(lang, &empty);
             assert_eq!(v.text, t(lang, Msg::OcrEmpty));
@@ -1710,6 +1713,7 @@ world",
             lang_tag: "en-US".into(),
             lang_name: "English".into(),
             lines: 1,
+            lines_detail: Vec::new(),
         });
         let p = Box::into_raw(Box::new(res));
         // SAFETY: gửi tới cửa sổ của luồng này; gửi lỗi thì lấy lại Box.
