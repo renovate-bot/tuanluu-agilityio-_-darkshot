@@ -479,6 +479,29 @@ messages! {
     ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
     ScrollCopyMemoryTitle => ("Không đủ bộ nhớ", "Not enough memory"),
     ScrollCopyMemoryBody => ("Đóng bớt cửa sổ rồi thử lại.", "Close some windows and try again."),
+    OverlayRecordGif => ("Ghi GIF (Ctrl+G)", "Record GIF (Ctrl+G)"),
+    RecordStatus => ("Đang ghi", "Recording"),
+    RecordSaving => ("Đang lưu…", "Saving…"),
+    RecordStop => ("Dừng", "Stop"),
+    RecordCancel => ("Hủy", "Cancel"),
+    RecordSavedTitle => ("Đã lưu GIF", "GIF saved"),
+    RecordFailedTitle => ("Ghi GIF thất bại", "Recording failed"),
+    RecordInvalidRegion => ("Vùng ghi không hợp lệ.", "Invalid recording region."),
+    RecordTooLarge => ("Vùng ghi quá lớn.", "The recording region is too large."),
+    RecordNoFrames => ("Chưa ghi được khung hình nào.", "No frames were recorded."),
+    RecordMaxDuration => ("Đã đạt thời lượng ghi tối đa (15 giây).", "Maximum recording length reached (15 seconds)."),
+    RecordMaxSize => ("Tệp GIF đã đạt kích thước tối đa (256 MB).", "The GIF file reached its maximum size (256 MB)."),
+    RecordSourceLost => ("Không chụp tiếp được vùng ghi nên đã dừng.", "The recording region could no longer be captured, so recording stopped."),
+    RecordEncodeFailed => ("Không mã hóa được GIF", "Could not encode the GIF"),
+    RecordFaultRandom => ("Không lấy được số ngẫu nhiên từ hệ điều hành.", "The operating system's random source is unavailable."),
+    RecordFaultNoTempName => ("Không tạo được tên tệp tạm.", "Could not create a temporary file name."),
+    RecordFaultTempClosed => ("Tệp tạm đã đóng.", "The temporary file is already closed."),
+    RecordFaultNoFileName => ("Không tìm được tên tệp còn trống.", "Could not find a free file name."),
+    RecordFaultPanicked => ("Luồng ghi GIF gặp lỗi không mong đợi.", "The GIF recording thread failed unexpectedly."),
+    RecordFaultThreadEnded => ("Luồng ghi GIF dừng mà không có kết quả.", "The GIF recording thread ended without a result."),
+    RecordFaultSizeChanged => ("Kích thước vùng ghi đã thay đổi.", "The size of the recording region changed."),
+    RecordFaultInternal => ("Lỗi nội bộ của bộ ghi GIF.", "Internal error in the GIF recorder."),
+    RecordBusy => ("Đang ghi GIF. Dừng lần ghi hiện tại trước.", "A GIF is being recorded. Stop the current recording first."),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -509,6 +532,8 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::ScrollNoRoomTitle,
     Msg::ScrollManyOpenTitle,
     Msg::ScrollCopyMemoryTitle,
+    Msg::RecordSavedTitle,
+    Msg::RecordFailedTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -798,7 +823,10 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 \nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2.\n\n7. Chụp từng bước\nChọn \"Chụp từng bước\" ở menu khay để mở thanh phiên, rồi bấm \"Chụp bước\" (hoặc Ctrl+N trong lúc chọn vùng) để thêm ảnh có hình đánh dấu vào phiên, tối đa 99 bước. \"Xem lại\" cho đổi thứ tự, ghi chú, xóa bước và xuất ra một thư mục gồm ảnh đánh số và tệp steps.md. Ảnh bước chỉ nằm trên máy cho đến khi bạn xuất.
 
 8. Chụp cuộn
-Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px."
+Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px.
+
+9. Ghi GIF
+Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 15 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000)."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -845,7 +873,10 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 \nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2.\n\n7. Step capture\nChoose \"Step capture\" in the tray menu to open the session bar, then click \"Capture step\" (or press Ctrl+N while selecting a region) to add an annotated image to the session, up to 99 steps. \"Review\" lets you reorder steps, add captions, delete steps and export a folder of numbered images plus a steps.md file. Step images stay on this device until you export.
 
 8. Scrolling capture
-To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall."
+To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall.
+
+9. Recording a GIF
+To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 15 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels."
         ),
     }
 }
@@ -957,6 +988,39 @@ pub fn scroll_uncertain(lang: Lang, n: u32) -> String {
 }
 
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
+/// Thân thông báo khi GIF đã lưu kèm lý do dừng (`note`, ví dụ `Msg::RecordMaxDuration`).
+pub fn record_saved_with_note(lang: Lang, note: &str, path: &str) -> String {
+    match lang {
+        Lang::Vi => format!("{note} Đã lưu GIF: {path}"),
+        Lang::En => format!("{note} GIF saved: {path}"),
+    }
+}
+
+pub fn record_capture_failed(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không chụp được vùng ghi: {err}"),
+        Lang::En => format!("Could not capture the recording region: {err}"),
+    }
+}
+
+pub fn record_encode_failed(lang: Lang, err: &str) -> String {
+    format!("{}: {err}", t(lang, Msg::RecordEncodeFailed))
+}
+
+pub fn record_io_failed(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Không ghi được tệp GIF: {err}"),
+        Lang::En => format!("Could not write the GIF file: {err}"),
+    }
+}
+
+pub fn record_thread_failed(lang: Lang, err: &str) -> String {
+    match lang {
+        Lang::Vi => format!("Luồng ghi GIF gặp lỗi: {err}"),
+        Lang::En => format!("The GIF recording thread failed: {err}"),
+    }
+}
+
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
         Lang::Vi => format!("Phiên bản {version}"),
@@ -1738,5 +1802,69 @@ mod tests {
         assert!(en.contains(
             "Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks."
         ));
+    }
+
+    #[test]
+    fn record_gif_strings() {
+        let pairs = [
+            (
+                Msg::OverlayRecordGif,
+                "Ghi GIF (Ctrl+G)",
+                "Record GIF (Ctrl+G)",
+            ),
+            (Msg::RecordStatus, "Đang ghi", "Recording"),
+            (Msg::RecordSaving, "Đang lưu…", "Saving…"),
+            (Msg::RecordStop, "Dừng", "Stop"),
+            (Msg::RecordCancel, "Hủy", "Cancel"),
+            (Msg::RecordSavedTitle, "Đã lưu GIF", "GIF saved"),
+            (
+                Msg::RecordFailedTitle,
+                "Ghi GIF thất bại",
+                "Recording failed",
+            ),
+            (
+                Msg::RecordInvalidRegion,
+                "Vùng ghi không hợp lệ.",
+                "Invalid recording region.",
+            ),
+            (
+                Msg::RecordMaxDuration,
+                "Đã đạt thời lượng ghi tối đa (15 giây).",
+                "Maximum recording length reached (15 seconds).",
+            ),
+        ];
+        for (m, vi, en) in pairs {
+            assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
+            assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::RecordSavedTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::RecordFailedTitle));
+        assert_eq!(
+            record_saved_with_note(Lang::Vi, t(Lang::Vi, Msg::RecordMaxDuration), "C:/a.gif"),
+            "Đã đạt thời lượng ghi tối đa (15 giây). Đã lưu GIF: C:/a.gif"
+        );
+        assert_eq!(
+            record_saved_with_note(Lang::En, "Note.", "a.gif"),
+            "Note. GIF saved: a.gif"
+        );
+        for l in Lang::ALL {
+            for f in [
+                record_capture_failed,
+                record_encode_failed,
+                record_io_failed,
+                record_thread_failed,
+            ] {
+                assert!(f(l, "DETAIL42").contains("DETAIL42"), "{l:?}");
+            }
+            assert!(record_encode_failed(l, "x").starts_with(t(l, Msg::RecordEncodeFailed)));
+            let h = help_text(l, &HelpKeys::default());
+            assert!(h.contains("Ctrl+G"), "{l:?}");
+            assert!(h.contains("9. "), "{l:?}");
+            assert!(h.contains("15"), "{l:?}");
+        }
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("9. Ghi GIF"));
+        assert!(en.contains("9. Recording a GIF"));
     }
 }

@@ -104,6 +104,7 @@ impl BarItem {
             BarItem::Act(Action::Ocr) => Msg::OverlayOcr,
             BarItem::Act(Action::AddStep) => Msg::OverlayAddStep,
             BarItem::Act(Action::Scroll) => Msg::OverlayScroll,
+            BarItem::Act(Action::RecordGif) => Msg::OverlayRecordGif,
         }
     }
 }
@@ -4788,6 +4789,8 @@ impl Gp {
                 p.poly(&[(12.0, 7.0), (12.0, 16.5)]);
                 p.poly(&[(8.5, 13.0), (12.0, 16.5), (15.5, 13.0)]);
             }
+            // Chưa có ô trên thanh ngang (Task 123 thêm ô và biểu tượng).
+            Action::RecordGif => {}
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);

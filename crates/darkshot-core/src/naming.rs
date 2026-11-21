@@ -19,6 +19,14 @@ pub fn local_file_name(t: &LocalTime) -> String {
     )
 }
 
+/// `darkshot_YYYY-MM-DD_HH-MM-SS.gif`, cùng định dạng thời gian với `local_file_name`.
+pub fn local_gif_name(t: &LocalTime) -> String {
+    format!(
+        "darkshot_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.gif",
+        t.year, t.month, t.day, t.hour, t.minute, t.second
+    )
+}
+
 pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
     if !first.exists() {
@@ -40,22 +48,27 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
 
 const ALPHABET: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-/// 16 ký tự `[A-Za-z0-9]`; lấy mẫu loại trừ (bỏ byte >= 248) để không lệch phân phối.
-///
-/// Panic nếu nguồn ngẫu nhiên của hệ điều hành lỗi.
-pub fn random_object_name() -> String {
+/// Như `random_object_name` nhưng trả `None` thay vì panic khi nguồn ngẫu nhiên lỗi.
+pub fn try_random_object_name() -> Option<String> {
     let mut out = String::with_capacity(16);
     let mut buf = [0u8; 32];
     while out.len() < 16 {
-        getrandom::fill(&mut buf).expect("OS random source unavailable");
+        getrandom::fill(&mut buf).ok()?;
         for &b in buf.iter().filter(|&&b| b < 248) {
             if out.len() == 16 {
                 break;
             }
-            out.push(ALPHABET[(b % 62) as usize] as char);
+            out.push(char::from(ALPHABET[usize::from(b % 62)]));
         }
     }
-    out
+    Some(out)
+}
+
+/// 16 ký tự `[A-Za-z0-9]`; lấy mẫu loại trừ (bỏ byte >= 248) để không lệch phân phối.
+///
+/// Panic nếu nguồn ngẫu nhiên của hệ điều hành lỗi.
+pub fn random_object_name() -> String {
+    try_random_object_name().expect("OS random source unavailable")
 }
 
 #[cfg(test)]
@@ -82,6 +95,31 @@ mod tests {
             second: 5,
         };
         assert_eq!(local_file_name(&t), "darkshot_2026-11-16_14-03-05.png");
+    }
+
+    #[test]
+    fn gif_name_format() {
+        let t = LocalTime {
+            year: 2026,
+            month: 11,
+            day: 21,
+            hour: 9,
+            minute: 3,
+            second: 5,
+        };
+        assert_eq!(local_gif_name(&t), "darkshot_2026-11-21_09-03-05.gif");
+        assert_eq!(
+            local_gif_name(&t).trim_end_matches(".gif"),
+            local_file_name(&t).trim_end_matches(".png")
+        );
+    }
+
+    #[test]
+    fn try_random_name_shape() {
+        let a = try_random_object_name().unwrap();
+        let b = try_random_object_name().unwrap();
+        assert_ne!(a, b);
+        assert!(a.len() == 16 && a.bytes().all(|b| b.is_ascii_alphanumeric()));
     }
 
     #[test]

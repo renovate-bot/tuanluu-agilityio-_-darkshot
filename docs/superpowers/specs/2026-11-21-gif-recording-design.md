@@ -22,16 +22,16 @@ Không có phím tắt toàn cục mới, không phím Esc toàn cục tạm (Es
 |---|---|
 | `FPS` / `FRAME_INTERVAL_MS` | 10 / 100 |
 | `MAX_DURATION_MS` | 15 000 |
-| `MAX_FRAME_PIXELS` | 1 000 000 (khung lớn hơn được thu nhỏ đều hai chiều, giữ tỉ lệ) |
+| `MAX_FRAME_PIXELS` | 500 000 (khung lớn hơn được thu nhỏ đều hai chiều, giữ tỉ lệ) |
 | `MAX_SIDE` | 65 535 (giới hạn của GIF; sau thu nhỏ luôn thỏa) |
 | `MIN_SIDE` | 2 px mỗi chiều (nhỏ hơn: "Vùng ghi không hợp lệ") |
 | `MAX_FILE_BYTES` | 256 MiB (quá thì dừng và lưu phần đã ghi, như đạt thời lượng) |
-| `QUANT_SPEED` | 10 (`Frame::from_rgba_speed`; 1 = đẹp chậm, 30 = nhanh) |
+| `QUANT_SPEED` | 20 (`Frame::from_rgba_speed`; 1 = đẹp chậm, 30 = nhanh) |
 | `MIN_DELAY_CS` | 2 (trình duyệt coi < 2 cs là 10 cs) |
 | Lặp | `Repeat::Infinite` |
 | Con trỏ, âm thanh | Không |
 
-Thu nhỏ: hệ số `s = sqrt(MAX_FRAME_PIXELS / (w·h))`, kích thước đích `floor(w·s)`, `floor(h·s)` (tối thiểu 1), lọc trung bình vùng (box) trên BGRA. Một vùng 4K thành khoảng 1333×750. Ghi rõ trong README là GIF có thể nhỏ hơn vùng chọn với vùng rất lớn.
+Thu nhỏ: hệ số `s = sqrt(MAX_FRAME_PIXELS / (w·h))`, kích thước đích `floor(w·s)`, `floor(h·s)` (tối thiểu 1), lọc trung bình vùng (box) trên BGRA. Một vùng 4K thành khoảng 942×530 (đo ở Task 122: 1 MP mất ~270 ms mỗi khung). Ghi rõ trong README là GIF có thể nhỏ hơn vùng chọn với vùng rất lớn.
 
 ## 3. Kiến trúc
 
@@ -80,7 +80,7 @@ Theo mẫu `scroll_session.rs` (thanh, khung, đặt vị trí, `WDA_EXCLUDEFROM
 
 ## 4. Bộ nhớ và hiệu năng
 
-Tối đa trong bộ nhớ: một khung BGRA đang chụp (≤ kích thước vùng), một bản thu nhỏ/RGBA (≤ 4 MB) và một khung chờ RGBA (≤ 4 MB), cộng bộ đệm của bộ mã hóa. Vùng rất lớn (8K, 33 MP): khung BGRA thô ~133 MB chỉ tồn tại trong một lượt; giới hạn trên `w·h ≤ 64 MP` (`TooLarge`) để không cấp phát quá. Không `Vec<Image>`, không hàng đợi khung.
+Tối đa trong bộ nhớ: một khung BGRA đang chụp (≤ kích thước vùng), một bản thu nhỏ/RGBA (≤ 2 MB) và một khung chờ RGBA (≤ 2 MB), cộng bộ đệm của bộ mã hóa. Vùng rất lớn (8K, 33 MP): khung BGRA thô ~133 MB chỉ tồn tại trong một lượt; giới hạn trên `w·h ≤ 64 MP` (`TooLarge`) để không cấp phát quá. Không `Vec<Image>`, không hàng đợi khung.
 
 ## 5. Kiểm thử
 
@@ -92,4 +92,4 @@ Thử tay: mục "Đợt 20: Ghi GIF" trong `docs/testing/manual-checklist.md` (
 
 ## 6. Giới hạn đã biết
 
-Không con trỏ chuột, không âm thanh, tối đa 15 s, 10 khung/giây (máy chậm thì ít hơn, độ trễ vẫn đúng thời gian thật), bảng màu 256 màu mỗi khung (gradient có thể bị dải màu), vùng > 1 MP được thu nhỏ, cửa sổ thông báo của Windows hiện trong lúc ghi có thể lọt vào GIF.
+Không con trỏ chuột, không âm thanh, tối đa 15 s, 10 khung/giây (máy chậm thì ít hơn, độ trễ vẫn đúng thời gian thật), bảng màu 256 màu mỗi khung (gradient có thể bị dải màu), vùng > 0,5 MP được thu nhỏ, cửa sổ thông báo của Windows hiện trong lúc ghi có thể lọt vào GIF.
