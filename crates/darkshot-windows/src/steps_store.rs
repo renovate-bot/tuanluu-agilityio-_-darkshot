@@ -812,6 +812,12 @@ pub fn count() -> usize {
     with(|s| s.count())
 }
 
+/// Mã của phiên đang mở (đổi mỗi lần bắt đầu, khôi phục hay kết thúc); 0 khi không có phiên. Cổng
+/// xuất ghi lại lúc nhận "Thêm bước" để bước duyệt xong muộn không rơi vào phiên khác.
+pub fn session_id() -> u64 {
+    with(|s| if s.active() { s.gen } else { 0 })
+}
+
 /// Thêm ảnh bước đã qua cổng xuất (ghi nền); bước hiện ra khi `drain_saved` áp kết quả. Chỉ
 /// `privacy_gate` tạo được `PreparedOutput`, nên không ảnh nào chưa qua cổng được ghi vào phiên.
 pub fn add(prepared: PreparedOutput) -> Result<(), Full> {

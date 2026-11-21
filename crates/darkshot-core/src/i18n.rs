@@ -556,6 +556,14 @@ messages! {
         "Không mở được cửa sổ kiểm tra; ảnh chưa được xuất.",
         "Could not open the review window; the image was not exported."
     ),
+    PrivacyScanStalled => (
+        "Quét quá lâu; ảnh chưa được xuất.",
+        "Scanning took too long; the image was not exported."
+    ),
+    PrivacyStepSessionGone => (
+        "Phiên chụp từng bước đã kết thúc hoặc đã đổi; bước chưa được thêm.",
+        "The step capture session ended or changed; the step was not added."
+    ),
     PrivacyRedactFailed => (
         "Không che được ảnh; ảnh chưa được xuất.",
         "Could not cover the image; it was not exported."

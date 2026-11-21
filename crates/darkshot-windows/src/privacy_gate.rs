@@ -23,6 +23,8 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 use std::sync::Arc;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::SystemInformation::GetTickCount64;
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
     KillTimer, PeekMessageW, PostMessageW, SetTimer, MSG, PM_REMOVE, WM_APP, WM_TIMER,
 };
@@ -44,6 +46,12 @@ const TIMER_BASE: usize = 0x0001_0000;
 /// Hẹn giờ canh cửa sổ Duyệt mất mà không gửi kết quả.
 const WATCHDOG_TIMER_ID: usize = TIMER_BASE - 1;
 const WATCHDOG_MS: u32 = 1000;
+/// Hạn của một dải quét (như `ocr`): quá `SCAN_TILE_LIMIT_MS × số dải + SCAN_GRACE_MS` mà kết quả
+/// quét chưa về thì lượt bị bỏ (không xuất).
+pub const SCAN_TILE_LIMIT_MS: u64 = 20_000;
+pub const SCAN_GRACE_MS: u64 = 10_000;
+/// Quá hạn này mà ảnh làm phẳng chưa về thì lượt bị bỏ (không xuất).
+pub const FLATTEN_LIMIT_MS: u64 = 30_000;
 
 /// Đầu ra người dùng đã yêu cầu cho một ảnh.
 pub enum OutputAction {
@@ -129,6 +137,10 @@ pub enum Note {
     QueueFull,
     WindowFailed,
     RedactFailed,
+    /// Kết quả quét không về trong hạn.
+    ScanStalled,
+    /// Phiên chụp từng bước của lượt "Thêm bước" đã kết thúc hoặc đã đổi.
+    StepsGone,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -160,7 +172,19 @@ pub enum Event {
         id: Id,
         ok: bool,
     },
+    /// Lớp phủ đóng, phiên chụp cuộn hay ghi GIF kết thúc: thử mở lại những gì đang hoãn.
     OverlayClosed,
+    /// Tiến độ của lượt quét `scan`: tổng số dải (để tính hạn chờ).
+    Progress {
+        scan: Id,
+        tiles: u32,
+    },
+    /// Nhịp canh (đồng hồ đã đặt bằng `set_clock`): bỏ lượt quét hay làm phẳng quá hạn.
+    Tick,
+    /// Phiên chụp từng bước hiện là `current` (0 = không có): bỏ lượt "Thêm bước" của phiên khác.
+    StepsSession {
+        current: u64,
+    },
     Shutdown,
 }
 
@@ -208,6 +232,8 @@ pub enum Cmd {
 enum State {
     Scanning {
         scan: Id,
+        /// Số dải của lượt quét (biết qua `Progress`; chưa biết thì 1).
+        tiles: u32,
         /// Đã quá 800 ms: muốn có cửa sổ "Đang quét…".
         slow: bool,
         /// Cửa sổ Duyệt của lượt đang mở.
@@ -229,6 +255,10 @@ enum State {
 struct Entry {
     id: Id,
     windowed: bool,
+    /// Phiên chụp từng bước lúc nhận (chỉ lượt "Thêm bước").
+    session: Option<u64>,
+    /// Lúc vào trạng thái đang quét / đang làm phẳng (ms, theo `set_clock`).
+    since: u64,
     state: State,
 }
 
@@ -240,6 +270,8 @@ pub struct GateCore {
     /// Lượt có cửa sổ Duyệt đang mở (mỗi lúc một cửa sổ).
     open: Option<Id>,
     closed: bool,
+    /// Đồng hồ (ms) do vỏ đặt trước mỗi lời gọi.
+    now: u64,
 }
 
 impl GateCore {
@@ -248,7 +280,6 @@ impl GateCore {
     }
 
     /// Số lượt đang chờ.
-    #[cfg(test)]
     pub fn pending(&self) -> usize {
         self.entries.len()
     }
@@ -256,6 +287,16 @@ impl GateCore {
     /// Lượt có cửa sổ Duyệt đang mở.
     pub fn open(&self) -> Option<Id> {
         self.open
+    }
+
+    /// Đặt đồng hồ (ms, đơn điệu) cho các hạn chờ.
+    pub fn set_clock(&mut self, now_ms: u64) {
+        self.now = now_ms;
+    }
+
+    /// Cổng đã đóng (`Shutdown`).
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 
     /// Lượt đang quét bằng mã `scan` và có cửa sổ đang mở.
@@ -286,8 +327,18 @@ impl GateCore {
         self.entries.iter().position(|e| e.id == id)
     }
 
-    /// Yêu cầu mới. `shield`: công tắc đọc lúc nhận; `windowed`: đầu ra mở cửa sổ. `None` = từ chối.
-    pub fn submit(&mut self, shield: bool, windowed: bool) -> (Option<Id>, Vec<Cmd>) {
+    /// Yêu cầu mới. `shield`: công tắc đọc lúc nhận; `windowed`: đầu ra mở cửa sổ; `session`: phiên
+    /// chụp từng bước lúc nhận (chỉ "Thêm bước"). `None` = từ chối. Cổng đã đóng thì từ chối mọi
+    /// yêu cầu, kể cả khi Shield tắt (đang thoát: không xuất gì nữa).
+    pub fn submit(
+        &mut self,
+        shield: bool,
+        windowed: bool,
+        session: Option<u64>,
+    ) -> (Option<Id>, Vec<Cmd>) {
+        if self.closed {
+            return (None, Vec::new());
+        }
         if !shield {
             // Shield tắt: như trước khi có cổng, không xếp hàng, không chờ gì.
             let id = self.token();
@@ -299,9 +350,6 @@ impl GateCore {
                 }],
             );
         }
-        if self.closed {
-            return (None, Vec::new());
-        }
         if self.entries.len() >= MAX_PENDING {
             return (None, vec![Cmd::Notify(Note::QueueFull)]);
         }
@@ -310,8 +358,11 @@ impl GateCore {
         self.entries.push(Entry {
             id,
             windowed,
+            session,
+            since: self.now,
             state: State::Scanning {
                 scan,
+                tiles: 1,
                 slow: false,
                 shown: false,
                 retried: false,
@@ -362,9 +413,38 @@ impl GateCore {
                     }
                 }
             }
+            Event::Progress { scan, tiles } => {
+                for e in &mut self.entries {
+                    if let State::Scanning {
+                        scan: s, tiles: t, ..
+                    } = &mut e.state
+                    {
+                        if *s == scan {
+                            *t = tiles.max(1);
+                        }
+                    }
+                }
+            }
+            Event::Tick => self.on_tick(&mut out),
+            Event::StepsSession { current } => {
+                let gone: Vec<Id> = self
+                    .entries
+                    .iter()
+                    .filter(|e| e.session.is_some_and(|s| s != current))
+                    .map(|e| e.id)
+                    .collect();
+                for id in gone {
+                    if self.open == Some(id) {
+                        out.push(Cmd::CloseReview { id });
+                    }
+                    out.push(Cmd::Notify(Note::StepsGone));
+                    self.discard(id, &mut out);
+                }
+            }
             Event::OverlayClosed => {
                 let mut i = 0;
-                while i < self.entries.len() {
+                // Còn bị chặn (lớp phủ khác, chụp cuộn, ghi GIF): giữ nguyên.
+                while !overlay && i < self.entries.len() {
                     if let State::Held(how) = self.entries[i].state {
                         let e = self.entries.remove(i);
                         out.push(Cmd::Dispatch { id: e.id, how });
@@ -383,6 +463,36 @@ impl GateCore {
         }
         self.try_open(overlay, &mut out);
         out
+    }
+
+    /// Lượt quét hay làm phẳng quá hạn (kết quả không về): bỏ, không bao giờ xuất.
+    fn on_tick(&mut self, out: &mut Vec<Cmd>) {
+        let now = self.now;
+        let late: Vec<(Id, Note)> = self
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let waited = now.saturating_sub(e.since);
+                match e.state {
+                    State::Scanning { tiles, .. }
+                        if waited > SCAN_TILE_LIMIT_MS * u64::from(tiles) + SCAN_GRACE_MS =>
+                    {
+                        Some((e.id, Note::ScanStalled))
+                    }
+                    State::Flattening if waited > FLATTEN_LIMIT_MS => {
+                        Some((e.id, Note::RedactFailed))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        for (id, note) in late {
+            if self.open == Some(id) {
+                out.push(Cmd::CloseReview { id });
+            }
+            out.push(Cmd::Notify(note));
+            self.discard(id, out);
+        }
     }
 
     /// Bỏ lượt `id` (không xuất); nhả cửa sổ nếu là lượt đang mở.
@@ -466,8 +576,10 @@ impl GateCore {
             (ReviewOutcome::Cancel, _) => self.discard(id, out),
             (ReviewOutcome::Retry, Some((false, _))) => {
                 let scan = self.token();
+                self.entries[i].since = self.now;
                 self.entries[i].state = State::Scanning {
                     scan,
+                    tiles: 1,
                     slow: true,
                     shown: true,
                     retried: true,
@@ -477,6 +589,7 @@ impl GateCore {
             // Thử lại ngoài trạng thái lỗi: cửa sổ vẫn mở, không làm gì.
             (ReviewOutcome::Retry, _) => {}
             (ReviewOutcome::Apply(plan), Some((true, _))) if !plan.rects.is_empty() => {
+                self.entries[i].since = self.now;
                 self.entries[i].state = State::Flattening;
                 self.open = None;
                 out.push(Cmd::Flatten {
@@ -495,6 +608,7 @@ impl GateCore {
                 self.ready(i, how, overlay, out);
             }
             (ReviewOutcome::ContinueUnscanned(plan), Some((false, _))) => {
+                self.entries[i].since = self.now;
                 self.entries[i].state = State::Flattening;
                 self.open = None;
                 out.push(Cmd::Flatten {
@@ -551,11 +665,17 @@ impl GateCore {
                     found: 0,
                 },
             ),
-            State::Scanning { scan, retried, .. } => (
+            State::Scanning {
+                scan,
+                tiles,
+                retried,
+                ..
+            } => (
                 ReviewPhase::Scanning { tile: None },
                 Vec::new(),
                 State::Scanning {
                     scan,
+                    tiles,
                     slow: true,
                     shown: true,
                     retried,
@@ -593,7 +713,12 @@ struct Slot {
     /// Ảnh đã làm phẳng, chờ `Dispatch`.
     prepared: Option<PreparedOutput>,
     done: Option<Done>,
+    /// Phiên chụp từng bước lúc nhận (chỉ "Thêm bước"); khác lúc chạy thì bước bị bỏ.
+    session: Option<u64>,
 }
+
+/// Luồng đã gọi `set_window` (luồng giao diện chính); 0 = chưa đặt.
+static MAIN_THREAD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 thread_local! {
     static CORE: RefCell<GateCore> = RefCell::new(GateCore::new());
@@ -601,6 +726,7 @@ thread_local! {
     static SINK: Cell<Option<Sink>> = const { Cell::new(None) };
     static NOTIFY: Cell<Option<Notify>> = const { Cell::new(None) };
     static ENABLED: Cell<Option<fn() -> bool>> = const { Cell::new(None) };
+    static STEPS_SESSION: Cell<Option<fn() -> u64>> = const { Cell::new(None) };
     /// Cửa sổ nhận thông điệp của cổng (cửa sổ ẩn của ứng dụng).
     static WINDOW: Cell<Option<HWND>> = const { Cell::new(None) };
     /// Hẹn giờ canh đang chạy; số lần liên tiếp thấy cửa sổ Duyệt đã mất.
@@ -611,6 +737,48 @@ thread_local! {
 /// Cửa sổ nhận `WM_PRIVACY_*` và hẹn giờ của cổng; thủ tục cửa sổ đó gọi `handle_message`.
 pub fn set_window(hwnd: HWND) {
     WINDOW.with(|w| w.set(Some(hwnd)));
+    // SAFETY: chỉ hỏi mã của luồng hiện tại.
+    let thread = unsafe { GetCurrentThreadId() };
+    MAIN_THREAD.store(thread, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Đúng khi đang ở luồng đã gọi `set_window` (hoặc chưa ai gọi). Kiểm thử chạy nhiều luồng, mỗi
+/// luồng một cổng riêng, nên không kiểm ở đó.
+fn on_gate_thread() -> bool {
+    let main = MAIN_THREAD.load(std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: chỉ hỏi mã của luồng hiện tại.
+    cfg!(test) || main == 0 || main == unsafe { GetCurrentThreadId() }
+}
+
+/// Nguồn mã phiên chụp từng bước (main: `steps_store::session_id`; 0 = không có phiên).
+pub fn set_steps_session_source(f: fn() -> u64) {
+    STEPS_SESSION.with(|s| s.set(Some(f)));
+}
+
+fn steps_session() -> u64 {
+    STEPS_SESSION.with(|s| s.get()).map_or(0, |f| f())
+}
+
+/// Phiên chụp từng bước vừa bắt đầu, kết thúc hay đổi: bỏ lượt "Thêm bước" của phiên khác.
+pub fn on_steps_changed() {
+    feed(Event::StepsSession {
+        current: steps_session(),
+    });
+}
+
+fn now_ms() -> u64 {
+    // SAFETY: chỉ đọc đồng hồ đơn điệu của hệ thống.
+    unsafe { GetTickCount64() }
+}
+
+/// Một bước của lõi với đồng hồ hiện tại; `blocked` = lớp phủ, chụp cuộn hay ghi GIF đang chạy.
+fn core_step(ev: Event) -> Vec<Cmd> {
+    let blocked = crate::output_windows_blocked();
+    CORE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.set_clock(now_ms());
+        c.step(ev, blocked)
+    })
 }
 
 pub fn set_sink(f: Sink) {
@@ -627,9 +795,15 @@ pub fn set_enabled_source(f: fn() -> bool) {
     ENABLED.with(|e| e.set(Some(f)));
 }
 
-/// Privacy Shield đang bật theo cấu hình hiện hành.
+/// Privacy Shield đang bật theo cấu hình hiện hành. Chưa có nguồn cấu hình thì coi là bật (không
+/// bao giờ coi như tắt); `submit` khi đó từ chối.
 pub fn enabled() -> bool {
-    ENABLED.with(|e| e.get()).is_some_and(|f| f())
+    shield_setting().unwrap_or(true)
+}
+
+/// Công tắc theo nguồn cấu hình; `None` khi chưa nối nguồn (`set_enabled_source`).
+fn shield_setting() -> Option<bool> {
+    ENABLED.with(|e| e.get()).map(|f| f())
 }
 
 /// Nhận ảnh đã phẳng. Shield tắt → chạy ngay với `PreparedOutput::unscanned`. Shield bật → luôn
@@ -653,6 +827,10 @@ pub fn submit_pinned(
     protection: Protection,
 ) -> Result<(), SubmitError> {
     if enabled() {
+        // Chưa nối nguồn cấu hình hoặc cổng đã đóng: `submit` từ chối, không đi thẳng.
+        if shield_setting().is_none() || CORE.with(|c| c.borrow().is_closed()) {
+            return submit(action, image);
+        }
         let prepared = match protection {
             Protection::NoFindings => PreparedOutput::no_findings(image),
             Protection::ReviewedNoneApplied => PreparedOutput::reviewed_none(image),
@@ -667,8 +845,17 @@ pub fn submit_pinned(
 }
 
 fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Result<(), SubmitError> {
-    let shield = enabled();
-    let (id, cmds) = CORE.with(|c| c.borrow_mut().submit(shield, action.windowed()));
+    debug_assert!(on_gate_thread(), "privacy_gate::submit off the UI thread");
+    // Chưa nối nguồn cấu hình: không biết Shield bật hay tắt, nên không xuất (không coi như tắt).
+    let Some(shield) = shield_setting() else {
+        return Err(SubmitError::WindowFailed);
+    };
+    let session = matches!(action, OutputAction::AddStep).then(steps_session);
+    let (id, cmds) = CORE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.set_clock(now_ms());
+        c.submit(shield, action.windowed(), session)
+    });
     let res = match id {
         Some(id) => {
             SLOTS.with(|s| {
@@ -678,6 +865,7 @@ fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Resul
                     image: Some(Arc::new(image)),
                     prepared: None,
                     done,
+                    session,
                 })
             });
             Ok(())
@@ -690,7 +878,8 @@ fn submit_inner(action: OutputAction, image: Image, done: Option<Done>) -> Resul
     res
 }
 
-/// Lớp phủ chọn vùng vừa đóng: mở cửa sổ Duyệt đang chờ, chạy ảnh ghim đang giữ.
+/// Lớp phủ chọn vùng vừa đóng, hoặc phiên chụp cuộn / ghi GIF vừa kết thúc: mở cửa sổ Duyệt đang
+/// chờ, chạy ảnh ghim đang giữ. Còn bị chặn (`main::output_windows_blocked`) thì không làm gì.
 pub fn on_overlay_closed() {
     feed(Event::OverlayClosed);
 }
@@ -757,9 +946,15 @@ pub fn handle_message(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LR
             Some(LRESULT(0))
         }
         WM_PRIVACY_PROGRESS => {
+            let v = lp.0 as usize;
+            let (k, n) = (((v >> 16) & 0xFFFF) as u32, (v & 0xFFFF) as u32);
+            // Số dải nới hạn chờ kết quả quét.
+            feed(Event::Progress {
+                scan: wp.0,
+                tiles: n,
+            });
             if let Some(id) = CORE.with(|c| c.borrow().shown_for_scan(wp.0)) {
-                let v = lp.0 as usize;
-                review_window::progress(id, ((v >> 16) & 0xFFFF) as u32, (v & 0xFFFF) as u32);
+                review_window::progress(id, k, n);
             }
             Some(LRESULT(0))
         }
@@ -785,6 +980,8 @@ pub fn handle_message(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> Option<LR
         }
         WM_TIMER if wp.0 == WATCHDOG_TIMER_ID => {
             on_watchdog();
+            // Lượt quét hay làm phẳng quá hạn (thông điệp kết quả không tới): bỏ.
+            feed(Event::Tick);
             sync_watchdog();
             Some(LRESULT(0))
         }
@@ -845,12 +1042,12 @@ fn on_watchdog() {
     }
 }
 
-/// Hẹn giờ canh chạy đúng khi có cửa sổ Duyệt đang mở.
+/// Hẹn giờ canh chạy đúng khi còn lượt chờ (cửa sổ Duyệt mất, quét hay làm phẳng quá hạn).
 fn sync_watchdog() {
     let Some(hwnd) = WINDOW.with(|w| w.get()) else {
         return;
     };
-    let want = CORE.with(|c| c.borrow().open().is_some());
+    let want = CORE.with(|c| c.borrow().pending() > 0);
     if want == WATCHDOG.with(|w| w.get()) {
         return;
     }
@@ -868,8 +1065,7 @@ fn sync_watchdog() {
 
 /// Đưa một sự kiện vào lõi rồi thực hiện các lệnh (và sự kiện phát sinh) tới khi hết.
 fn feed(ev: Event) {
-    let cmds = CORE.with(|c| c.borrow_mut().step(ev, crate::overlay_open()));
-    run(cmds);
+    run(core_step(ev));
 }
 
 /// Thực hiện lệnh của lõi. Không giữ khóa nào khi gọi ra ngoài (đầu ra, cửa sổ, thông báo), nên
@@ -878,7 +1074,7 @@ fn run(cmds: Vec<Cmd>) {
     let mut queue: VecDeque<Cmd> = cmds.into();
     while let Some(cmd) = queue.pop_front() {
         if let Some(ev) = exec(cmd) {
-            queue.extend(CORE.with(|c| c.borrow_mut().step(ev, crate::overlay_open())));
+            queue.extend(core_step(ev));
         }
     }
     sync_watchdog();
@@ -910,17 +1106,19 @@ fn notify(note: Note) {
         Note::QueueFull => Msg::PrivacyQueueFull,
         Note::WindowFailed => Msg::PrivacyWindowFailed,
         Note::RedactFailed => Msg::PrivacyRedactFailed,
+        Note::ScanStalled => Msg::PrivacyScanStalled,
+        Note::StepsGone => Msg::PrivacyStepSessionGone,
     };
     let kind = match note {
-        Note::QueueFull => NoticeKind::Info,
-        Note::WindowFailed | Note::RedactFailed => NoticeKind::Error,
+        Note::QueueFull | Note::StepsGone => NoticeKind::Info,
+        Note::WindowFailed | Note::RedactFailed | Note::ScanStalled => NoticeKind::Error,
+    };
+    let title = match note {
+        Note::StepsGone => Msg::StepsBarTitle,
+        _ => Msg::PrivacyReviewTitle,
     };
     if let Some(f) = NOTIFY.with(|n| n.get()) {
-        f(
-            kind,
-            crate::lang::tr(Msg::PrivacyReviewTitle),
-            crate::lang::tr(body),
-        );
+        f(kind, crate::lang::tr(title), crate::lang::tr(body));
     }
 }
 
@@ -1056,6 +1254,12 @@ fn exec(cmd: Cmd) -> Option<Event> {
         Cmd::Dispatch { id, how } => {
             kill_timer(id);
             let slot = take_slot(id)?;
+            // "Thêm bước" duyệt xong muộn: phiên lúc nhận đã kết thúc hoặc đã đổi thì bỏ ảnh.
+            if slot.session.is_some_and(|s| s != steps_session()) {
+                notify(Note::StepsGone);
+                deliver(slot.action, slot.done, None);
+                return None;
+            }
             let prepared = match (how, slot.image, slot.prepared) {
                 (Ready::Flattened, _, Some(p)) => Some(p),
                 (Ready::Unscanned, Some(image), _) => Some(PreparedOutput::unscanned(owned(image))),
@@ -1145,7 +1349,7 @@ mod tests {
 
     /// Nhận một lượt Shield bật; trả (mã lượt, mã lượt quét).
     fn accept(g: &mut GateCore, windowed: bool) -> (Id, Id) {
-        let (id, cmds) = g.submit(true, windowed);
+        let (id, cmds) = g.submit(true, windowed, None);
         let id = id.expect("accepted");
         let scan = match cmds.as_slice() {
             [Cmd::StartScan { id: i, scan }, Cmd::StartTimer { id: t }] => {
@@ -1189,7 +1393,7 @@ mod tests {
     #[test]
     fn shield_off_dispatches_once_unscanned() {
         let mut g = GateCore::new();
-        let (id, cmds) = g.submit(false, false);
+        let (id, cmds) = g.submit(false, false, None);
         let id = id.unwrap();
         assert_eq!(
             cmds,
@@ -1212,7 +1416,7 @@ mod tests {
             accept(&mut g, false);
         }
         // Shield tắt (đổi công tắc khi còn lượt chờ): hành vi như trước, không xếp hàng.
-        let (id, cmds) = g.submit(false, true);
+        let (id, cmds) = g.submit(false, true, None);
         assert_eq!(dispatches(&cmds), vec![(id.unwrap(), Ready::Unscanned)]);
         assert_eq!(g.pending(), MAX_PENDING);
     }
@@ -1605,19 +1809,19 @@ mod tests {
         let (_c, _sc) = accept(&mut g, false);
         g.step(done(sa, &[finding(0, 1)]), false);
         assert_eq!(g.open(), Some(a));
-        let (id, cmds) = g.submit(true, false);
+        let (id, cmds) = g.submit(true, false, None);
         assert_eq!(id, None);
         assert_eq!(cmds, vec![Cmd::Notify(Note::QueueFull)]);
         assert_eq!(g.pending(), MAX_PENDING);
         // Đang làm phẳng vẫn tính (ảnh còn trong bộ nhớ).
         g.step(outcome(a, ReviewOutcome::Apply(plan(&[1]))), false);
-        assert_eq!(g.submit(true, false).0, None);
+        assert_eq!(g.submit(true, false, None).0, None);
         g.step(Event::Flattened { id: a, ok: true }, false);
         assert_eq!(g.pending(), 2);
         // Có chỗ: nhận tiếp.
         let (d, _sd) = accept(&mut g, false);
         assert_eq!(g.pending(), 3);
-        assert_eq!(g.submit(true, true).0, None);
+        assert_eq!(g.submit(true, true, None).0, None);
         // Lượt bị từ chối không để lại gì.
         g.step(done(sb, &[]), false);
         assert_eq!(g.pending(), 2);
@@ -1731,10 +1935,12 @@ mod tests {
         ] {
             assert!(g.step(ev, false).is_empty());
         }
-        // Sau khi đóng: Shield bật thì từ chối im lặng; tắt thì như trước.
-        assert_eq!(g.submit(true, false), (None, Vec::new()));
-        let (id, cmds) = g.submit(false, false);
-        assert_eq!(dispatches(&cmds), vec![(id.unwrap(), Ready::Unscanned)]);
+        // Sau khi đóng (đang thoát): từ chối im lặng mọi yêu cầu, kể cả khi Shield tắt.
+        assert!(g.is_closed());
+        assert_eq!(g.submit(true, false, None), (None, Vec::new()));
+        assert_eq!(g.submit(false, false, None), (None, Vec::new()));
+        assert_eq!(g.submit(false, true, Some(3)), (None, Vec::new()));
+        assert_eq!(g.pending(), 0);
     }
 
     #[test]
@@ -1815,6 +2021,176 @@ mod tests {
             .is_empty());
     }
 
+    #[test]
+    fn overlay_closed_while_still_blocked_keeps_everything_deferred() {
+        // Lớp phủ đóng nhưng chụp cuộn / ghi GIF bắt đầu ngay: vẫn bị chặn.
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        let (pin, sp) = accept(&mut g, true);
+        assert!(g.step(done(sa, &[finding(0, 1)]), true).is_empty());
+        assert!(g.step(done(sp, &[]), true).is_empty());
+        assert!(g.step(Event::OverlayClosed, true).is_empty());
+        assert_eq!((g.pending(), g.open()), (2, None));
+        // Phiên kết thúc: ảnh ghim chạy, cửa sổ Duyệt mở.
+        let cmds = g.step(Event::OverlayClosed, false);
+        assert_eq!(dispatches(&cmds), vec![(pin, Ready::NoFindings)]);
+        assert!(cmds
+            .iter()
+            .any(|c| matches!(c, Cmd::OpenReview { id, .. } if *id == a)));
+    }
+
+    #[test]
+    fn scan_that_never_reports_is_dropped_after_its_deadline() {
+        let mut g = GateCore::new();
+        g.set_clock(1_000);
+        let (id, scan) = accept(&mut g, false);
+        let limit = SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS;
+        g.set_clock(1_000 + limit);
+        assert!(g.step(Event::Tick, false).is_empty());
+        assert_eq!(g.pending(), 1);
+        g.set_clock(1_001 + limit);
+        let cmds = g.step(Event::Tick, false);
+        assert_eq!(cmds, vec![Cmd::Notify(Note::ScanStalled), Cmd::Drop { id }]);
+        assert_eq!(g.pending(), 0);
+        // Kết quả tới sau đó (kể cả "sạch"): không chạy gì.
+        assert!(g.step(done(scan, &[]), false).is_empty());
+        assert!(g.step(Event::Tick, false).is_empty());
+    }
+
+    #[test]
+    fn scan_deadline_grows_with_tiles_and_closes_the_scanning_window() {
+        let mut g = GateCore::new();
+        let (id, scan) = accept(&mut g, false);
+        g.step(Event::Timer { id }, false);
+        assert_eq!(g.open(), Some(id));
+        // Mã quét lạ không đổi hạn; ba dải: 3 × 20 s + 10 s.
+        g.step(
+            Event::Progress {
+                scan: scan + 50,
+                tiles: 9,
+            },
+            false,
+        );
+        g.step(Event::Progress { scan, tiles: 3 }, false);
+        g.set_clock(3 * SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS);
+        assert!(g.step(Event::Tick, false).is_empty());
+        g.set_clock(3 * SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS + 1);
+        let cmds = g.step(Event::Tick, false);
+        assert_eq!(
+            cmds,
+            vec![
+                Cmd::CloseReview { id },
+                Cmd::Notify(Note::ScanStalled),
+                Cmd::Drop { id }
+            ]
+        );
+        assert_eq!((g.pending(), g.open()), (0, None));
+    }
+
+    #[test]
+    fn retry_restarts_the_scan_deadline_and_review_has_no_deadline() {
+        let mut g = GateCore::new();
+        let (id, scan) = accept(&mut g, false);
+        g.set_clock(5_000);
+        g.step(failed(scan, ScanError::Timeout), false);
+        // Đang duyệt: người dùng nghĩ bao lâu cũng được.
+        g.set_clock(10_000_000);
+        assert!(g.step(Event::Tick, false).is_empty());
+        let cmds = g.step(outcome(id, ReviewOutcome::Retry), false);
+        assert!(matches!(cmds.as_slice(), [Cmd::StartScan { .. }]));
+        g.set_clock(10_000_000 + SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS);
+        assert!(g.step(Event::Tick, false).is_empty());
+        g.set_clock(10_000_001 + SCAN_TILE_LIMIT_MS + SCAN_GRACE_MS);
+        let cmds = g.step(Event::Tick, false);
+        assert_eq!(
+            cmds,
+            vec![
+                Cmd::CloseReview { id },
+                Cmd::Notify(Note::ScanStalled),
+                Cmd::Drop { id }
+            ]
+        );
+    }
+
+    #[test]
+    fn flatten_that_never_reports_is_dropped_and_the_next_review_opens() {
+        let mut g = GateCore::new();
+        let (a, sa) = accept(&mut g, false);
+        g.step(done(sa, &[finding(0, 1)]), false);
+        g.set_clock(50_000);
+        g.step(outcome(a, ReviewOutcome::Apply(plan(&[1]))), false);
+        assert!(g.is_flattening(a));
+        g.set_clock(50_000 + FLATTEN_LIMIT_MS);
+        assert!(g.step(Event::Tick, false).is_empty());
+        g.set_clock(50_001 + FLATTEN_LIMIT_MS);
+        let cmds = g.step(Event::Tick, false);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Notify(Note::RedactFailed), Cmd::Drop { id: a }]
+        );
+        // Ảnh làm phẳng tới muộn: không xuất.
+        assert!(g
+            .step(Event::Flattened { id: a, ok: true }, false)
+            .is_empty());
+        assert_eq!(g.pending(), 0);
+        // Ảnh ghim đang giữ (đã sẵn sàng) không có hạn.
+        let (pin, sp) = accept(&mut g, true);
+        g.step(done(sp, &[]), true);
+        g.set_clock(900_000_000);
+        assert!(g.step(Event::Tick, true).is_empty());
+        assert_eq!(
+            dispatches(&g.step(Event::OverlayClosed, false)),
+            vec![(pin, Ready::NoFindings)]
+        );
+    }
+
+    #[test]
+    fn add_step_of_another_session_is_dropped() {
+        let mut g = GateCore::new();
+        // Bước của phiên 7 đang duyệt, một lượt Lưu đang quét, bước của phiên 7 khác đang quét.
+        let (id, cmds) = g.submit(true, false, Some(7));
+        let step = id.unwrap();
+        let [Cmd::StartScan { scan, .. }, _] = cmds.as_slice() else {
+            panic!("unexpected {cmds:?}");
+        };
+        let (save, ss) = accept(&mut g, false);
+        let (id2, _) = g.submit(true, false, Some(7));
+        let step2 = id2.unwrap();
+        g.step(done(*scan, &[finding(0, 1)]), false);
+        assert_eq!(g.open(), Some(step));
+        // Cùng phiên (thêm bước khác, đổi ghi chú): không đụng gì.
+        assert!(g.step(Event::StepsSession { current: 7 }, false).is_empty());
+        assert_eq!(g.pending(), 3);
+        // Phiên kết thúc rồi phiên mới bắt đầu: cả hai bước bị bỏ, lượt Lưu còn nguyên.
+        let cmds = g.step(Event::StepsSession { current: 8 }, false);
+        assert_eq!(
+            cmds,
+            vec![
+                Cmd::CloseReview { id: step },
+                Cmd::Notify(Note::StepsGone),
+                Cmd::Drop { id: step },
+                Cmd::Notify(Note::StepsGone),
+                Cmd::Drop { id: step2 },
+            ]
+        );
+        assert_eq!((g.pending(), g.open()), (1, None));
+        // Lựa chọn tới muộn của cửa sổ đã đóng: không thêm bước nào.
+        assert!(g
+            .step(outcome(step, ReviewOutcome::ContinueNone), false)
+            .is_empty());
+        assert_eq!(
+            dispatches(&g.step(done(ss, &[]), false)),
+            vec![(save, Ready::NoFindings)]
+        );
+        // Không còn phiên (0): bước đang chờ cũng bị bỏ.
+        let (id3, _) = g.submit(true, false, Some(8));
+        let cmds = g.step(Event::StepsSession { current: 0 }, false);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Notify(Note::StepsGone), Cmd::Drop { id: id3.unwrap() }]
+        );
+    }
+
     /// Mọi dãy sự kiện: mỗi lượt kết thúc nhiều nhất một lần (Dispatch hoặc Drop), Dispatch của lượt
     /// Shield bật chỉ có sau một kết quả quét sạch của đúng lượt quét hiện hành hoặc một quyết định
     /// của người dùng, hàng không vượt `MAX_PENDING`, và sau Shutdown mọi lượt đã kết thúc.
@@ -1849,6 +2225,8 @@ mod tests {
             let mut seen: Vec<(Id, Seen)> = Vec::new();
             let mut overlay = false;
             let mut shut = false;
+            let mut clock = 0u64;
+            let mut session = 1u64;
             let steps = 60 + rng.next(60);
             for step in 0..=steps {
                 let ids: Vec<Id> = seen.iter().map(|(i, _)| *i).collect();
@@ -1866,7 +2244,7 @@ mod tests {
                     match rng.next(12) {
                         0 | 1 => {
                             let shield = rng.next(5) != 0;
-                            let (id, cmds) = g.submit(shield, rng.next(2) == 0);
+                            let (id, cmds) = g.submit(shield, rng.next(2) == 0, Some(session));
                             if let Some(id) = id {
                                 seen.push((
                                     id,
@@ -1940,9 +2318,24 @@ mod tests {
                                 g.step(Event::OverlayClosed, false)
                             }
                         }
-                        _ => match rng.next(2) {
+                        _ => match rng.next(5) {
                             0 => g.step(Event::ReviewGone { id: pick(&mut rng) }, overlay),
-                            _ => g.step(Event::OpenFailed { id: pick(&mut rng) }, overlay),
+                            1 => g.step(Event::OpenFailed { id: pick(&mut rng) }, overlay),
+                            2 => {
+                                let scan = rng.next(200);
+                                let tiles = rng.next(4) as u32;
+                                g.step(Event::Progress { scan, tiles }, overlay)
+                            }
+                            3 => {
+                                // Đồng hồ nhảy: đôi khi vượt hạn quét hay làm phẳng.
+                                clock += [500, 25_000, 45_000][rng.next(3)];
+                                g.set_clock(clock);
+                                g.step(Event::Tick, overlay)
+                            }
+                            _ => {
+                                session = 1 + rng.next(2) as u64;
+                                g.step(Event::StepsSession { current: session }, overlay)
+                            }
                         },
                     }
                 };
@@ -2097,6 +2490,65 @@ mod tests {
                 let _ = DestroyWindow(self.0);
             }
         }
+    }
+
+    thread_local! {
+        static STEP_SESSION: Cell<u64> = const { Cell::new(0) };
+    }
+
+    fn step_session() -> u64 {
+        STEP_SESSION.with(|s| s.get())
+    }
+
+    #[test]
+    fn submit_without_a_config_source_is_refused_not_treated_as_off() {
+        set_sink(fake_sink);
+        set_notifier(fake_notify);
+        // Chưa `set_enabled_source`: không biết Shield bật hay tắt.
+        assert!(enabled());
+        assert_eq!(
+            submit(OutputAction::Save, sample(8, 8)),
+            Err(SubmitError::WindowFailed)
+        );
+        for p in [Protection::Disabled, Protection::NoFindings] {
+            assert_eq!(
+                submit_pinned(OutputAction::Copy, sample(8, 8), p),
+                Err(SubmitError::WindowFailed)
+            );
+        }
+        let done: Done = Box::new(|_| panic!("done must not run"));
+        let action = OutputAction::StepExport { step: 1, steps: 1 };
+        assert_eq!(
+            submit_with(action, sample(8, 8), done),
+            Err(SubmitError::WindowFailed)
+        );
+        assert_eq!((got(), pending()), (0, 0));
+    }
+
+    #[test]
+    fn add_step_is_dropped_when_the_session_changed_before_it_runs() {
+        let _host = Host::new(true);
+        set_steps_session_source(step_session);
+        STEP_SESSION.with(|s| s.set(4));
+        // Shield tắt: chạy ngay trong cùng phiên.
+        SHIELD.with(|s| s.set(false));
+        assert_eq!(submit(OutputAction::AddStep, sample(8, 8)), Ok(()));
+        assert_eq!(got(), 1);
+        // Shield bật: bước đang quét; phiên đổi thì bước bị bỏ và có thông báo.
+        SHIELD.with(|s| s.set(true));
+        assert_eq!(submit(OutputAction::AddStep, invalid()), Ok(()));
+        assert_eq!(submit(OutputAction::Save, invalid()), Ok(()));
+        assert_eq!(pending(), 2);
+        on_steps_changed();
+        assert_eq!(pending(), 2);
+        STEP_SESSION.with(|s| s.set(5));
+        on_steps_changed();
+        assert_eq!((got(), pending()), (1, 1));
+        NOTES.with(|n| {
+            let n = n.borrow();
+            assert_eq!(n.len(), 1);
+            assert_eq!(n[0].1, crate::lang::tr(Msg::PrivacyStepSessionGone));
+        });
     }
 
     fn wire(shield_on: bool) {
@@ -2316,14 +2768,21 @@ mod tests {
         assert!(!pump(&host, 150, || got() > 1));
         shutdown();
         assert_eq!(got(), 1);
-        // Sau khi đóng: Shield bật thì từ chối, tắt thì như trước.
+        // Sau khi đóng: từ chối mọi yêu cầu, kể cả khi Shield tắt và ảnh ghim đã quét.
         assert_eq!(
             submit(OutputAction::Save, sample(8, 8)),
             Err(SubmitError::WindowFailed)
         );
+        assert_eq!(
+            submit_pinned(OutputAction::Save, sample(8, 8), Protection::NoFindings),
+            Err(SubmitError::WindowFailed)
+        );
         SHIELD.with(|s| s.set(false));
-        assert_eq!(submit(OutputAction::Save, sample(8, 8)), Ok(()));
-        assert_eq!(got(), 2);
+        assert_eq!(
+            submit(OutputAction::Save, sample(8, 8)),
+            Err(SubmitError::WindowFailed)
+        );
+        assert_eq!(got(), 1);
     }
 
     #[test]

@@ -780,6 +780,10 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
     let frames = enumerates_windows(kind, snap_windows)
         .then(snap::enumerate_windows)
         .map(|w| without_frame(w, steps_bar::frame()));
+    // Cửa sổ Duyệt và ảnh ghim của cổng xuất đang chờ lớp phủ đóng: mở khi lượt chụp này xong.
+    // Lượt này bắt đầu chụp cuộn hay ghi GIF thì vẫn bị chặn (`output_windows_blocked`); phiên đó
+    // kết thúc mới mở (`on_scroll_end`, `on_record_outcome`), để cửa sổ không lọt vào ảnh ghép/GIF.
+    let _resume_gate = ResumeGate;
     let mut shot = match capture::capture_virtual_screen(include_cursor) {
         Ok(s) => s,
         Err(_) => {
@@ -842,8 +846,6 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
             }
             // Ảnh ghim từ Lịch sử tới lúc lớp phủ mở: mở bây giờ, trước mọi nhánh của kết quả.
             history_window::open_pending_pin();
-            // Cửa sổ Duyệt và ảnh ghim của cổng xuất đã chờ lớp phủ đóng.
-            privacy_gate::on_overlay_closed();
             if custom != before {
                 let write = CONFIG_WRITABLE.with(|w| w.get());
                 store_custom_colors(custom, custom_colors_need_save(&before, &custom, write));
@@ -1077,6 +1079,21 @@ fn busy_now() -> bool {
     capture_busy(scroll_session::active(), record_session::active())
 }
 
+/// Cổng xuất chưa được mở cửa sổ (Duyệt, ảnh ghim): lớp phủ đang mở, hoặc đang chụp cuộn / ghi
+/// GIF (cửa sổ hiện lên sẽ lọt vào ảnh ghép hay GIF).
+pub fn output_windows_blocked() -> bool {
+    overlay_open() || busy_now()
+}
+
+/// Hết phạm vi thì báo cổng xuất thử mở những gì đang hoãn.
+struct ResumeGate;
+
+impl Drop for ResumeGate {
+    fn drop(&mut self) {
+        privacy_gate::on_overlay_closed();
+    }
+}
+
 /// Vùng chụp cuộn ở tọa độ màn hình: vùng `rect` (tọa độ ảnh) kẹp vào ảnh `img_w`×`img_h` rồi cộng
 /// gốc `origin` của màn hình ảo đúng một lần; rỗng thì `None`.
 pub fn scroll_region(rect: Rect, origin: Point, img_w: i32, img_h: i32) -> Option<Rect> {
@@ -1128,6 +1145,8 @@ fn on_scroll_end() {
     if STEPS_BAR_HELD.with(|h| h.replace(false)) {
         steps_bar::show_after_capture();
     }
+    // Cửa sổ Duyệt và ảnh ghim đã hoãn trong lúc chụp cuộn.
+    privacy_gate::on_overlay_closed();
 }
 
 /// Thông báo cho kết quả một lần ghi GIF (thiết kế 1, 3.3): Dừng → Success "Đã lưu GIF" + đường
@@ -1197,6 +1216,8 @@ fn on_record_outcome(o: darkshot_core::gif_record::Outcome) {
     if STEPS_BAR_HELD.with(|h| h.replace(false)) {
         steps_bar::show_after_capture();
     }
+    // Cửa sổ Duyệt và ảnh ghim đã hoãn trong lúc ghi GIF.
+    privacy_gate::on_overlay_closed();
     if let Some((kind, title, body)) = record_outcome_notice(lang::current(), &o) {
         if let Some(t) = current_tray() {
             t.notifier().notify(kind, title, &body);
@@ -1276,6 +1297,8 @@ impl Drop for BarHiddenForCapture {
 
 /// Phiên chụp từng bước đổi (bắt đầu, thêm, sửa, kết thúc): hiện/cập nhật hoặc đóng thanh phiên.
 fn on_steps_changed() {
+    // Lượt "Thêm bước" đang chờ quét/duyệt của phiên đã kết thúc hay đã đổi: bỏ.
+    privacy_gate::on_steps_changed();
     if steps_store::active() {
         steps_bar::show();
     } else {
@@ -2156,6 +2179,7 @@ fn main() {
     privacy_gate::set_sink(gate_output);
     privacy_gate::set_notifier(ocr_notify);
     privacy_gate::set_enabled_source(privacy_shield_now);
+    privacy_gate::set_steps_session_source(steps_store::session_id);
     ocr_window::set_notifier(ocr_notify);
     ocr_window::set_switch_store(ocr_switches_load, ocr_switches_save);
     // SAFETY: chuỗi hằng kết thúc bằng 0.
@@ -3322,6 +3346,7 @@ mod tests {
         assert!(!privacy_shield_now());
         privacy_gate::set_sink(gate_output);
         privacy_gate::set_enabled_source(privacy_shield_now);
+        privacy_gate::set_steps_session_source(steps_store::session_id);
         let src = sample_image(64, 48);
         {
             let _flow = FlowOutput::set(HWND::default(), Some(Arc::new(NullNotifier)));
@@ -3369,6 +3394,7 @@ mod tests {
         LAST_CAPTURE.with(|l| l.set(Some(last)));
         // Đầu ra đi qua cổng xuất (Shield tắt theo mặc định: chạy ngay).
         privacy_gate::set_sink(gate_output);
+        privacy_gate::set_enabled_source(privacy_shield_now);
         capture_flow_with(
             HWND::default(),
             CaptureKind::RepeatLast,
