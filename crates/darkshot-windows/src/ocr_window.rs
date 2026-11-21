@@ -265,6 +265,32 @@ impl Switches {
     }
 }
 
+/// Một trong ba công tắc (theo thứ tự ô tích: Gộp một dòng, Tách đoạn, Tự chép).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SwitchKey {
+    SingleLine,
+    Paragraphs,
+    AutoCopy,
+}
+
+const SWITCH_KEYS: [SwitchKey; 3] = [
+    SwitchKey::SingleLine,
+    SwitchKey::Paragraphs,
+    SwitchKey::AutoCopy,
+];
+
+/// Bộ công tắc cần lưu khi người dùng đổi đúng khóa `which` thành `value`: lấy bộ đang lưu `stored`
+/// (có thể vừa được cửa sổ OCR khác đổi) và chỉ thay khóa đó.
+fn merge_switch(stored: Switches, which: SwitchKey, value: bool) -> Switches {
+    let mut s = stored;
+    match which {
+        SwitchKey::SingleLine => s.single_line = value,
+        SwitchKey::Paragraphs => s.paragraphs = value,
+        SwitchKey::AutoCopy => s.auto_copy = value,
+    }
+    s
+}
+
 /// "Tách đoạn" dùng được không (không khi "Gộp thành một dòng" bật).
 fn paragraphs_enabled(s: Switches) -> bool {
     !s.single_line
@@ -1239,23 +1265,22 @@ fn hit_line(hwnd: HWND, x: i32, y: i32) -> Option<usize> {
     .flatten()
 }
 
-/// Đổi một công tắc: đọc lại ba ô tích, lưu cấu hình, dựng lại ô chữ khi đã có chữ. Không chép lại
-/// vùng chọn đang có (clipboard không bị ghi khi người dùng chưa bấm khung).
-fn on_switch(hwnd: HWND) {
-    let Some(checks) = with_win(hwnd, |w| w.checks) else {
+/// Đổi công tắc thứ `index` (theo `ID_CHECKS`): cửa sổ này áp khóa đó cho bộ của nó và dựng lại ô
+/// chữ khi đã có chữ; cấu hình lưu bộ đang lưu (có thể vừa được cửa sổ OCR khác đổi) với đúng khóa
+/// đó thay đổi. Cửa sổ khác không bị dựng lại ô chữ. Không chép lại vùng chọn đang có (clipboard
+/// không bị ghi khi người dùng chưa bấm khung).
+fn on_switch(hwnd: HWND, index: usize) {
+    let (Some(checks), Some(&key)) = (with_win(hwnd, |w| w.checks), SWITCH_KEYS.get(index)) else {
         return;
     };
-    let sw = Switches {
-        single_line: is_checked(checks[0]),
-        paragraphs: is_checked(checks[1]),
-        auto_copy: is_checked(checks[2]),
-    };
-    let Some((changed, edit, text)) = with_win(hwnd, |w| {
+    let value = is_checked(checks[index]);
+    let Some((changed, sw, edit, text)) = with_win(hwnd, |w| {
+        let sw = merge_switch(w.switches, key, value);
         let changed = w.switches != sw;
         w.switches = sw;
-        let text = (matches!(w.shown, Shown::Text { .. }) && !w.lines.is_empty())
+        let text = (changed && matches!(w.shown, Shown::Text { .. }) && !w.lines.is_empty())
             .then(|| compose_all(&w.lines, sw.text_options()));
-        (changed, w.edit, text)
+        (changed, sw, w.edit, text)
     }) else {
         return;
     };
@@ -1266,7 +1291,11 @@ fn on_switch(hwnd: HWND) {
     if !changed {
         return;
     }
-    save_switches(sw);
+    let stored = load_switches();
+    let merged = merge_switch(stored, key, value);
+    if merged != stored {
+        save_switches(merged);
+    }
     if let Some(text) = text {
         // SAFETY: ô chữ của cửa sổ này; chuỗi sống suốt lời gọi. Sửa tay trong ô bị thay (như thiết kế).
         unsafe {
@@ -1875,7 +1904,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             match (id, code) {
                 (ID_COPY, 0) => copy_all(hwnd),
                 (ID_CLOSE, 0) => destroy(hwnd),
-                (id, 0) if ID_CHECKS.contains(&id) => on_switch(hwnd),
+                (id, 0) if ID_CHECKS.contains(&id) => {
+                    if let Some(i) = ID_CHECKS.iter().position(|c| *c == id) {
+                        on_switch(hwnd, i);
+                    }
+                }
                 (ID_EDIT, c) if c == EN_SETFOCUS || c == EN_KILLFOCUS => {
                     // Gạch dưới của khung đổi theo tiêu điểm.
                     if let Some(f) = with_win(hwnd, |w| w.field) {
@@ -2731,6 +2764,43 @@ mod tests {
         assert!(!paragraphs_enabled(s(true, false, false)));
     }
 
+    /// Hai cửa sổ OCR: A bật "Gộp một dòng", rồi B (còn bộ cũ) bật "Tự chép": bộ lưu giữ cả hai.
+    #[test]
+    fn merge_switch_keeps_other_windows_changes() {
+        let off = Switches::default();
+        let after_a = merge_switch(off, SwitchKey::SingleLine, true);
+        assert_eq!(
+            after_a,
+            Switches {
+                single_line: true,
+                paragraphs: false,
+                auto_copy: false
+            }
+        );
+        let after_b = merge_switch(after_a, SwitchKey::AutoCopy, true);
+        assert_eq!(
+            after_b,
+            Switches {
+                single_line: true,
+                paragraphs: false,
+                auto_copy: true
+            }
+        );
+        let p = merge_switch(after_b, SwitchKey::Paragraphs, true);
+        assert!(p.paragraphs && p.single_line && p.auto_copy);
+        let back = merge_switch(p, SwitchKey::SingleLine, false);
+        assert!(!back.single_line && back.paragraphs && back.auto_copy);
+        assert_eq!(merge_switch(back, SwitchKey::AutoCopy, true), back);
+        assert_eq!(
+            SWITCH_KEYS,
+            [
+                SwitchKey::SingleLine,
+                SwitchKey::Paragraphs,
+                SwitchKey::AutoCopy
+            ]
+        );
+    }
+
     /// Tự chép khi xong: chỉ khi công tắc bật lúc kết quả về và kết quả có chữ; chữ theo công tắc.
     #[test]
     fn auto_copy_only_when_on_and_text() {
@@ -3182,8 +3252,10 @@ mod tests {
         TEST_SWITCHES.with(|s| s.get())
     }
 
+    /// Như `main`: lưu xong thì lần đọc sau thấy bộ mới.
     fn test_save(s: Switches) {
         SAVED.with(|v| v.borrow_mut().push(s));
+        TEST_SWITCHES.with(|t| t.set(s));
     }
 
     fn test_notify(kind: NoticeKind, title: &str, _: &str) {
@@ -3531,6 +3603,32 @@ mod tests {
         set_clip("x");
         bm_click(checks[0]);
         assert_eq!(clip(h).as_deref(), Some("x"));
+        close_all();
+    }
+
+    /// Hai cửa sổ cùng mở (chưa có kết quả, không ghi clipboard): A bật "Gộp một dòng", rồi B bật
+    /// "Tự chép" → bộ lưu giữ cả hai; ô chữ của B không bị dựng lại.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_two_windows_keep_each_others_switches() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(tiny(), no_ocr).expect("open a");
+        open_with(tiny(), no_ocr).expect("open b");
+        let wins = test_windows();
+        let (a, b) = (wins[0].0, wins[1].0);
+        let checks = |h: HWND| with_win(h, |w| w.checks).unwrap();
+        bm_click(checks(a)[0]);
+        bm_click(checks(b)[2]);
+        assert_eq!(
+            SAVED.with(|v| v.borrow().last().copied()),
+            Some(Switches {
+                single_line: true,
+                paragraphs: false,
+                auto_copy: true
+            })
+        );
+        assert_eq!(text_of(edit_of(b)), t(lang_now(), Msg::OcrBusy));
         close_all();
     }
 
