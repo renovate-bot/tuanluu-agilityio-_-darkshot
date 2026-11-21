@@ -117,7 +117,7 @@
   "fd.p4t": "Hủy",
   "fd.p4d": "Đóng lớp phủ và không làm gì. Khi đang chỉnh dở, Esc lùi một bước trước.",
   "fd.p4x": "Không lưu gì, không gửi gì.",
-  "fd.barLabel": "Thanh hành động của darkshot: hoàn tác, làm lại, tải lên, lưu, chép, hủy",
+  "fd.barLabel": "Thanh hành động của darkshot: hoàn tác, làm lại, tải lên, lưu, chép, ghim, nhận dạng chữ, chụp cuộn, hủy",
   "fd.note": "Thanh hành động như khi hiện cạnh vùng chọn (minh họa).",
   "fe.title": "Tích hợp Cloudflare R2",
   "fe.pitch": "Ảnh của bạn. Kho của bạn. Quyền của bạn.",

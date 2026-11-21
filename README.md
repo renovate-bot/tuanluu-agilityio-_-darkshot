@@ -393,7 +393,8 @@ Cửa sổ **Ảnh chụp cuộn** (sau khi bấm Xong):
 - Xem trước cuộn được bằng con lăn, thanh cuộn, `PgUp`, `PgDn`, `Home` và `End`. Dòng thông tin ghi "W × H px".
 - Nếu có chỗ ghép không chắc chắn, dải vàng ghi "Có N chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng." Kiểm tra ảnh trước khi dùng.
 - Nút **Lưu** (`Enter`), **Chép**, **Tải lên**, **Ghim** và **Đóng** (`Esc`). Lưu, Chép và Tải lên hoạt động như các ảnh khác (có thông báo và có vào Lịch sử ảnh chụp nếu bạn bật Lịch sử). Đóng mà không lưu thì ảnh bị bỏ.
-- Tối đa 4 cửa sổ Ảnh chụp cuộn cùng lúc. darkshot không tự đóng ảnh chưa dùng; khi đã đủ 4, hiện "Có nhiều ảnh chụp cuộn chưa lưu" và bạn phải lưu hoặc đóng bớt.
+- darkshot **không bao giờ tự đóng** cửa sổ Ảnh chụp cuộn. Khi đã có từ 4 cửa sổ mở, mở thêm vẫn được và hiện thông báo "Có nhiều ảnh chụp cuộn chưa lưu"; bạn tự lưu hoặc đóng bớt.
+- Nếu thiếu bộ nhớ khi Lưu, Chép, Tải lên hay Ghim một ảnh rất lớn, hiện thông báo "Không đủ bộ nhớ" (đóng bớt cửa sổ rồi thử lại); ảnh vẫn còn trong cửa sổ.
 
 Cách ghép và khi nào bỏ khung:
 
