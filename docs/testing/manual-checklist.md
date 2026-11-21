@@ -520,6 +520,8 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-steps.ps1 -Exe target
 
 Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe target\demo13\release\darkshot.exe` (thêm `-Lang en`). Demo mở sẵn một tệp mẫu nhiều dòng trong Notepad để cuộn. Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và ngày vào cuối dòng khi đã thử.
 
+- [x] (Kiểm thử chạy tay, không giả lập đầu vào, 2026-11-21) Phiên chụp cuộn trên cửa sổ thử của chính kiểm thử: ghép đúng 720 px khớp từng điểm ảnh, khung và thanh có `WDA_EXCLUDEFROMCAPTURE`, tiêu điểm không đổi, mở/đóng 10 lần không rò GDI/USER; cửa sổ kết quả với ảnh 900×12 000 cuộn được, dải cảnh báo, không tự đóng cửa sổ. Mọi dòng dưới đây cần thử trên ứng dụng thật.
+
 - [ ] Lớp phủ: nút "Chụp cuộn (Ctrl+L)" nằm giữa Nhận dạng chữ và Hủy; khi có phiên chụp từng bước thì Thêm bước đứng trước Hủy và Chụp cuộn vẫn ở giữa Nhận dạng chữ và Thêm bước; rê chuột thấy đúng tên và chú thích "Không kèm hình đánh dấu".
 - [ ] Thanh ngang: 9 nút khi không có phiên (Hoàn tác, Làm lại, Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ, Chụp cuộn, Hủy), 10 nút khi có phiên.
 - [ ] Ctrl+L khi chưa có vùng chọn: không làm gì. Khi có vùng chọn: bắt đầu chụp cuộn.
