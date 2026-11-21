@@ -20,8 +20,11 @@ pub fn local_file_name(t: &LocalTime) -> String {
 }
 
 /// `darkshot_YYYY-MM-DD_HH-MM-SS.gif`, cùng định dạng thời gian với `local_file_name`.
-pub fn local_gif_name(_t: &LocalTime) -> String {
-    todo!()
+pub fn local_gif_name(t: &LocalTime) -> String {
+    format!(
+        "darkshot_{:04}-{:02}-{:02}_{:02}-{:02}-{:02}.gif",
+        t.year, t.month, t.day, t.hour, t.minute, t.second
+    )
 }
 
 pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
@@ -47,25 +50,25 @@ const ALPHABET: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 
 /// Như `random_object_name` nhưng trả `None` thay vì panic khi nguồn ngẫu nhiên lỗi.
 pub fn try_random_object_name() -> Option<String> {
-    todo!()
+    let mut out = String::with_capacity(16);
+    let mut buf = [0u8; 32];
+    while out.len() < 16 {
+        getrandom::fill(&mut buf).ok()?;
+        for &b in buf.iter().filter(|&&b| b < 248) {
+            if out.len() == 16 {
+                break;
+            }
+            out.push(char::from(ALPHABET[usize::from(b % 62)]));
+        }
+    }
+    Some(out)
 }
 
 /// 16 ký tự `[A-Za-z0-9]`; lấy mẫu loại trừ (bỏ byte >= 248) để không lệch phân phối.
 ///
 /// Panic nếu nguồn ngẫu nhiên của hệ điều hành lỗi.
 pub fn random_object_name() -> String {
-    let mut out = String::with_capacity(16);
-    let mut buf = [0u8; 32];
-    while out.len() < 16 {
-        getrandom::fill(&mut buf).expect("OS random source unavailable");
-        for &b in buf.iter().filter(|&&b| b < 248) {
-            if out.len() == 16 {
-                break;
-            }
-            out.push(ALPHABET[(b % 62) as usize] as char);
-        }
-    }
-    out
+    try_random_object_name().expect("OS random source unavailable")
 }
 
 #[cfg(test)]

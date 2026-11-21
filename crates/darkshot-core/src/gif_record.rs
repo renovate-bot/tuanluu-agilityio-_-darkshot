@@ -1,18 +1,24 @@
 //! Ghi vùng màn hình thành GIF động: thu nhỏ, mã hóa, tệp tạm và luồng ghi nền.
 //!
 //! Thuần Rust, không phụ thuộc `windows`; lớp Windows chỉ cấp nguồn chụp và hàm đánh thức.
+//! Bộ nhớ: mỗi lượt tối đa một khung thô, một bản thu nhỏ/RGBA và một khung chờ; không giữ mọi
+//! khung.
 
-use std::fs::File;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU8;
-use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::i18n::Lang;
+use gif::{Encoder, EncodingError, Frame, Repeat};
+
+use crate::i18n::{self, t, Lang, Msg};
 use crate::image::Image;
+use crate::naming;
 
 pub const FPS: u32 = 10;
 pub const FRAME_INTERVAL_MS: u64 = 100;
@@ -27,9 +33,14 @@ pub const MIN_SIDE: u32 = 2;
 /// Cạnh lớn nhất của một khung GIF.
 pub const MAX_SIDE: u32 = 65_535;
 
+const TEMP_PREFIX: &str = ".darkshot-rec-";
+const TEMP_SUFFIX: &str = ".gif.part";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GifError {
+    /// Cạnh < `MIN_SIDE`, ảnh hỏng hoặc độ dài điểm ảnh không khớp kích thước.
     InvalidRegion,
+    /// Vùng > `MAX_SOURCE_PIXELS` hoặc phép tính kích thước tràn số.
     TooLarge,
     NoFrames,
     Capture(String),
@@ -39,85 +50,405 @@ pub enum GifError {
 }
 
 impl GifError {
-    pub fn message(&self, _lang: Lang) -> String {
-        todo!()
+    pub fn message(&self, lang: Lang) -> String {
+        match self {
+            GifError::InvalidRegion => t(lang, Msg::RecordInvalidRegion).to_string(),
+            GifError::TooLarge => t(lang, Msg::RecordTooLarge).to_string(),
+            GifError::NoFrames => t(lang, Msg::RecordNoFrames).to_string(),
+            GifError::Capture(e) => i18n::record_capture_failed(lang, e),
+            GifError::Encode(e) => i18n::record_encode_failed(lang, e),
+            GifError::Io(e) => i18n::record_io_failed(lang, e),
+            GifError::Thread(e) => i18n::record_thread_failed(lang, e),
+        }
     }
 }
 
-pub fn bgra_to_rgba(_src: &[u8], _w: u32, _h: u32) -> Result<Vec<u8>, GifError> {
-    todo!()
+fn io_err(e: io::Error) -> GifError {
+    GifError::Io(e.to_string())
 }
 
-pub fn frame_size(_w: u32, _h: u32) -> Result<(u16, u16), GifError> {
-    todo!()
+fn enc_err(e: EncodingError) -> GifError {
+    match e {
+        EncodingError::Io(e) => io_err(e),
+        other => GifError::Encode(other.to_string()),
+    }
 }
 
-pub fn scale_bgra(_img: &Image, _w: u16, _h: u16) -> Result<Image, GifError> {
-    todo!()
+/// Số byte của ảnh 4 byte mỗi pixel, có kiểm tra tràn.
+fn pixel_bytes(w: u32, h: u32) -> Result<usize, GifError> {
+    let w = usize::try_from(w).map_err(|_| GifError::TooLarge)?;
+    let h = usize::try_from(h).map_err(|_| GifError::TooLarge)?;
+    w.checked_mul(h)
+        .and_then(|n| n.checked_mul(4))
+        .ok_or(GifError::TooLarge)
 }
 
-/// Mốc chụp kế tiếp (ms) sau thời điểm `elapsed_ms`.
-fn next_tick(_elapsed_ms: u64, _interval_ms: u64) -> u64 {
-    todo!()
+fn alloc(n: usize) -> Result<Vec<u8>, GifError> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).map_err(|_| GifError::TooLarge)?;
+    Ok(v)
 }
 
+/// BGRA → RGBA, alpha luôn 255 (alpha của ảnh chụp màn hình không tin được, mà GIF coi alpha 0
+/// là trong suốt).
+pub fn bgra_to_rgba(src: &[u8], w: u32, h: u32) -> Result<Vec<u8>, GifError> {
+    if w == 0 || h == 0 {
+        return Err(GifError::InvalidRegion);
+    }
+    let n = pixel_bytes(w, h)?;
+    if src.len() != n {
+        return Err(GifError::InvalidRegion);
+    }
+    let mut out = alloc(n)?;
+    for p in src.as_chunks::<4>().0 {
+        out.extend_from_slice(&[p[2], p[1], p[0], 255]);
+    }
+    Ok(out)
+}
+
+/// Kích thước khung GIF cho vùng `w`×`h`: giữ nguyên khi ≤ `MAX_FRAME_PIXELS`, nếu không thu
+/// nhỏ đều hai chiều theo `s = sqrt(MAX_FRAME_PIXELS / (w·h))`, lấy phần nguyên (tối thiểu 1);
+/// mỗi cạnh tối đa `MAX_SIDE`.
+pub fn frame_size(w: u32, h: u32) -> Result<(u16, u16), GifError> {
+    if w < MIN_SIDE || h < MIN_SIDE {
+        return Err(GifError::InvalidRegion);
+    }
+    let (w64, h64) = (u64::from(w), u64::from(h));
+    let px = w64.checked_mul(h64).ok_or(GifError::TooLarge)?;
+    if px > MAX_SOURCE_PIXELS {
+        return Err(GifError::TooLarge);
+    }
+    let (mut tw, mut th) = if px <= MAX_FRAME_PIXELS {
+        (w64, h64)
+    } else {
+        // floor(w·s) = floor(sqrt(M·w/h)) = isqrt(floor(M·w/h)): tính đúng bằng số nguyên.
+        let tw = (MAX_FRAME_PIXELS
+            .checked_mul(w64)
+            .ok_or(GifError::TooLarge)?
+            / h64)
+            .isqrt();
+        let th = (MAX_FRAME_PIXELS
+            .checked_mul(h64)
+            .ok_or(GifError::TooLarge)?
+            / w64)
+            .isqrt();
+        (tw, th)
+    };
+    let max = u64::from(MAX_SIDE);
+    if tw > max {
+        th = h64.checked_mul(max).ok_or(GifError::TooLarge)? / w64;
+        tw = max;
+    }
+    if th > max {
+        tw = w64.checked_mul(max).ok_or(GifError::TooLarge)? / h64;
+        th = max;
+    }
+    let tw = u16::try_from(tw.max(1)).map_err(|_| GifError::TooLarge)?;
+    let th = u16::try_from(th.max(1)).map_err(|_| GifError::TooLarge)?;
+    Ok((tw, th))
+}
+
+/// Khoảng nguồn `[a, b)` của ô đích `i` trên `t` ô, nguồn dài `s` (luôn có ít nhất một pixel).
+fn span(i: u64, t: u64, s: u64) -> Result<(usize, usize), GifError> {
+    let a = i.checked_mul(s).ok_or(GifError::TooLarge)? / t;
+    let b = (i + 1).checked_mul(s).ok_or(GifError::TooLarge)? / t;
+    let b = b.max(a + 1).min(s);
+    let a = usize::try_from(a).map_err(|_| GifError::TooLarge)?;
+    let b = usize::try_from(b).map_err(|_| GifError::TooLarge)?;
+    Ok((a, b))
+}
+
+/// Đổi cỡ ảnh BGRA về `w`×`h` bằng lọc trung bình vùng (box); bằng kích thước thì trả bản sao.
+/// Ảnh kết quả có alpha 255.
+pub fn scale_bgra(img: &Image, w: u16, h: u16) -> Result<Image, GifError> {
+    if !img.is_valid() || w == 0 || h == 0 {
+        return Err(GifError::InvalidRegion);
+    }
+    let (tw, th) = (u32::from(w), u32::from(h));
+    if (tw, th) == (img.width, img.height) {
+        return Ok(img.clone());
+    }
+    let stride = pixel_bytes(img.width, 1)?;
+    let (sw, sh) = (u64::from(img.width), u64::from(img.height));
+    let xs = (0..u64::from(tw))
+        .map(|x| span(x, u64::from(tw), sw))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut out = alloc(pixel_bytes(tw, th)?)?;
+    for ty in 0..u64::from(th) {
+        let (y0, y1) = span(ty, u64::from(th), sh)?;
+        for &(x0, x1) in &xs {
+            let mut acc = [0u64; 3];
+            for y in y0..y1 {
+                let row = &img.bgra[y * stride + x0 * 4..y * stride + x1 * 4];
+                for p in row.as_chunks::<4>().0 {
+                    acc[0] += u64::from(p[0]);
+                    acc[1] += u64::from(p[1]);
+                    acc[2] += u64::from(p[2]);
+                }
+            }
+            // Số pixel của ô ≤ số pixel ảnh, nên không tràn u64.
+            let n = u64::try_from((y1 - y0) * (x1 - x0)).map_err(|_| GifError::TooLarge)?;
+            for c in acc {
+                out.push(u8::try_from((c + n / 2) / n).unwrap_or(u8::MAX));
+            }
+            out.push(255);
+        }
+    }
+    Ok(Image {
+        width: tw,
+        height: th,
+        bgra: out,
+    })
+}
+
+/// Mốc chụp kế tiếp (ms) sau thời điểm `elapsed_ms`: mốc thứ k là `k·interval`; các mốc đã lỡ
+/// bị bỏ (không xếp hàng).
+fn next_tick(elapsed_ms: u64, interval_ms: u64) -> u64 {
+    let iv = interval_ms.max(1);
+    (elapsed_ms / iv).saturating_add(1).saturating_mul(iv)
+}
+
+/// Làm tròn ms sang cs (5 ms làm tròn lên).
+fn round_cs(ms: u64) -> u64 {
+    ms.saturating_add(5) / 10
+}
+
+fn ms(d: Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Bọc writer để đếm số byte đã ghi.
+struct CountingWriter<W> {
+    inner: W,
+    bytes: u64,
+}
+
+impl<W: Write> Write for CountingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.bytes = self
+            .bytes
+            .saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// Bộ mã hóa GIF lặp vô hạn giữ đúng một khung chờ (RGBA) để biết độ trễ khi khung kế tới.
 pub struct GifWriter<W: Write> {
-    _w: Option<W>,
+    enc: Encoder<CountingWriter<W>>,
+    width: u16,
+    height: u16,
+    len: usize,
+    pending: Option<Vec<u8>>,
+    /// Mốc (cs, cùng gốc với `at_ms`) nơi khung chờ bắt đầu hiện; cộng dồn độ trễ đã ghi nên
+    /// không trôi.
+    shown_cs: u64,
+    frames: u32,
 }
 
 impl<W: Write> GifWriter<W> {
-    pub fn new(_w: u16, _h: u16, _out: W) -> Result<Self, GifError> {
-        todo!()
+    /// Ghi phần đầu GIF (kích thước, lặp vô hạn) vào `out`.
+    pub fn new(w: u16, h: u16, out: W) -> Result<Self, GifError> {
+        if w == 0 || h == 0 {
+            return Err(GifError::InvalidRegion);
+        }
+        let len = pixel_bytes(u32::from(w), u32::from(h))?;
+        let counting = CountingWriter {
+            inner: out,
+            bytes: 0,
+        };
+        let mut enc = Encoder::new(counting, w, h, &[]).map_err(enc_err)?;
+        enc.set_repeat(Repeat::Infinite).map_err(enc_err)?;
+        Ok(GifWriter {
+            enc,
+            width: w,
+            height: h,
+            len,
+            pending: None,
+            shown_cs: 0,
+            frames: 0,
+        })
     }
-    pub fn push(&mut self, _rgba: Vec<u8>, _at_ms: u64) -> Result<(), GifError> {
-        todo!()
+
+    /// Thêm khung RGBA chụp lúc `at_ms`: mã hóa khung chờ trước đó (độ trễ tới `at_ms`) rồi giữ
+    /// khung này làm khung chờ. Khung giống hệt khung chờ thì gộp (kéo dài độ trễ).
+    pub fn push(&mut self, rgba: Vec<u8>, at_ms: u64) -> Result<(), GifError> {
+        if rgba.len() != self.len {
+            return Err(GifError::InvalidRegion);
+        }
+        match &self.pending {
+            None => {
+                self.shown_cs = round_cs(at_ms);
+                self.pending = Some(rgba);
+                self.frames = 1;
+            }
+            Some(p) if *p == rgba => {}
+            Some(_) => {
+                self.emit(round_cs(at_ms))?;
+                self.pending = Some(rgba);
+                self.frames = self.frames.saturating_add(1);
+            }
+        }
+        Ok(())
     }
-    pub fn finish(self, _end_ms: u64) -> Result<W, GifError> {
-        todo!()
+
+    /// Mã hóa khung chờ với độ trễ tới mốc `until_cs` (tối thiểu `MIN_DELAY_CS`).
+    fn emit(&mut self, until_cs: u64) -> Result<(), GifError> {
+        let Some(mut px) = self.pending.take() else {
+            return Ok(());
+        };
+        let delay = until_cs
+            .saturating_sub(self.shown_cs)
+            .clamp(u64::from(MIN_DELAY_CS), u64::from(u16::MAX));
+        // Độ dài đã kiểm ở `push`, tốc độ là hằng trong [1, 30]: không panic.
+        let mut frame = Frame::from_rgba_speed(self.width, self.height, &mut px, QUANT_SPEED);
+        frame.delay = u16::try_from(delay).unwrap_or(u16::MAX);
+        self.enc.write_frame(&frame).map_err(enc_err)?;
+        self.shown_cs = self.shown_cs.saturating_add(delay);
+        Ok(())
     }
+
+    /// Mã hóa khung chờ với độ trễ tới `end_ms`, ghi phần kết GIF và trả writer.
+    pub fn finish(mut self, end_ms: u64) -> Result<W, GifError> {
+        if self.pending.is_none() {
+            return Err(GifError::NoFrames);
+        }
+        self.emit(round_cs(end_ms))?;
+        let GifWriter { enc, .. } = self;
+        Ok(enc.into_inner().map_err(enc_err)?.inner)
+    }
+
+    /// Số khung GIF (đã ghi và đang chờ; khung gộp không tính).
     pub fn frames(&self) -> u32 {
-        todo!()
+        self.frames
     }
+
+    /// Số byte đã ghi ra writer (khung chờ chưa tính).
     pub fn bytes_written(&self) -> u64 {
-        todo!()
+        self.enc.get_ref().bytes
     }
 }
 
+/// Tệp tạm `.darkshot-rec-<16 ký tự>.gif.part` trong thư mục đích; bị xóa khi drop.
 pub struct TempGif {
-    _file: Option<BufWriter<File>>,
-    _path: PathBuf,
+    file: Option<BufWriter<File>>,
+    path: PathBuf,
 }
 
 impl TempGif {
-    pub fn create(_dir: &Path) -> Result<TempGif, GifError> {
-        todo!()
+    /// Tạo thư mục nếu chưa có, rồi tạo tệp tạm mới (`create_new`, không mở lại tệp có sẵn).
+    pub fn create(dir: &Path) -> Result<TempGif, GifError> {
+        fs::create_dir_all(dir).map_err(io_err)?;
+        for _ in 0..8 {
+            let id = naming::try_random_object_name()
+                .ok_or_else(|| GifError::Io("OS random source unavailable".into()))?;
+            let path = dir.join(format!("{TEMP_PREFIX}{id}{TEMP_SUFFIX}"));
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(f) => {
+                    return Ok(TempGif {
+                        file: Some(BufWriter::with_capacity(64 * 1024, f)),
+                        path,
+                    })
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(io_err(e)),
+            }
+        }
+        Err(GifError::Io("no free temporary file name".into()))
     }
+
     pub fn path(&self) -> &Path {
-        todo!()
+        &self.path
     }
-    pub fn commit(self, _dir: &Path, _name: &str) -> Result<PathBuf, GifError> {
-        todo!()
+
+    /// Ghi hết xuống đĩa, đóng tệp rồi đặt tên cuối `dir/name` (hoặc `_2`, `_3`…) KHÔNG ghi đè.
+    /// Mọi lỗi: tệp tạm bị xóa.
+    pub fn commit(mut self, dir: &Path, name: &str) -> Result<PathBuf, GifError> {
+        let buf = self
+            .file
+            .take()
+            .ok_or_else(|| GifError::Io("temporary file already closed".into()))?;
+        let file = buf.into_inner().map_err(|e| io_err(e.into_error()))?;
+        file.sync_all().map_err(io_err)?;
+        drop(file);
+        place_final(&self.path, dir, name, |a, b| fs::hard_link(a, b))
+        // `self` drop: xóa tệp tạm nếu còn.
     }
 }
 
 impl Write for TempGif {
-    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-        todo!()
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.file.as_mut() {
+            Some(f) => f.write(buf),
+            None => Err(io::Error::other("temporary file closed")),
+        }
     }
     fn flush(&mut self) -> io::Result<()> {
-        todo!()
+        match self.file.as_mut() {
+            Some(f) => f.flush(),
+            None => Ok(()),
+        }
     }
 }
 
-fn place_final<L>(_tmp: &Path, _dir: &Path, _name: &str, _link: L) -> Result<PathBuf, GifError>
+impl Drop for TempGif {
+    fn drop(&mut self) {
+        if let Some(b) = self.file.take() {
+            // Bỏ phần đệm chưa ghi, đóng tệp trước khi xóa.
+            let (f, _) = b.into_parts();
+            drop(f);
+        }
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Đặt `tmp` (đã đóng) thành tên cuối không trùng trong `dir`. Liên kết cứng thất bại vì tên đã
+/// có thì thử tên kế; thất bại vì lý do khác (hệ tệp không hỗ trợ) thì đổi tên sau khi kiểm lại
+/// tên còn trống. Thành công thì tệp tạm đã xóa (hoặc đã đổi tên).
+fn place_final<L>(tmp: &Path, dir: &Path, name: &str, mut link: L) -> Result<PathBuf, GifError>
 where
     L: FnMut(&Path, &Path) -> io::Result<()>,
 {
-    todo!()
+    for _ in 0..1000 {
+        let cand = naming::unique_path(dir, name);
+        match link(tmp, &cand) {
+            Ok(()) => {
+                let _ = fs::remove_file(tmp);
+                return Ok(cand);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {
+                if cand.exists() {
+                    continue;
+                }
+                fs::rename(tmp, &cand).map_err(io_err)?;
+                return Ok(cand);
+            }
+        }
+    }
+    Err(GifError::Io("no free file name".into()))
 }
 
-pub fn sweep_stale(_dir: &Path) -> usize {
-    todo!()
+fn is_temp_name(n: &str) -> bool {
+    n.strip_prefix(TEMP_PREFIX)
+        .and_then(|r| r.strip_suffix(TEMP_SUFFIX))
+        .is_some_and(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// Xóa các tệp tạm sót lại (đúng mẫu `.darkshot-rec-<16 ký tự>.gif.part`) trong `dir`; trả số
+/// tệp đã xóa. Chỉ gọi khi không có lần ghi nào đang chạy (lúc khởi động).
+pub fn sweep_stale(dir: &Path) -> usize {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return 0;
+    };
+    rd.flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter(|e| e.file_name().to_str().is_some_and(is_temp_name))
+        .filter(|e| fs::remove_file(e.path()).is_ok())
+        .count()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,8 +461,14 @@ pub struct RecordConfig {
 }
 
 impl RecordConfig {
-    pub fn new(_dir: PathBuf, _file_name: String) -> Self {
-        todo!()
+    pub fn new(dir: PathBuf, file_name: String) -> Self {
+        RecordConfig {
+            dir,
+            file_name,
+            interval_ms: FRAME_INTERVAL_MS,
+            max_duration_ms: MAX_DURATION_MS,
+            max_file_bytes: MAX_FILE_BYTES,
+        }
     }
 }
 
@@ -154,45 +491,292 @@ pub enum Outcome {
     Failed(GifError),
 }
 
-#[allow(dead_code)]
+const RUNNING: u8 = 0;
+const STOPPING: u8 = 1;
+const CANCELLING: u8 = 2;
+
 struct Shared {
     state: AtomicU8,
     lock: Mutex<()>,
     cv: Condvar,
 }
 
-#[allow(dead_code)]
+impl Shared {
+    fn state(&self) -> u8 {
+        self.state.load(Ordering::Acquire)
+    }
+
+    /// `Running → to` đúng một lần; đánh thức luồng đang chờ.
+    fn leave_running(&self, to: u8) -> bool {
+        let ok = self
+            .state
+            .compare_exchange(RUNNING, to, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+        if ok {
+            // Lấy rồi nhả khóa trước khi báo: luồng chờ hoặc chưa kiểm trạng thái (sẽ thấy trạng
+            // thái mới), hoặc đã nằm trong `wait_timeout` (sẽ nhận báo). Không mất lượt đánh thức.
+            drop(self.lock.lock().unwrap_or_else(PoisonError::into_inner));
+            self.cv.notify_all();
+        }
+        ok
+    }
+
+    /// Chờ tới `deadline` (tính từ `start`) hoặc tới khi trạng thái rời `Running`.
+    fn wait_until(&self, start: Instant, deadline: Duration) {
+        let mut g = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.state() != RUNNING {
+                return;
+            }
+            let now = start.elapsed();
+            if now >= deadline {
+                return;
+            }
+            g = match self.cv.wait_timeout(g, deadline - now) {
+                Ok((g, _)) => g,
+                Err(p) => p.into_inner().0,
+            };
+        }
+    }
+}
+
+/// Lần ghi GIF trên luồng nền. Drop: yêu cầu hủy (không chặn); luồng nền vẫn dọn tệp tạm.
 pub struct Recorder {
     shared: Arc<Shared>,
     rx: Receiver<Outcome>,
     done: bool,
     started: Instant,
     max_duration_ms: u64,
-    _thread: Option<JoinHandle<()>>,
 }
 
 impl Recorder {
-    pub fn start<S, W>(_cfg: RecordConfig, _source: S, _wake: W) -> Result<Recorder, GifError>
+    /// Tạo tệp tạm và luồng ghi rồi mới trả về. `source` chụp một khung (gọi trên luồng nền,
+    /// lần lượt); `wake` được gọi đúng một lần trên luồng nền, sau khi kết quả đã gửi.
+    pub fn start<S, W>(cfg: RecordConfig, source: S, wake: W) -> Result<Recorder, GifError>
     where
         S: FnMut() -> Result<Image, String> + Send + 'static,
         W: Fn() + Send + 'static,
     {
-        todo!()
+        let tmp = TempGif::create(&cfg.dir)?;
+        let shared = Arc::new(Shared {
+            state: AtomicU8::new(RUNNING),
+            lock: Mutex::new(()),
+            cv: Condvar::new(),
+        });
+        let (tx, rx) = mpsc::channel();
+        let started = Instant::now();
+        let max_duration_ms = cfg.max_duration_ms;
+        let sh = shared.clone();
+        // Lỗi spawn: closure (cùng `tmp`) bị drop nên tệp tạm bị xóa.
+        thread::Builder::new()
+            .name("darkshot-gif".into())
+            .spawn(move || {
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    record_loop(cfg, source, tmp, &sh, started)
+                }))
+                .unwrap_or_else(|_| {
+                    Outcome::Failed(GifError::Thread("recording thread panicked".into()))
+                });
+                // Sau khi có kết quả, Dừng/Hủy không còn tác dụng.
+                sh.leave_running(STOPPING);
+                let _ = tx.send(outcome);
+                let _ = catch_unwind(AssertUnwindSafe(&wake));
+            })
+            .map_err(|e| GifError::Thread(e.to_string()))?;
+        Ok(Recorder {
+            shared,
+            rx,
+            done: false,
+            started,
+            max_duration_ms,
+        })
     }
+
+    /// Dừng và lưu phần đã ghi. `false` khi đã dừng, đã hủy hoặc luồng đã tự dừng.
     pub fn request_stop(&self) -> bool {
-        todo!()
+        self.shared.leave_running(STOPPING)
     }
+
+    /// Hủy, không tạo GIF. `false` khi đã dừng, đã hủy hoặc luồng đã tự dừng.
     pub fn request_cancel(&self) -> bool {
-        todo!()
+        self.shared.leave_running(CANCELLING)
     }
+
+    /// Kết quả nếu đã có; không chặn; trả `Some` đúng một lần.
     pub fn try_outcome(&mut self) -> Option<Outcome> {
-        todo!()
+        if self.done {
+            return None;
+        }
+        let got = match self.rx.try_recv() {
+            Ok(o) => o,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => lost_thread(),
+        };
+        self.done = true;
+        Some(got)
     }
-    pub fn join(&mut self, _timeout: Duration) -> Option<Outcome> {
-        todo!()
+
+    /// Chờ kết quả tối đa `timeout`; trả `Some` đúng một lần.
+    pub fn join(&mut self, timeout: Duration) -> Option<Outcome> {
+        if self.done {
+            return None;
+        }
+        let got = match self.rx.recv_timeout(timeout) {
+            Ok(o) => o,
+            Err(RecvTimeoutError::Timeout) => return None,
+            Err(RecvTimeoutError::Disconnected) => lost_thread(),
+        };
+        self.done = true;
+        Some(got)
     }
+
+    /// Thời gian đã ghi (ms), tối đa bằng thời lượng tối đa.
     pub fn elapsed_ms(&self) -> u64 {
-        todo!()
+        ms(self.started.elapsed()).min(self.max_duration_ms)
+    }
+}
+
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        self.request_cancel();
+    }
+}
+
+fn lost_thread() -> Outcome {
+    Outcome::Failed(GifError::Thread(
+        "recording thread ended without a result".into(),
+    ))
+}
+
+/// Luồng nền tự dừng vì `reason`. `None` khi đã bị hủy trước đó (Hủy thắng); Dừng của người dùng
+/// tới trước thì lý do là `Stopped`.
+fn auto_stop(sh: &Shared, reason: StopReason) -> Option<StopReason> {
+    if sh.leave_running(STOPPING) {
+        return Some(reason);
+    }
+    match sh.state() {
+        STOPPING => Some(StopReason::Stopped),
+        _ => None,
+    }
+}
+
+/// Thân luồng ghi. Mọi tài nguyên (tệp tạm, bộ mã hóa) là biến cục bộ: trả về hay panic đều xóa
+/// tệp tạm nếu chưa đặt tên cuối.
+fn record_loop<S>(
+    cfg: RecordConfig,
+    mut source: S,
+    tmp: TempGif,
+    sh: &Shared,
+    started: Instant,
+) -> Outcome
+where
+    S: FnMut() -> Result<Image, String>,
+{
+    // Chụp nhanh hơn độ trễ tối thiểu của GIF chỉ làm lệch thời gian (độ trễ bị nâng lên 2 cs).
+    let interval = cfg.interval_ms.max(u64::from(MIN_DELAY_CS) * 10);
+    let max_ms = cfg.max_duration_ms;
+    let elapsed = || ms(started.elapsed());
+    let mut tmp = Some(tmp);
+    let mut writer: Option<GifWriter<TempGif>> = None;
+    let mut src_size: Option<(u32, u32)> = None;
+    let mut target = (0u16, 0u16);
+
+    let (reason, end_ms) = loop {
+        match sh.state() {
+            RUNNING => {}
+            STOPPING => break (StopReason::Stopped, elapsed().min(max_ms)),
+            _ => return Outcome::Cancelled,
+        }
+        let frames = writer.as_ref().map_or(0, GifWriter::frames);
+        // Khung đầu luôn được chụp (luồng có thể khởi động trễ) và hiện từ mốc 0, nên GIF dài
+        // đúng bằng thời gian ghi.
+        let at = if frames == 0 { 0 } else { elapsed() };
+        // Hết giờ, hoặc còn ít hơn độ trễ tối thiểu: khung cuối kéo tới đúng mốc hết giờ.
+        if frames > 0 && round_cs(at) + u64::from(MIN_DELAY_CS) > round_cs(max_ms) {
+            match auto_stop(sh, StopReason::MaxDuration) {
+                Some(r) => break (r, max_ms),
+                None => return Outcome::Cancelled,
+            }
+        }
+
+        // Một lượt: chụp → (thu nhỏ) → RGBA → mã hóa khung chờ trước đó.
+        let frame = source().map_err(GifError::Capture).and_then(|img| {
+            let size = (img.width, img.height);
+            match src_size {
+                None => {
+                    target = frame_size(img.width, img.height)?;
+                    src_size = Some(size);
+                }
+                Some(s) if s != size => {
+                    return Err(GifError::Capture(format!(
+                        "frame size changed from {}x{} to {}x{}",
+                        s.0, s.1, size.0, size.1
+                    )));
+                }
+                Some(_) => {}
+            }
+            let scaled = if (u32::from(target.0), u32::from(target.1)) == size {
+                if !img.is_valid() {
+                    return Err(GifError::InvalidRegion);
+                }
+                img
+            } else {
+                scale_bgra(&img, target.0, target.1)?
+            };
+            bgra_to_rgba(&scaled.bgra, scaled.width, scaled.height)
+        });
+        if sh.state() == CANCELLING {
+            return Outcome::Cancelled;
+        }
+        let rgba = match frame {
+            Ok(px) => px,
+            // Nguồn mất khi đã có khung: lưu phần đã ghi.
+            Err(_) if frames > 0 => match auto_stop(sh, StopReason::SourceLost) {
+                Some(r) => break (r, elapsed().min(max_ms)),
+                None => return Outcome::Cancelled,
+            },
+            Err(e) => return Outcome::Failed(e),
+        };
+        if writer.is_none() {
+            let Some(t) = tmp.take() else {
+                return Outcome::Failed(GifError::Thread("temporary file missing".into()));
+            };
+            match GifWriter::new(target.0, target.1, t) {
+                Ok(w) => writer = Some(w),
+                Err(e) => return Outcome::Failed(e),
+            }
+        }
+        let Some(w) = writer.as_mut() else {
+            return Outcome::Failed(GifError::Thread("encoder missing".into()));
+        };
+        if let Err(e) = w.push(rgba, at) {
+            return Outcome::Failed(e);
+        }
+        if w.bytes_written() >= cfg.max_file_bytes {
+            match auto_stop(sh, StopReason::MaxSize) {
+                Some(r) => break (r, elapsed().min(max_ms)),
+                None => return Outcome::Cancelled,
+            }
+        }
+        let deadline = next_tick(elapsed(), interval).min(max_ms);
+        sh.wait_until(started, Duration::from_millis(deadline));
+    };
+
+    let Some(w) = writer else {
+        return Outcome::Failed(GifError::NoFrames);
+    };
+    let frames = w.frames();
+    let tmp = match w.finish(end_ms) {
+        Ok(t) => t,
+        Err(e) => return Outcome::Failed(e),
+    };
+    match tmp.commit(&cfg.dir, &cfg.file_name) {
+        Ok(path) => Outcome::Saved {
+            path,
+            reason,
+            frames,
+        },
+        Err(e) => Outcome::Failed(e),
     }
 }
 
@@ -255,7 +839,8 @@ mod tests {
         let mut v = Vec::with_capacity((w * h * 4) as usize);
         for y in 0..h {
             for x in 0..w {
-                let glyph = (x / 6 + y / 10 + seed) % 7 == 0 && (y % 10) < 7 && (x % 6) < 4;
+                let glyph =
+                    (x / 6 + y / 10 + seed).is_multiple_of(7) && (y % 10) < 7 && (x % 6) < 4;
                 if glyph {
                     v.extend_from_slice(&[20, 20, 24, 255]);
                 } else {
@@ -669,7 +1254,7 @@ mod tests {
             dir: dir.to_path_buf(),
             file_name: "darkshot_2026-11-21_10-00-00.gif".into(),
             interval_ms: 10,
-            max_duration_ms: 200,
+            max_duration_ms: 60_000,
             max_file_bytes: MAX_FILE_BYTES,
         }
     }
@@ -681,6 +1266,28 @@ mod tests {
             k += 1;
             Ok(solid(16, 12, (k * 7) as u8, (k * 13) as u8, (k * 29) as u8))
         }
+    }
+
+    /// Như `counting_source`, kèm bộ đếm số lần gọi.
+    fn counted_source() -> (
+        Arc<AtomicUsize>,
+        impl FnMut() -> Result<Image, String> + Send + 'static,
+    ) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c2 = calls.clone();
+        let mut inner = counting_source();
+        (calls, move || {
+            c2.fetch_add(1, Ordering::SeqCst);
+            inner()
+        })
+    }
+
+    fn wait_calls(n: &AtomicUsize, want: usize) {
+        let until = Instant::now() + WAIT;
+        while n.load(Ordering::SeqCst) < want && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(n.load(Ordering::SeqCst) >= want);
     }
 
     fn wake_counter() -> (Arc<AtomicUsize>, impl Fn() + Send + 'static) {
@@ -712,7 +1319,11 @@ mod tests {
     fn recorder_runs_to_max_duration() {
         let d = temp_dir();
         let (wakes, wake) = wake_counter();
-        let mut r = Recorder::start(cfg(&d), counting_source(), wake).unwrap();
+        // Nhịp thật 100 ms: khoảng cách khung lớn hơn độ trễ tối thiểu nên tổng độ trễ đúng.
+        let mut c = cfg(&d);
+        c.interval_ms = FRAME_INTERVAL_MS;
+        c.max_duration_ms = 500;
+        let mut r = Recorder::start(c, counting_source(), wake).unwrap();
         let out = r.join(WAIT).expect("outcome");
         let Outcome::Saved {
             path,
@@ -729,9 +1340,9 @@ mod tests {
         assert_eq!(dec.frames.len() as u32, frames);
         assert_eq!((dec.width, dec.height), (16, 12));
         assert_eq!(dec.repeat, gif::Repeat::Infinite);
-        // Khung cuối kéo tới đúng mốc hết giờ: tổng độ trễ = 200 ms.
+        // Khung cuối kéo tới đúng mốc hết giờ: tổng độ trễ = 500 ms.
         let sum: u32 = delays(&dec).iter().map(|&x| u32::from(x)).sum();
-        assert_eq!(sum, 20);
+        assert_eq!(sum, 50);
         assert_eq!(
             names(&d),
             vec!["darkshot_2026-11-21_10-00-00.gif".to_string()]
@@ -741,7 +1352,7 @@ mod tests {
         assert_eq!(r.join(Duration::from_millis(10)), None);
         assert!(!r.request_cancel(), "hủy sau khi tự dừng không có tác dụng");
         assert!(!r.request_stop());
-        assert_eq!(r.elapsed_ms(), 200);
+        assert_eq!(r.elapsed_ms(), 500);
         std::thread::sleep(Duration::from_millis(30));
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
     }
@@ -750,10 +1361,12 @@ mod tests {
     fn recorder_creates_temp_before_returning_then_stop_saves() {
         let d = temp_dir();
         let (gate_tx, gate_rx) = mpsc::channel::<()>();
+        let (entered_tx, entered_rx) = mpsc::channel::<()>();
         let mut first = true;
         let source = move || {
             if first {
                 first = false;
+                let _ = entered_tx.send(());
                 gate_rx.recv_timeout(WAIT).map_err(|e| e.to_string())?;
             }
             Ok(solid(10, 10, 1, 2, 3))
@@ -765,9 +1378,10 @@ mod tests {
         let n = names(&d);
         assert_eq!(n.len(), 1, "{n:?}");
         assert!(n[0].ends_with(".gif.part"));
-        gate_tx.send(()).unwrap();
-        std::thread::sleep(Duration::from_millis(50));
+        // Luồng đang trong lượt chụp đầu: Dừng lúc này vẫn giữ khung đó.
+        entered_rx.recv_timeout(WAIT).unwrap();
         assert!(r.request_stop());
+        gate_tx.send(()).unwrap();
         assert!(!r.request_stop(), "dừng lần hai không đổi gì");
         assert!(!r.request_cancel(), "hủy sau dừng không có tác dụng");
         let out = r.join(WAIT).expect("outcome");
@@ -814,7 +1428,10 @@ mod tests {
         c.interval_ms = 5_000;
         c.max_duration_ms = 60_000;
         let (_w, wake) = wake_counter();
-        let mut r = Recorder::start(c, counting_source(), wake).unwrap();
+        let (calls, source) = counted_source();
+        let mut r = Recorder::start(c, source, wake).unwrap();
+        // Khung đầu đã chụp: Dừng sau đó luôn có ít nhất một khung.
+        wait_calls(&calls, 1);
         std::thread::sleep(Duration::from_millis(50));
         let t0 = Instant::now();
         assert!(r.request_stop());
@@ -932,7 +1549,7 @@ mod tests {
             let rgba = rgba_busy(64, 48, k);
             // RGBA -> BGRA
             let mut bgra = rgba;
-            for p in bgra.chunks_exact_mut(4) {
+            for p in bgra.as_chunks_mut::<4>().0 {
                 p.swap(0, 2);
             }
             Ok(Image {
@@ -1085,6 +1702,32 @@ mod tests {
         let avg = ms.iter().sum::<f64>() / ms.len() as f64;
         let max = ms.iter().cloned().fold(0.0, f64::max);
         println!("encode 1000x1000 speed {QUANT_SPEED}: per frame ms {ms:?}, avg {avg:.1}, max {max:.1}, file {} bytes", out.len());
+        // So sánh tốc độ lượng tử hóa (chỉ `from_rgba_speed`) để chọn `QUANT_SPEED`.
+        for speed in [1, 10, 20, 30] {
+            let mut px = frames[1].clone();
+            let t0 = Instant::now();
+            let f = gif::Frame::from_rgba_speed(w, h, &mut px, speed);
+            let q = t0.elapsed().as_secs_f64() * 1000.0;
+            let mut e = gif::Encoder::new(Vec::new(), w, h, &[]).unwrap();
+            let t1 = Instant::now();
+            e.write_frame(&f).unwrap();
+            let l = t1.elapsed().as_secs_f64() * 1000.0;
+            println!("speed {speed}: quantize {q:.1} ms, lzw {l:.1} ms");
+        }
+        // Giao diện phẳng (≤ 256 màu): đi đường bảng màu chính xác, không NeuQuant.
+        let mut flat = rgba_solid(w, h, 30, 30, 34);
+        for (i, p) in flat.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            if (i / 1000 / 20 + i % 1000 / 8) % 5 == 0 {
+                p.copy_from_slice(&[(i % 7 * 30) as u8, 200, 220, 255]);
+            }
+        }
+        let t0 = Instant::now();
+        let f = gif::Frame::from_rgba_speed(w, h, &mut flat, QUANT_SPEED);
+        println!(
+            "flat UI frame (<=256 colors): quantize {:.1} ms, palette {} bytes",
+            t0.elapsed().as_secs_f64() * 1000.0,
+            f.palette.as_ref().map_or(0, Vec::len)
+        );
         // Thu nhỏ 4K -> 1333x750, rồi đổi RGBA.
         let big = solid(3840, 2160, 1, 2, 3);
         let t0 = Instant::now();

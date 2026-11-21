@@ -74,7 +74,12 @@ pub enum Outcome {
 pub fn run_action(ctx: &Ctx, action: Action, img: &Image) -> Outcome {
     if matches!(
         action,
-        Action::Cancel | Action::Pin | Action::Ocr | Action::AddStep | Action::Scroll
+        Action::Cancel
+            | Action::Pin
+            | Action::Ocr
+            | Action::AddStep
+            | Action::Scroll
+            | Action::RecordGif
     ) {
         return Outcome::Cancelled;
     }
