@@ -282,8 +282,13 @@ const SWITCH_KEYS: [SwitchKey; 3] = [
 /// Bộ công tắc cần lưu khi người dùng đổi đúng khóa `which` thành `value`: lấy bộ đang lưu `stored`
 /// (có thể vừa được cửa sổ OCR khác đổi) và chỉ thay khóa đó.
 fn merge_switch(stored: Switches, which: SwitchKey, value: bool) -> Switches {
-    let _ = (which, value);
-    stored
+    let mut s = stored;
+    match which {
+        SwitchKey::SingleLine => s.single_line = value,
+        SwitchKey::Paragraphs => s.paragraphs = value,
+        SwitchKey::AutoCopy => s.auto_copy = value,
+    }
+    s
 }
 
 /// "Tách đoạn" dùng được không (không khi "Gộp thành một dòng" bật).
@@ -1260,23 +1265,22 @@ fn hit_line(hwnd: HWND, x: i32, y: i32) -> Option<usize> {
     .flatten()
 }
 
-/// Đổi một công tắc: đọc lại ba ô tích, lưu cấu hình, dựng lại ô chữ khi đã có chữ. Không chép lại
-/// vùng chọn đang có (clipboard không bị ghi khi người dùng chưa bấm khung).
-fn on_switch(hwnd: HWND) {
-    let Some(checks) = with_win(hwnd, |w| w.checks) else {
+/// Đổi công tắc thứ `index` (theo `ID_CHECKS`): cửa sổ này áp khóa đó cho bộ của nó và dựng lại ô
+/// chữ khi đã có chữ; cấu hình lưu bộ đang lưu (có thể vừa được cửa sổ OCR khác đổi) với đúng khóa
+/// đó thay đổi. Cửa sổ khác không bị dựng lại ô chữ. Không chép lại vùng chọn đang có (clipboard
+/// không bị ghi khi người dùng chưa bấm khung).
+fn on_switch(hwnd: HWND, index: usize) {
+    let (Some(checks), Some(&key)) = (with_win(hwnd, |w| w.checks), SWITCH_KEYS.get(index)) else {
         return;
     };
-    let sw = Switches {
-        single_line: is_checked(checks[0]),
-        paragraphs: is_checked(checks[1]),
-        auto_copy: is_checked(checks[2]),
-    };
-    let Some((changed, edit, text)) = with_win(hwnd, |w| {
+    let value = is_checked(checks[index]);
+    let Some((changed, sw, edit, text)) = with_win(hwnd, |w| {
+        let sw = merge_switch(w.switches, key, value);
         let changed = w.switches != sw;
         w.switches = sw;
-        let text = (matches!(w.shown, Shown::Text { .. }) && !w.lines.is_empty())
+        let text = (changed && matches!(w.shown, Shown::Text { .. }) && !w.lines.is_empty())
             .then(|| compose_all(&w.lines, sw.text_options()));
-        (changed, w.edit, text)
+        (changed, sw, w.edit, text)
     }) else {
         return;
     };
@@ -1287,7 +1291,11 @@ fn on_switch(hwnd: HWND) {
     if !changed {
         return;
     }
-    save_switches(sw);
+    let stored = load_switches();
+    let merged = merge_switch(stored, key, value);
+    if merged != stored {
+        save_switches(merged);
+    }
     if let Some(text) = text {
         // SAFETY: ô chữ của cửa sổ này; chuỗi sống suốt lời gọi. Sửa tay trong ô bị thay (như thiết kế).
         unsafe {
@@ -1896,7 +1904,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             match (id, code) {
                 (ID_COPY, 0) => copy_all(hwnd),
                 (ID_CLOSE, 0) => destroy(hwnd),
-                (id, 0) if ID_CHECKS.contains(&id) => on_switch(hwnd),
+                (id, 0) if ID_CHECKS.contains(&id) => {
+                    if let Some(i) = ID_CHECKS.iter().position(|c| *c == id) {
+                        on_switch(hwnd, i);
+                    }
+                }
                 (ID_EDIT, c) if c == EN_SETFOCUS || c == EN_KILLFOCUS => {
                     // Gạch dưới của khung đổi theo tiêu điểm.
                     if let Some(f) = with_win(hwnd, |w| w.field) {
