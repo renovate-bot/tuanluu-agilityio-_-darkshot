@@ -4,8 +4,9 @@
 use std::ffi::c_void;
 use std::sync::Once;
 
+use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
-use darkshot_core::ocr_text::{join_lines, line_count, ocr_scale};
+use darkshot_core::ocr_text::{compose_all, map_rect, ocr_scale, OcrLine, TextOptions};
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
@@ -22,6 +23,8 @@ pub struct OcrResult {
     pub lang_tag: String,
     pub lang_name: String,
     pub lines: usize,
+    /// Các dòng có chữ, theo thứ tự WinRT trả; khung ở px ảnh gốc. `lines == lines_detail.len()`.
+    pub lines_detail: Vec<OcrLine>,
 }
 
 /// Lỗi nhận dạng. `Failed` chỉ mang thông điệp ngắn cho nhật ký nội bộ/kiểm thử.
@@ -140,12 +143,32 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         .map_err(fail("RecognizeAsync.join"))?;
     let lines = result.Lines().map_err(fail("Lines"))?;
     let n = lines.Size().map_err(fail("Lines.Size"))?;
-    let mut texts = Vec::with_capacity(n as usize);
+    let mut detail = Vec::with_capacity(n as usize);
+    let mut boxes = Vec::new();
     for i in 0..n {
         let line = lines.GetAt(i).map_err(fail("Lines.GetAt"))?;
-        texts.push(line.Text().map_err(fail("OcrLine.Text"))?.to_string_lossy());
+        let text = line.Text().map_err(fail("OcrLine.Text"))?.to_string_lossy();
+        if text.trim().is_empty() {
+            continue;
+        }
+        let words = line.Words().map_err(fail("OcrLine.Words"))?;
+        let nw = words.Size().map_err(fail("Words.Size"))?;
+        boxes.clear();
+        for k in 0..nw {
+            let word = words.GetAt(k).map_err(fail("Words.GetAt"))?;
+            let r = word.BoundingRect().map_err(fail("OcrWord.BoundingRect"))?;
+            boxes.push((r.X, r.Y, r.Width, r.Height));
+        }
+        // Dòng không có từ (hay mọi khung hỏng) thì không có khung: bỏ (thiết kế 7b.1).
+        let Some(r) = union_rect(&boxes) else {
+            continue;
+        };
+        detail.push(OcrLine {
+            text,
+            rect: map_rect(r, w, h, image.width, image.height),
+        });
     }
-    let text = join_lines(&texts);
+    let text = compose_all(&detail, TextOptions::default());
 
     let lang = engine
         .RecognizerLanguage()
@@ -160,10 +183,41 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         .to_string_lossy();
 
     Ok(OcrResult {
-        lines: line_count(&text),
+        lines: detail.len(),
         text,
         lang_tag,
         lang_name,
+        lines_detail: detail,
+    })
+}
+
+/// Hợp các khung `(x, y, rộng, cao)` (f32, px ảnh đã đưa vào OCR): góc trên-trái làm tròn xuống,
+/// góc dưới-phải làm tròn lên. Khung có số không hữu hạn bị bỏ; cỡ âm coi như 0.
+/// Không còn khung nào → None.
+fn union_rect(boxes: &[(f32, f32, f32, f32)]) -> Option<Rect> {
+    let mut acc: Option<(f32, f32, f32, f32)> = None;
+    for &(x, y, w, h) in boxes {
+        if ![x, y, w, h].iter().all(|v| v.is_finite()) {
+            continue;
+        }
+        let (r, b) = (x + w.max(0.0), y + h.max(0.0));
+        if !(r.is_finite() && b.is_finite()) {
+            continue;
+        }
+        acc = Some(match acc {
+            None => (x, y, r, b),
+            Some((l, t, rr, bb)) => (l.min(x), t.min(y), rr.max(r), bb.max(b)),
+        });
+    }
+    // `as i32` bão hòa với số quá lớn; khung hợp lệ của OCR luôn nằm trong ảnh.
+    let (l, t, r, b) = acc?;
+    let (l, t) = (l.floor() as i32, t.floor() as i32);
+    let (r, b) = (r.ceil() as i32, b.ceil() as i32);
+    Some(Rect {
+        x: l,
+        y: t,
+        w: r.saturating_sub(l),
+        h: b.saturating_sub(t),
     })
 }
 
@@ -679,11 +733,11 @@ pub(crate) mod tests {
 
     #[test]
     #[ignore]
-    fn manual_wide_image_shrunk_boxes_in_source_pixels() {
-        // Cạnh dài vượt MaxImageDimension: ảnh bị co trước OCR; khung vẫn ở px ảnh gốc.
+    fn manual_tall_image_shrunk_boxes_in_source_pixels() {
+        // Cạnh dài vượt MaxImageDimension (như ảnh chụp cuộn): ảnh bị co trước OCR; khung vẫn ở px gốc.
         let (img, drawn) = {
             let _gdi = crate::capture::GDI_TEST_LOCK.lock();
-            lines_image(12_000, 200, 48, &[("Hello darkshot 123", 100)])
+            lines_image(800, 12_000, 48, &[("Hello darkshot 123", 6_000)])
         };
         match recognize(&img) {
             Ok(r) => {
