@@ -30,3 +30,6 @@ TDD `test:` rồi `feat:`. `cargo fmt --all`; `powershell -File scripts/check.ps
 
 ## Bổ sung sau rà soát Task 97
 Tùy chọn lưu ba khóa OCR từ ảnh chụp cấu hình lúc mở (`settings.rs` ~301). Nếu đổi công tắc OCR trong lúc Tùy chọn đang mở, bấm OK sẽ ghi đè. Sửa ở `main.rs` cạnh khối chép `update_notified` (~1429): trước `config::save`, chép `ocr_single_line`, `ocr_paragraphs`, `ocr_auto_copy` mới nhất từ `a.config` vào cấu hình sắp lưu. Kiểm thử nếu tách được hàm thuần.
+
+## Bổ sung sau rà soát Task 98
+`lines_detail` có thể chứa dòng có khung rỗng (`w == 0` hoặc `h == 0`, mọi từ có khung suy biến). Vẽ và dò trúng phải chịu được (không vẽ, không trúng ngoài vùng nới 2 px), không panic, không chia 0. Thay `lines_detail: Vec::new()` trong kiểm thử `ocr_window` bằng dữ liệu dòng thật khi cần.
