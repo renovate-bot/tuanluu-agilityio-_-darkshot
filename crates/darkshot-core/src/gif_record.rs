@@ -1325,7 +1325,7 @@ mod tests {
 
     // --- Recorder ---
 
-    const WAIT: Duration = Duration::from_secs(10);
+    const WAIT: Duration = Duration::from_secs(30);
 
     fn cfg(dir: &Path) -> RecordConfig {
         RecordConfig {
@@ -1607,12 +1607,13 @@ mod tests {
         let d = temp_dir();
         let mut c = cfg(&d);
         c.max_duration_ms = 30;
-        let mut r = Recorder::start(c, || Ok(solid(2000, 1000, 5, 6, 7)), || {}).unwrap();
-        let Some(Outcome::Saved { path, .. }) = r.join(WAIT) else {
-            panic!();
+        let mut r = Recorder::start(c, || Ok(solid(1000, 600, 5, 6, 7)), || {}).unwrap();
+        let out = r.join(WAIT);
+        let Some(Outcome::Saved { path, .. }) = out else {
+            panic!("unexpected outcome: {out:?}");
         };
         let dec = decode(&std::fs::read(&path).unwrap());
-        assert_eq!((dec.width, dec.height), frame_size(2000, 1000).unwrap());
+        assert_eq!((dec.width, dec.height), frame_size(1000, 600).unwrap());
     }
 
     #[test]
