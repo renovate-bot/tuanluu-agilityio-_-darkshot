@@ -110,8 +110,8 @@ impl BarItem {
 }
 
 /// Các ô của thanh ngang theo thứ tự: Hoàn tác, Làm lại | Tải lên, Lưu, Chép, Ghim, Nhận dạng chữ,
-/// Chụp cuộn, Hủy; `None` là vạch ngăn.
-const BAR_CELLS: [Option<BarItem>; 10] = [
+/// Chụp cuộn, Ghi GIF, Hủy; `None` là vạch ngăn.
+const BAR_CELLS: [Option<BarItem>; 11] = [
     Some(BarItem::Undo),
     Some(BarItem::Redo),
     None,
@@ -121,14 +121,16 @@ const BAR_CELLS: [Option<BarItem>; 10] = [
     Some(BarItem::Act(Action::Pin)),
     Some(BarItem::Act(Action::Ocr)),
     Some(BarItem::Act(Action::Scroll)),
+    Some(BarItem::Act(Action::RecordGif)),
     Some(BarItem::Act(Action::Cancel)),
 ];
 
-/// Chữ chú thích của ô thanh ngang `item`: Chụp cuộn thêm ghi chú hình đánh dấu không đi kèm.
+/// Chữ chú thích của ô thanh ngang `item`: Chụp cuộn và Ghi GIF thêm ghi chú hình đánh dấu không
+/// đi kèm.
 fn tip_text(lang: i18n::Lang, item: BarItem) -> String {
     let base = i18n::t(lang, item.tip());
     match item {
-        BarItem::Act(Action::Scroll) => format!(
+        BarItem::Act(Action::Scroll | Action::RecordGif) => format!(
             "{base} \u{00B7} {}",
             i18n::t(lang, Msg::ScrollNoAnnotations)
         ),
@@ -2636,6 +2638,8 @@ impl State {
                 0x4E if self.steps => self.finish(Action::AddStep),
                 // L: chụp cuộn; ô chữ được chốt nhưng hình đánh dấu không đi kèm.
                 0x4C => self.finish(Action::Scroll),
+                // G: ghi GIF; như L.
+                0x47 => self.finish(Action::RecordGif),
                 _ => {}
             }
             return;
@@ -3401,7 +3405,8 @@ impl State {
             0x54 => Action::Ocr,    // T
             // N: thêm bước, chỉ khi có phiên chụp từng bước.
             0x4E if self.steps => Action::AddStep,
-            0x4C => Action::Scroll, // L
+            0x4C => Action::Scroll,    // L
+            0x47 => Action::RecordGif, // G
             _ => return,
         };
         self.finish(a);
@@ -4789,8 +4794,19 @@ impl Gp {
                 p.poly(&[(12.0, 7.0), (12.0, 16.5)]);
                 p.poly(&[(8.5, 13.0), (12.0, 16.5), (15.5, 13.0)]);
             }
-            // Chưa có ô trên thanh ngang (Task 123 thêm ô và biểu tượng).
-            Action::RecordGif => {}
+            Action::RecordGif => {
+                // Chấm tròn đặc (ba vòng đồng tâm nét 1,8 phủ kín bán kính ~3,9) trong khung bo
+                // góc (4,5)-(20,19), bán kính 2.
+                p.start();
+                p.arc(6.0, 7.0, 2.0, 180.0, 90.0);
+                p.arc(18.0, 7.0, 2.0, 270.0, 90.0);
+                p.arc(18.0, 17.0, 2.0, 0.0, 90.0);
+                p.arc(6.0, 17.0, 2.0, 90.0, 90.0);
+                p.close();
+                p.oval(12.0, 12.0, 3.0, 3.0);
+                p.oval(12.0, 12.0, 1.5, 1.5);
+                p.oval(12.0, 12.0, 0.4, 0.4);
+            }
             Action::Cancel => {
                 p.poly(&[(6.0, 6.0), (18.0, 18.0)]);
                 p.poly(&[(18.0, 6.0), (6.0, 18.0)]);
@@ -5411,7 +5427,7 @@ mod tests {
         let bar = Rect {
             x: 100,
             y: 100,
-            w: 9 * 36 + 9,
+            w: 10 * 36 + 9,
             h: 36,
         };
         let at = |x, y| bar_item_at(bar, Point { x, y }, 96);
@@ -5428,9 +5444,11 @@ mod tests {
         assert_eq!(at(360, 110), Some(BarItem::Act(Action::Ocr)));
         assert_eq!(at(361, 110), Some(BarItem::Act(Action::Scroll)));
         assert_eq!(at(396, 110), Some(BarItem::Act(Action::Scroll)));
-        assert_eq!(at(397, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(432, 110), Some(BarItem::Act(Action::Cancel)));
-        assert_eq!(at(433, 110), None);
+        assert_eq!(at(397, 110), Some(BarItem::Act(Action::RecordGif)));
+        assert_eq!(at(432, 110), Some(BarItem::Act(Action::RecordGif)));
+        assert_eq!(at(433, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(468, 110), Some(BarItem::Act(Action::Cancel)));
+        assert_eq!(at(469, 110), None);
         assert_eq!(at(99, 110), None);
         assert_eq!(at(110, 136), None);
     }
@@ -5453,15 +5471,16 @@ mod tests {
                 Some(BarItem::Act(Action::Pin)),
                 Some(BarItem::Act(Action::Ocr)),
                 Some(BarItem::Act(Action::Scroll)),
+                Some(BarItem::Act(Action::RecordGif)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
         );
         for dpi in [96, 120, 144, 192] {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             let l = bar_layout(dpi);
-            // 9 nút và 1 vạch ngăn.
-            assert_eq!(l.size, (9 * b + sep, b), "dpi {dpi}");
-            assert_eq!(l.cells.len(), 10);
+            // 10 nút và 1 vạch ngăn.
+            assert_eq!(l.size, (10 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.cells.len(), 11);
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, BAR_CELLS.to_vec());
             let mut x = 0;
@@ -5520,14 +5539,14 @@ mod tests {
         }
     }
 
-    /// Không phiên: đúng `BAR_CELLS` (10 ô). Có phiên: thêm Thêm bước ngay trước Hủy (11 ô);
+    /// Không phiên: đúng `BAR_CELLS` (11 ô). Có phiên: thêm Thêm bước ngay trước Hủy (12 ô);
     /// bố cục và dò ô theo đúng danh sách ô.
     #[test]
     fn bar_cells_with_and_without_steps() {
         assert_eq!(bar_cells(false), BAR_CELLS.to_vec());
         let with = bar_cells(true);
-        assert_eq!(bar_cells(false).len(), 10);
-        assert_eq!(with.len(), 11);
+        assert_eq!(bar_cells(false).len(), 11);
+        assert_eq!(with.len(), 12);
         assert_eq!(
             with,
             vec![
@@ -5540,18 +5559,19 @@ mod tests {
                 Some(BarItem::Act(Action::Pin)),
                 Some(BarItem::Act(Action::Ocr)),
                 Some(BarItem::Act(Action::Scroll)),
+                Some(BarItem::Act(Action::RecordGif)),
                 Some(BarItem::Act(Action::AddStep)),
                 Some(BarItem::Act(Action::Cancel)),
             ]
         );
-        for dpi in [96, 144, 192] {
+        for dpi in [96, 120, 144, 192] {
             let (b, sep) = (scaled(BUTTON, dpi), scaled(SIDE_SEP, dpi));
             assert_eq!(bar_layout(dpi), bar_layout_with(dpi, false));
             let l = bar_layout_with(dpi, true);
-            assert_eq!(l.size, (10 * b + sep, b), "dpi {dpi}");
+            assert_eq!(l.size, (11 * b + sep, b), "dpi {dpi}");
             let items: Vec<Option<BarItem>> = l.cells.iter().map(|(i, _)| *i).collect();
             assert_eq!(items, with);
-            // Chụp cuộn đứng ngay trước Thêm bước.
+            // Chụp cuộn, Ghi GIF rồi Thêm bước liền nhau.
             let scroll_bar = Rect {
                 x: 50,
                 y: 40,
@@ -5560,9 +5580,20 @@ mod tests {
             };
             let sc =
                 bar_item_rect_with(scroll_bar, dpi, true, BarItem::Act(Action::Scroll)).unwrap();
+            let rec =
+                bar_item_rect_with(scroll_bar, dpi, true, BarItem::Act(Action::RecordGif)).unwrap();
             let st =
                 bar_item_rect_with(scroll_bar, dpi, true, BarItem::Act(Action::AddStep)).unwrap();
-            assert_eq!(sc.right(), st.x);
+            assert_eq!(sc.right(), rec.x);
+            assert_eq!(rec.right(), st.x);
+            let c = Point {
+                x: rec.x + rec.w / 2,
+                y: rec.y + rec.h / 2,
+            };
+            assert_eq!(
+                bar_item_at_with(scroll_bar, c, dpi, true),
+                Some(BarItem::Act(Action::RecordGif))
+            );
             let bar = Rect {
                 x: 50,
                 y: 40,
@@ -5602,6 +5633,65 @@ mod tests {
             assert_eq!((placed.w, placed.h), l.size, "dpi {dpi}");
             let (plain, _) = bars_for(sel, mon, dpi);
             assert_eq!((plain.w, plain.h), bar_layout(dpi).size, "dpi {dpi}");
+        }
+    }
+
+    /// Thanh ngang 11 ô (12 khi có phiên các bước) vẫn nằm trọn trong màn hình nhỏ ở 96–192 DPI,
+    /// với vùng chọn ở giữa, sát góc và phủ cả màn hình.
+    #[test]
+    fn action_bar_with_record_gif_fits_small_screens() {
+        let inside = |r: Rect, m: Rect| {
+            r.x >= m.x && r.y >= m.y && r.right() <= m.right() && r.bottom() <= m.bottom()
+        };
+        for mon in [
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1366,
+                h: 768,
+            },
+            Rect {
+                x: 0,
+                y: 0,
+                w: 1024,
+                h: 768,
+            },
+        ] {
+            for dpi in [96, 120, 144, 192] {
+                for steps in [false, true] {
+                    let size = bar_layout_with(dpi, steps).size;
+                    assert!(size.0 <= mon.w, "dpi {dpi} steps {steps}: {size:?}");
+                    for sel in [
+                        mon,
+                        Rect {
+                            x: 100,
+                            y: 100,
+                            w: 300,
+                            h: 200,
+                        },
+                        Rect {
+                            x: 0,
+                            y: 0,
+                            w: 120,
+                            h: 80,
+                        },
+                        Rect {
+                            x: mon.w - 150,
+                            y: mon.h - 100,
+                            w: 150,
+                            h: 100,
+                        },
+                    ] {
+                        let (bar, side) = bars_for_with(sel, mon, dpi, steps);
+                        assert_eq!((bar.w, bar.h), size, "dpi {dpi} steps {steps}");
+                        assert!(inside(bar, mon), "dpi {dpi} steps {steps} {sel:?}: {bar:?}");
+                        assert!(
+                            inside(side, mon),
+                            "dpi {dpi} steps {steps} {sel:?}: {side:?}"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -5979,6 +6069,16 @@ mod tests {
         assert_eq!(BarItem::Act(Action::Pin).tip(), Msg::OverlayPin);
         assert_eq!(BarItem::Act(Action::Ocr).tip(), Msg::OverlayOcr);
         assert_eq!(BarItem::Act(Action::Scroll).tip(), Msg::OverlayScroll);
+        assert_eq!(BarItem::Act(Action::RecordGif).tip(), Msg::OverlayRecordGif);
+        // Ghi GIF cũng không gồm hình đánh dấu.
+        assert_eq!(
+            tip_text(Lang::Vi, BarItem::Act(Action::RecordGif)),
+            "Ghi GIF (Ctrl+G) · Không kèm hình đánh dấu"
+        );
+        assert_eq!(
+            tip_text(Lang::En, BarItem::Act(Action::RecordGif)),
+            "Record GIF (Ctrl+G) · Annotations are not included"
+        );
         // Chú thích Chụp cuộn nói rõ hình đánh dấu không đi kèm; các ô khác giữ nguyên chữ.
         assert_eq!(
             tip_text(Lang::Vi, BarItem::Act(Action::Scroll)),
@@ -9915,6 +10015,81 @@ mod tests {
                 .expect("đã kết thúc")
                 .expect("không phải Hủy");
             assert_eq!((r.action, r.rect), (Action::Scroll, SEL));
+        }
+
+        #[test]
+        fn ctrl_g_starts_gif_recording() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            {
+                let _ctrl = CtrlHeld::hold();
+                for steps in [false, true] {
+                    let mut s = state(&sh, Some(SEL));
+                    s.steps = steps;
+                    s.on_key(0x47, false);
+                    let r = s
+                        .result
+                        .take()
+                        .expect("đã kết thúc")
+                        .expect("không phải Hủy");
+                    assert_eq!((r.action, r.rect), (Action::RecordGif, SEL));
+                }
+                // Chưa có vùng chọn: không làm gì.
+                let mut s = state(&sh, None);
+                s.on_key(0x47, false);
+                assert!(s.result.is_none());
+            }
+            // G không Ctrl: không làm gì (không phải phím công cụ).
+            let mut s = state(&sh, Some(SEL));
+            s.on_key(0x47, false);
+            assert!(s.result.is_none());
+        }
+
+        #[test]
+        fn ctrl_g_while_typing_commits_text_then_records() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            let mut s = state(&sh, Some(SEL));
+            // Cửa sổ rỗng trong kiểm thử: không để việc đóng ô đăng ký Esc toàn cục cho luồng này.
+            s.esc_registered = true;
+            let mut b = TextBox::new(p(150, 120), 96, s.size, s.color);
+            b.edit.insert("hi");
+            s.text = Some(b);
+            let _ctrl = CtrlHeld::hold();
+            s.on_key(0x47, false);
+            assert!(s.text.is_none());
+            let r = s
+                .result
+                .take()
+                .expect("đã kết thúc")
+                .expect("không phải Hủy");
+            assert_eq!((r.action, r.rect), (Action::RecordGif, SEL));
+        }
+
+        /// Ô Ghi GIF của thanh ngang (có và không có phiên): bấm vào nó kết thúc bằng RecordGif.
+        #[test]
+        fn record_gif_button_finishes_with_record_gif() {
+            let _gdi = GDI_TEST_LOCK.lock();
+            let sh = shot(None);
+            for steps in [false, true] {
+                let mut s = state(&sh, Some(SEL));
+                s.steps = steps;
+                let (bar, dpi) = s.toolbar().unwrap();
+                assert_eq!((bar.w, bar.h), bar_layout_with(dpi, steps).size);
+                let r =
+                    bar_item_rect_with(bar, dpi, steps, BarItem::Act(Action::RecordGif)).unwrap();
+                let at = p(r.x + r.w / 2, r.y + r.h / 2);
+                assert_eq!(s.bar_item_at(at), Some(BarItem::Act(Action::RecordGif)));
+                s.on_move(at);
+                s.on_down(at);
+                s.on_up(at);
+                let res = s
+                    .result
+                    .take()
+                    .expect("đã kết thúc")
+                    .expect("không phải Hủy");
+                assert_eq!((res.action, res.rect), (Action::RecordGif, SEL));
+            }
         }
 
         /// Thanh ngang của trạng thái có ô Chụp cuộn (có và không có phiên); bấm vào nó kết thúc
