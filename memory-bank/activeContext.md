@@ -4,13 +4,26 @@ Cập nhật: 2026-11-18
 
 ## Đang ở đâu
 
+- **Đợt 14 (gia cố, không tính năng mới): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-polish-14-design.md`, gói `docs/tasks/96-polish-pin-ocr-undo.md`, quyết định 132. Giai đoạn 3 (Ghim, Lặp lại, OCR, Chụp từng bước, Chụp cuộn) đã xong ở đợt 9–13.
+- Phát hành: bản mới nhất vẫn v0.4.0; chủ dự án sẽ tự kiểm và phát hành sau (CHANGELOG "Chưa phát hành" đã có Mới + Sửa lỗi + Đã biết). Không tag khi chưa được yêu cầu.
+- Còn mở: checklist "Đợt 9"–"Đợt 14" (thử tay của chủ dự án); viên nhắc Bắt cửa sổ (quyết định 109).
+- Task đang làm: không.
+
+## Bước kế tiếp
+
+Không còn việc trong hàng đợi. Lỗi chủ dự án báo khi thử tay: nhánh `task/97-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới.
+
+## Lưu trữ: đợt 13 (đã gộp `main`)
+
+### Đang ở đâu (đợt 13)
+
 - **Giai đoạn 3, đợt 13 nội bộ: Chụp cuộn. XONG, đã gộp `main` và đẩy `origin` (quyết định 114).** Đây là tính năng cuối trong danh sách chủ dự án đề xuất (Ghim, Lặp lại, OCR, Chụp từng bước, Chụp cuộn): cả năm đã xong. Bản mới nhất vẫn v0.4.0; Lặp lại, OCR, Chụp từng bước, Chụp cuộn ở mục "Chưa phát hành".
 - Thiết kế `docs/superpowers/specs/2026-11-18-scroll-capture-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-scroll-capture.md`, gói `docs/tasks/89-…` đến `92-…` (Task 93, 94 không có gói, quyết định 125), quyết định 127–131. Demo: `scripts/demo-scroll.ps1` (build `--target-dir target/demo13`).
 - Còn mở: checklist "Đợt 9"–"Đợt 13" (đa số `[ ]`); đặc biệt Chụp cuộn trên trình duyệt/Word/PDF/Explorer thật, nhiều màn hình, DPI, Windows 10 trước 2004; hình thanh ngang mới trên website chưa ai xem tận mắt.
 - Cách làm: quyết định 114 (worktree; QA không giả lập đầu vào).
 - Task đang làm: không.
 
-## Bước kế tiếp
+### Bước kế tiếp (đợt 13, cũ)
 
 Không có đợt nào trong hàng đợi. Việc tiếp theo do chủ dự án quyết: phát hành 0.5.0 (CHANGELOG "Chưa phát hành" đã đủ), thử tay theo checklist, hoặc đợt mới (cần thiết kế mới, gói task từ số 95).
 

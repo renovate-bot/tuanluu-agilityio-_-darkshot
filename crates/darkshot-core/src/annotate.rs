@@ -696,18 +696,27 @@ impl Annotations {
         }
     }
 
+    /// Áp ngược mục cuối ngăn hoàn tác và chuyển nó sang ngăn làm lại. `apply` thất bại (sổ không
+    /// nhất quán): mục ở lại ngăn hoàn tác, ngăn làm lại không đổi, trả None.
     pub fn undo(&mut self) -> Option<Applied> {
         let edit = self.undo.pop()?;
-        let applied = self.apply(&edit, false);
+        let Some(applied) = self.apply(&edit, false) else {
+            self.undo.push(edit);
+            return None;
+        };
         self.redo.push(edit);
-        applied
+        Some(applied)
     }
 
+    /// Như `undo`, theo chiều thuận, từ ngăn làm lại sang ngăn hoàn tác.
     pub fn redo(&mut self) -> Option<Applied> {
         let edit = self.redo.pop()?;
-        let applied = self.apply(&edit, true);
+        let Some(applied) = self.apply(&edit, true) else {
+            self.redo.push(edit);
+            return None;
+        };
         self.undo.push(edit);
-        applied
+        Some(applied)
     }
 
     pub fn can_undo(&self) -> bool {
@@ -1517,6 +1526,55 @@ mod tests {
         }
         assert_eq!(a.redo(), None);
         assert_eq!(a.shapes(), &[sa, sb, sc]);
+    }
+
+    /// Sổ dựng tay không nhất quán: `apply` thất bại thì mục ở lại ngăn cũ, ngăn kia không đổi.
+    #[test]
+    fn undo_redo_failed_apply_keeps_stacks() {
+        let (sa, sb) = (line(1.0), line(2.0));
+        // Hoàn tác "thêm ở 5" khi chỉ có 1 hình: không gỡ được.
+        let mut a = Annotations {
+            shapes: vec![sa.clone()],
+            undo: vec![Edit::Add {
+                index: 5,
+                shape: sb.clone(),
+            }],
+            redo: vec![],
+        };
+        assert_eq!(a.undo(), None);
+        assert_eq!(a.undo.len(), 1);
+        assert!(a.can_undo() && !a.can_redo());
+        assert_eq!(a.shapes(), std::slice::from_ref(&sa));
+        // Làm lại "thêm ở 5": không chèn được.
+        let mut a = Annotations {
+            shapes: vec![sa.clone()],
+            undo: vec![],
+            redo: vec![Edit::Add {
+                index: 5,
+                shape: sb.clone(),
+            }],
+        };
+        assert_eq!(a.redo(), None);
+        assert_eq!(a.redo.len(), 1);
+        assert!(!a.can_undo() && a.can_redo());
+        assert_eq!(a.shapes(), std::slice::from_ref(&sa));
+        // Thay ở vị trí không có: cả hai chiều.
+        let mut a = Annotations {
+            shapes: vec![sa.clone()],
+            undo: vec![Edit::Replace {
+                index: 3,
+                before: sa.clone(),
+                after: sb.clone(),
+            }],
+            redo: vec![Edit::Remove {
+                index: 2,
+                shape: sb.clone(),
+            }],
+        };
+        assert_eq!(a.undo(), None);
+        assert_eq!(a.redo(), None);
+        assert_eq!((a.undo.len(), a.redo.len()), (1, 1));
+        assert_eq!(a.shapes(), &[sa]);
     }
 
     #[test]
