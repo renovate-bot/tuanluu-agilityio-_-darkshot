@@ -1382,11 +1382,17 @@ fn on_nc_destroy(hwnd: HWND) {
         let _ = KillTimer(Some(hwnd), BADGE_TIMER);
         ptr
     };
-    PINS.with(|v| {
-        if let Ok(mut v) = v.try_borrow_mut() {
+    // Còn lại bao nhiêu ảnh ghim; None khi sổ đang bị mượn (không đoán).
+    let left = PINS.with(|v| {
+        v.try_borrow_mut().ok().map(|mut v| {
             v.retain(|h| *h != hwnd);
-        }
+            v.len()
+        })
     });
+    // Ảnh ghim cuối cùng đóng (ngoài lúc mượn sổ): cửa sổ Chữ nhận dạng không cần nằm trên cùng nữa.
+    if left == Some(0) {
+        crate::ocr_window::drop_topmost();
+    }
     if !ptr.is_null() {
         // SAFETY: con trỏ do Box::into_raw trong `open`, vừa gỡ khỏi cửa sổ nên chỉ hủy một lần.
         drop(unsafe { Box::from_raw(ptr) });

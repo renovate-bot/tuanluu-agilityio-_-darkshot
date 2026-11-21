@@ -42,10 +42,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetNextDlgTabItem,
-    IsChild, IsDialogMessageW, IsWindow, LoadCursorW, PeekMessageW, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, BS_PUSHBUTTON, EN_KILLFOCUS,
-    EN_SETFOCUS, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL, ES_WANTRETURN, HMENU, IDC_ARROW,
-    MINMAXINFO, MSG, NONCLIENTMETRICSW, PM_REMOVE, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
+    GetWindowLongPtrW, IsChild, IsDialogMessageW, IsWindow, LoadCursorW, PeekMessageW,
+    RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
+    BS_PUSHBUTTON, EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL,
+    ES_WANTRETURN, GWL_EXSTYLE, HMENU, HWND_NOTOPMOST, IDC_ARROW, MINMAXINFO, MSG,
+    NONCLIENTMETRICSW, PM_REMOVE, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
     SWP_NOZORDER, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP,
     WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
     WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
@@ -392,6 +393,32 @@ pub fn close_all() {
         destroy(h);
     }
     prune();
+}
+
+/// Bỏ `WS_EX_TOPMOST` của mọi cửa sổ kết quả đang topmost (gọi khi ảnh ghim cuối cùng đóng: không
+/// còn gì để nằm trên). Không dời, không đổi cỡ, không kích hoạt cửa sổ.
+pub fn drop_topmost() {
+    let all: Vec<HWND> = WINS.with(|v| {
+        v.try_borrow()
+            .map(|v| v.iter().map(|w| w.hwnd).collect())
+            .unwrap_or_default()
+    });
+    for h in all {
+        // SAFETY: cửa sổ kết quả của luồng này; chỉ đọc kiểu và đổi thứ tự Z, ngoài lúc mượn sổ.
+        unsafe {
+            if GetWindowLongPtrW(h, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0 {
+                let _ = SetWindowPos(
+                    h,
+                    Some(HWND_NOTOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
+        }
+    }
 }
 
 fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> bool {
