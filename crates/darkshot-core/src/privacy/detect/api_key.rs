@@ -5,7 +5,7 @@ use super::{
     RawMatch,
 };
 use crate::privacy::model::{Category, Confidence, RuleId};
-use crate::privacy::text::is_token_char;
+use crate::privacy::text::{is_token_char, wipe_chars};
 
 pub struct ApiKey;
 
@@ -37,6 +37,15 @@ struct Prefix {
     body: fn(char) -> bool,
     len: Len,
     rule: RuleId,
+}
+
+impl Prefix {
+    /// Khóa có chữ hoa `I` mà OCR hay đọc thành `l`/`|` (AWS, GitHub `gh?_`): thử thêm trên bản
+    /// sao đã đổi `l`/`|` → `I`.
+    fn ocr_i(&self) -> bool {
+        matches!(self.rule, RuleId::ApiKeyAws)
+            || (self.rule == RuleId::ApiKeyGithub && self.p.len() == 4)
+    }
 }
 
 const PREFIXES: &[Prefix] = &[
@@ -198,6 +207,40 @@ fn sendgrid(c: &[char], i: usize) -> Option<usize> {
     (b == 43).then_some(a + 1 + b)
 }
 
+/// Khóa có tiền tố bắt đầu tại `i` trên `c`: vị trí cuối và luật. `only_ocr_i`: chỉ các tiền tố
+/// `ocr_i` (lượt trên bản sao đã đổi `l`/`|` → `I`). Biên phải đo trên `orig` (chữ thật).
+fn prefixed_at(c: &[char], orig: &[char], i: usize, only_ocr_i: bool) -> Option<(usize, RuleId)> {
+    for p in PREFIXES {
+        if (only_ocr_i && !p.ocr_i()) || !starts_with(c, i, p.p) {
+            continue;
+        }
+        let s = i + p.p.chars().count();
+        let n = run_len(c, s, p.body);
+        let ok = match p.len {
+            Len::Exact(k) => n == k,
+            Len::AtLeast(k) => n >= k,
+        };
+        let e = s + n;
+        if ok && orig.get(e).is_none_or(|&x| !alnum_us(x)) {
+            return Some((e, p.rule));
+        }
+    }
+    None
+}
+
+/// Bản sao cục bộ: `l`/`|` → `I` (nhầm OCR ở vị trí chữ hoa). Bên gọi ghi đè bản sao khi xong.
+fn ocr_i_copy(c: &[char]) -> Option<Vec<char>> {
+    if !c.iter().any(|&x| x == 'l' || x == '|') {
+        return None;
+    }
+    let mut v = Vec::with_capacity(c.len());
+    v.extend(
+        c.iter()
+            .map(|&x| if x == 'l' || x == '|' { 'I' } else { x }),
+    );
+    Some(v)
+}
+
 impl Detector for ApiKey {
     fn on_joined(&self) -> bool {
         true
@@ -205,6 +248,7 @@ impl Detector for ApiKey {
 
     fn scan(&self, ctx: &LineCtx<'_>, out: &mut Vec<RawMatch>) {
         let c = ctx.chars();
+        let mut fixed = ocr_i_copy(c);
         let mut i = 0;
         while i < c.len() {
             if i > 0 && alnum_us_dash(c[i - 1]) {
@@ -221,21 +265,11 @@ impl Detector for ApiKey {
                 }
             }
             if hit.is_none() {
-                for p in PREFIXES {
-                    if !starts_with(c, i, p.p) {
-                        continue;
-                    }
-                    let s = i + p.p.chars().count();
-                    let n = run_len(c, s, p.body);
-                    let ok = match p.len {
-                        Len::Exact(k) => n == k,
-                        Len::AtLeast(k) => n >= k,
-                    };
-                    let e = s + n;
-                    if ok && c.get(e).is_none_or(|&x| !alnum_us(x)) {
-                        hit = Some((e, p.rule));
-                        break;
-                    }
+                hit = prefixed_at(c, c, i, false);
+            }
+            if hit.is_none() {
+                if let Some(f) = &fixed {
+                    hit = prefixed_at(f, c, i, true);
                 }
             }
             match hit {
@@ -250,6 +284,9 @@ impl Detector for ApiKey {
                 }
                 None => i += 1,
             }
+        }
+        if let Some(f) = &mut fixed {
+            wipe_chars(f);
         }
         for (_, le) in find_labels(ctx.folded(), LABELS) {
             let Some(vs) = after_separator(c, le) else {

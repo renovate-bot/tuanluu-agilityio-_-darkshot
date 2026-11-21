@@ -95,10 +95,24 @@ fn read_groups(c: &[char], i: usize) -> (Vec<Group>, Vec<char>) {
                 seps.push(')');
                 j = k;
             }
+            // số 0 trung kế ngay sau mã nước: "+84(0)912345678"
+            _ if plus && groups.len() == 1 && trunk_at(c, k) && digit(k + 3) => {
+                seps.push('(');
+                j = k;
+            }
             _ => break,
         }
     }
+    // "(0)" ngay sau nhóm `+mã nước` là số trung kế: không tính chữ số của nó.
+    if groups.len() >= 2 && groups[0].plus && trunk_at(c, groups[1].s) {
+        groups[1].de = groups[1].ds;
+    }
     (groups, seps)
+}
+
+/// `(0)` tại `k`.
+fn trunk_at(c: &[char], k: usize) -> bool {
+    c.get(k..k + 3) == Some(&['(', '0', ')'])
 }
 
 fn value(c: &[char], g: &Group) -> u32 {

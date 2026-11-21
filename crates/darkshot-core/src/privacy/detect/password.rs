@@ -19,16 +19,36 @@ const LABELS: &[&str] = &[
     "pin",
 ];
 
-/// Tên biến `.env` chứa các chuỗi này ở bất kỳ đâu (`DBPASSWORD`, `PGPASSWORD`, `AWS_SECRETKEY`).
-const ENV_ANYWHERE: &[&str] = &["PASSWORD", "PASSWD", "PWD", "SECRET"];
+/// Tên biến `.env` chứa các chuỗi này ở bất kỳ đâu (`DBPASSWORD`, `PGPASSWORD`).
+const ENV_ANYWHERE: &[&str] = &["PASSWORD", "PASSWD", "PWD"];
 /// Tên kết thúc bằng các chuỗi này (`APIKEY`, `GITHUBTOKEN`).
 const ENV_SUFFIX: &[&str] = &["TOKEN", "APIKEY", "SECRETKEY", "PRIVATEKEY", "ACCESSKEY"];
 /// Một đoạn (tách theo `_`) đúng bằng các từ này (`API_KEY`, `GITHUB_TOKEN`).
 /// Không nhận `KEYBOARD`, `MONKEY`, `TOKENIZER`.
 const ENV_SEGMENT: &[&str] = &["TOKEN", "KEY"];
+/// Đoạn cuối `…KEY` có ≥ 3 chữ trước `KEY` (`MASTERKEY`, `SSHKEY`) là bí mật, trừ các từ thường này.
+const KEY_WORDS: &[&str] = &["MONKEY", "HOTKEY", "TURKEY", "DONKEY"];
+/// Tên chỉ thư mục làm việc của shell: giá trị là đường dẫn tuyệt đối thì không phải mật khẩu.
+const PWD_NAMES: &[&str] = &["PWD", "OLDPWD"];
 
 fn eq(a: &str, b: &[char]) -> bool {
     a.len() == b.len() && a.chars().zip(b).all(|(x, &y)| x == y)
+}
+
+/// `SECRET` là cả đoạn, hoặc theo sau là `_`, `KEY` hay hết tên (không nhận `SECRETARY`).
+fn has_secret(name: &[char]) -> bool {
+    const S: &str = "SECRET";
+    (0..name.len().saturating_sub(S.len() - 1)).any(|k| {
+        let rest = &name[k + S.len()..];
+        eq(S, &name[k..k + S.len()])
+            && (rest.is_empty() || rest[0] == '_' || rest.starts_with(&['K', 'E', 'Y']))
+    })
+}
+
+/// Đoạn cuối kết thúc bằng `KEY` sau ≥ 3 chữ, không phải từ thường (`MONKEY`, `HOTKEY`…).
+fn long_key_suffix(name: &[char]) -> bool {
+    let last = name.rsplit(|&x| x == '_').next().unwrap_or(name);
+    last.len() >= 6 && eq("KEY", &last[last.len() - 3..]) && !KEY_WORDS.iter().any(|w| eq(w, last))
 }
 
 /// Tên biến `.env` (chữ hoa, số, `_`) gợi ý bí mật.
@@ -36,12 +56,23 @@ fn secret_env_name(name: &[char]) -> bool {
     ENV_ANYWHERE
         .iter()
         .any(|k| name.windows(k.len()).any(|w| eq(k, w)))
+        || has_secret(name)
         || ENV_SUFFIX
             .iter()
             .any(|k| name.len() >= k.len() && eq(k, &name[name.len() - k.len()..]))
         || name
             .split(|&x| x == '_')
             .any(|seg| ENV_SEGMENT.iter().any(|k| eq(k, seg)))
+        || long_key_suffix(name)
+}
+
+/// Đường dẫn tuyệt đối: `/…`, `~/…`, `X:\…`, `X:/…`, `\\máy\…`.
+fn absolute_path(v: &[char]) -> bool {
+    match v {
+        ['/', ..] | ['~', '/' | '\\', ..] | ['\\', '\\', ..] => true,
+        [d, ':', '\\' | '/', ..] => d.is_ascii_alphabetic(),
+        _ => false,
+    }
 }
 
 const MAX_SPACED: usize = 64;
@@ -109,11 +140,16 @@ impl Password {
 impl Detector for Password {
     fn scan(&self, ctx: &LineCtx<'_>, out: &mut Vec<RawMatch>) {
         let c = ctx.chars();
-        for (_, le) in find_labels(ctx.folded(), LABELS) {
+        let folded = ctx.folded();
+        for (ls, le) in find_labels(folded, LABELS) {
             let Some(vs) = after_separator(c, le) else {
                 continue;
             };
             if vs >= c.len() || c[vs] == ' ' {
+                continue;
+            }
+            // `pwd: /home/x` là thư mục làm việc, không phải mật khẩu.
+            if eq("pwd", &folded[ls..le]) && absolute_path(&c[vs..]) {
                 continue;
             }
             let e = value_end(c, vs);
@@ -134,7 +170,8 @@ impl Detector for Password {
             let hit = c.get(i + n) == Some(&'=') && secret_env_name(name);
             if hit {
                 let vs = i + n + 1;
-                if vs < c.len() && c[vs] != ' ' {
+                let cwd = PWD_NAMES.iter().any(|k| eq(k, name)) && absolute_path(&c[vs..]);
+                if vs < c.len() && c[vs] != ' ' && !cwd {
                     let e = word_end(c, vs);
                     self.push(ctx, out, vs, e, RuleId::PasswordEnv);
                 }

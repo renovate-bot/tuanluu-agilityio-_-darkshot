@@ -35,12 +35,124 @@ $viPattern = '"[^"]*[\u00C0-\u024F\u1E00-\u1EFF][^"]*"'
 $hard = $false
 $root = (Get-Location).Path
 function Get-RelPath($f) { $f.FullName.Substring($root.Length + 1) }
-# Dung khi #[cfg(test)] o dong $i gan vao "mod ..." (dong khong rong ke tiep).
+# Dung khi dong $i bat dau bang #[cfg(test)] (khong phai chu thich "// #[cfg(test)]" hay "/// ...")
+# va gan vao "mod ..." hoac "pub(crate) mod ..." (dong khong rong ke tiep).
+$modLine = '^(\s*)(pub(\([a-z]+\))?\s+)?mod\s'
 function Test-TestMod($lines, [int]$i) {
-    if ($lines[$i] -notmatch '#\[cfg\(test\)\]') { return $false }
+    if ($lines[$i] -notmatch '^\s*#\[cfg\(test\)\]') { return $false }
     $j = $i + 1
     while ($j -lt $lines.Count -and $lines[$j].Trim() -eq '') { $j++ }
-    return ($j -lt $lines.Count -and $lines[$j] -match '^\s*mod\s')
+    return ($j -lt $lines.Count -and $lines[$j] -match $modLine)
+}
+# Tach mot file Rust thanh hai ban moi dong, mang trang thai chuoi qua cac dong:
+#   Code: bo chu thich // (ca /// va //!) nhung GIU noi dung chuoi ("https://..." khong bi cat);
+#   Bare: bo noi dung chuoi truoc ("..." -> "", 'x' -> ''), roi moi bo chu thich.
+# Nhan ra chuoi thuong (co \ thoat), chuoi tho r"..", r#".."#, b"..", br"..", ky tu 'x', '\n', '\u{..}'
+# va lifetime 'a. Ma hien khong co /* */; neu them thi phai mo rong ham nay.
+function Split-Rust([string[]]$lines) {
+    $code = New-Object string[] $lines.Count
+    $bare = New-Object string[] $lines.Count
+    $q = [char]34
+    $ap = [char]39
+    $bs = [char]92
+    $inStr = $false
+    $hashes = -1
+    $special = [char[]]@($q, $ap, [char]47)
+    for ($n = 0; $n -lt $lines.Count; $n++) {
+        $line = $lines[$n]
+        if (-not $inStr -and $line.IndexOfAny($special) -lt 0) {
+            $code[$n] = $line
+            $bare[$n] = $line
+            continue
+        }
+        $c = New-Object System.Text.StringBuilder
+        $b = New-Object System.Text.StringBuilder
+        $len = $line.Length
+        $i = 0
+        while ($i -lt $len) {
+            $ch = $line[$i]
+            if ($inStr) {
+                if ($hashes -lt 0 -and $ch -eq $bs) {
+                    [void]$c.Append($line, $i, [Math]::Min(2, $len - $i))
+                    $i += 2
+                    continue
+                }
+                if ($ch -eq $q) {
+                    $k = 0
+                    while ($k -lt $hashes -and ($i + 1 + $k) -lt $len -and $line[$i + 1 + $k] -eq '#') { $k++ }
+                    if ($hashes -le 0 -or $k -eq $hashes) {
+                        $close = $line.Substring($i, 1 + [Math]::Max(0, $hashes))
+                        [void]$c.Append($close)
+                        [void]$b.Append($close)
+                        $i += $close.Length
+                        $inStr = $false
+                        continue
+                    }
+                }
+                [void]$c.Append($ch)
+                $i++
+                continue
+            }
+            if ($ch -eq '/' -and ($i + 1) -lt $len -and $line[$i + 1] -eq '/') { break }
+            # Chuoi tho r"..", r#".."#, br"..": 'r' dung dau tu (hoac sau 'b' dung dau tu).
+            if ($ch -ceq 'r') {
+                $startOk = ($i -eq 0) -or ($line[$i - 1] -notmatch '[A-Za-z0-9_]') -or
+                    ($line[$i - 1] -ceq 'b' -and ($i -eq 1 -or $line[$i - 2] -notmatch '[A-Za-z0-9_]'))
+                $j = $i + 1
+                while ($j -lt $len -and $line[$j] -eq '#') { $j++ }
+                if ($startOk -and $j -lt $len -and $line[$j] -eq $q) {
+                    $open = $line.Substring($i, $j - $i + 1)
+                    [void]$c.Append($open)
+                    [void]$b.Append($open)
+                    $hashes = $j - $i - 1
+                    $inStr = $true
+                    $i = $j + 1
+                    continue
+                }
+            }
+            if ($ch -eq $q) {
+                [void]$c.Append($ch)
+                [void]$b.Append($ch)
+                $hashes = -1
+                $inStr = $true
+                $i++
+                continue
+            }
+            if ($ch -eq $ap) {
+                $end = -1
+                if (($i + 1) -lt $len -and $line[$i + 1] -eq $bs) {
+                    $end = $line.IndexOf($ap, [Math]::Min($i + 3, $len))
+                } elseif (($i + 2) -lt $len -and $line[$i + 2] -eq $ap) {
+                    $end = $i + 2
+                } elseif (($i + 3) -lt $len -and [char]::IsHighSurrogate($line[$i + 1]) -and $line[$i + 3] -eq $ap) {
+                    $end = $i + 3
+                }
+                if ($end -gt $i) {
+                    [void]$c.Append($line, $i, $end - $i + 1)
+                    [void]$b.Append([string]$ap + [string]$ap)
+                    $i = $end + 1
+                    continue
+                }
+            }
+            [void]$c.Append($ch)
+            [void]$b.Append($ch)
+            $i++
+        }
+        $code[$n] = $c.ToString()
+        $bare[$n] = $b.ToString()
+    }
+    return @{ Code = $code; Bare = $bare }
+}
+# Moi file nguon doc va tach mot lan, dung chung cho cac luat duoi.
+$parsed = @{}
+function Get-Parsed($file) {
+    $key = $file.FullName
+    if (-not $parsed.ContainsKey($key)) {
+        $lines = @(Get-Content -Encoding UTF8 -LiteralPath $key)
+        $sp = Split-Rust $lines
+        $parsed[$key] = @{ Lines = $lines; Code = $sp.Code; Bare = $sp.Bare }
+    }
+    return $parsed[$key]
 }
 # Quet de quy moi file .rs trong crates\*\src (ke ca thu muc con).
 $srcFiles = @(Get-ChildItem -Path 'crates' -Directory | ForEach-Object { Join-Path $_.FullName 'src' } |
@@ -52,13 +164,12 @@ if ($srcFiles.Count -eq 0) {
 }
 $srcFiles | Where-Object { $_.Name -ne 'i18n.rs' } | ForEach-Object {
     $file = $_
-    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName)
+    $p = Get-Parsed $file
+    $lines = $p.Lines
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $lineNo = $i + 1
-        $line = $lines[$i]
         if (Test-TestMod $lines $i) { break }
-        $code = $line -replace '//.*$', ''
-        if ($code -cmatch $viPattern) {
+        if ($p.Code[$i] -cmatch $viPattern) {
             Write-Host "CHECK FAILED: hard-coded string in $(Get-RelPath $file):$lineNo"
             $hard = $true
         }
@@ -77,7 +188,7 @@ function Get-TestMask($lines) {
         if (-not (Test-TestMod $lines $i)) { continue }
         $j = $i + 1
         while ($lines[$j].Trim() -eq '') { $j++ }
-        if ($lines[$j] -notmatch '^(\s*)mod\s+\w+\s*\{\s*$') { continue }
+        if ($lines[$j] -notmatch '^(\s*)(pub(\([a-z]+\))?\s+)?mod\s+\w+\s*\{\s*$') { continue }
         $close = $Matches[1] + '}'
         $k = $j + 1
         while ($k -lt $lines.Count -and $lines[$k].TrimEnd() -ne $close) { $k++ }
@@ -90,22 +201,67 @@ function Get-TestMask($lines) {
 $prepPattern = 'PreparedOutput::(unscanned|no_findings|reviewed_none|redacted|skipped_after_error)\b|PreparedOutput\s+as\b|<\s*PreparedOutput\s*>\s*::|PreparedOutput\s*::\s*$'
 $privDir = 'crates\darkshot-core\src\privacy\'
 $gateFile = 'crates\darkshot-windows\src\privacy_gate.rs'
+# Ngoai privacy\ (ke ca privacy_gate.rs): khong ten khac cho kieu (type X = PreparedOutput), khong
+# impl trait cho no (impl From<Image> for PreparedOutput se la ham tao vong qua cong).
+$prepAlias = '\btype\s+\w+(\s*<[^=]*>)?\s*=\s*(\w+\s*::\s*)*PreparedOutput\b|\bimpl\b.*\bfor\s+(\w+\s*::\s*)*PreparedOutput\b'
 $leak = $false
 foreach ($file in $srcFiles) {
     $rel = Get-RelPath $file
-    if ($rel.StartsWith($privDir) -or $rel -eq $gateFile) { continue }
-    $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName)
-    $mask = Get-TestMask $lines
-    for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($rel.StartsWith($privDir)) { continue }
+    $p = Get-Parsed $file
+    $mask = Get-TestMask $p.Lines
+    for ($i = 0; $i -lt $p.Lines.Count; $i++) {
         if ($mask[$i]) { continue }
-        $code = $lines[$i] -replace '//.*$', ''
-        if ($code -match $prepPattern) {
+        $code = $p.Bare[$i]
+        if ($rel -ne $gateFile -and $code -match $prepPattern) {
             Write-Host "CHECK FAILED: PreparedOutput constructor outside privacy gate in ${rel}:$($i + 1)"
+            $leak = $true
+        }
+        if ($code -match $prepAlias) {
+            Write-Host "CHECK FAILED: PreparedOutput alias or trait impl outside privacy in ${rel}:$($i + 1)"
             $leak = $true
         }
     }
 }
 if ($leak) { exit 1 }
+
+Write-Host '== raw image sinks'
+# Loi goi dua anh ra ngoai (clipboard, tep, R2, Lich su) chi o cac tep da ra soat; o do anh lay tu
+# PreparedOutput (main.rs: run_on_image / gate_output / save_pending_uploads; in ra duoi day de
+# nguoi ra soat doc). history_window.rs chi trong fn copy_prepared (nhanh dispatch cua cong) va
+# kiem thu. Tep khac: cam ca trong kiem thu.
+$sinkPattern = '\.set_image\s*\(|\brun_action\s*\(|\bspawn_upload\s*\(|\brecord_outcome(_arc)?\s*\(|\bencode_for_upload\s*\('
+$sinkDefinition = '\bfn\s+(set_image|run_action|spawn_upload|record_outcome(_arc)?|encode_for_upload)\b'
+$sinkFiles = @(
+    'crates\darkshot-core\src\actions.rs',
+    'crates\darkshot-core\src\image.rs',
+    'crates\darkshot-windows\src\clipboard.rs',
+    'crates\darkshot-windows\src\app.rs',
+    'crates\darkshot-windows\src\history_service.rs',
+    'crates\darkshot-windows\src\main.rs'
+)
+$historyWindow = 'crates\darkshot-windows\src\history_window.rs'
+$mainFile = 'crates\darkshot-windows\src\main.rs'
+$sinkBad = $false
+foreach ($file in $srcFiles) {
+    $rel = Get-RelPath $file
+    $p = Get-Parsed $file
+    $mask = Get-TestMask $p.Lines
+    $fn = ''
+    for ($i = 0; $i -lt $p.Lines.Count; $i++) {
+        $code = $p.Bare[$i]
+        if ($code -match '^\s*(pub(\([a-z]+\))?\s+)?(unsafe\s+)?fn\s+(\w+)') { $fn = $Matches[4] }
+        if ($code -notmatch $sinkPattern -or $code -match $sinkDefinition) { continue }
+        if ($sinkFiles -contains $rel) {
+            if ($rel -eq $mainFile -and -not $mask[$i]) { Write-Host "  main.rs:$($i + 1) in fn ${fn}: $($code.Trim())" }
+            continue
+        }
+        if ($rel -eq $historyWindow -and ($fn -eq 'copy_prepared' -or $mask[$i])) { continue }
+        Write-Host "CHECK FAILED: raw image sink outside reviewed files in ${rel}:$($i + 1)"
+        $sinkBad = $true
+    }
+}
+if ($sinkBad) { exit 1 }
 
 Write-Host '== no logging in privacy'
 # Ke ca trong mod tests: khong (e)print!/(e)println!/dbg! trong privacy\, privacy_gate.rs, review_window.rs.

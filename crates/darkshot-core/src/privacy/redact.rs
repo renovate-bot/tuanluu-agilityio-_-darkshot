@@ -582,6 +582,175 @@ mod tests {
         }
     }
 
+    // ---- Task 133: biên ảnh, nguồn trong suốt, khung cắt dở, ảnh lớn, mã hóa lại ----
+
+    #[test]
+    fn flatten_fully_transparent_source_becomes_opaque_black() {
+        let mut src = sample(24, 16);
+        for p in src.bgra.as_chunks_mut::<4>().0 {
+            p[3] = 0;
+        }
+        let rs = [rect(4, 4, 6, 6)];
+        let out = flatten(&src, &rs).unwrap();
+        for r in normalize(&rs, 24, 16) {
+            for y in r.y..r.bottom() {
+                for x in r.x..r.right() {
+                    assert_eq!(px(&out, x as u32, y as u32), BLACK);
+                }
+            }
+        }
+        assert_eq!(px(&out, 23, 15)[3], 0);
+        assert_flatten_matches(&src, &rs, &out);
+        // PNG bỏ alpha: vùng che vẫn đen, không lộ màu gốc dưới alpha 0.
+        let back = crate::thumb::decode_png(&encode_png(&out).unwrap()).unwrap();
+        for r in normalize(&rs, 24, 16) {
+            assert_eq!(px(&back, r.x as u32, r.y as u32), BLACK);
+        }
+    }
+
+    #[test]
+    fn flatten_rects_cut_at_each_edge() {
+        let (w, h) = (50u32, 40u32);
+        let src = sample(w, h);
+        let cases = [
+            rect(-8, 10, 12, 6),    // trái
+            rect(20, -9, 8, 12),    // trên
+            rect(44, 18, 20, 5),    // phải
+            rect(10, 37, 9, 30),    // dưới
+            rect(-5, -5, 10, 10),   // góc trên-trái
+            rect(45, 35, 30, 30),   // góc dưới-phải
+            rect(-100, 0, 1000, 1), // ngang cả ảnh
+        ];
+        for r in cases {
+            let out = flatten(&src, &[r]).unwrap();
+            assert_flatten_matches(&src, &[r], &out);
+            let n = normalize(&[r], w, h);
+            assert_eq!(n.len(), 1);
+            let n = n[0];
+            assert!(n.x >= 0 && n.y >= 0 && n.right() <= w as i32 && n.bottom() <= h as i32);
+            // phần trong ảnh của khung gốc (chưa nới) đều đen
+            let x0 = r.x.max(0);
+            let y0 = r.y.max(0);
+            let x1 = r.right().min(w as i32);
+            let y1 = r.bottom().min(h as i32);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    assert_eq!(px(&out, x as u32, y as u32), BLACK);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn flatten_image_border_rows_and_columns() {
+        let (w, h) = (30u32, 20u32);
+        let src = sample(w, h);
+        let rs = [
+            rect(0, 0, 30, 1),
+            rect(0, 19, 30, 1),
+            rect(0, 0, 1, 20),
+            rect(29, 0, 1, 20),
+        ];
+        let out = flatten(&src, &rs).unwrap();
+        assert_flatten_matches(&src, &rs, &out);
+        for x in 0..w {
+            assert_eq!(px(&out, x, 0), BLACK);
+            assert_eq!(px(&out, x, h - 1), BLACK);
+        }
+        for y in 0..h {
+            assert_eq!(px(&out, 0, y), BLACK);
+            assert_eq!(px(&out, w - 1, y), BLACK);
+        }
+    }
+
+    #[test]
+    fn png_reencode_cycle_keeps_redaction_black() {
+        let src = sample(64, 48);
+        let rs = [rect(6, 6, 20, 8), rect(30, 30, 25, 10)];
+        let norm = normalize(&rs, 64, 48);
+        let mut img = flatten(&src, &rs).unwrap();
+        for _ in 0..3 {
+            let bytes = encode_png(&img).unwrap();
+            for bad in [b"tEXt", b"iTXt", b"zTXt", b"eXIf"] {
+                assert!(!png_chunks(&bytes).contains(bad));
+            }
+            img = crate::thumb::decode_png(&bytes).unwrap();
+            for y in 0..48u32 {
+                for x in 0..64u32 {
+                    if inside(&norm, x, y) {
+                        assert_eq!(px(&img, x, y), BLACK, "({x},{y})");
+                    }
+                }
+            }
+        }
+        // giải mã lại rồi mã hóa lại ra cùng byte (không có gì cộng dồn)
+        let a = encode_png(&img).unwrap();
+        let b = encode_png(&crate::thumb::decode_png(&a).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn flatten_4k_image_matches_reference_on_sampled_pixels() {
+        let (w, h) = (3840u32, 2160u32);
+        let src = sample(w, h);
+        let mut rng = Rng(0x1337);
+        let rs: Vec<Rect> = (0..200)
+            .map(|_| {
+                rect(
+                    rng.range(-50, 3900),
+                    rng.range(-50, 2200),
+                    rng.range(1, 300),
+                    rng.range(1, 60),
+                )
+            })
+            .collect();
+        let out = flatten(&src, &rs).unwrap();
+        let norm = normalize(&rs, w, h);
+        for _ in 0..200_000 {
+            let x = rng.range(0, w as i32) as u32;
+            let y = rng.range(0, h as i32) as u32;
+            if inside(&norm, x, y) {
+                assert_eq!(px(&out, x, y), BLACK);
+            } else {
+                assert_eq!(px(&out, x, y), px(&src, x, y));
+            }
+        }
+        for r in &norm {
+            for (x, y) in [
+                (r.x, r.y),
+                (r.right() - 1, r.y),
+                (r.x, r.bottom() - 1),
+                (r.right() - 1, r.bottom() - 1),
+            ] {
+                assert_eq!(px(&out, x as u32, y as u32), BLACK);
+            }
+        }
+    }
+
+    #[test]
+    fn jpeg_bytes_do_not_depend_on_covered_pixels() {
+        // Hai ảnh chỉ khác nhau trong vùng che → cùng byte PNG/JPEG sau khi làm phẳng.
+        let a = sample(96, 64);
+        let mut b = a.clone();
+        let rs = [rect(10, 10, 30, 12), rect(50, 30, 20, 20)];
+        let norm = normalize(&rs, 96, 64);
+        for y in 0..64u32 {
+            for x in 0..96u32 {
+                if inside(&norm, x, y) {
+                    let i = (y as usize * 96 + x as usize) * 4;
+                    b.bgra[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+                }
+            }
+        }
+        assert_ne!(a, b);
+        let (fa, fb) = (flatten(&a, &rs).unwrap(), flatten(&b, &rs).unwrap());
+        assert_eq!(fa, fb);
+        assert_eq!(encode_png(&fa).unwrap(), encode_png(&fb).unwrap());
+        for q in [90, 50] {
+            assert_eq!(encode_jpeg(&fa, q).unwrap(), encode_jpeg(&fb, q).unwrap());
+        }
+    }
+
     /// Ảnh lớn tổng hợp 8000×20000 (~640 MB mỗi bản). Chạy tay:
     /// `cargo test -p darkshot-core --release -- --ignored flatten_large_image`.
     #[test]

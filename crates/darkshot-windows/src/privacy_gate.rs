@@ -3027,4 +3027,113 @@ mod tests {
         assert_eq!(got(), 1);
         assert!(GOT.with(|g| g.borrow()[0].0 == Msg::PrivacyActionSave));
     }
+
+    // ---- Task 133: JPEG đã che, giải mã bằng bộ giải mã ảnh của Windows ----
+
+    /// Giải mã JPEG bằng `Windows.Graphics.Imaging.BitmapDecoder` (WinRT, dựa trên WIC) ra BGRA.
+    fn decode_jpeg_winrt(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+        use windows::Graphics::Imaging::{
+            BitmapAlphaMode, BitmapDecoder, BitmapPixelFormat, BitmapTransform,
+            ColorManagementMode, ExifOrientationMode,
+        };
+        use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
+        let stream = InMemoryRandomAccessStream::new().unwrap();
+        let writer = DataWriter::CreateDataWriter(&stream).unwrap();
+        writer.WriteBytes(bytes).unwrap();
+        writer.StoreAsync().unwrap().join().unwrap();
+        writer.DetachStream().unwrap();
+        stream.Seek(0).unwrap();
+        let dec = BitmapDecoder::CreateAsync(&stream).unwrap().join().unwrap();
+        let (w, h) = (dec.PixelWidth().unwrap(), dec.PixelHeight().unwrap());
+        let data = dec
+            .GetPixelDataTransformedAsync(
+                BitmapPixelFormat::Bgra8,
+                BitmapAlphaMode::Ignore,
+                &BitmapTransform::new().unwrap(),
+                ExifOrientationMode::IgnoreExifOrientation,
+                ColorManagementMode::DoNotColorManage,
+            )
+            .unwrap()
+            .join()
+            .unwrap()
+            .DetachPixelData()
+            .unwrap();
+        (w, h, data.to_vec())
+    }
+
+    /// Ảnh giống chữ: nền trắng, nét đen 2 px, độ tương phản cao nhất (JPEG dễ lan nhiễu nhất).
+    fn texty(w: u32, h: u32) -> Image {
+        let mut bgra = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let ink = (x % 7 < 2 && y % 20 < 14) || (y % 20 == 6 && x % 13 < 9);
+                let v = if ink { 0 } else { 255 };
+                bgra.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    #[test]
+    fn jpeg_redaction_stays_black_after_windows_decode() {
+        use darkshot_core::privacy::redact::{flatten, normalize};
+        use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
+        // SAFETY: vào MTA cho luồng kiểm thử; cặp với CoUninitialize ở cuối (mọi đối tượng WinRT
+        // đã được thả trong `decode_jpeg_winrt`).
+        let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        assert!(hr.is_ok());
+        let (w, h) = (320u32, 200u32);
+        let src = texty(w, h);
+        let rs = [
+            Rect {
+                x: 20,
+                y: 20,
+                w: 120,
+                h: 14,
+            },
+            Rect {
+                x: 150,
+                y: 90,
+                w: 140,
+                h: 30,
+            },
+            Rect {
+                x: 3,
+                y: 170,
+                w: 60,
+                h: 20,
+            },
+        ];
+        let out = flatten(&src, &rs).unwrap();
+        let norm = normalize(&rs, w, h);
+        let mut worst = [[0u8; 3]; 2];
+        for (qi, q) in [90u8, 50].into_iter().enumerate() {
+            let bytes = darkshot_core::image::encode_jpeg(&out, q).unwrap();
+            let (dw, dh, px) = decode_jpeg_winrt(&bytes);
+            assert_eq!((dw, dh), (w, h));
+            for (ii, inset) in [4, 8, 12].into_iter().enumerate() {
+                for r in &norm {
+                    for y in (r.y + inset)..(r.bottom() - inset) {
+                        for x in (r.x + inset)..(r.right() - inset) {
+                            let i = ((y as u32 * w + x as u32) * 4) as usize;
+                            let m = px[i].max(px[i + 1]).max(px[i + 2]);
+                            worst[qi][ii] = worst[qi][ii].max(m);
+                        }
+                    }
+                }
+            }
+        }
+        // SAFETY: cặp với CoInitializeEx thành công ở trên.
+        unsafe { CoUninitialize() };
+        // Đo lúc viết: q90 [7, 0, 0], q50 [26, 0, 0]. Mép trong 4 px ở q50 có nhiễu nén từ nền trắng
+        // bên ngoài cùng khối 8×8 (không phải chữ đã che: bytes không phụ thuộc phần bị che, xem
+        // `redact::tests::jpeg_bytes_do_not_depend_on_covered_pixels`).
+        assert!(worst[0][0] <= 8, "q90 inset 4: {worst:?}");
+        assert!(worst[0][1] <= 8 && worst[1][1] <= 8, "inset 8: {worst:?}");
+        assert!(worst[1][0] <= 32, "q50 inset 4: {worst:?}");
+    }
 }
