@@ -271,6 +271,12 @@ pub struct Config {
     pub history_enabled: bool,
     /// Gợi ý khung cửa sổ/màn hình khi chọn vùng; mặc định bật.
     pub snap_windows: bool,
+    /// Cửa sổ OCR: gộp thành một dòng; mặc định tắt.
+    pub ocr_single_line: bool,
+    /// Cửa sổ OCR: tách đoạn; mặc định tắt.
+    pub ocr_paragraphs: bool,
+    /// Cửa sổ OCR: tự chép khi xong; mặc định tắt.
+    pub ocr_auto_copy: bool,
 }
 
 impl Config {
@@ -292,6 +298,9 @@ impl Config {
             update_notified: None,
             history_enabled: false,
             snap_windows: true,
+            ocr_single_line: false,
+            ocr_paragraphs: false,
+            ocr_auto_copy: false,
         }
     }
 }
@@ -404,6 +413,9 @@ struct FileConfig {
     update_notified: serde_json::Value,
     history_enabled: serde_json::Value,
     snap_windows: serde_json::Value,
+    ocr_single_line: serde_json::Value,
+    ocr_paragraphs: serde_json::Value,
+    ocr_auto_copy: serde_json::Value,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -429,6 +441,9 @@ impl Default for FileConfig {
             update_notified: serde_json::Value::Null,
             history_enabled: serde_json::Value::Bool(false),
             snap_windows: serde_json::Value::Bool(true),
+            ocr_single_line: serde_json::Value::Bool(false),
+            ocr_paragraphs: serde_json::Value::Bool(false),
+            ocr_auto_copy: serde_json::Value::Bool(false),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -542,6 +557,9 @@ pub fn load(
         update_notified: f.update_notified.as_str().and_then(Version::parse),
         history_enabled: f.history_enabled.as_bool().unwrap_or(false),
         snap_windows: f.snap_windows.as_bool().unwrap_or(true),
+        ocr_single_line: f.ocr_single_line.as_bool().unwrap_or(false),
+        ocr_paragraphs: f.ocr_paragraphs.as_bool().unwrap_or(false),
+        ocr_auto_copy: f.ocr_auto_copy.as_bool().unwrap_or(false),
     };
     Ok(Loaded {
         config,
@@ -591,6 +609,9 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         },
         history_enabled: serde_json::Value::Bool(cfg.history_enabled),
         snap_windows: serde_json::Value::Bool(cfg.snap_windows),
+        ocr_single_line: serde_json::Value::Bool(cfg.ocr_single_line),
+        ocr_paragraphs: serde_json::Value::Bool(cfg.ocr_paragraphs),
+        ocr_auto_copy: serde_json::Value::Bool(cfg.ocr_auto_copy),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
@@ -1446,10 +1467,56 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(after["history_enabled"], false);
         after.as_object_mut().unwrap().remove("history_enabled");
+        for k in ["ocr_single_line", "ocr_paragraphs", "ocr_auto_copy"] {
+            assert_eq!(after[k], false, "{k}");
+            after.as_object_mut().unwrap().remove(k);
+        }
         assert_eq!(after["snap_windows"], true);
         after.as_object_mut().unwrap().remove("snap_windows");
         assert_eq!(after["hotkey_repeat_last"]["enabled"], false);
         after.as_object_mut().unwrap().remove("hotkey_repeat_last");
         assert_eq!(after, before);
+    }
+
+    #[test]
+    fn ocr_switches_round_trip_and_default_false() {
+        let d = Config::defaults(Path::new("C:/pics"), Lang::Vi);
+        assert!(!d.ocr_single_line && !d.ocr_paragraphs && !d.ocr_auto_copy);
+        for key in ["ocr_single_line", "ocr_paragraphs", "ocr_auto_copy"] {
+            for on in [true, false] {
+                let path = temp_dir().join("config.json");
+                let mut c = sample();
+                match key {
+                    "ocr_single_line" => c.ocr_single_line = on,
+                    "ocr_paragraphs" => c.ocr_paragraphs = on,
+                    _ => c.ocr_auto_copy = on,
+                }
+                save(&path, &c, &XorStore).unwrap();
+                let v: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                assert_eq!(v[key], on, "{key}");
+                let l = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap();
+                assert_eq!(l.config, c, "{key}");
+            }
+        }
+    }
+
+    #[test]
+    fn ocr_switches_missing_or_wrong_type_is_false_and_independent() {
+        let l = load_text(r#"{"language":"vi"}"#).config;
+        assert!(!l.ocr_single_line && !l.ocr_paragraphs && !l.ocr_auto_copy);
+        for key in ["ocr_single_line", "ocr_paragraphs", "ocr_auto_copy"] {
+            for bad in ["\"yes\"", "1", "null", "[true]"] {
+                let c = load_text(&format!("{{\"{key}\":{bad}}}")).config;
+                assert!(
+                    !c.ocr_single_line && !c.ocr_paragraphs && !c.ocr_auto_copy,
+                    "{key} {bad}"
+                );
+            }
+        }
+        let c = load_text(r#"{"ocr_paragraphs":true}"#).config;
+        assert!(!c.ocr_single_line && c.ocr_paragraphs && !c.ocr_auto_copy);
+        let c = load_text(r#"{"ocr_auto_copy":true,"ocr_single_line":true}"#).config;
+        assert!(c.ocr_single_line && !c.ocr_paragraphs && c.ocr_auto_copy);
     }
 }

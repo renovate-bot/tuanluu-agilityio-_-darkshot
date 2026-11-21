@@ -372,6 +372,15 @@ messages! {
     ),
     OcrFailed => ("Không nhận dạng được chữ. Thử lại.", "Couldn't recognize text. Try again."),
     OcrCopy => ("Chép", "Copy"),
+    OcrCopyAll => ("Chép tất cả", "Copy all"),
+    OcrSingleLine => ("Gộp thành một dòng", "Single line"),
+    OcrParagraphs => ("Tách đoạn", "Separate paragraphs"),
+    OcrAutoCopy => ("Tự chép khi xong", "Copy automatically when done"),
+    OcrPickHint => (
+        "Bấm khung để chép dòng · Ctrl+bấm để chọn nhiều dòng",
+        "Click a box to copy the line · Ctrl+click to pick several lines"
+    ),
+    OcrCopiedTip => ("Đã chép", "Copied"),
     OcrClose => ("Đóng", "Close"),
     OcrCopiedTitle => ("Đã chép chữ", "Text copied"),
     OcrCopyFailedTitle => ("Không chép được chữ", "Couldn't copy the text"),
@@ -1694,5 +1703,37 @@ mod tests {
             assert!(h.contains(t(l, Msg::TrayStepsStart)), "{l:?}");
             assert!(h.contains("Ctrl+N"), "{l:?}");
         }
+    }
+
+    #[test]
+    fn ocr_pro_strings_present_in_both_languages() {
+        for m in [
+            Msg::OcrCopyAll,
+            Msg::OcrSingleLine,
+            Msg::OcrParagraphs,
+            Msg::OcrAutoCopy,
+            Msg::OcrPickHint,
+            Msg::OcrCopiedTip,
+        ] {
+            for l in Lang::ALL {
+                assert!(!t(l, m).trim().is_empty(), "{m:?} {l:?}");
+            }
+        }
+        assert_eq!(t(Lang::Vi, Msg::OcrCopyAll), "Chép tất cả");
+        assert_eq!(t(Lang::En, Msg::OcrCopiedTip), "Copied");
+    }
+
+    #[test]
+    fn help_text_mentions_ocr_pick_and_vietnamese_caveat() {
+        let vi = help_text(Lang::Vi, &HelpKeys::default());
+        let en = help_text(Lang::En, &HelpKeys::default());
+        assert!(vi.contains("Ctrl+bấm"));
+        assert!(
+            vi.contains("Windows chưa có bộ nhận dạng tiếng Việt, chữ có dấu có thể bị mất dấu.")
+        );
+        assert!(en.contains("Ctrl+click"));
+        assert!(en.contains(
+            "Windows has no Vietnamese text recognizer yet, so accented letters may lose their marks."
+        ));
     }
 }
