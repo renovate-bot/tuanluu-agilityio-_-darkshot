@@ -22,6 +22,7 @@ mod overlay;
 mod paths;
 mod pin;
 mod record_session;
+mod review_window;
 mod scroll_result;
 mod scroll_session;
 mod secret;
@@ -2166,6 +2167,7 @@ fn main() {
                 || ocr_window::pre_translate(&msg)
                 || steps_window::pre_translate(&msg)
                 || scroll_result::pre_translate(&msg)
+                || review_window::pre_translate(&msg)
             {
                 continue;
             }

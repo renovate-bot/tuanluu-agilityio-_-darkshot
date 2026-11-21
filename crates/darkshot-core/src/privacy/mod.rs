@@ -4,6 +4,7 @@
 pub mod detect;
 pub mod geom;
 pub mod model;
+pub mod review;
 pub mod text;
 
 pub use detect::{Detector, LineCtx, RawMatch, Span};
@@ -12,6 +13,7 @@ pub use model::{
     Category, Confidence, Finding, Mapping, Redaction, RedactionPlan, RedactionSource, RuleId,
     ScanError, ScanReport,
 };
+pub use review::{Confirm, ReviewModel, ReviewOutcome, ReviewPhase};
 
 use crate::ocr_text::OcrLine;
 use text::LineText;
