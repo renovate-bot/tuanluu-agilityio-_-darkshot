@@ -442,6 +442,9 @@ messages! {
         "Export or end the session to capture more."
     ),
     StepsExportFailedTitle => ("Không xuất được các bước", "Couldn't export the steps"),
+    StepsExportCancelledTitle => ("Đã hủy xuất", "Export cancelled"),
+    StepsExportCancelledBody => ("Chưa có tệp nào được tạo.", "No files were created."),
+    StepsImageUnreadable => ("Không đọc được ảnh của bước.", "Couldn't read the step image."),
     StepsStartFailedTitle => (
         "Không bắt đầu được phiên chụp từng bước",
         "Couldn't start step capture"
@@ -482,6 +485,7 @@ messages! {
     OverlayRecordGif => ("Ghi GIF (Ctrl+G)", "Record GIF (Ctrl+G)"),
     RecordStatus => ("Đang ghi", "Recording"),
     RecordSaving => ("Đang lưu…", "Saving…"),
+    RecordNotScanned => ("GIF không được quét", "GIF is not scanned"),
     RecordStop => ("Dừng", "Stop"),
     RecordCancel => ("Hủy", "Cancel"),
     RecordSavedTitle => ("Đã lưu GIF", "GIF saved"),
@@ -591,6 +595,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::OcrCopyFailedTitle,
     Msg::StepsFullTitle,
     Msg::StepsExportFailedTitle,
+    Msg::StepsExportCancelledTitle,
     Msg::StepsStartFailedTitle,
     Msg::StepsSessionSaveFailedTitle,
     Msg::StepsEndFailedTitle,
@@ -1911,6 +1916,26 @@ mod tests {
             ),
             (Msg::RecordStatus, "Đang ghi", "Recording"),
             (Msg::RecordSaving, "Đang lưu…", "Saving…"),
+            (
+                Msg::RecordNotScanned,
+                "GIF không được quét",
+                "GIF is not scanned",
+            ),
+            (
+                Msg::StepsExportCancelledTitle,
+                "Đã hủy xuất",
+                "Export cancelled",
+            ),
+            (
+                Msg::StepsExportCancelledBody,
+                "Chưa có tệp nào được tạo.",
+                "No files were created.",
+            ),
+            (
+                Msg::StepsImageUnreadable,
+                "Không đọc được ảnh của bước.",
+                "Couldn't read the step image.",
+            ),
             (Msg::RecordStop, "Dừng", "Stop"),
             (Msg::RecordCancel, "Hủy", "Cancel"),
             (Msg::RecordSavedTitle, "Đã lưu GIF", "GIF saved"),

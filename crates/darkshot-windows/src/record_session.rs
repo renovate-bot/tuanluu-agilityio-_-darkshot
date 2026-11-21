@@ -1,5 +1,6 @@
 //! Phiên ghi GIF: khung vùng (bốn cửa sổ mảnh), thanh ghi nổi `● Đang ghi 00:05 / 01:00  [Dừng]
-//! [Hủy]`, bộ ghi `darkshot_core::gif_record::Recorder` chạy trên luồng nền.
+//! [Hủy]`, bộ ghi `darkshot_core::gif_record::Recorder` chạy trên luồng nền. Privacy Shield bật lúc
+//! bắt đầu ghi: thanh có thêm dòng mờ "GIF không được quét" (GIF không đi qua cổng xuất).
 //!
 //! Mọi cửa sổ của phiên luôn trên cùng, không lấy tiêu điểm, loại khỏi ảnh chụp
 //! (`WDA_EXCLUDEFROMCAPTURE`). Windows cũ hơn 2004 (không loại được): không vẽ khung, thanh đặt
@@ -129,13 +130,19 @@ impl BarButton {
 const BUTTONS: [BarButton; 2] = [BarButton::Stop, BarButton::Cancel];
 
 /// Bề rộng chữ đã đo (pixel): trạng thái (chỗ cho chữ dài hơn trong "Đang ghi"/"Đang lưu…"),
-/// thời gian (chỗ cho chuỗi rộng nhất), nhãn hai nút; chiều cao dòng.
+/// thời gian (chỗ cho chuỗi rộng nhất), nhãn hai nút, dòng "GIF không được quét"; chiều cao dòng.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Texts {
     status: i32,
     time: i32,
     buttons: [i32; 2],
+    note: i32,
     line: i32,
+}
+
+/// Dòng báo GIF không được Privacy Shield quét.
+fn note_label(lang: Lang) -> Vec<u16> {
+    wide(darkshot_core::i18n::t(lang, Msg::RecordNotScanned))
 }
 
 /// Các chuỗi của thanh ở ngôn ngữ `lang`: trạng thái ghi, trạng thái lưu, nhãn hai nút.
@@ -157,15 +164,17 @@ fn time_samples() -> Vec<Vec<u16>> {
 /// Bề rộng chữ của thanh ở ngôn ngữ `lang`, đo bằng `measure` (bề rộng, chiều cao mỗi chuỗi).
 fn measure_texts(lang: Lang, measure: impl Fn(&[&[u16]]) -> Vec<(i32, i32)>) -> Texts {
     let (status, buttons) = labels(lang);
+    let note = note_label(lang);
     let times = time_samples();
-    let mut parts: Vec<&[u16]> = vec![&status[0], &status[1], &buttons[0], &buttons[1]];
+    let mut parts: Vec<&[u16]> = vec![&status[0], &status[1], &buttons[0], &buttons[1], &note];
     parts.extend(times.iter().map(|t| t.as_slice()));
     let m = measure(&parts);
     let w = |i: usize| m.get(i).map_or(0, |x| x.0);
     Texts {
         status: w(0).max(w(1)),
-        time: (4..parts.len()).map(w).max().unwrap_or(0),
+        time: (5..parts.len()).map(w).max().unwrap_or(0),
         buttons: [w(2), w(3)],
+        note: w(4),
         line: m.iter().map(|x| x.1).max().unwrap_or(0),
     }
 }
@@ -178,10 +187,17 @@ struct Layout {
     status: Rect,
     time: Rect,
     buttons: [Rect; 2],
+    /// Dòng "GIF không được quét" (chỉ khi Privacy Shield bật lúc bắt đầu ghi).
+    note: Option<Rect>,
 }
 
-/// Chấm đỏ, trạng thái, thời gian, hai nút xếp ngang, căn giữa theo chiều dọc.
-fn layout(dpi: u32, t: &Texts) -> Layout {
+/// Khoảng hở giữa hàng chính và dòng ghi chú, và lề dưới của dòng ghi chú (DIP).
+const NOTE_GAP: i32 = 2;
+const NOTE_PAD: i32 = 6;
+
+/// Chấm đỏ, trạng thái, thời gian, hai nút xếp ngang, căn giữa theo chiều dọc. `note`: thêm một
+/// dòng ghi chú dưới hàng đó, thẳng cột với chữ trạng thái (thanh cao thêm đúng một dòng chữ).
+fn layout(dpi: u32, t: &Texts, note: bool) -> Layout {
     let k = |v: i32| scale(v, dpi);
     let h = k(BAR_H).max(t.line + 2 * k(8));
     let btn_h = k(BTN_H).max(t.line + k(8));
@@ -227,12 +243,26 @@ fn layout(dpi: u32, t: &Texts) -> Layout {
         };
         x += w;
     }
+    let mut size = (x + k(PAD), h);
+    let note = note.then(|| {
+        // Hàng chính giữ nguyên chỗ; dòng ghi chú nằm sát dưới nút.
+        let y = (h + btn_h) / 2 + k(NOTE_GAP);
+        let r = Rect {
+            x: status.x,
+            y,
+            w: t.note,
+            h: t.line,
+        };
+        size = (size.0.max(r.right() + k(PAD)), y + t.line + k(NOTE_PAD));
+        r
+    });
     Layout {
-        size: (x + k(PAD), h),
+        size,
         dot,
         status,
         time,
         buttons,
+        note,
     }
 }
 
@@ -255,6 +285,8 @@ struct BarUi {
     status: [Vec<u16>; 2],
     time: Vec<u16>,
     labels: [Vec<u16>; 2],
+    /// "GIF không được quét" khi Privacy Shield bật lúc bắt đầu ghi.
+    note: Option<Vec<u16>>,
     layout: Layout,
     hover: Option<BarButton>,
     pressed: Option<BarButton>,
@@ -273,8 +305,9 @@ impl Drop for BarUi {
     }
 }
 
-/// Chữ, phông và bố cục ở `dpi`, ngôn ngữ hiện tại; thời gian `elapsed_ms`.
-fn build_ui(dpi: u32, elapsed_ms: u64) -> BarUi {
+/// Chữ, phông và bố cục ở `dpi`, ngôn ngữ hiện tại; thời gian `elapsed_ms`; `shielded`: hiện dòng
+/// "GIF không được quét".
+fn build_ui(dpi: u32, elapsed_ms: u64, shielded: bool) -> BarUi {
     let font = system_font(dpi);
     let lang = lang::current();
     let texts = measure_texts(lang, |parts| scroll_session::measure(font, parts));
@@ -285,7 +318,8 @@ fn build_ui(dpi: u32, elapsed_ms: u64) -> BarUi {
         status,
         time: wide(&time_text(elapsed_ms, gif_record::MAX_DURATION_MS)),
         labels,
-        layout: layout(dpi, &texts),
+        note: shielded.then(|| note_label(lang)),
+        layout: layout(dpi, &texts, shielded),
         hover: None,
         pressed: None,
         tracking: false,
@@ -483,7 +517,7 @@ fn place_ui(region: Rect, ui: BarUi, excluded: bool, elapsed_ms: u64) -> Option<
     if dpi == ui.dpi {
         return Some((at, ui));
     }
-    let other = build_ui(dpi, elapsed_ms);
+    let other = build_ui(dpi, elapsed_ms, ui.note.is_some());
     match place(region, other.layout.size, dpi, excluded) {
         Some(p) => Some((p, other)),
         None => Some((at, ui)),
@@ -492,8 +526,13 @@ fn place_ui(region: Rect, ui: BarUi, excluded: bool, elapsed_ms: u64) -> Option<
 
 /// Thanh ở chỗ hợp lệ, cùng chữ và bố cục theo DPI của màn hình chứa nó, và cờ đang loại khỏi ảnh
 /// chụp; `None` khi không có chỗ nào ngoài vùng (không loại được) hoặc lỗi tạo.
-fn create_bar(region: Rect, dpi: u32, supported: bool) -> Option<(HWND, BarUi, bool)> {
-    let (at, ui) = place_ui(region, build_ui(dpi, 0), supported, 0)?;
+fn create_bar(
+    region: Rect,
+    dpi: u32,
+    supported: bool,
+    shielded: bool,
+) -> Option<(HWND, BarUi, bool)> {
+    let (at, ui) = place_ui(region, build_ui(dpi, 0, shielded), supported, 0)?;
     let size = ui.layout.size;
     let ex = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
     let r = Rect {
@@ -556,7 +595,9 @@ pub fn start(region: Rect, save_dir: PathBuf) -> Result<(), StartError> {
     };
     let supported = scroll_session::exclude_supported(scroll_session::os_build());
     let dpi = scroll_session::placement(region).dpi;
-    let Some((bar, ui, bar_excluded)) = create_bar(region, dpi, supported) else {
+    // Privacy Shield không quét GIF: báo trên thanh khi Shield bật lúc bắt đầu ghi.
+    let shielded = crate::privacy_gate::enabled();
+    let Some((bar, ui, bar_excluded)) = create_bar(region, dpi, supported, shielded) else {
         destroy(host);
         return Err(StartError::NoRoom);
     };
@@ -738,19 +779,20 @@ pub fn relabel() {
 /// Dựng lại chữ, phông và bố cục của thanh ở `dpi` (hoặc DPI của màn hình chứa vùng), đặt lại thanh
 /// và khung theo vùng.
 fn relayout_bar(dpi: Option<u32>) {
-    let Some((region, bar, frames, excluded, elapsed)) = with(|s| {
+    let Some((region, bar, frames, excluded, elapsed, shielded)) = with(|s| {
         (
             s.region,
             s.bar,
             s.frames.clone(),
             s.bar_excluded,
             s.recorder.elapsed_ms(),
+            s.ui.note.is_some(),
         )
     }) else {
         return;
     };
     let dpi = dpi.unwrap_or_else(|| scroll_session::placement(region).dpi);
-    let ui = build_ui(dpi, elapsed);
+    let ui = build_ui(dpi, elapsed, shielded);
     let size = ui.layout.size;
     let at = place(region, size, ui.dpi, excluded);
     let mut slot = Some(ui);
@@ -864,6 +906,9 @@ fn paint_bar(h: HWND) {
                 theme::ellipse(m, &to_rect(l.dot), DANGER, DANGER, 0);
                 theme::draw_text(m, status, &to_rect(l.status), TEXT, ui.font, flags);
                 theme::draw_text(m, &ui.time, &to_rect(l.time), TEXT_MUTED, ui.font, flags);
+                if let (Some(note), Some(r)) = (&ui.note, l.note) {
+                    theme::draw_text(m, note, &to_rect(r), TEXT_MUTED, ui.font, flags);
+                }
                 for (i, btn) in BUTTONS.iter().enumerate() {
                     let enabled = !s.saving;
                     let state = ControlState {
@@ -1086,7 +1131,7 @@ mod tests {
                 assert_eq!(t.time, wf(&wide("01:00 / 01:00")));
                 assert_eq!(t.buttons, [wf(&labels[0]), wf(&labels[1])]);
                 assert_eq!(t.line, k(16));
-                let l = layout(dpi, &t);
+                let l = layout(dpi, &t, false);
                 let win = r(0, 0, l.size.0, l.size.1);
                 let inside = |x: Rect| {
                     x.x >= 0 && x.y >= 0 && x.right() <= win.right() && x.bottom() <= win.bottom()
@@ -1111,10 +1156,72 @@ mod tests {
         }
     }
 
+    /// Privacy Shield bật: dòng "GIF không được quét" nằm dưới hàng chính, trong thanh, thẳng cột
+    /// với chữ trạng thái; hàng chính không đổi, thanh chỉ cao thêm khoảng một dòng chữ và không
+    /// rộng thêm (chữ ngắn hơn hàng). Tắt: không có dòng đó, bố cục như cũ.
+    #[test]
+    fn not_scanned_note_fits_under_the_bar_at_every_dpi() {
+        for lang in Lang::ALL {
+            for dpi in [96u32, 120, 144, 192] {
+                let k = |v: i32| scale(v, dpi);
+                let t = measure_texts(lang, fake(dpi));
+                assert_eq!(t.note, scale(7 * note_label(lang).len() as i32, dpi));
+                assert!(t.note > 0);
+                let off = layout(dpi, &t, false);
+                let on = layout(dpi, &t, true);
+                assert_eq!(off.note, None);
+                let n = on.note.expect("note");
+                // Hàng chính giữ nguyên.
+                assert_eq!(
+                    (on.dot, on.status, on.time, on.buttons),
+                    (off.dot, off.status, off.time, off.buttons)
+                );
+                assert_eq!(n.x, on.status.x);
+                assert!(n.w >= t.note && n.h >= t.line);
+                let row_bottom = on.buttons.iter().map(|b| b.bottom()).max().unwrap();
+                assert!(n.y >= row_bottom, "{lang:?} dpi {dpi} {n:?}");
+                assert!(n.right() + k(PAD) <= on.size.0 && n.bottom() < on.size.1);
+                assert_eq!(on.size.0, off.size.0, "{lang:?} dpi {dpi}");
+                let grow = on.size.1 - off.size.1;
+                assert!(
+                    grow > 0 && grow <= t.line + k(NOTE_GAP + NOTE_PAD),
+                    "{lang:?} dpi {dpi}: +{grow}"
+                );
+                assert!(on.size.1 <= k(BAR_H) + t.line + k(NOTE_GAP + NOTE_PAD));
+                // Dòng ghi chú không nhận bấm.
+                let c = Point {
+                    x: n.x + n.w / 2,
+                    y: n.y + n.h / 2,
+                };
+                assert_eq!(hit(&on, c, false), None);
+            }
+        }
+        assert_eq!(
+            darkshot_core::i18n::t(Lang::Vi, Msg::RecordNotScanned),
+            "GIF không được quét"
+        );
+        assert_eq!(
+            darkshot_core::i18n::t(Lang::En, Msg::RecordNotScanned),
+            "GIF is not scanned"
+        );
+    }
+
+    /// Thanh dựng với Shield bật có dòng ghi chú (chữ theo ngôn ngữ hiện tại); tắt thì không.
+    #[test]
+    fn bar_ui_shows_the_note_only_when_shielded() {
+        let on = build_ui(96, 0, true);
+        assert_eq!(on.note, Some(note_label(lang::current())));
+        assert!(on.layout.note.is_some());
+        let off = build_ui(96, 0, false);
+        assert_eq!(off.note, None);
+        assert_eq!(off.layout.note, None);
+        assert!(on.layout.size.1 > off.layout.size.1);
+    }
+
     #[test]
     fn bar_buttons_hit_and_are_disabled_while_saving() {
         for dpi in [96u32, 120, 144, 192] {
-            let l = layout(dpi, &measure_texts(Lang::Vi, fake(dpi)));
+            let l = layout(dpi, &measure_texts(Lang::Vi, fake(dpi)), false);
             let c = |x: Rect| Point {
                 x: x.x + x.w / 2,
                 y: x.y + x.h / 2,
