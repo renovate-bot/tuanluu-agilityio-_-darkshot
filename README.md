@@ -185,7 +185,7 @@ Hạn áp dụng cho mọi lần tải lên sau khi bấm OK. Không chọn hạ
 
 Cửa sổ Tùy chọn có bốn tab:
 
-- **Thông thường:** **Khởi động cùng Windows**, bốn ô tích **Hiện các thông báo lưu và sao chép**, **Tự kiểm tra bản mới**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
+- **Thông thường:** **Khởi động cùng Windows**, năm ô tích **Hiện các thông báo lưu và sao chép**, **Tự kiểm tra bản mới**, **Giữ vị trí vùng đã chọn**, **Bao gồm con trỏ chuột vào ảnh chụp màn hình**, **Quét thông tin nhạy cảm trước khi xuất ảnh** (xem mục "Privacy Shield"), Thư mục lưu (nút **Chọn…**), Ngôn ngữ.
 - **Phím tắt:** bốn dòng phím tắt, mỗi dòng có ô tích bật/tắt, ô phím chỉ đọc và nút **Đổi…** (xem mục "Phím tắt chụp").
 - **Định dạng:** hai nút chọn **PNG** (mặc định) và **JPEG**, thanh trượt **Chất lượng JPEG** từ 50 đến 100 (mặc định 90). Thanh trượt và số mờ khi chọn PNG. Chỉ áp dụng cho ảnh tải lên; ảnh lưu vào máy luôn là PNG. JPEG vẫn là nén có mất mát, kể cả ở mức 100.
 - **Lưu trữ R2:** Account ID, Access Key ID, Secret Access Key, Tên kho (bucket), Địa chỉ công khai, Hạn của link, nút **Kiểm tra kết nối**.
@@ -449,6 +449,32 @@ Ghi một đoạn ngắn của vùng đã chọn thành **ảnh GIF động**. C
 - Thông báo của Windows hiện trong lúc ghi có thể lọt vào GIF.
 - Chưa thử tay trên Windows 10, nhiều màn hình, DPI hỗn hợp và màn hình có tọa độ âm. Xem mục "Đợt 20: Ghi GIF" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
 
+### Privacy Shield (quét thông tin nhạy cảm)
+
+Tùy chọn, **mặc định tắt**. Bật ở Tùy chọn, tab **Thông thường**, ô **Quét thông tin nhạy cảm trước khi xuất ảnh**. Khi bật, darkshot đọc chữ trong ảnh trên máy bằng OCR của Windows và tìm bảy loại: email, số điện thoại, thẻ thanh toán, khóa API, token truy cập, mật khẩu và khóa riêng. Mỗi phát hiện có độ tin cậy Cao hoặc Trung bình; mọi mục đều được chọn sẵn.
+
+**Cam kết và giới hạn (nói đúng như thật):**
+
+- Chạy hoàn toàn trên máy. Ảnh và chữ không được gửi cho AI hay máy chủ nào để phân tích, và các phát hiện không được ghi ra tệp.
+- Đây là **cố gắng hết sức, không phải bảo đảm**: có thể bỏ sót (OCR đọc sai chữ nhỏ hay phông lạ) hoặc nhận nhầm. Hãy tự xem lại ảnh và tự thêm vùng che khi cần. Số đo trên bộ mẫu tổng hợp tự sinh nằm ở [docs/testing/privacy-quality.md](docs/testing/privacy-quality.md); đó là số đo của bộ mẫu chứ không phải lời hứa cho ảnh thật của bạn.
+- Không phát hiện khuôn mặt, mã QR, hình ảnh hay chữ viết tay.
+- Không áp cho **Ghi GIF** (thanh ghi hiện "GIF không được quét") và không áp cho chữ chép từ **Nhận dạng chữ**.
+
+**Luồng:**
+
+1. Bạn chọn Lưu, Chép, Tải lên hoặc Ghim như thường.
+2. Không phát hiện gì thì hành động chạy ngay, không hỏi. Ảnh lớn thì có thể hiện cửa sổ "Đang quét" ngắn rồi tự đóng.
+3. Có phát hiện thì cửa sổ **Kiểm tra thông tin nhạy cảm** hiện ra: liệt kê loại và độ tin cậy (không hiện giá trị), bỏ chọn được từng mục, kéo trên ảnh để **+ Thêm vùng che** của riêng bạn, rồi **Che và tiếp tục** hoặc **Hủy**. Che hết bỏ chọn thì có thanh xác nhận "Tiếp tục không che". Hủy không để lại tệp hay mục Lịch sử. Vùng che là ô đặc, được in vào ảnh xuất.
+4. Quét lỗi (ví dụ Windows thiếu gói nhận dạng chữ): cửa sổ báo "Ảnh CHƯA được kiểm tra", có **Thử lại** hoặc **Tiếp tục không quét** (cần xác nhận thêm một lần).
+
+**Được bảo vệ:** Lưu, Chép, Tải lên, Ghim; Chép và Ghim từ Lịch sử; Chụp lại vùng trước; phím chụp toàn màn hình; ảnh Chụp cuộn; Thêm bước và xuất phiên Chụp từng bước. Ảnh ghim và Lịch sử khi Lưu/Chép với Shield bật luôn được quét lại.
+
+**Không được bảo vệ:** Ghi GIF; chữ từ Nhận dạng chữ; **Mở** và **Hiện trong thư mục** của Lịch sử; mục Lịch sử và ảnh bước đã tạo lúc Shield tắt (không được che lại trên đĩa).
+
+**Giới hạn khi quét:** ưu tiên bộ nhận dạng `en-US` nếu Windows có, không thì ngôn ngữ hồ sơ; chữ nhỏ dễ bị bỏ sót; ảnh rộng hơn 10000 px (giới hạn OCR của Windows) bị co theo chiều rộng khi quét; ảnh rất cao được quét theo từng dải (mỗi dải tối đa 20 giây). Cửa sổ Kiểm tra được ẩn khỏi ảnh chụp, ghi màn hình và chia sẻ màn hình (Windows 10 2004 trở lên), và trình đọc màn hình đọc nó hạn chế. Tối đa 3 lượt chờ duyệt; lượt thứ tư bị bỏ kèm thông báo.
+
+Chưa thử tay hết: xem mục "Đợt 21: Privacy Shield" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
+
 ### Menu khay
 
 | Mục | Việc làm |
@@ -588,6 +614,7 @@ Nếu không muốn tắt, đổi phím tắt chụp trong Tùy chọn của dar
 - Nhận dạng chữ (Ctrl+T) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, không ghi ra file, không vào Lịch sử.
 - Chụp cuộn chạy hoàn toàn trên máy, không dùng mạng. Ảnh ghép chỉ nằm trong bộ nhớ cho đến khi bạn Lưu, Chép, Tải lên hoặc Ghim; chụp cuộn không ghi tệp tạm.
 - Ghi GIF chạy hoàn toàn trên máy, không dùng mạng. GIF chỉ được ghi vào thư mục Lưu của bạn (qua tệp tạm `.darkshot-rec-….gif.part`), không tải lên, không vào Lịch sử.
+- Privacy Shield (tùy chọn, mặc định tắt) chạy hoàn toàn trên máy bằng OCR của Windows: ảnh và chữ không gửi đi đâu, phát hiện không ghi ra tệp. Chỉ là cố gắng hết sức, có thể bỏ sót; xem mục "Privacy Shield".
 - Chụp từng bước: ảnh bước nằm trong `%LOCALAPPDATA%\darkshot\steps\current` cho đến khi bạn xuất ra thư mục bạn chọn. Không gửi đi đâu, không vào Lịch sử. Kết thúc phiên sẽ xóa các ảnh này.
 - Ảnh chụp chỉ nằm trong bộ nhớ đến khi bạn chọn Lưu hoặc Tải lên.
 - **Ai có link đều xem được ảnh.** Sự riêng tư dựa vào tên ngẫu nhiên khó đoán và hạn của link. Không bật liệt kê nội dung công khai cho kho.

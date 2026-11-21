@@ -606,3 +606,26 @@ Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và n
 - [ ] Ghi nhiều lần liên tiếp (10 lần): mỗi lần ra một tệp riêng, không rò bộ nhớ hay cửa sổ, lần sau không bị ảnh hưởng bởi lần trước.
 - [ ] Trùng tên tệp (ghi hai lần trong cùng một giây, hoặc tạo sẵn tệp cùng tên): tệp mới có hậu tố `_2`, `_3`…, tệp cũ không bị ghi đè. Tệp `.darkshot-rec-….gif.part` sót (giả lập bằng cách giết tiến trình) được dọn ở lần khởi động sau.
 - [ ] Hồi quy: chụp (lưu, chép, tải lên), đánh dấu, chụp cuộn, chụp từng bước, nhận dạng chữ, Lịch sử và ghim vẫn chạy đúng; GIF không vào Lịch sử, không tải lên R2, không đổi "lần chụp trước"; English và Tiếng Việt đều đủ chữ, không cắt.
+
+## Đợt 21: Privacy Shield
+
+Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và ngày vào cuối dòng khi đã thử. Chạy `powershell -File scripts/demo-privacy.ps1 -Exe <darkshot.exe>` (thêm `-Lang en`, `-Off`).
+
+- [ ] Shield tắt: Lưu, Chép, Tải (lưu dự phòng), Ghim, Thêm bước, chụp cuộn, GIF, Lịch sử Chép/Ghim như trước, không trễ, không cửa sổ lạ.
+- [ ] Shield bật, ảnh không có gì nhạy cảm: hành động chạy ngay, không cửa sổ (ảnh lớn: cửa sổ "Đang quét" có thể hiện rồi tự đóng).
+- [ ] Ảnh có dữ liệu giả của tệp mẫu: cửa sổ Kiểm tra hiện, mọi mục chọn sẵn, không hiện giá trị; che hết / bỏ một mục / bỏ hết (thanh xác nhận) / Hủy / Esc / ✕; tệp, clipboard, ảnh ghim, Lịch sử đều là ảnh đã che; Hủy không để lại tệp hay mục Lịch sử.
+- [ ] Bấm đúp nhanh vào "Che và tiếp tục" khi không chọn mục nào, và giữ Enter: không lọt qua thanh xác nhận.
+- [ ] Thêm vùng che bằng chuột: kéo, Xóa vùng tự thêm, Esc thoát chế độ kéo.
+- [ ] Lặp lại lần chụp trước, phím Lưu/Tải toàn màn hình: qua cửa sổ Kiểm tra khi có phát hiện.
+- [ ] Chụp cuộn → Lưu/Chép/Tải/Ghim: ảnh dài nhiều dải vẫn phát hiện chữ ở cuối ảnh.
+- [ ] Hai lượt liền nhau (Lưu toàn màn hình rồi Chép vùng nhỏ): thứ tự cửa sổ và clipboard cuối theo thứ tự yêu cầu.
+- [ ] Đang có cửa sổ Kiểm tra: mở lớp phủ, chụp cuộn, ghi GIF — cửa sổ Kiểm tra không có trong ảnh/GIF, trở lại sau khi xong; thanh GIF có dòng "GIF không được quét".
+- [ ] Bốn lượt liên tiếp khi đang có cửa sổ Kiểm tra: lượt thứ tư báo đang có ảnh chờ kiểm tra.
+- [ ] Chụp từng bước: Thêm bước rồi Hủy (không tệp mới trong `steps\current`); xuất phiên có bước chụp lúc tắt (tiêu đề "Bước k/n", Hủy giữa chừng không tạo thư mục; Che hết → ảnh xuất đã che, tệp phiên không đổi).
+- [ ] Ảnh ghim tạo lúc Shield tắt → bật Shield → Chép/Lưu từ ảnh ghim: phải quét.
+- [ ] Lịch sử Chép ảnh/Ghim khi bật và khi tắt.
+- [ ] Thoát từ khay / đăng xuất khi đang quét, đang duyệt, vừa bấm "Che và tiếp tục" trên ảnh lớn: không ghi gì, không treo quá 4 s; tải lên dở vẫn được lưu.
+- [ ] Máy không có gói OCR en-US / Windows 11 sạch (exe portable): trạng thái lỗi, Thử lại, "Tiếp tục không quét" cần hai lần bấm; hoặc rơi về ngôn ngữ hồ sơ.
+- [ ] DPI 100/125/150/200 %, kéo cửa sổ Kiểm tra giữa hai màn hình khác DPI, thu nhỏ tối thiểu; tab Chung của Tùy chọn không tràn.
+- [ ] Kéo vùng che bằng chuột thật và cuộn danh sách dài (nhiều phát hiện).
+- Ghi chú: ảnh PrintWindow của cửa sổ Kiểm tra ở bản release ra trống (cờ loại khỏi ảnh chụp); muốn chụp lại thì dùng bản kiểm thử.

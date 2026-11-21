@@ -901,7 +901,10 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px.
 
 9. Ghi GIF
-Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000)."
+Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000).
+
+10. Quét thông tin nhạy cảm
+Bật \"Quét thông tin nhạy cảm trước khi xuất ảnh\" ở Tùy chọn, tab Thông thường (mặc định tắt). Trước khi Lưu, Chép, Tải lên hoặc Ghim, darkshot nhận dạng chữ trên máy rồi tìm email, số điện thoại, thẻ, khóa API, token, mật khẩu và khóa riêng; có phát hiện thì hiện cửa sổ để bạn xem lại và che. Ảnh và chữ không gửi đi đâu. Tự động có thể bỏ sót hoặc nhận nhầm, nên hãy tự xem lại ảnh. Không áp cho Ghi GIF và chữ chép từ Nhận dạng chữ."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -951,7 +954,10 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall.
 
 9. Recording a GIF
-To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels."
+To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels.
+
+10. Scanning for sensitive information
+Turn on \"Scan for sensitive information before exporting\" in Options, General tab (off by default). Before you save, copy, upload or pin, darkshot reads the image text on this PC and looks for emails, phone numbers, cards, API keys, tokens, passwords and private keys; if it finds something, a window lets you review and cover them. The image and its text are not sent anywhere. Automatic detection can miss things or flag the wrong text, so review the image yourself. It does not apply to GIF recordings or to text copied by text recognition."
         ),
     }
 }
