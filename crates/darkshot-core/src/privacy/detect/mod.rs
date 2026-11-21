@@ -206,7 +206,15 @@ pub(crate) fn letters_and_digits(v: &[char]) -> bool {
     v.iter().any(|c| c.is_ascii_alphabetic()) && v.iter().any(|c| c.is_ascii_digit())
 }
 
-/// Giá trị của luật nhãn + giá trị trông như bí mật: chữ + số, hoặc hoa + thường + ký hiệu.
+/// Có ≥ 2 nhóm ký tự trong chữ hoa / chữ thường / số.
+pub(crate) fn mixed(v: &[char]) -> bool {
+    let u = v.iter().any(|c| c.is_ascii_uppercase());
+    let l = v.iter().any(|c| c.is_ascii_lowercase());
+    let d = v.iter().any(|c| c.is_ascii_digit());
+    u as u8 + l as u8 + d as u8 >= 2
+}
+
+/// Chỉ áp trên bản ghép từ: giá trị của luật nhãn + giá trị trông như bí mật: chữ + số, hoặc hoa + thường + ký hiệu.
 /// Loại câu chữ thường bị ghép từ ("pleaseenteryour…").
 pub(crate) fn strong_value(v: &[char]) -> bool {
     let upper = v.iter().any(|c| c.is_ascii_uppercase());

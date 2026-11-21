@@ -135,7 +135,7 @@ impl Detector for Token {
                 continue;
             };
             let n = run_len(c, vs, bearer_char);
-            if n >= 16 && strong_value(&c[vs..vs + n]) {
+            if n >= 16 && (!ctx.joined || strong_value(&c[vs..vs + n])) {
                 out.push(RawMatch::one(
                     ctx.span(vs, vs + n),
                     Category::Token,

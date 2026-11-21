@@ -19,9 +19,30 @@ const LABELS: &[&str] = &[
     "pin",
 ];
 
-/// Tên biến `.env` phải có một đoạn (tách theo `_`/`-`) đúng bằng một trong các từ này
-/// (`API_KEY`, `DB_PASSWORD`, `GITHUB_TOKEN`; không phải `KEYBOARD`, `MONKEY`).
-const ENV_NAMES: &[&str] = &["PASSWORD", "PASSWD", "PWD", "SECRET", "TOKEN", "KEY"];
+/// Tên biến `.env` chứa các chuỗi này ở bất kỳ đâu (`DBPASSWORD`, `PGPASSWORD`, `AWS_SECRETKEY`).
+const ENV_ANYWHERE: &[&str] = &["PASSWORD", "PASSWD", "PWD", "SECRET"];
+/// Tên kết thúc bằng các chuỗi này (`APIKEY`, `GITHUBTOKEN`).
+const ENV_SUFFIX: &[&str] = &["TOKEN", "APIKEY", "SECRETKEY", "PRIVATEKEY", "ACCESSKEY"];
+/// Một đoạn (tách theo `_`) đúng bằng các từ này (`API_KEY`, `GITHUB_TOKEN`).
+/// Không nhận `KEYBOARD`, `MONKEY`, `TOKENIZER`.
+const ENV_SEGMENT: &[&str] = &["TOKEN", "KEY"];
+
+fn eq(a: &str, b: &[char]) -> bool {
+    a.len() == b.len() && a.chars().zip(b).all(|(x, &y)| x == y)
+}
+
+/// Tên biến `.env` (chữ hoa, số, `_`) gợi ý bí mật.
+fn secret_env_name(name: &[char]) -> bool {
+    ENV_ANYWHERE
+        .iter()
+        .any(|k| name.windows(k.len()).any(|w| eq(k, w)))
+        || ENV_SUFFIX
+            .iter()
+            .any(|k| name.len() >= k.len() && eq(k, &name[name.len() - k.len()..]))
+        || name
+            .split(|&x| x == '_')
+            .any(|seg| ENV_SEGMENT.iter().any(|k| eq(k, seg)))
+}
 
 const MAX_SPACED: usize = 64;
 
@@ -110,12 +131,7 @@ impl Detector for Password {
                 .take_while(|&&x| x.is_ascii_uppercase() || x.is_ascii_digit() || x == '_')
                 .count();
             let name = &c[i..i + n];
-            let hit = c.get(i + n) == Some(&'=')
-                && name.split(|&x| x == '_' || x == '-').any(|seg| {
-                    ENV_NAMES
-                        .iter()
-                        .any(|k| k.len() == seg.len() && k.chars().zip(seg).all(|(a, &b)| a == b))
-                });
+            let hit = c.get(i + n) == Some(&'=') && secret_env_name(name);
             if hit {
                 let vs = i + n + 1;
                 if vs < c.len() && c[vs] != ' ' {

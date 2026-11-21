@@ -1,7 +1,8 @@
 //! Khóa API: tiền tố đã biết + bộ ký tự + độ dài (Cao), hoặc nhãn + giá trị đủ dài (Trung bình).
 
 use super::{
-    after_separator, find_labels, run_len, starts_with, strong_value, Detector, LineCtx, RawMatch,
+    after_separator, find_labels, mixed, run_len, starts_with, strong_value, Detector, LineCtx,
+    RawMatch,
 };
 use crate::privacy::model::{Category, Confidence, RuleId};
 use crate::privacy::text::is_token_char;
@@ -256,7 +257,7 @@ impl Detector for ApiKey {
             };
             let n = run_len(c, vs, labeled_value_char);
             let v = &c[vs..vs + n];
-            if n >= 16 && strong_value(v) {
+            if n >= 16 && mixed(v) && (!ctx.joined || strong_value(v)) {
                 out.push(RawMatch::one(
                     ctx.span(vs, vs + n),
                     Category::ApiKey,

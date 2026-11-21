@@ -789,3 +789,51 @@ fn bearer_without_authorization_needs_letters_and_digits() {
     let f = single(&format!("Bearer {}", jwt()), Category::Token);
     assert_eq!(f.confidence, Confidence::High);
 }
+
+// ---------- Rà soát vòng 2 ----------
+
+#[test]
+fn env_names_substring_and_suffix() {
+    for t in [
+        "DBPASSWORD=abc",
+        "PGPASSWORD=abc",
+        "AWS_SECRETKEY=abc",
+        "MYPASSWD=abc",
+        "GITHUBTOKEN=abc",
+        "STRIPE_APIKEY=abc",
+        "MY_PRIVATEKEY=abc",
+        "AWSACCESSKEY=abc",
+        "KEY=abc",
+    ] {
+        let f = single(t, Category::Password);
+        assert_eq!(f.rects, vec![word_rect(t, 0)]);
+    }
+    for t in [
+        "KEYBOARD=us",
+        "MONKEY=banana",
+        "TOKENIZER=bpe",
+        "HOTKEY=ctrl",
+    ] {
+        none(t);
+    }
+}
+
+#[test]
+fn labeled_values_on_spaced_version_follow_spec() {
+    let f = single("api_key=AbCdEfGhIjKlMnOpQrSt", Category::ApiKey);
+    assert_eq!(f.rule, RuleId::ApiKeyLabeled);
+    let f = single("token: abcdefghijklmnopqrst", Category::Token);
+    assert_eq!(f.rule, RuleId::TokenLabeled);
+    // bản ghép từ vẫn chặt: không có phát hiện chỉ từ bản ghép
+    let l = line_gap("token: abcdefgh ijklmnopqrst", 0, 2);
+    assert!(detect(&[l]).is_empty());
+}
+
+#[test]
+fn phone_group_right_after_paren() {
+    let f = single("(+84)912345678", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnMobile);
+    assert_eq!(f.confidence, Confidence::High);
+    let f = single("(028)38221234", Category::Phone);
+    assert_eq!(f.rule, RuleId::PhoneVnFixed);
+}

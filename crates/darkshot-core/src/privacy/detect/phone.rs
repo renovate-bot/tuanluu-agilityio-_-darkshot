@@ -89,6 +89,12 @@ fn read_groups(c: &[char], i: usize) -> (Vec<Group>, Vec<char>) {
                 seps.push(x);
                 j = k + 1;
             }
+            // nhóm kế ngay sau `)`: "(028)38221234" (ký tự cách ')' không phải space nên
+            // không tách cửa sổ ở đây)
+            _ if paren && c[k - 1] == ')' && next_ok(k) => {
+                seps.push(')');
+                j = k;
+            }
             _ => break,
         }
     }
