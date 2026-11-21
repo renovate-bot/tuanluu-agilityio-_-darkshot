@@ -514,6 +514,32 @@ messages! {
     PrivacyErrFailed => ("Không nhận dạng được chữ trong ảnh.", "Could not recognize text in the image."),
     PrivacyErrTimeout => ("Quét quá lâu.", "Scanning took too long."),
     PrivacyErrTooLarge => ("Ảnh quá lớn để quét.", "The image is too large to scan."),
+    PrivacyReviewTitle => ("Kiểm tra thông tin nhạy cảm", "Check for sensitive information"),
+    PrivacyScanning => ("Đang quét thông tin nhạy cảm…", "Scanning for sensitive information…"),
+    PrivacySelectAll => ("Chọn tất cả", "Select all"),
+    PrivacyDeselectAll => ("Bỏ chọn hết", "Deselect all"),
+    PrivacyManual => ("Vùng tự thêm", "Added area"),
+    PrivacyRemove => ("Xóa", "Remove"),
+    PrivacyNote => ("Tự động có thể bỏ sót. Hãy xem lại ảnh.", "Automatic detection can miss things. Review the image."),
+    PrivacyCancel => ("Hủy", "Cancel"),
+    PrivacyAddArea => ("+ Thêm vùng che", "+ Add cover area"),
+    PrivacyApply => ("Che và tiếp tục", "Cover and continue"),
+    PrivacyDragHint => ("Kéo trên ảnh để thêm vùng che · Esc để thôi", "Drag on the image to add a cover area · Esc to stop"),
+    PrivacyConfirmEmpty => ("Không có vùng nào được che. Tiếp tục mà không che?", "Nothing will be covered. Continue without covering?"),
+    PrivacyBack => ("Quay lại", "Go back"),
+    PrivacyContinueNone => ("Tiếp tục không che", "Continue without covering"),
+    PrivacyErrHeading => ("Không quét được ảnh này", "Could not scan this image"),
+    PrivacyErrUnchecked => ("Ảnh CHƯA được kiểm tra.", "The image has NOT been checked."),
+    PrivacyRetry => ("Thử lại", "Try again"),
+    PrivacyContinueUnscanned => ("Tiếp tục không quét", "Continue without scanning"),
+    PrivacyConfirmUnscanned => ("Ảnh chưa được kiểm tra. Vẫn tiếp tục?", "The image has not been checked. Continue anyway?"),
+    PrivacyContinueAnyway => ("Vẫn tiếp tục", "Continue anyway"),
+    PrivacyActionSave => ("Lưu ảnh", "Save image"),
+    PrivacyActionCopy => ("Chép ảnh", "Copy image"),
+    PrivacyActionUpload => ("Tải lên và chép link", "Upload and copy link"),
+    PrivacyActionPin => ("Ghim lên màn hình", "Pin to screen"),
+    PrivacyActionAddStep => ("Thêm bước", "Add step"),
+    PrivacyActionExportSteps => ("Xuất các bước", "Export steps"),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -981,6 +1007,33 @@ pub fn steps_exported(lang: Lang, n: usize) -> String {
         (Lang::En, n) => format!("Exported {n} steps"),
     }
 }
+/// Tiêu đề cửa sổ Duyệt, có "Bước k/n" khi duyệt một bước của lượt xuất các bước.
+pub fn privacy_review_title(lang: Lang, step: Option<(u32, u32)>) -> String {
+    let base = t(lang, Msg::PrivacyReviewTitle);
+    match (lang, step) {
+        (_, None) => base.to_string(),
+        (Lang::Vi, Some((k, n))) => format!("{base} · Bước {k}/{n}"),
+        (Lang::En, Some((k, n))) => format!("{base} · Step {k}/{n}"),
+    }
+}
+
+/// Tóm tắt của cửa sổ Duyệt: "Tìm thấy N mục · <hành động>".
+pub fn privacy_found(lang: Lang, n: usize, action: &str) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!("Tìm thấy {n} mục · {action}"),
+        (Lang::En, 1) => format!("Found 1 item · {action}"),
+        (Lang::En, n) => format!("Found {n} items · {action}"),
+    }
+}
+
+/// Tiến độ quét theo dải: "dải k/n" | "part k of n".
+pub fn privacy_scan_tile(lang: Lang, k: u32, n: u32) -> String {
+    match lang {
+        Lang::Vi => format!("dải {k}/{n}"),
+        Lang::En => format!("part {k} of {n}"),
+    }
+}
+
 /// Chiều cao hiện có trên thanh chụp cuộn: "1840 px".
 pub fn scroll_height(lang: Lang, px: u32) -> String {
     match lang {
@@ -1894,5 +1947,51 @@ mod tests {
         let en = help_text(Lang::En, &HelpKeys::default());
         assert!(vi.contains("9. Ghi GIF"));
         assert!(en.contains("9. Recording a GIF"));
+    }
+
+    #[test]
+    fn privacy_review_texts() {
+        assert_eq!(
+            privacy_review_title(Lang::Vi, None),
+            "Kiểm tra thông tin nhạy cảm"
+        );
+        assert_eq!(
+            privacy_review_title(Lang::Vi, Some((3, 12))),
+            "Kiểm tra thông tin nhạy cảm · Bước 3/12"
+        );
+        assert_eq!(
+            privacy_review_title(Lang::En, Some((3, 12))),
+            "Check for sensitive information · Step 3/12"
+        );
+        let save_vi = t(Lang::Vi, Msg::PrivacyActionSave);
+        assert_eq!(
+            privacy_found(Lang::Vi, 3, save_vi),
+            "Tìm thấy 3 mục · Lưu ảnh"
+        );
+        assert_eq!(
+            privacy_found(Lang::En, 1, t(Lang::En, Msg::PrivacyActionSave)),
+            "Found 1 item · Save image"
+        );
+        assert_eq!(privacy_found(Lang::En, 2, "Pin"), "Found 2 items · Pin");
+        assert_eq!(privacy_scan_tile(Lang::Vi, 2, 5), "dải 2/5");
+        assert_eq!(privacy_scan_tile(Lang::En, 2, 5), "part 2 of 5");
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyNote),
+            "Tự động có thể bỏ sót. Hãy xem lại ảnh."
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyConfirmEmpty),
+            "Không có vùng nào được che. Tiếp tục mà không che?"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyConfirmUnscanned),
+            "Ảnh chưa được kiểm tra. Vẫn tiếp tục?"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyScanning),
+            "Đang quét thông tin nhạy cảm…"
+        );
+        assert_eq!(t(Lang::Vi, Msg::PrivacyManual), "Vùng tự thêm");
+        assert_eq!(t(Lang::Vi, Msg::PrivacyApply), "Che và tiếp tục");
     }
 }

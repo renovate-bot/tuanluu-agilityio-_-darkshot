@@ -6,6 +6,7 @@ pub mod geom;
 pub mod model;
 pub mod prepared;
 pub mod redact;
+pub mod review;
 pub mod text;
 
 pub use detect::{Detector, LineCtx, RawMatch, Span};
@@ -16,6 +17,7 @@ pub use model::{
 };
 pub use prepared::{PreparedOutput, Protection};
 pub use redact::RedactError;
+pub use review::{Confirm, ReviewModel, ReviewOutcome, ReviewPhase};
 
 use crate::ocr_text::OcrLine;
 use text::LineText;
