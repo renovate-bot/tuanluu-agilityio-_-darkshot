@@ -2154,4 +2154,58 @@ mod live {
         assert_eq!((corner.x, corner.y), (at.x, at.y));
         close_all();
     }
+
+    /// Ảnh mẫu bịa: biểu đồ cột "Weekly sign-ups" có khung và mũi tên đỏ kiểu đánh dấu.
+    fn fake_chart() -> Image {
+        use crate::webshot::Canvas;
+        let ink = (30, 34, 42);
+        let muted = (110, 118, 130);
+        let mut c = Canvas::new(520, 340, (255, 255, 255));
+        c.text(24, 18, 22, true, ink, "Weekly sign-ups");
+        c.text(24, 50, 14, false, muted, "Sample data");
+        let base = 300;
+        c.fill(40, base, 450, 1, (200, 204, 212));
+        let bars = [90, 120, 105, 150, 175, 140, 210];
+        let days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        for (i, (v, d)) in bars.iter().zip(days).enumerate() {
+            let x = 56 + i as i32 * 62;
+            c.fill(x, base - v, 38, *v, (59, 130, 246));
+            c.text(x + 4, base + 8, 13, false, muted, d);
+        }
+        let red = (230, 57, 70);
+        // Khung quanh cột cao nhất và mũi tên trỏ vào.
+        let x = 56 + 6 * 62;
+        c.frame(x - 10, base - 222, 58, 230, 3, red);
+        c.line((x - 120, 110), (x - 22, 150), 4, red);
+        c.poly(&[(x - 12, 155), (x - 32, 136), (x - 38, 158)], red);
+        c.text(x - 236, 92, 15, true, red, "Best day");
+        c.image()
+    }
+
+    /// Ảnh website `pin.png`: một ảnh ghim ở 100% (cửa sổ ghim không có chữ giao diện).
+    #[test]
+    #[ignore = "ảnh cho website; chạy tay"]
+    fn webshot_pin() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let _profile = crate::webshot::Profile::new("pin");
+        per_monitor();
+        let img = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            fake_chart()
+        };
+        close_all();
+        open(img, PinPlace::At(p(240, 200))).unwrap();
+        pump();
+        crate::webshot::pump(400, crate::webshot::no_pre, || false);
+        let h = handles()[0];
+        let shot = crate::webshot::print_window(h);
+        assert!(crate::webshot::not_blank(&shot));
+        crate::webshot::save(&dir, "pin", &shot);
+        println!("dpi {}", crate::webshot::dpi_of(h));
+        close_all();
+        assert_eq!(count(), 0);
+    }
 }

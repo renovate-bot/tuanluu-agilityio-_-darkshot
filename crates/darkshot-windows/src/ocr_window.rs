@@ -3876,61 +3876,6 @@ mod tests {
         );
     }
 
-    #[link(name = "user32")]
-    unsafe extern "system" {
-        fn PrintWindow(hwnd: HWND, hdc: HDC, flags: u32) -> i32;
-    }
-
-    /// Ảnh của cửa sổ `h` bằng PrintWindow (PW_RENDERFULLCONTENT), không đọc màn hình.
-    fn print_window(h: HWND) -> Image {
-        use windows::Win32::Graphics::Gdi::{
-            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, SelectObject,
-            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        };
-        let mut rc = RECT::default();
-        // SAFETY: rc là biến cục bộ; hỏi khung của chính cửa sổ này.
-        unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut rc);
-        }
-        let (w, hh) = (rc.right - rc.left, rc.bottom - rc.top);
-        let bmi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: w,
-                biHeight: -hh,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let len = (w as usize) * (hh as usize) * 4;
-        let mut out = vec![0u8; len];
-        let mut bits: *mut c_void = std::ptr::null_mut();
-        // SAFETY: DC và DIB chỉ dùng trong khối và đều được giải phóng; chép đúng `len` byte.
-        unsafe {
-            let dc = CreateCompatibleDC(None);
-            let bmp =
-                CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).expect("dib");
-            let old = SelectObject(dc, bmp.into());
-            assert_ne!(PrintWindow(h, dc, 2), 0, "PrintWindow");
-            let _ = GdiFlush();
-            std::ptr::copy_nonoverlapping(bits.cast::<u8>(), out.as_mut_ptr(), len);
-            SelectObject(dc, old);
-            let _ = DeleteObject(bmp.into());
-            let _ = DeleteDC(dc);
-        }
-        for p in out.chunks_mut(4) {
-            p[3] = 255;
-        }
-        Image {
-            width: w as u32,
-            height: hh as u32,
-            bgra: out,
-        }
-    }
-
     /// Ảnh PrintWindow của cửa sổ có kết quả (chữ Anh tổng hợp, nhận dạng thật) và hai dòng đã chọn.
     /// Biến môi trường `DARKSHOT_OCR_SHOT` = đường dẫn PNG để lưu (ngoài repo).
     #[test]
@@ -3958,7 +3903,7 @@ mod tests {
             click_line(h, 2, true);
         }
         pump(100, || false);
-        let shot = print_window(h);
+        let shot = crate::webshot::print_window(h);
         assert!(shot.bgra.chunks(4).any(|p| p[..3] != shot.bgra[..3]));
         if let Ok(path) = std::env::var("DARKSHOT_OCR_SHOT") {
             let png = darkshot_core::image::encode_png(&shot).expect("png");
@@ -3966,5 +3911,56 @@ mod tests {
             println!("saved {path}: lines {:?}", line_texts(h));
         }
         close_all();
+    }
+
+    /// Ảnh website `ocr-<en|vi>.png`: cửa sổ cỡ mặc định, chữ Anh tổng hợp hai đoạn, nhận dạng
+    /// thật, hai dòng đang chọn (đặt thẳng trạng thái chọn, không ghi clipboard), công tắc mặc định.
+    #[test]
+    #[ignore = "ảnh cho website; chạy tay"]
+    fn webshot_ocr() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let _profile = crate::webshot::Profile::new("ocr");
+        crate::webshot::per_monitor();
+        close_all();
+        reset_hooks(Switches::default());
+        assert!(
+            !Switches::default().auto_copy,
+            "auto copy would write the clipboard"
+        );
+        let wanted = [
+            ("Quarterly report summary", 50),
+            ("Revenue grew 12 percent this quarter", 100),
+            ("Support costs stayed flat", 150),
+            ("Next review is planned for March", 250),
+            ("Send questions to the planning team", 300),
+            ("Draft for internal discussion only", 350),
+        ];
+        let (img, _) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            crate::ocr::tests::lines_image(760, 400, 30, &wanted)
+        };
+        crate::webshot::each_lang(|_, code| {
+            open(img.clone()).expect("open");
+            let (h, _) = test_windows()[0];
+            assert!(pump(30_000, || !busy(h)), "no result within 30 s");
+            let lines = line_texts(h);
+            assert!(lines.len() >= 3, "OCR lines: {lines:?}");
+            let view = with_win(h, |w| {
+                w.pick.sel = vec![1, 2];
+                w.view
+            })
+            .expect("win");
+            invalidate(view);
+            pump(300, || false);
+            let shot = crate::webshot::print_window(h);
+            assert!(crate::webshot::not_blank(&shot));
+            crate::webshot::save(&dir, &format!("ocr-{code}"), &shot);
+            println!("dpi {} lines {lines:?}", crate::webshot::dpi_of(h));
+            close_all();
+        });
+        assert!(test_windows().is_empty());
     }
 }
