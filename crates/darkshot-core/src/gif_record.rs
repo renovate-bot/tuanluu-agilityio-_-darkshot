@@ -48,6 +48,47 @@ pub enum GifError {
     Encode(String),
     Io(String),
     Thread(String),
+    /// Lỗi do darkshot tự phát hiện (không có chữ từ hệ điều hành); chữ lấy từ `i18n`.
+    Fault(GifFault),
+}
+
+/// Các lỗi nội bộ của bộ ghi GIF, mỗi lỗi một chuỗi `i18n`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GifFault {
+    RandomUnavailable,
+    NoTempName,
+    TempClosed,
+    NoFileName,
+    ThreadPanicked,
+    ThreadEnded,
+    FrameSizeChanged,
+    Internal,
+}
+
+impl GifFault {
+    pub const ALL: [GifFault; 8] = [
+        GifFault::RandomUnavailable,
+        GifFault::NoTempName,
+        GifFault::TempClosed,
+        GifFault::NoFileName,
+        GifFault::ThreadPanicked,
+        GifFault::ThreadEnded,
+        GifFault::FrameSizeChanged,
+        GifFault::Internal,
+    ];
+
+    pub fn msg(self) -> Msg {
+        match self {
+            GifFault::RandomUnavailable => Msg::RecordFaultRandom,
+            GifFault::NoTempName => Msg::RecordFaultNoTempName,
+            GifFault::TempClosed => Msg::RecordFaultTempClosed,
+            GifFault::NoFileName => Msg::RecordFaultNoFileName,
+            GifFault::ThreadPanicked => Msg::RecordFaultPanicked,
+            GifFault::ThreadEnded => Msg::RecordFaultThreadEnded,
+            GifFault::FrameSizeChanged => Msg::RecordFaultSizeChanged,
+            GifFault::Internal => Msg::RecordFaultInternal,
+        }
+    }
 }
 
 impl GifError {
@@ -60,6 +101,7 @@ impl GifError {
             GifError::Encode(e) => i18n::record_encode_failed(lang, e),
             GifError::Io(e) => i18n::record_io_failed(lang, e),
             GifError::Thread(e) => i18n::record_thread_failed(lang, e),
+            GifError::Fault(f) => t(lang, f.msg()).to_string(),
         }
     }
 }
@@ -345,7 +387,7 @@ impl TempGif {
         fs::create_dir_all(dir).map_err(io_err)?;
         for _ in 0..8 {
             let id = naming::try_random_object_name()
-                .ok_or_else(|| GifError::Io("OS random source unavailable".into()))?;
+                .ok_or(GifError::Fault(GifFault::RandomUnavailable))?;
             let path = dir.join(format!("{TEMP_PREFIX}{id}{TEMP_SUFFIX}"));
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(f) => {
@@ -358,7 +400,7 @@ impl TempGif {
                 Err(e) => return Err(io_err(e)),
             }
         }
-        Err(GifError::Io("no free temporary file name".into()))
+        Err(GifError::Fault(GifFault::NoTempName))
     }
 
     pub fn path(&self) -> &Path {
@@ -371,7 +413,7 @@ impl TempGif {
         let buf = self
             .file
             .take()
-            .ok_or_else(|| GifError::Io("temporary file already closed".into()))?;
+            .ok_or(GifError::Fault(GifFault::TempClosed))?;
         let file = buf.into_inner().map_err(|e| io_err(e.into_error()))?;
         file.sync_all().map_err(io_err)?;
         drop(file);
@@ -430,7 +472,7 @@ where
             }
         }
     }
-    Err(GifError::Io("no free file name".into()))
+    Err(GifError::Fault(GifFault::NoFileName))
 }
 
 fn is_temp_name(n: &str) -> bool {
@@ -553,6 +595,11 @@ pub struct Recorder {
 impl Recorder {
     /// Tạo tệp tạm và luồng ghi rồi mới trả về. `source` chụp một khung (gọi trên luồng nền,
     /// lần lượt); `wake` được gọi đúng một lần trên luồng nền, sau khi kết quả đã gửi.
+    ///
+    /// `source` và `wake` KHÔNG được panic: bản phát hành dùng `panic = "abort"` nên panic trên
+    /// luồng nền thoát cả tiến trình (tệp `.part` còn lại do `sweep_stale` dọn ở lần khởi động
+    /// sau); `catch_unwind` bên trong chỉ có tác dụng ở bản debug và kiểm thử. `source` báo lỗi
+    /// bằng `Err`.
     pub fn start<S, W>(cfg: RecordConfig, source: S, wake: W) -> Result<Recorder, GifError>
     where
         S: FnMut() -> Result<Image, String> + Send + 'static,
@@ -575,12 +622,13 @@ impl Recorder {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
                     record_loop(cfg, source, tmp, &sh, started)
                 }))
-                .unwrap_or_else(|_| {
-                    Outcome::Failed(GifError::Thread("recording thread panicked".into()))
-                });
+                // Chỉ bắt được ở bản debug/kiểm thử: bản phát hành dùng `panic = "abort"`, panic là
+                // thoát tiến trình và tệp `.part` còn lại do `sweep_stale` dọn ở lần khởi động sau.
+                .unwrap_or(Outcome::Failed(GifError::Fault(GifFault::ThreadPanicked)));
                 // Sau khi có kết quả, Dừng/Hủy không còn tác dụng.
                 sh.leave_running(STOPPING);
                 let _ = tx.send(outcome);
+                // Như trên: chỉ có tác dụng ở debug/kiểm thử; `wake` không được panic.
                 let _ = catch_unwind(AssertUnwindSafe(&wake));
             })
             .map_err(|e| GifError::Thread(e.to_string()))?;
@@ -644,9 +692,7 @@ impl Drop for Recorder {
 }
 
 fn lost_thread() -> Outcome {
-    Outcome::Failed(GifError::Thread(
-        "recording thread ended without a result".into(),
-    ))
+    Outcome::Failed(GifError::Fault(GifFault::ThreadEnded))
 }
 
 /// Luồng nền tự dừng vì `reason`. `None` khi đã bị hủy trước đó (Hủy thắng); Dừng của người dùng
@@ -685,7 +731,11 @@ where
     let (reason, end_ms) = loop {
         match sh.state() {
             RUNNING => {}
-            STOPPING => break (StopReason::Stopped, elapsed().min(max_ms)),
+            // Dừng trước khi có khung nào: vẫn chụp đúng một khung rồi lưu.
+            STOPPING if writer.as_ref().is_some_and(|w| w.frames() > 0) => {
+                break (StopReason::Stopped, elapsed().min(max_ms))
+            }
+            STOPPING => {}
             _ => return Outcome::Cancelled,
         }
         let frames = writer.as_ref().map_or(0, GifWriter::frames);
@@ -709,10 +759,7 @@ where
                     src_size = Some(size);
                 }
                 Some(s) if s != size => {
-                    return Err(GifError::Capture(format!(
-                        "frame size changed from {}x{} to {}x{}",
-                        s.0, s.1, size.0, size.1
-                    )));
+                    return Err(GifError::Fault(GifFault::FrameSizeChanged));
                 }
                 Some(_) => {}
             }
@@ -740,7 +787,7 @@ where
         };
         if writer.is_none() {
             let Some(t) = tmp.take() else {
-                return Outcome::Failed(GifError::Thread("temporary file missing".into()));
+                return Outcome::Failed(GifError::Fault(GifFault::Internal));
             };
             match GifWriter::new(target.0, target.1, t) {
                 Ok(w) => writer = Some(w),
@@ -748,7 +795,7 @@ where
             }
         }
         let Some(w) = writer.as_mut() else {
-            return Outcome::Failed(GifError::Thread("encoder missing".into()));
+            return Outcome::Failed(GifError::Fault(GifFault::Internal));
         };
         if let Err(e) = w.push(rgba, at) {
             return Outcome::Failed(e);
@@ -1617,10 +1664,10 @@ mod tests {
             || {},
         )
         .unwrap();
-        assert!(matches!(
+        assert_eq!(
             r.join(WAIT),
-            Some(Outcome::Failed(GifError::Thread(_)))
-        ));
+            Some(Outcome::Failed(GifError::Fault(GifFault::ThreadPanicked)))
+        );
         assert!(names(&d).is_empty());
     }
 
@@ -1643,6 +1690,69 @@ mod tests {
     }
 
     // --- chữ ---
+
+    #[test]
+    fn fault_messages_both_languages() {
+        for f in GifFault::ALL {
+            let vi = GifError::Fault(f).message(Lang::Vi);
+            let en = GifError::Fault(f).message(Lang::En);
+            assert_eq!(vi, t(Lang::Vi, f.msg()));
+            assert_eq!(en, t(Lang::En, f.msg()));
+            assert!(!vi.trim().is_empty() && !en.trim().is_empty(), "{f:?}");
+            assert_ne!(vi, en, "{f:?}");
+        }
+        for (i, a) in GifFault::ALL.iter().enumerate() {
+            for b in &GifFault::ALL[i + 1..] {
+                assert_ne!(a.msg(), b.msg());
+            }
+        }
+    }
+
+    #[test]
+    fn help_text_matches_frame_budget() {
+        // 500 000 pixel: "0,5 triệu" / "500,000".
+        assert_eq!(MAX_FRAME_PIXELS, 500_000);
+        let vi = crate::i18n::help_text(Lang::Vi, &crate::i18n::HelpKeys::default());
+        let en = crate::i18n::help_text(Lang::En, &crate::i18n::HelpKeys::default());
+        let n = MAX_FRAME_PIXELS;
+        let vi_num = format!("{} {:03}", n / 1000, n % 1000);
+        let en_num = format!("{},{:03}", n / 1000, n % 1000);
+        assert!(vi.contains(&vi_num), "{vi_num}");
+        assert!(vi.contains("0,5 triệu điểm ảnh"));
+        assert!(en.contains(&format!("about {en_num} pixels")), "{en_num}");
+        let secs = (MAX_DURATION_MS / 1000).to_string();
+        assert!(vi.contains(&format!("tối đa {secs} giây")));
+        assert!(en.contains(&format!("up to {secs} seconds")));
+        assert!(t(Lang::Vi, Msg::RecordMaxDuration).contains(&secs));
+        assert!(t(Lang::En, Msg::RecordMaxDuration).contains(&secs));
+    }
+
+    #[test]
+    fn recorder_stop_before_first_frame_still_saves_one() {
+        for _ in 0..5 {
+            let d = temp_dir();
+            let (wakes, wake) = wake_counter();
+            let mut r = Recorder::start(cfg(&d), counting_source(), wake).unwrap();
+            assert!(r.request_stop());
+            let out = r.join(WAIT).expect("outcome");
+            assert!(
+                matches!(
+                    out,
+                    Outcome::Saved {
+                        reason: StopReason::Stopped,
+                        frames: 1,
+                        ..
+                    }
+                ),
+                "{out:?}"
+            );
+            assert_eq!(
+                names(&d),
+                vec!["darkshot_2026-11-21_10-00-00.gif".to_string()]
+            );
+            wait_wakes(&wakes, 1);
+        }
+    }
 
     #[test]
     fn error_messages_both_languages() {
