@@ -209,3 +209,5 @@ Task 43 (báo có bản mới, thiết kế `docs/superpowers/specs/2026-11-17-u
 
 Đợt 7 (Lịch sử ảnh chụp, thiết kế `docs/superpowers/specs/2026-11-18-screenshot-history-design.md`, kế hoạch `docs/superpowers/plans/2026-11-18-screenshot-history.md`): làm trên nhánh `feature/screenshot-history`, đã gộp vào `main` sau khi chủ dự án duyệt (quyết định 93). Cộng Task 52–57 và rà soát toàn đợt: 2.060.702 (số "sửa" của Task 53 và 57 là phần chênh do agent báo). Chưa thử tay.
 Phát hành v0.4.0 (2026-11-18, task `73-release-0.4.0`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, `check.ps1` ALL CHECKS PASSED, tag `v0.4.0`, GitHub release.
+
+Phát hành v0.5.0 (2026-11-21, task `102-release-0.5.0`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, website (mục H Nhận dạng chữ, mục I Chụp từng bước và chụp cuộn), `check.ps1` ALL CHECKS PASSED, tag `v0.5.0`, GitHub release.
