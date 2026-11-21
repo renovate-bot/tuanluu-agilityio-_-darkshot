@@ -14,6 +14,7 @@ pub mod migrate;
 pub mod naming;
 pub mod ocr_text;
 pub mod pin;
+pub mod privacy;
 pub mod scroll_stitch;
 pub mod sigv4;
 pub mod snap;

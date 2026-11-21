@@ -1,6 +1,7 @@
 //! Xử lý chữ và cỡ ảnh cho OCR (không phụ thuộc hệ điều hành).
 
 use crate::geometry::Rect;
+use std::fmt;
 
 /// Cạnh ngắn nhỏ hơn mức này thì phóng 2× trước khi OCR.
 pub const SMALL_EDGE: u32 = 40;
@@ -37,11 +38,48 @@ pub fn line_count(text: &str) -> usize {
     text.lines().filter(|l| !l.trim().is_empty()).count()
 }
 
-/// Một dòng chữ nhận dạng được và khung của nó (px ảnh gốc).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Một từ nhận dạng được và khung của nó (px ảnh gốc). `Debug` không in chữ.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OcrWord {
+    pub text: String,
+    pub rect: Rect,
+}
+
+impl fmt::Debug for OcrWord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OcrWord")
+            .field("text", &Redacted(self.text.chars().count()))
+            .field("rect", &self.rect)
+            .finish()
+    }
+}
+
+/// Một dòng chữ nhận dạng được và khung của nó (px ảnh gốc); `words` theo thứ tự đọc
+/// (rỗng khi không có khung từ). `Debug` không in chữ.
+#[derive(Clone, PartialEq, Eq)]
 pub struct OcrLine {
     pub text: String,
     pub rect: Rect,
+    pub words: Vec<OcrWord>,
+}
+
+impl fmt::Debug for OcrLine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OcrLine")
+            .field("text", &Redacted(self.text.chars().count()))
+            .field("rect", &self.rect)
+            .field("words", &self.words.len())
+            .finish()
+    }
+}
+
+/// In `<redacted N chars>` thay cho chữ.
+struct Redacted(usize);
+
+impl fmt::Debug for Redacted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<redacted {} chars>", self.0)
+    }
 }
 
 /// Cách ghép chữ theo các công tắc trong cửa sổ OCR.
@@ -177,10 +215,39 @@ mod tests {
         assert_eq!(line_count("a\r\n\r\n b \r\n  "), 2);
     }
 
+    #[test]
+    fn debug_hides_text() {
+        let line = OcrLine {
+            text: "secret plans".into(),
+            rect: rc(1, 2, 3, 4),
+            words: vec![
+                OcrWord {
+                    text: "secret".into(),
+                    rect: rc(1, 2, 1, 4),
+                },
+                OcrWord {
+                    text: "plans".into(),
+                    rect: rc(2, 2, 2, 4),
+                },
+            ],
+        };
+        let d = format!("{line:?}");
+        assert!(!d.contains("secret") && !d.contains("plans"), "text leaked");
+        assert!(d.contains("<redacted 12 chars>"), "debug format");
+        assert!(d.contains("words: 2"), "word count");
+        let w = format!("{:?}", line.words[0]);
+        assert!(!w.contains("secret"));
+        assert!(w.contains("<redacted 6 chars>"));
+        let pretty = format!("{line:#?}");
+        assert!(!pretty.contains("secret") && !pretty.contains("plans"));
+        assert_eq!(line.clone(), line);
+    }
+
     fn ln(text: &str, y: i32, h: i32) -> OcrLine {
         OcrLine {
             text: text.to_string(),
             rect: Rect { x: 0, y, w: 100, h },
+            words: Vec::new(),
         }
     }
 
@@ -257,10 +324,12 @@ mod tests {
             OcrLine {
                 text: "a".into(),
                 rect: rc(10, 10, 20, 10),
+                words: Vec::new(),
             },
             OcrLine {
                 text: "b".into(),
                 rect: rc(15, 12, 20, 10),
+                words: Vec::new(),
             },
         ];
         assert_eq!(line_at(&l, 12, 12), Some(0));

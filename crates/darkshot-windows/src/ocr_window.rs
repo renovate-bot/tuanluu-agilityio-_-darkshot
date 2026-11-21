@@ -2553,6 +2553,7 @@ mod tests {
         OcrLine {
             text: text.into(),
             rect: Rect { x, y, w, h },
+            words: Vec::new(),
         }
     }
 

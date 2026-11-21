@@ -502,6 +502,18 @@ messages! {
     RecordFaultSizeChanged => ("Kích thước vùng ghi đã thay đổi.", "The size of the recording region changed."),
     RecordFaultInternal => ("Lỗi nội bộ của bộ ghi GIF.", "Internal error in the GIF recorder."),
     RecordNoRoomTitle => ("Không có chỗ cho thanh ghi GIF", "No room for the recording bar"),
+    PrivacyCatPhone => ("Số điện thoại", "Phone number"),
+    PrivacyCatCard => ("Thẻ thanh toán", "Payment card"),
+    PrivacyCatApiKey => ("Khóa API", "API key"),
+    PrivacyCatToken => ("Token truy cập", "Access token"),
+    PrivacyCatPassword => ("Mật khẩu", "Password"),
+    PrivacyCatPrivateKey => ("Khóa riêng", "Private key"),
+    PrivacyConfHigh => ("Cao", "High"),
+    PrivacyConfMedium => ("Trung bình", "Medium"),
+    PrivacyErrNoLanguage => ("Windows chưa có ngôn ngữ nhận dạng chữ nào.", "Windows has no text recognition language installed."),
+    PrivacyErrFailed => ("Không nhận dạng được chữ trong ảnh.", "Could not recognize text in the image."),
+    PrivacyErrTimeout => ("Quét quá lâu.", "Scanning took too long."),
+    PrivacyErrTooLarge => ("Ảnh quá lớn để quét.", "The image is too large to scan."),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -540,6 +552,9 @@ pub const NOTICE_TITLES: &[Msg] = &[
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
 /// (bảng đòi hai bản khác nhau).
 pub const OK_LABEL: &str = "OK";
+
+/// Tên loại phát hiện "Email": giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`.
+pub const PRIVACY_EMAIL_LABEL: &str = "Email";
 
 pub fn history_clear_confirm_body(lang: Lang, n: usize) -> String {
     match (lang, n) {

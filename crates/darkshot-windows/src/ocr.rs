@@ -166,6 +166,7 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         detail.push(OcrLine {
             text,
             rect: map_rect(r, w, h, image.width, image.height),
+            words: Vec::new(),
         });
     }
     let text = compose_all(&detail, TextOptions::default());
@@ -434,6 +435,7 @@ pub(crate) mod tests {
                     w: 3,
                     h: 4,
                 },
+                words: Vec::new(),
             }],
         });
         assert!(post_result(raw, WM_APP + 8, 42, res.clone()));
