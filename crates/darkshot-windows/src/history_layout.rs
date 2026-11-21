@@ -2002,6 +2002,8 @@ mod tests {
 
     #[test]
     fn vietnamese_search_hint_fits_at_default_size() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let hint =
             darkshot_core::i18n::t(Lang::Vi, darkshot_core::i18n::Msg::HistorySearchPlaceholder);
         for dpi in DPIS {

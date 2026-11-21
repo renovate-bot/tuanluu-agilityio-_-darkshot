@@ -51,6 +51,9 @@
       <symbol id="i-upload" viewBox="0 0 24 24"><path d="M7 18a4 4 0 01-.6-7.95A5.5 5.5 0 0117 9.5a4 4 0 011 8M12 20v-8M9 14.5l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 9h11v11H9zM5 15H4V4h11v1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M15.24 4.51L19.49 8.76L14.54 12.29L13.83 17.24L6.76 10.17L11.71 9.46ZM10.29 13.71L5.64 19.36" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-ocr" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M8.5 8.5h7M12 8.5V16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M6 3h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5a2 2 0 012-2zM12 7v9.5M8.5 13l3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
@@ -184,6 +187,7 @@
               <li data-i18n="fa.l4">Optionally remembers where your last selection was.</li>
               <li data-i18n="fa.l5">Optionally includes the mouse pointer in the image.</li>
               <li data-i18n="fa.l6">Step capture: collect several annotated captures into one session, add a note to each, and export them as a numbered folder with a steps.md file. Stays on your PC until you export.</li>
+              <li data-i18n="fa.l7">Scrolling capture: select a region, scroll its content down yourself, and darkshot joins the parts into one tall image. Vertical scrolling only, inside the fixed region you chose; not guaranteed for every app.</li>
             </ul>
             <p class="small" data-i18n="fa.priv">Window selection only reads each window's position and size, never its title or contents.</p>
           </div>
@@ -299,7 +303,7 @@
             </div>
           </div>
           <figure class="feature-visual bar-visual">
-            <svg viewBox="0 0 330 56" class="bar-svg" role="img" aria-label="The darkshot action bar: undo, redo, upload, save, copy, cancel" data-i18n-attr="aria-label:fd.barLabel" data-bar></svg>
+            <svg viewBox="0 0 289 40" class="bar-svg" role="img" aria-label="The darkshot action bar: undo, redo, upload, save, copy, pin, text recognition, scrolling capture, cancel" data-i18n-attr="aria-label:fd.barLabel" data-bar></svg>
             <figcaption class="fig-note" data-i18n="fd.note">The action bar as it appears next to your selection (illustration).</figcaption>
           </figure>
         </article>
@@ -414,6 +418,7 @@
                 <tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd></td><td data-i18n="fg.r8">Pin to screen</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td data-i18n="fg.r9">Recognize text on your PC</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td data-i18n="fg.r10">Add step (while a step session is open)</td></tr>
+                <tr><td><kbd>Ctrl</kbd> + <kbd>L</kbd></td><td data-i18n="fg.r11">Scrolling capture (you scroll)</td></tr>
                 <tr><td><kbd>Esc</kbd></td><td data-i18n="fg.r5">Cancel or step back</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td data-i18n="fg.r6">Undo annotation</td></tr>
                 <tr><td><kbd>Ctrl</kbd> + <kbd>Y</kbd></td><td data-i18n="fg.r7">Redo annotation</td></tr>
@@ -427,7 +432,7 @@
                 <li data-i18n="fg.x3">All four capture shortcuts can be re-assigned or turned off in Options.</li>
                 <li data-i18n-html="fg.x4"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>PrintScreen</kbd> repeats the last region capture: same area, same action, no overlay (off by default).</li>
               </ul>
-              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C, Ctrl+P and Ctrl+T work once you have a selection.</p>
+              <p class="small" data-i18n="fg.note">Ctrl+D, Ctrl+S, Ctrl+C, Ctrl+P, Ctrl+T and Ctrl+L work once you have a selection.</p>
             </div>
           </div>
         </article>

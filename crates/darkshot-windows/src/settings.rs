@@ -3236,11 +3236,14 @@ fn run_loop(hwnd: HWND, c: Ctl) {
             cancel();
             break;
         }
-        // Thông tin, Trợ giúp và cửa sổ Nhận dạng chữ dùng được cả khi Tùy chọn đang mở: chúng xử lý
-        // phím của chính chúng trước.
+        // Thông tin, Trợ giúp, Nhận dạng chữ, Lịch sử, Xem lại các bước và Ảnh chụp cuộn dùng được cả
+        // khi Tùy chọn đang mở: chúng xử lý phím của chính chúng trước.
         if crate::about::pre_translate(&msg)
             || crate::help::pre_translate(&msg)
             || crate::ocr_window::pre_translate(&msg)
+            || crate::history_window::pre_translate(&msg)
+            || crate::steps_window::pre_translate(&msg)
+            || crate::scroll_result::pre_translate(&msg)
         {
             continue;
         }

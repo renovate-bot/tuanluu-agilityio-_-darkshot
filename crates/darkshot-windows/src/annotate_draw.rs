@@ -954,6 +954,8 @@ mod tests {
 
     #[test]
     fn empty_burn_is_identity() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = noise(64, 40, 7);
         let before = img.clone();
         let crop = Rect {
@@ -968,6 +970,8 @@ mod tests {
 
     #[test]
     fn line_pixels() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(40, 20, 0);
         let line = Shape::Line {
             a: pt(5.0, 10.0),
@@ -988,6 +992,8 @@ mod tests {
 
     #[test]
     fn rect_outline_not_filled() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(60, 50, 0);
         let r = Shape::Rect {
             a: pt(50.0, 40.0),
@@ -1008,6 +1014,8 @@ mod tests {
 
     #[test]
     fn arrow_head_filled() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         assert_eq!(arrow_min_head(4.5), 18.0);
         let mut img = solid(100, 60, 0);
         let arrow = Shape::Arrow {
@@ -1040,6 +1048,8 @@ mod tests {
 
     #[test]
     fn short_arrow_draws_head_only() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(40, 20, 0);
         let arrow = Shape::Arrow {
             a: pt(20.0, 10.0),
@@ -1058,6 +1068,8 @@ mod tests {
 
     #[test]
     fn marker_is_translucent() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(60, 40, 0);
         let m = Shape::Marker {
             points: vec![pt(10.0, 20.0), pt(30.0, 22.0), pt(50.0, 20.0)],
@@ -1075,6 +1087,8 @@ mod tests {
     /// không làm `burn` lỗi.
     #[test]
     fn coincident_points_draw_a_dot() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(50, 40, 0);
         let pen = Shape::Pen {
             points: vec![pt(10.0, 20.0); 3],
@@ -1107,6 +1121,8 @@ mod tests {
 
     #[test]
     fn marker_self_overlap_not_darker() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = solid(80, 80, 255);
         // Hình X trong một nét: chéo xuống, lên thẳng, chéo xuống ngược lại.
         let m = Shape::Marker {
@@ -1129,6 +1145,8 @@ mod tests {
 
     #[test]
     fn text_draws_outline_and_fill() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let _gp = GdiPlus::start();
         let mut img = solid(90, 80, 128);
         let t = Shape::Text {
@@ -1227,6 +1245,8 @@ mod tests {
 
     #[test]
     fn burn_offsets_by_crop_origin() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let shapes = sample_shapes();
         let base = noise(200, 100, 3);
         let crop = Rect {
@@ -1246,6 +1266,8 @@ mod tests {
 
     #[test]
     fn clip_limits_drawing() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let _gp = GdiPlus::start();
         let shapes = sample_shapes();
         let base = noise(200, 100, 5);
@@ -1301,6 +1323,8 @@ mod tests {
 
     #[test]
     fn burn_blur_covers_every_pixel() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         use darkshot_core::annotate::blur_pixel_rect;
         let base = checker(64, 48);
         let mut img = base.clone();
@@ -1337,6 +1361,8 @@ mod tests {
 
     #[test]
     fn burn_blur_then_pen_order() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(60, 40, 0);
         let color = Rgb::hex(0x5A6B7C);
         let blur = Shape::Blur {
@@ -1367,6 +1393,8 @@ mod tests {
 
     #[test]
     fn burn_no_shapes_unchanged() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let mut img = checker(33, 17);
         let before = img.clone();
         assert_eq!(burn(&mut img, &[], full(&before)), Ok(()));
@@ -1427,6 +1455,8 @@ mod tests {
 
     #[test]
     fn ellipse_drawn_inside_bounds() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(80, 60, 255);
         let mut img = base.clone();
         let e = Shape::Ellipse {
@@ -1447,6 +1477,8 @@ mod tests {
 
     #[test]
     fn ellipse_circle_symmetric() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(160, 160, 255);
         let mut img = base.clone();
         let e = Shape::Ellipse {
@@ -1476,6 +1508,8 @@ mod tests {
 
     #[test]
     fn step_fill_ring_and_number() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(80, 80, 128);
         let mut img = base.clone();
         let (cx, cy, r) = (40.0f32, 40.0f32, 20.0f32);
@@ -1510,6 +1544,8 @@ mod tests {
 
     #[test]
     fn step_number_fits() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(60, 60, 128);
         let mut img = base.clone();
         let (cx, cy, r) = (30.0f32, 30.0f32, 12.0f32);
@@ -1543,6 +1579,8 @@ mod tests {
 
     #[test]
     fn step_readable_on_light_and_dark() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         for (color, want) in [
             (Rgb::hex(0xFFFF00), [0, 0, 0, 255]),
             (Rgb::hex(0x000080), [255, 255, 255, 255]),
@@ -1566,6 +1604,8 @@ mod tests {
 
     #[test]
     fn step_zero_has_no_number() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let base = solid(80, 80, 128);
         let mut img = base.clone();
         let s = Shape::Step {
@@ -1581,6 +1621,8 @@ mod tests {
 
     #[test]
     fn screen_matches_burn_for_new_shapes() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let shapes = vec![
             Shape::Ellipse {
                 a: pt(15.5, 12.25),

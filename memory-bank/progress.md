@@ -111,6 +111,13 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 87 Chụp từng bước: tài liệu, website, demo | task/87-steps-docs | scaffolder | haiku | xong | 119.967 | phiên điều phối đọc báo cáo | 0 | 119.967 |
 | Rà soát toàn đợt 12 (kèm xác nhận sửa lỗi chặn Task 86) | feature/step-capture | specialist | fable | xong | | 207.923 | | 207.923 |
 | 88 Chụp từng bước: sửa sau rà soát toàn đợt (bước đang ghi khi kết thúc, hạn chót thoát chung, phần sót khi xóa, Markdown) | task/88-steps-review-fixes | specialist (agent Task 86) | opus | xong | 39.629 | 65.468 (reviewer fable) | 7.940 | 113.037 |
+| 89 Chụp cuộn: thuật toán ghép (Giai đoạn 3, đợt 13; lượt đầu treo không ghi gì, giao lại agent mới) | task/89-scroll-core | specialist | opus | xong | 154.029 | 193.594 (reviewer fable, ba lượt: CẦN SỬA ×2 có phản ví dụ, rồi DUYỆT) | 96.577 | 444.200 |
+| 90 Chụp cuộn: phiên chụp, lớp phủ Ctrl+L | task/90-scroll-session | specialist | opus | xong | 227.570 | 123.743 (reviewer fable, CẦN SỬA: màu cứng) | 52.764 | 404.077 |
+| 91 Chụp cuộn: cửa sổ kết quả (bị ngắt giữa chừng do hết hạn mức tuần, làm tiếp 2026-11-21) | task/91-scroll-result | specialist | opus | xong | 217.552 | 89.335 (reviewer fable) | 26.480 | 333.367 |
+| 92 Chụp cuộn: tài liệu, website, demo | task/92-scroll-docs | scaffolder | haiku | xong | 131.745 | phiên điều phối đọc báo cáo | 0 | 131.745 |
+| 93 Website: biểu tượng thanh ngang (Ghim, Nhận dạng chữ, Chụp cuộn), chính sách cửa sổ kết quả trong README | task/93-scroll-website-fixes | builder | sonnet | xong | 81.124 | phiên điều phối đọc báo cáo | 0 | 81.124 |
+| Rà soát toàn đợt 13 | feature/scroll-capture | specialist | fable | xong | | 199.597 | | 199.597 |
+| 94 Chụp cuộn: sửa sau rà soát toàn đợt (thông báo lỗi, pre_translate trong Tùy chọn, chặn Chụp từng bước khi đang chụp cuộn) | task/94-scroll-final-fixes | specialist (agent Task 90) | opus | xong | 25.786 | phiên điều phối đọc báo cáo | 0 | 25.786 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

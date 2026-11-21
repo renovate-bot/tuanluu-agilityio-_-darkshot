@@ -283,6 +283,8 @@ mod tests {
 
     #[test]
     fn enumerate_finds_own_visible_window() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         // Tạo cửa sổ theo pixel vật lý, như ứng dụng thật (manifest PerMonitorV2).
         let _dpi = crate::capture::DpiScope::per_monitor_v2();
         // SAFETY: lấy handle của chính tiến trình.
@@ -335,6 +337,8 @@ mod tests {
 
     #[test]
     fn enumerate_skips_invisible_layered_window() {
+        // Tạo đối tượng GDI: không chen vào kiểm thử đếm GDI của cả tiến trình.
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
         let _dpi = crate::capture::DpiScope::per_monitor_v2();
         // SAFETY: lấy handle của chính tiến trình.
         let inst = unsafe { GetModuleHandleW(None) }.unwrap();

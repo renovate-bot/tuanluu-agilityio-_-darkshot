@@ -18,7 +18,7 @@ fn action_code(a: Action) -> Option<&'static str> {
         Action::Copy => Some("copy"),
         Action::Upload => Some("upload"),
         Action::Pin => Some("pin"),
-        Action::Cancel | Action::Ocr | Action::AddStep => None,
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll => None,
     }
 }
 
@@ -65,9 +65,12 @@ pub fn from_json(s: &str) -> Option<LastCapture> {
 }
 
 /// Lần chụp trước sau một lần chụp vùng kết thúc bằng `action` với vùng `rect` (tọa độ màn hình):
-/// Cancel, Ocr và AddStep giữ `prev` (OCR không phải lần chụp để lặp lại).
+/// Cancel, Ocr, AddStep và Scroll giữ `prev` (không phải lần chụp để lặp lại).
 pub fn remember(prev: Option<LastCapture>, action: Action, rect: Rect) -> Option<LastCapture> {
-    if matches!(action, Action::Cancel | Action::Ocr | Action::AddStep) {
+    if matches!(
+        action,
+        Action::Cancel | Action::Ocr | Action::AddStep | Action::Scroll
+    ) {
         return prev;
     }
     Some(LastCapture { rect, action })
@@ -184,6 +187,21 @@ mod tests {
         let prev = lc(rc(5, 5, 10, 10), Action::Pin);
         assert_eq!(remember(None, Action::AddStep, r), None);
         assert_eq!(remember(Some(prev), Action::AddStep, r), Some(prev));
+    }
+
+    #[test]
+    fn remember_scroll_keeps_prev() {
+        let r = rc(1, 2, 30, 40);
+        let prev = lc(rc(5, 5, 10, 10), Action::Pin);
+        assert_eq!(remember(None, Action::Scroll, r), None);
+        assert_eq!(remember(Some(prev), Action::Scroll, r), Some(prev));
+    }
+
+    #[test]
+    fn json_never_writes_scroll() {
+        let s = to_json(&lc(rc(1, 2, 30, 40), Action::Scroll));
+        assert!(!s.contains("scroll"), "{s}");
+        assert_eq!(from_json(&s.replace("save", "scroll")), None);
     }
 
     #[test]

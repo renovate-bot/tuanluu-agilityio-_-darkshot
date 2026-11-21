@@ -126,9 +126,9 @@ export function verticalToolbar(x: number, y: number): Bar {
   };
 }
 
-/** The horizontal action bar: Undo, Redo | Upload, Save, Copy, Cancel. */
+/** The horizontal action bar: Undo, Redo | Upload, Save, Copy, Pin, Text recognition, Scrolling capture, Cancel. */
 export function horizontalBar(x: number, y: number): Bar {
-  const items = ["undo", "redo", "|", "upload", "save", "copy", "close"];
+  const items = ["undo", "redo", "|", "upload", "save", "copy", "pin", "ocr", "scroll", "close"];
   const IS = 30;
   const SEP = 9;
   const pad = 4;
@@ -202,7 +202,7 @@ export function heroSvg(): string {
   const wx = 50, wy = 22, ws = 0.875; // window drawn at 560×350
   const ww = SCENE_W * ws, wh = SCENE_H * ws;
   const vt = verticalToolbar(wx + ww + 8, wy + wh - 322);
-  const hb = horizontalBar(wx + ww - 197, wy + wh + 6);
+  const hb = horizontalBar(wx + ww - horizontalBar(0, 0).w, wy + wh + 6);
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="hero-svg" aria-hidden="true" focusable="false">
   ${desktopBackdrop(W, H)}
   <g transform="translate(${wx} ${wy}) scale(${ws})">${appScene()}<g class="ann-layer">${annotations()}</g></g>

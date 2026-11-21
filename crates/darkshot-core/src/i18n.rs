@@ -447,6 +447,30 @@ messages! {
         "The background task couldn't run."
     ),
     StepsEndFailedTitle => ("Không xóa hết ảnh của phiên", "Couldn't delete all session images"),
+    OverlayScroll => ("Chụp cuộn (Ctrl+L)", "Scrolling capture (Ctrl+L)"),
+    ScrollNoAnnotations => ("Không kèm hình đánh dấu", "Annotations are not included"),
+    ScrollBarTitle => ("Chụp cuộn", "Scrolling capture"),
+    ScrollHint => ("Cuộn xuống từ từ", "Scroll down slowly"),
+    ScrollSlowDown => ("Cuộn chậm hơn", "Scroll more slowly"),
+    ScrollDone => ("Xong", "Done"),
+    ScrollCancel => ("Hủy", "Cancel"),
+    ScrollLimitTitle => ("Đã đạt giới hạn chiều cao", "Height limit reached"),
+    ScrollNoRoomTitle => ("Không có chỗ cho thanh chụp cuộn", "No room for the scrolling capture bar"),
+    ScrollNoRoomBody => ("Chọn vùng nhỏ hơn màn hình.", "Select a region smaller than the screen."),
+    ScrollResultTitle => ("Ảnh chụp cuộn", "Scrolling capture"),
+    ScrollSave => ("Lưu", "Save"),
+    ScrollCopy => ("Chép", "Copy"),
+    ScrollUpload => ("Tải lên", "Upload"),
+    ScrollPin => ("Ghim", "Pin"),
+    ScrollClose => ("Đóng", "Close"),
+    ScrollManyOpenTitle => ("Có nhiều ảnh chụp cuộn chưa lưu", "Several scrolling captures are not saved"),
+    ScrollManyOpenBody => (
+        "Lưu hoặc đóng bớt các cửa sổ Ảnh chụp cuộn.",
+        "Save or close some Scrolling capture windows."
+    ),
+    ScrollPreparing => ("Đang chuẩn bị…", "Preparing…"),
+    ScrollCopyMemoryTitle => ("Không đủ bộ nhớ", "Not enough memory"),
+    ScrollCopyMemoryBody => ("Đóng bớt cửa sổ rồi thử lại.", "Close some windows and try again."),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -473,6 +497,10 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::StepsStartFailedTitle,
     Msg::StepsSessionSaveFailedTitle,
     Msg::StepsEndFailedTitle,
+    Msg::ScrollLimitTitle,
+    Msg::ScrollNoRoomTitle,
+    Msg::ScrollManyOpenTitle,
+    Msg::ScrollCopyMemoryTitle,
 ];
 
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
@@ -757,7 +785,10 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Ảnh luôn được lưu vào thư mục lưu, nên không bị mất. Kiểm tra mạng và thông tin trong tab Lưu trữ R2, rồi thử lại.
 \n
 \n6. Lịch sử ảnh chụp
-\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2.\n\n7. Chụp từng bước\nChọn \"Chụp từng bước\" ở menu khay để mở thanh phiên, rồi bấm \"Chụp bước\" (hoặc Ctrl+N trong lúc chọn vùng) để thêm ảnh có hình đánh dấu vào phiên, tối đa 99 bước. \"Xem lại\" cho đổi thứ tự, ghi chú, xóa bước và xuất ra một thư mục gồm ảnh đánh số và tệp steps.md. Ảnh bước chỉ nằm trên máy cho đến khi bạn xuất."
+\nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2.\n\n7. Chụp từng bước\nChọn \"Chụp từng bước\" ở menu khay để mở thanh phiên, rồi bấm \"Chụp bước\" (hoặc Ctrl+N trong lúc chọn vùng) để thêm ảnh có hình đánh dấu vào phiên, tối đa 99 bước. \"Xem lại\" cho đổi thứ tự, ghi chú, xóa bước và xuất ra một thư mục gồm ảnh đánh số và tệp steps.md. Ảnh bước chỉ nằm trên máy cho đến khi bạn xuất.
+
+8. Chụp cuộn
+Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -799,7 +830,10 @@ f) Click Test connection, wait for the success message, then click OK.\n\
 The image is always saved to the save folder, so it is not lost. Check your network and the details in the R2 storage tab, then try again.
 \n
 \n6. Screenshot history
-\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2.\n\n7. Step capture\nChoose \"Step capture\" in the tray menu to open the session bar, then click \"Capture step\" (or press Ctrl+N while selecting a region) to add an annotated image to the session, up to 99 steps. \"Review\" lets you reorder steps, add captions, delete steps and export a folder of numbered images plus a steps.md file. Step images stay on this device until you export."
+\nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2.\n\n7. Step capture\nChoose \"Step capture\" in the tray menu to open the session bar, then click \"Capture step\" (or press Ctrl+N while selecting a region) to add an annotated image to the session, up to 99 steps. \"Review\" lets you reorder steps, add captions, delete steps and export a folder of numbered images plus a steps.md file. Step images stay on this device until you export.
+
+8. Scrolling capture
+To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall."
         ),
     }
 }
@@ -888,6 +922,28 @@ pub fn steps_exported(lang: Lang, n: usize) -> String {
         (Lang::En, n) => format!("Exported {n} steps"),
     }
 }
+/// Chiều cao hiện có trên thanh chụp cuộn: "1840 px".
+pub fn scroll_height(lang: Lang, px: u32) -> String {
+    match lang {
+        Lang::Vi | Lang::En => format!("{px} px"),
+    }
+}
+
+/// Cỡ ảnh trên dòng thông tin của cửa sổ kết quả chụp cuộn: "900 × 12000 px".
+pub fn scroll_size(lang: Lang, w: u32, h: u32) -> String {
+    match lang {
+        Lang::Vi | Lang::En => format!("{w} × {h} px"),
+    }
+}
+
+/// Dải cảnh báo của cửa sổ kết quả chụp cuộn.
+pub fn scroll_uncertain(lang: Lang, n: u32) -> String {
+    match lang {
+        Lang::Vi => format!("Có {n} chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng."),
+        Lang::En => format!("{n} join(s) may be inaccurate. Check the image before using it."),
+    }
+}
+
 /// "Phiên bản 0.1.0" | "Version 0.1.0".
 pub fn about_version(lang: Lang, version: &str) -> String {
     match lang {
@@ -1452,6 +1508,102 @@ mod tests {
         for (m, vi, en) in want {
             assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
             assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+    }
+
+    #[test]
+    fn scroll_capture_strings() {
+        let pairs = [
+            (
+                Msg::OverlayScroll,
+                "Chụp cuộn (Ctrl+L)",
+                "Scrolling capture (Ctrl+L)",
+            ),
+            (
+                Msg::ScrollNoAnnotations,
+                "Không kèm hình đánh dấu",
+                "Annotations are not included",
+            ),
+            (Msg::ScrollBarTitle, "Chụp cuộn", "Scrolling capture"),
+            (Msg::ScrollHint, "Cuộn xuống từ từ", "Scroll down slowly"),
+            (Msg::ScrollSlowDown, "Cuộn chậm hơn", "Scroll more slowly"),
+            (Msg::ScrollDone, "Xong", "Done"),
+            (Msg::ScrollCancel, "Hủy", "Cancel"),
+            (
+                Msg::ScrollLimitTitle,
+                "Đã đạt giới hạn chiều cao",
+                "Height limit reached",
+            ),
+            (Msg::ScrollResultTitle, "Ảnh chụp cuộn", "Scrolling capture"),
+            (Msg::ScrollSave, "Lưu", "Save"),
+            (Msg::ScrollCopy, "Chép", "Copy"),
+            (Msg::ScrollUpload, "Tải lên", "Upload"),
+            (Msg::ScrollPin, "Ghim", "Pin"),
+            (Msg::ScrollClose, "Đóng", "Close"),
+            (
+                Msg::ScrollNoRoomTitle,
+                "Không có chỗ cho thanh chụp cuộn",
+                "No room for the scrolling capture bar",
+            ),
+            (
+                Msg::ScrollNoRoomBody,
+                "Chọn vùng nhỏ hơn màn hình.",
+                "Select a region smaller than the screen.",
+            ),
+        ];
+        for (m, vi, en) in pairs {
+            assert_eq!(t(Lang::Vi, m), vi);
+            assert_eq!(t(Lang::En, m), en);
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollLimitTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollNoRoomTitle));
+        assert_eq!(scroll_height(Lang::Vi, 1840), "1840 px");
+        assert_eq!(scroll_height(Lang::En, 0), "0 px");
+        // Cửa sổ kết quả (Task 91).
+        let result = [
+            (
+                Msg::ScrollManyOpenTitle,
+                "Có nhiều ảnh chụp cuộn chưa lưu",
+                "Several scrolling captures are not saved",
+            ),
+            (
+                Msg::ScrollManyOpenBody,
+                "Lưu hoặc đóng bớt các cửa sổ Ảnh chụp cuộn.",
+                "Save or close some Scrolling capture windows.",
+            ),
+            (Msg::ScrollPreparing, "Đang chuẩn bị…", "Preparing…"),
+        ];
+        for (m, vi, en) in result {
+            assert_eq!(t(Lang::Vi, m), vi, "{m:?}");
+            assert_eq!(t(Lang::En, m), en, "{m:?}");
+        }
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollManyOpenTitle));
+        assert!(NOTICE_TITLES.contains(&Msg::ScrollCopyMemoryTitle));
+        assert_eq!(t(Lang::Vi, Msg::ScrollCopyMemoryTitle), "Không đủ bộ nhớ");
+        assert_eq!(t(Lang::En, Msg::ScrollCopyMemoryTitle), "Not enough memory");
+        assert_eq!(
+            t(Lang::Vi, Msg::ScrollCopyMemoryBody),
+            "Đóng bớt cửa sổ rồi thử lại."
+        );
+        assert_eq!(
+            t(Lang::En, Msg::ScrollCopyMemoryBody),
+            "Close some windows and try again."
+        );
+        assert_eq!(scroll_size(Lang::Vi, 900, 12000), "900 × 12000 px");
+        assert_eq!(scroll_size(Lang::En, 1, 2), "1 × 2 px");
+        assert_eq!(
+            scroll_uncertain(Lang::Vi, 3),
+            "Có 3 chỗ ghép không chắc chắn. Kiểm tra ảnh trước khi dùng."
+        );
+        assert_eq!(
+            scroll_uncertain(Lang::En, 3),
+            "3 join(s) may be inaccurate. Check the image before using it."
+        );
+        for l in Lang::ALL {
+            let h = help_text(l, &HelpKeys::default());
+            assert!(h.contains("Ctrl+L"), "{l:?}");
+            assert!(h.contains(t(l, Msg::ScrollBarTitle)), "{l:?}");
+            assert!(h.contains("8. "), "{l:?}");
         }
     }
 

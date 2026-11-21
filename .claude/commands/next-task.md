@@ -45,3 +45,5 @@ Task 73–77 (đợt 10 = Giai đoạn 3: Lặp lại lần chụp trước) the
 Task 78–83 (đợt 11 = Giai đoạn 3: Nhận dạng chữ cục bộ) theo kế hoạch `docs/superpowers/plans/2026-11-18-local-ocr.md`; đã gộp `main`.
 
 Task 84–88 (đợt 12 = Giai đoạn 3: Chụp từng bước) theo kế hoạch `docs/superpowers/plans/2026-11-18-step-capture.md`; đã gộp `main`.
+
+Task 89–94 (đợt 13 = Giai đoạn 3: Chụp cuộn) theo kế hoạch `docs/superpowers/plans/2026-11-18-scroll-capture.md`; đã gộp `main`. Hàng đợi tính năng của chủ dự án đã hết.
