@@ -160,7 +160,7 @@
         <div class="section-head">
           <p class="eyebrow" data-i18n="feat.eyebrow">FEATURES</p>
           <h2 id="features-title" data-i18n="feat.title">Everything between “see it” and “send it”.</h2>
-          <p class="section-lead" data-i18n="feat.lead">Nine things darkshot does well, each one a feature that exists in the app today.</p>
+          <p class="section-lead" data-i18n="feat.lead">Eleven things darkshot does well, each one a feature that exists in the app today.</p>
         </div>
         <nav class="feat-nav" aria-label="Feature groups" data-i18n-attr="aria-label:feat.navLabel">
           <a href="#f-capture" data-i18n="feat.n1">Capture</a>
@@ -170,6 +170,8 @@
           <a href="#f-r2" data-i18n="feat.n5">Cloudflare R2</a>
           <a href="#f-history" data-i18n="feat.n6">History</a>
           <a href="#f-pin" data-i18n="feat.n7">Pin</a>
+          <a href="#f-ocr" data-i18n="feat.n10">Text</a>
+          <a href="#f-steps" data-i18n="feat.n11">Steps &amp; scroll</a>
           <a href="#f-keys" data-i18n="feat.n8">Shortcuts</a>
           <a href="#f-custom" data-i18n="feat.n9">Customize</a>
         </nav>
@@ -186,8 +188,6 @@
               <li data-i18n="fa.l3">Works across multiple monitors and mixed display DPI settings.</li>
               <li data-i18n="fa.l4">Optionally remembers where your last selection was.</li>
               <li data-i18n="fa.l5">Optionally includes the mouse pointer in the image.</li>
-              <li data-i18n="fa.l6">Step capture: collect several annotated captures into one session, add a note to each, and export them as a numbered folder with a steps.md file. Stays on your PC until you export.</li>
-              <li data-i18n="fa.l7">Scrolling capture: select a region, scroll its content down yourself, and darkshot joins the parts into one tall image. Vertical scrolling only, inside the fixed region you chose; not guaranteed for every app.</li>
             </ul>
             <p class="small" data-i18n="fa.priv">Window selection only reads each window's position and size, never its title or contents.</p>
           </div>
@@ -399,10 +399,45 @@
           </div>
         </article>
 
-        <!-- H. Shortcuts -->
-        <article class="feature stack" id="f-keys" aria-labelledby="fg-title">
+        <!-- H. Text recognition -->
+        <article class="feature stack" id="f-ocr" aria-labelledby="fo-title">
           <div class="feature-copy wide">
             <p class="tag">H</p>
+            <h3 id="fo-title" data-i18n="fo.title">Text recognition</h3>
+            <p class="feature-pitch" data-i18n="fo.pitch">Copy just the lines you need, not the whole page.</p>
+            <ul class="ticks">
+              <li data-i18n-html="fo.l1">Select a region and press <kbd>Ctrl</kbd>+<kbd>T</kbd> or the <strong>Recognize text</strong> button. A pinned image has Recognize text in its right-click menu.</li>
+              <li data-i18n="fo.l2">The Recognized text window shows your image with a box around each line, next to the text you can edit.</li>
+              <li data-i18n-html="fo.l3">Click a box to copy that line. <kbd>Ctrl</kbd>+click to pick several lines; they are copied in reading order. Click empty space to clear the selection.</li>
+              <li data-i18n-html="fo.l4">On the image: <kbd>↑</kbd>/<kbd>↓</kbd> move between lines, <kbd>Enter</kbd> copies the line, <kbd>Space</kbd> adds or removes it, <kbd>Ctrl</kbd>+<kbd>A</kbd> picks all, <kbd>Esc</kbd> clears the selection, then closes.</li>
+              <li data-i18n="fo.l5">Three switches, off by default and remembered: Single line, Separate paragraphs, Copy automatically when done.</li>
+              <li data-i18n="fo.l6">Copy all copies the whole text and keeps the window open. Up to 8 text windows at once.</li>
+            </ul>
+            <p class="small" data-i18n="fo.safe">Runs on your PC with Windows' built-in OCR and the languages installed in Windows: no network, no history entry. Windows has no Vietnamese recognizer yet, so accented letters may lose their marks.</p>
+          </div>
+        </article>
+
+        <!-- I. Steps and scroll -->
+        <article class="feature stack" id="f-steps" aria-labelledby="fs-title">
+          <div class="feature-copy wide">
+            <p class="tag">I</p>
+            <h3 id="fs-title" data-i18n="fs.title">Step capture &amp; scrolling capture</h3>
+            <p class="feature-pitch" data-i18n="fs.pitch">Document a process, or capture a page taller than your screen.</p>
+            <ul class="ticks">
+              <li data-i18n="fs.l1">Step capture: start a session from the tray menu. A small bar stays on top with Capture step, Review and Finish. Up to 99 steps.</li>
+              <li data-i18n-html="fs.l2">While a session is open, <kbd>Ctrl</kbd>+<kbd>N</kbd> in the overlay adds the selection, with its annotations, as a step.</li>
+              <li data-i18n-html="fs.l3">Reorder steps, add a note to each, delete or preview them, then export a <code>darkshot-steps-…</code> folder with <code>01.png</code>, <code>02.png</code>… and <code>steps.md</code>. The session survives a restart.</li>
+              <li data-i18n-html="fs.l4">Scrolling capture: select a region, press <kbd>Ctrl</kbd>+<kbd>L</kbd> or the <strong>Scrolling capture</strong> button, then scroll the content down slowly yourself. darkshot joins the parts into one tall image, up to 30,000 px.</li>
+              <li data-i18n="fs.l5">Joins darkshot is unsure about are flagged so you can check the image. The result window offers Save, Copy, Upload and Pin.</li>
+            </ul>
+            <p class="small" data-i18n="fs.safe">Scrolling capture is vertical only, inside the fixed region you chose, and isn't guaranteed for every app; darkshot never sends scroll input to other apps. Step images never go into history. Both run on your PC with no network.</p>
+          </div>
+        </article>
+
+        <!-- J. Shortcuts -->
+        <article class="feature stack" id="f-keys" aria-labelledby="fg-title">
+          <div class="feature-copy wide">
+            <p class="tag">J</p>
             <h3 id="fg-title" data-i18n="fg.title">Keyboard shortcuts &amp; workflow</h3>
             <p class="feature-pitch" data-i18n="fg.pitch">Hands on the keys from capture to share.</p>
           </div>
@@ -437,10 +472,10 @@
           </div>
         </article>
 
-        <!-- I. Customize -->
+        <!-- K. Customize -->
         <article class="feature reverse" id="f-custom" aria-labelledby="fh-title">
           <div class="feature-copy">
-            <p class="tag">I</p>
+            <p class="tag">K</p>
             <h3 id="fh-title" data-i18n="fh.title">Customization &amp; experience</h3>
             <p class="feature-pitch" data-i18n="fh.pitch">Make it fit the way you work.</p>
             <ul class="ticks">
