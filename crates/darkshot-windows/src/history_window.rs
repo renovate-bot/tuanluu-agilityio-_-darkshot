@@ -1861,10 +1861,9 @@ fn on_pin_image(img: Image) {
     open_pin(img);
 }
 
+/// Qua cổng xuất (Shield tắt: ghim ngay như trước); lỗi ghim do đầu ra của cổng báo.
 fn open_pin(img: Image) {
-    if let Err(e) = pin::open(img, pin::PinPlace::CenterOnCursorMonitor) {
-        notify_pin_error(&e);
-    }
+    let _ = crate::privacy_gate::submit(crate::privacy_gate::OutputAction::HistoryPin, img);
 }
 
 /// Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).

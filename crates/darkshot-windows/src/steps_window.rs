@@ -2716,6 +2716,7 @@ mod tests {
     use super::*;
     use crate::winutil::scale;
     use darkshot_core::i18n::{t, Lang, Msg};
+    use darkshot_core::privacy::PreparedOutput;
 
     const DPIS: [u32; 4] = [96, 120, 144, 192];
 
@@ -3077,7 +3078,7 @@ mod tests {
         crate::steps_store::use_root_for_test(base.join("current"));
         assert!(crate::steps_store::start());
         for v in [10, 20, 30] {
-            crate::steps_store::add(img(v)).unwrap();
+            crate::steps_store::add(PreparedOutput::unscanned(img(v))).unwrap();
         }
         crate::steps_store::flush(std::time::Duration::from_secs(20));
         assert_eq!(crate::steps_store::count(), 3);
@@ -3471,7 +3472,8 @@ mod live {
         assert!(root.starts_with(std::env::temp_dir()));
         assert!(crate::steps_store::start());
         for img in shots {
-            crate::steps_store::add(img).unwrap();
+            let prepared = darkshot_core::privacy::PreparedOutput::unscanned(img);
+            crate::steps_store::add(prepared).unwrap();
         }
         crate::steps_store::flush(std::time::Duration::from_secs(20));
         assert_eq!(crate::steps_store::count(), 3);

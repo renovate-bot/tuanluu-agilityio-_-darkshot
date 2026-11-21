@@ -580,14 +580,13 @@ fn scan(image: &Image, progress: impl Fn(u32, u32)) -> Result<ScanReport, ScanEr
 /// Tạo luồng `darkshot-ocr`, quét ảnh: OCR (en-US nếu có, không thì hồ sơ) theo dải, `privacy::detect`
 /// trên luồng nền, gửi `Box<Result<ScanReport, ScanError>>` tới `hwnd` bằng `msg` (WPARAM = token).
 /// Chữ OCR không bao giờ rời luồng nền. Không tạo được luồng → Err.
-#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
+#[cfg_attr(not(test), allow(dead_code))] // Cổng xuất dùng `start_scan_with_progress`.
 pub fn start_scan(image: Arc<Image>, hwnd: HWND, msg: u32, token: usize) -> Result<(), String> {
     start_scan_with_progress(image, hwnd, msg, None, token)
 }
 
 /// Như `start_scan`, thêm thông báo tiến độ: nếu có `progress_msg`, trước mỗi dải gửi
 /// `PostMessage(hwnd, progress_msg, token, (k << 16) | n)` (k từ 1; không có Box, không cần giải phóng).
-#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
 pub fn start_scan_with_progress(
     image: Arc<Image>,
     hwnd: HWND,
@@ -616,7 +615,6 @@ pub fn start_scan_with_progress(
 ///
 /// # Safety
 /// `lp` phải là LPARAM của một thông điệp kết quả do `start_scan` gửi và chưa được lấy lần nào.
-#[cfg_attr(not(test), allow(dead_code))] // Cổng Privacy Shield (Task 131) gọi.
 pub unsafe fn take_scan_result(lp: LPARAM) -> Box<Result<ScanReport, ScanError>> {
     // SAFETY: theo hợp đồng của hàm, `lp` là con trỏ Box do `start_scan` tạo, chưa ai lấy lại.
     unsafe { Box::from_raw(lp.0 as *mut Result<ScanReport, ScanError>) }
