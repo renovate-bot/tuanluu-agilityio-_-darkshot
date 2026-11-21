@@ -4,8 +4,9 @@
 use std::ffi::c_void;
 use std::sync::Once;
 
+use darkshot_core::geometry::Rect;
 use darkshot_core::image::Image;
-use darkshot_core::ocr_text::{join_lines, line_count, ocr_scale};
+use darkshot_core::ocr_text::{compose_all, map_rect, ocr_scale, OcrLine, TextOptions};
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
@@ -22,6 +23,8 @@ pub struct OcrResult {
     pub lang_tag: String,
     pub lang_name: String,
     pub lines: usize,
+    /// Các dòng có chữ, theo thứ tự WinRT trả; khung ở px ảnh gốc. `lines == lines_detail.len()`.
+    pub lines_detail: Vec<OcrLine>,
 }
 
 /// Lỗi nhận dạng. `Failed` chỉ mang thông điệp ngắn cho nhật ký nội bộ/kiểm thử.
@@ -140,12 +143,32 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         .map_err(fail("RecognizeAsync.join"))?;
     let lines = result.Lines().map_err(fail("Lines"))?;
     let n = lines.Size().map_err(fail("Lines.Size"))?;
-    let mut texts = Vec::with_capacity(n as usize);
+    let mut detail = Vec::with_capacity(n as usize);
+    let mut boxes = Vec::new();
     for i in 0..n {
         let line = lines.GetAt(i).map_err(fail("Lines.GetAt"))?;
-        texts.push(line.Text().map_err(fail("OcrLine.Text"))?.to_string_lossy());
+        let text = line.Text().map_err(fail("OcrLine.Text"))?.to_string_lossy();
+        if text.trim().is_empty() {
+            continue;
+        }
+        let words = line.Words().map_err(fail("OcrLine.Words"))?;
+        let nw = words.Size().map_err(fail("Words.Size"))?;
+        boxes.clear();
+        for k in 0..nw {
+            let word = words.GetAt(k).map_err(fail("Words.GetAt"))?;
+            let r = word.BoundingRect().map_err(fail("OcrWord.BoundingRect"))?;
+            boxes.push((r.X, r.Y, r.Width, r.Height));
+        }
+        // Dòng không có từ (hay mọi khung hỏng) thì không có khung: bỏ (thiết kế 7b.1).
+        let Some(r) = union_rect(&boxes) else {
+            continue;
+        };
+        detail.push(OcrLine {
+            text,
+            rect: map_rect(r, w, h, image.width, image.height),
+        });
     }
-    let text = join_lines(&texts);
+    let text = compose_all(&detail, TextOptions::default());
 
     let lang = engine
         .RecognizerLanguage()
@@ -160,17 +183,48 @@ fn recognize_in_mta(image: &Image) -> Result<OcrResult, OcrError> {
         .to_string_lossy();
 
     Ok(OcrResult {
-        lines: line_count(&text),
+        lines: detail.len(),
         text,
         lang_tag,
         lang_name,
+        lines_detail: detail,
+    })
+}
+
+/// Hợp các khung `(x, y, rộng, cao)` (f32, px ảnh đã đưa vào OCR): góc trên-trái làm tròn xuống,
+/// góc dưới-phải làm tròn lên. Khung có số không hữu hạn bị bỏ; cỡ âm coi như 0.
+/// Không còn khung nào → None.
+fn union_rect(boxes: &[(f32, f32, f32, f32)]) -> Option<Rect> {
+    let mut acc: Option<(f32, f32, f32, f32)> = None;
+    for &(x, y, w, h) in boxes {
+        if ![x, y, w, h].iter().all(|v| v.is_finite()) {
+            continue;
+        }
+        let (r, b) = (x + w.max(0.0), y + h.max(0.0));
+        if !(r.is_finite() && b.is_finite()) {
+            continue;
+        }
+        acc = Some(match acc {
+            None => (x, y, r, b),
+            Some((l, t, rr, bb)) => (l.min(x), t.min(y), rr.max(r), bb.max(b)),
+        });
+    }
+    // `as i32` bão hòa với số quá lớn; khung hợp lệ của OCR luôn nằm trong ảnh.
+    let (l, t, r, b) = acc?;
+    let (l, t) = (l.floor() as i32, t.floor() as i32);
+    let (r, b) = (r.ceil() as i32, b.ceil() as i32);
+    Some(Rect {
+        x: l,
+        y: t,
+        w: r.saturating_sub(l),
+        h: b.saturating_sub(t),
     })
 }
 
 /// Co giãn ảnh BGRA `w×h` thành `nw×nh`: mỗi điểm đích lấy trung bình khối nguồn tương ứng
 /// (thu nhỏ = hộp trung bình; phóng to = láng giềng gần nhất). Alpha luôn 255.
 /// Đầu vào sai cỡ → ảnh đích toàn 0 (không panic; `recognize` đã kiểm tra trước).
-fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8> {
+pub(crate) fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8> {
     let (w, h, nw, nh) = (w as usize, h as usize, nw as usize, nh as usize);
     let mut out = vec![0u8; nw * nh * 4];
     if w == 0 || h == 0 || nw == 0 || nh == 0 || src.len() != w * h * 4 {
@@ -234,6 +288,8 @@ fn post_result(hwnd: isize, msg: u32, token: usize, res: Result<OcrResult, OcrEr
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use darkshot_core::geometry::Rect;
+    use darkshot_core::ocr_text::{compose_all, join_lines, OcrLine, TextOptions};
     use std::ffi::c_void;
     use std::time::{Duration, Instant};
     use windows::core::w;
@@ -241,7 +297,7 @@ pub(crate) mod tests {
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, DeleteDC, DeleteObject,
         DrawTextW, GdiFlush, SelectObject, SetBkMode, SetTextColor, BITMAPINFO, BITMAPINFOHEADER,
-        BI_RGB, DIB_RGB_COLORS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, LOGFONTW,
+        BI_RGB, DIB_RGB_COLORS, DT_CALCRECT, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_TOP, LOGFONTW,
         TRANSPARENT,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -370,6 +426,15 @@ pub(crate) mod tests {
             lang_tag: "en-US".into(),
             lang_name: "English".into(),
             lines: 1,
+            lines_detail: vec![OcrLine {
+                text: "a".into(),
+                rect: Rect {
+                    x: 1,
+                    y: 2,
+                    w: 3,
+                    h: 4,
+                },
+            }],
         });
         assert!(post_result(raw, WM_APP + 8, 42, res.clone()));
         let mut m = MSG::default();
@@ -384,6 +449,18 @@ pub(crate) mod tests {
 
     /// Ảnh trắng `w×h`, có `text` đen (phông 32 px) vẽ bằng GDI vào DIB trong bộ nhớ.
     pub(crate) fn text_image(w: i32, h: i32, text: Option<&str>) -> Image {
+        let lines: Vec<(&str, i32)> = text.map(|t| (t, h / 2)).into_iter().collect();
+        lines_image(w, h, 32, &lines).0
+    }
+
+    /// Ảnh trắng `w×h`; mỗi `(chữ, tâm y)` vẽ đen một dòng, phông `font_px`, lề trái 20 px.
+    /// Trả kèm khung thật của từng dòng đã vẽ (DT_CALCRECT).
+    pub(crate) fn lines_image(
+        w: i32,
+        h: i32,
+        font_px: i32,
+        lines: &[(&str, i32)],
+    ) -> (Image, Vec<RECT>) {
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -396,8 +473,9 @@ pub(crate) mod tests {
             },
             ..Default::default()
         };
-        let len = (w * h * 4) as usize;
+        let len = (w as usize) * (h as usize) * 4;
         let mut out = vec![255u8; len];
+        let mut drawn = Vec::with_capacity(lines.len());
         let mut bits: *mut c_void = std::ptr::null_mut();
         // SAFETY: DC, DIB và phông chỉ dùng trong khối này và đều được giải phóng ở cuối.
         unsafe {
@@ -409,7 +487,7 @@ pub(crate) mod tests {
             std::ptr::write_bytes(bits.cast::<u8>(), 255, len);
             let old = SelectObject(dc, bmp.into());
             let mut lf = LOGFONTW {
-                lfHeight: -32,
+                lfHeight: -font_px,
                 lfWeight: 400,
                 ..Default::default()
             };
@@ -418,9 +496,9 @@ pub(crate) mod tests {
             }
             let font = CreateFontIndirectW(&lf);
             let old_font = SelectObject(dc, font.into());
-            if let Some(t) = text {
-                SetBkMode(dc, TRANSPARENT);
-                SetTextColor(dc, windows::Win32::Foundation::COLORREF(0));
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, windows::Win32::Foundation::COLORREF(0));
+            for &(t, cy) in lines {
                 let mut s: Vec<u16> = t.encode_utf16().collect();
                 let mut rc = RECT {
                     left: 20,
@@ -432,8 +510,18 @@ pub(crate) mod tests {
                     dc,
                     &mut s,
                     &mut rc,
-                    DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+                    DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
                 );
+                let th = rc.bottom - rc.top;
+                rc.top = cy - th / 2;
+                rc.bottom = rc.top + th;
+                DrawTextW(
+                    dc,
+                    &mut s,
+                    &mut rc,
+                    DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX,
+                );
+                drawn.push(rc);
             }
             let _ = GdiFlush();
             std::ptr::copy_nonoverlapping(bits.cast::<u8>(), out.as_mut_ptr(), len);
@@ -446,11 +534,73 @@ pub(crate) mod tests {
         for p in out.chunks_mut(4) {
             p[3] = 255;
         }
-        Image {
+        let img = Image {
             width: w as u32,
             height: h as u32,
             bgra: out,
-        }
+        };
+        (img, drawn)
+    }
+
+    /// Khung `r` nằm trong ảnh `w×h` và (nới `tol` px) chứa tâm khung đã vẽ `d`.
+    fn assert_line_box(r: Rect, w: u32, h: u32, d: &RECT, tol: i32) {
+        assert!(r.w > 0 && r.h > 0, "empty box {r:?}");
+        assert!(r.x >= 0 && r.y >= 0, "box {r:?}");
+        assert!(
+            r.x + r.w <= w as i32 && r.y + r.h <= h as i32,
+            "box {r:?} in {w}x{h}"
+        );
+        let (cx, cy) = ((d.left + d.right) / 2, (d.top + d.bottom) / 2);
+        assert!(
+            cx >= r.x - tol && cx <= r.x + r.w + tol && cy >= r.y - tol && cy <= r.y + r.h + tol,
+            "box {r:?} misses drawn centre ({cx},{cy}) of {d:?}"
+        );
+    }
+
+    fn texts_of(r: &OcrResult) -> Vec<String> {
+        r.lines_detail.iter().map(|l| l.text.clone()).collect()
+    }
+
+    #[test]
+    fn union_rect_floors_and_ceils() {
+        assert_eq!(union_rect(&[]), None);
+        let r = union_rect(&[(10.4, 20.6, 5.0, 4.0), (30.0, 18.2, 10.3, 8.0)]).unwrap();
+        // x: floor(10.4)=10 .. ceil(40.3)=41; y: floor(18.2)=18 .. ceil(26.2)=27.
+        assert_eq!(
+            r,
+            Rect {
+                x: 10,
+                y: 18,
+                w: 31,
+                h: 9
+            }
+        );
+        let r = union_rect(&[(1.0, 2.0, 3.0, 4.0)]).unwrap();
+        assert_eq!(
+            r,
+            Rect {
+                x: 1,
+                y: 2,
+                w: 3,
+                h: 4
+            }
+        );
+    }
+
+    #[test]
+    fn union_rect_ignores_non_finite_and_negative_size() {
+        // NaN/vô cực bị bỏ; cỡ âm coi như 0.
+        let r = union_rect(&[(f32::NAN, 0.0, 1.0, 1.0), (5.0, 6.0, -3.0, 2.0)]).unwrap();
+        assert_eq!(
+            r,
+            Rect {
+                x: 5,
+                y: 6,
+                w: 0,
+                h: 2
+            }
+        );
+        assert_eq!(union_rect(&[(f32::INFINITY, 0.0, 1.0, 1.0)]), None);
     }
 
     // Chạy tay: cargo test -p darkshot-windows ocr::tests::manual -- --ignored --nocapture --test-threads=1
@@ -519,5 +669,84 @@ pub(crate) mod tests {
         // SAFETY: như trên; chỉ kiểm tra không có thông điệp thứ hai.
         let again = unsafe { PeekMessageW(&mut m, Some(w.0), msg, msg, PM_REMOVE) }.as_bool();
         assert!(!again, "a second result was posted");
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_three_lines_have_boxes() {
+        let wanted = [
+            ("Alpha line one", 50),
+            ("Bravo line two", 150),
+            ("Charlie line three", 250),
+        ];
+        let (img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(600, 300, 32, &wanted)
+        };
+        match recognize(&img) {
+            Ok(r) => {
+                println!("lines={} detail={:?}", r.lines, r.lines_detail);
+                assert_eq!(r.lines_detail.len(), 3, "{:?}", r.lines_detail);
+                assert_eq!(r.lines, 3);
+                for (i, (l, d)) in r.lines_detail.iter().zip(&drawn).enumerate() {
+                    let word = ["alpha", "bravo", "charlie"][i];
+                    assert!(l.text.to_lowercase().contains(word), "{:?}", l.text);
+                    assert_line_box(l.rect, img.width, img.height, d, 4);
+                }
+                for p in r.lines_detail.windows(2) {
+                    assert!(p[0].rect.y < p[1].rect.y, "{:?}", r.lines_detail);
+                }
+                // Chuỗi cũ của cùng ảnh: các dòng OCR trim rồi nối "\r\n" (ảnh không có dòng rỗng).
+                assert_eq!(r.text, join_lines(&texts_of(&r)));
+                assert_eq!(r.text, compose_all(&r.lines_detail, TextOptions::default()));
+            }
+            Err(OcrError::NoLanguage) => println!("NoLanguage: may khong co goi OCR"),
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_small_image_boxes_in_source_pixels() {
+        // Cạnh ngắn 36 < 40: ảnh được phóng ×2 trước OCR; khung phải về lại px ảnh gốc.
+        assert_eq!(ocr_scale(400, 36, 10_000), Some((800, 72)));
+        let (img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(400, 36, 22, &[("Hello darkshot 123", 18)])
+        };
+        match recognize(&img) {
+            Ok(r) => {
+                println!("lines={} detail={:?}", r.lines, r.lines_detail);
+                assert_eq!(r.lines_detail.len(), 1, "{:?}", r.lines_detail);
+                assert!(r.text.to_lowercase().contains("hello"), "{:?}", r.text);
+                let b = r.lines_detail[0].rect;
+                assert_line_box(b, img.width, img.height, &drawn[0], 4);
+                // Khung đúng px gốc: không rộng hơn dòng đã vẽ quá 4 px mỗi phía.
+                assert!(b.x >= drawn[0].left - 4, "{b:?} vs {:?}", drawn[0]);
+                assert!(b.x + b.w <= drawn[0].right + 4, "{b:?} vs {:?}", drawn[0]);
+                assert_eq!(r.text, join_lines(&texts_of(&r)));
+            }
+            Err(OcrError::NoLanguage) => println!("NoLanguage: may khong co goi OCR"),
+            Err(e) => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_tall_image_shrunk_boxes_in_source_pixels() {
+        // Cạnh dài vượt MaxImageDimension (như ảnh chụp cuộn): ảnh bị co trước OCR; khung vẫn ở px gốc.
+        let (img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(800, 12_000, 48, &[("Hello darkshot 123", 6_000)])
+        };
+        match recognize(&img) {
+            Ok(r) => {
+                println!("lines={} detail={:?}", r.lines, r.lines_detail);
+                assert_eq!(r.lines_detail.len(), 1, "{:?}", r.lines_detail);
+                assert_line_box(r.lines_detail[0].rect, img.width, img.height, &drawn[0], 6);
+            }
+            Err(OcrError::NoLanguage) => println!("NoLanguage: may khong co goi OCR"),
+            Err(e) => panic!("{e:?}"),
+        }
     }
 }

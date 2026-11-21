@@ -120,6 +120,11 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 94 Chụp cuộn: sửa sau rà soát toàn đợt (thông báo lỗi, pre_translate trong Tùy chọn, chặn Chụp từng bước khi đang chụp cuộn) | task/94-scroll-final-fixes | specialist (agent Task 90) | opus | xong | 25.786 | phiên điều phối đọc báo cáo | 0 | 25.786 |
 | 95 Dọn CLAUDE.md (dòng đợt 9: đã phát hành 0.4.0, câu thừa) | task/95-claude-md-cleanup | phiên chính | opus | xong | không đo | phiên điều phối | 0 | |
 | 96 Gia cố: cửa sổ OCR trên ảnh ghim, ghim ảnh rất cao, undo/redo (đợt 14) | task/96-polish-pin-ocr-undo | specialist | opus | xong | 87.433 | 58.923 (reviewer fable) | 8.623 | 154.979 |
+| 97 OCR nâng cao: lõi (dòng, ghép, chia đoạn, dò trúng), cấu hình, chuỗi (đợt 15) | task/97-ocr-pro-core | builder | sonnet | xong | 78.551 | 35.175 (reviewer sonnet) | – | 113.726 |
+| 98 OCR nâng cao: khung dòng từ Windows OCR (đợt 15) | task/98-ocr-pro-engine | specialist | opus | xong | 92.650 | 53.176 (reviewer fable) | – | 145.826 |
+| 99 OCR nâng cao: cửa sổ hai khung, chọn dòng, công tắc (đợt 15) | task/99-ocr-pro-window | specialist | opus | xong | 337.136 (gồm hai vòng sửa) | 144.771 (reviewer fable) | – | 481.907 |
+| 100 OCR nâng cao: tài liệu, website, demo (đợt 15) | task/100-ocr-pro-docs | scaffolder | sonnet | xong | 66.993 | phiên điều phối | – | 66.993 |
+| 101 OCR nâng cao: nhiều cửa sổ không ghi đè công tắc của nhau (sau rà soát toàn đợt 15) | task/101-ocr-switch-sync | specialist | opus | xong | 9.388 (cùng agent Task 99) | rà soát toàn đợt: 167.117 (specialist fable); kiểm thiết kế: 51.311 (sonnet) | – | 227.816 |
 
 Task 15–19 là đợt 1 (kế hoạch `docs/superpowers/plans/2026-11-16-options-tabs-i18n.md`). Cộng Task 15–19: 1.326.884 (làm 847.114; rà soát 448.567; sửa 31.203). Theo model: opus (Task 17) 413.406; sonnet (15, 16, 18 và rà soát 19) 724.702; haiku (làm và sửa 19) 188.776. Chủ dự án đã nghiệm thu đợt 1 qua thử tay (2026-11-16).
 

@@ -323,15 +323,18 @@ Nhận dạng chữ trong vùng đã chọn (hoặc trong ảnh ghim) và đưa 
 
 - **Từ lớp phủ:** chọn vùng, rồi bấm nút **Nhận dạng chữ** (giữa Ghim và Hủy) hoặc `Ctrl+T`. Khi chưa có vùng chọn thì `Ctrl+T` không làm gì. Đang gõ dở một ô chữ thì ô đó được chốt trước. Ảnh đem nhận dạng gồm cả các nét đã vẽ, nên vùng đã làm mờ sẽ không đọc được chữ bên dưới.
 - **Từ ảnh ghim:** chuột phải, mục **Nhận dạng chữ** (ngay sau Lưu ảnh).
-- **Cửa sổ Chữ nhận dạng:** hiện ngay "Đang nhận dạng chữ…", rồi hiện chữ trong một ô sửa được. Dòng trạng thái ghi tên ngôn ngữ và số dòng, ví dụ "Ngôn ngữ: English (United States) · 2 dòng".
-- **Chép** (`Ctrl+Enter`, hoặc `Enter` khi con trỏ không ở ô chữ) chép chữ đang có trong ô vào clipboard, hiện "Đã chép chữ", rồi đóng cửa sổ. **Đóng** hoặc `Esc` đóng cửa sổ, không chép gì. Cỡ cửa sổ đổi được.
+- **Cửa sổ Chữ nhận dạng:** hiện ngay "Đang nhận dạng chữ…", rồi chia hai khung. Khung trái là ảnh đã nhận dạng, có khung quanh từng dòng chữ; khung phải là ô chữ sửa được. Dòng trạng thái ghi tên ngôn ngữ và số dòng, ví dụ "Ngôn ngữ: English (United States) · 2 dòng". Cỡ cửa sổ đổi được.
+- **Chọn dòng trên ảnh:** bấm một khung để chép dòng đó (hiện "Đã chép"). `Ctrl`+bấm để gom hoặc bỏ một dòng; các dòng đã chọn được chép theo thứ tự đọc. Bấm chỗ trống để bỏ chọn. Khi khung ảnh có tiêu điểm: `↑`/`↓` chuyển dòng, `Enter` chép riêng dòng đang trỏ, `Space` gom hoặc bỏ dòng đang trỏ (như `Ctrl`+bấm), `Ctrl+A` chọn tất cả, `Esc` bỏ chọn (bấm `Esc` lần nữa khi không còn chọn thì đóng cửa sổ).
+- **Ba công tắc** (mặc định tắt, nhớ giữa các lần dùng): **Gộp thành một dòng**, **Tách đoạn**, **Tự chép khi xong**.
+- **Chép tất cả** chép toàn bộ chữ trong ô vào clipboard và để cửa sổ mở. **Đóng** hoặc `Esc` đóng cửa sổ.
+- Ảnh cao thì khung ảnh cuộn dọc. Ảnh lớn hơn 16 MP được thu nhỏ để hiển thị.
 - Tối đa 8 cửa sổ chữ cùng lúc. Mở thêm khi đã đủ 8 thì cửa sổ cũ nhất đóng.
 - Không tìm thấy chữ: hiện "Không tìm thấy chữ trong ảnh."
 
 Ngôn ngữ:
 
 - Darkshot nhận dạng theo danh sách ngôn ngữ trong cài đặt Windows của bạn (Cài đặt > Thời gian & ngôn ngữ > Ngôn ngữ & khu vực).
-- Tiếng Việt chỉ nhận dạng được nếu Windows có gói nhận dạng tiếng Việt. Máy không có gói đó thì chữ Việt không được nhận ra.
+- Tiếng Việt: Windows hiện chưa có bộ nhận dạng tiếng Việt. Chữ Việt được đọc bằng bộ nhận dạng của ngôn ngữ khác trên máy (thường là tiếng Anh), nên chữ có dấu có thể mất dấu hoặc mất ký tự. darkshot không kèm bộ nhận dạng riêng để giữ ứng dụng nhẹ.
 - Máy chưa có gói nhận dạng nào: hiện câu hướng dẫn thêm ngôn ngữ trong Cài đặt Windows.
 
 Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay khóa R2 thật, không mạng):
@@ -340,7 +343,7 @@ Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay kh
 powershell -File scripts/demo-ocr.ps1 -Exe target\demo11\release\darkshot.exe
 ```
 
-Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó bằng `Ctrl+Alt+Shift+F10`, rồi bấm `Ctrl+T`. Danh sách kiểm tra của đợt: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 11".
+Thêm `-Lang en` để chạy giao diện English. Script mở sẵn một file mẫu có chữ trong Notepad: chụp vùng đó (có hai đoạn chữ Anh, để thử chọn dòng và Tách đoạn) bằng `Ctrl+Alt+Shift+F10`, rồi bấm `Ctrl+T`. Danh sách kiểm tra: [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md), mục "Đợt 11" và "Đợt 15".
 
 ### Chụp từng bước
 

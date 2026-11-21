@@ -16,6 +16,7 @@ mod hotkey;
 mod lang;
 mod legacy;
 mod ocr;
+mod ocr_view;
 mod ocr_window;
 mod overlay;
 mod paths;
@@ -325,6 +326,14 @@ pub fn merge_reason(a: OpenReason, b: OpenReason) -> OpenReason {
     } else {
         OpenReason::User
     }
+}
+
+/// Tùy chọn trả cấu hình dựng từ ảnh chụp lúc mở: ba công tắc OCR có thể đã đổi trong cửa sổ Chữ
+/// nhận dạng trong lúc đó. Lấy giá trị mới nhất từ cấu hình đang dùng `live` để OK không ghi đè.
+pub fn keep_live_ocr_switches(new: &mut Config, live: &Config) {
+    new.ocr_single_line = live.ocr_single_line;
+    new.ocr_paragraphs = live.ocr_paragraphs;
+    new.ocr_auto_copy = live.ocr_auto_copy;
 }
 
 /// Ngôn ngữ sau khi đóng Tùy chọn: chỉ đổi khi đã ghi cấu hình thành công.
@@ -1241,6 +1250,30 @@ fn ocr_notify(kind: NoticeKind, title: &str, body: &str) {
     }
 }
 
+/// Giá trị đầu của ba công tắc trong cửa sổ Chữ nhận dạng (cấu hình đang dùng).
+fn ocr_switches_load() -> ocr_window::Switches {
+    with_app(|a| ocr_window::Switches {
+        single_line: a.config.ocr_single_line,
+        paragraphs: a.config.ocr_paragraphs,
+        auto_copy: a.config.ocr_auto_copy,
+    })
+    .unwrap_or_default()
+}
+
+/// Lưu ba công tắc khi người dùng đổi trong cửa sổ Chữ nhận dạng: cập nhật cấu hình đang dùng, ghi
+/// file bằng đường lưu cấu hình hiện có chỉ khi cấu hình khớp file (quyết định 72); lỗi thì bỏ qua.
+fn ocr_switches_save(s: ocr_window::Switches) {
+    let cfg = with_app(|a| {
+        a.config.ocr_single_line = s.single_line;
+        a.config.ocr_paragraphs = s.paragraphs;
+        a.config.ocr_auto_copy = s.auto_copy;
+        a.config.clone()
+    });
+    if let (Some(cfg), true) = (cfg, CONFIG_WRITABLE.with(|w| w.get())) {
+        let _ = darkshot_core::config::save(&paths::config_path(), &cfg, &DpapiStore);
+    }
+}
+
 /// Lưu/Chép từ menu hay phím của ảnh ghim: đúng đường `run_on_image` (thông báo, Lịch sử);
 /// Nhận dạng chữ mở cửa sổ kết quả với ảnh gốc của ảnh ghim.
 fn pin_action(action: Action, image: darkshot_core::image::Image, pin_rect: Option<Rect>) {
@@ -1430,6 +1463,8 @@ fn open_settings(hwnd: HWND, reason: OpenReason) {
     if let Some(n) = with_app(|a| a.config.update_notified) {
         new.update_notified = n;
     }
+    // Ba công tắc OCR có thể đã đổi trong cửa sổ Chữ nhận dạng lúc Tùy chọn mở.
+    with_app(|a| keep_live_ocr_switches(&mut new, &a.config));
     let saved = darkshot_core::config::save(&paths::config_path(), &new, &DpapiStore);
     // Ghi thất bại thì ngôn ngữ giữ nguyên, cùng với cấu hình cũ và phím cũ.
     lang::set(lang_after_save(
@@ -1872,6 +1907,7 @@ fn main() {
     MAIN_HWND.with(|h| h.set(Some(hwnd)));
     pin::set_action_sink(pin_action);
     ocr_window::set_notifier(ocr_notify);
+    ocr_window::set_switch_store(ocr_switches_load, ocr_switches_save);
     // SAFETY: chuỗi hằng kết thúc bằng 0.
     TASKBAR_CREATED.with(|c| c.set(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }));
 
@@ -2384,6 +2420,28 @@ mod tests {
         assert_eq!(merge_reason(User, User), User);
         assert_eq!(merge_reason(User, NeedsR2), NeedsR2);
         assert_eq!(merge_reason(NeedsR2, User), NeedsR2);
+    }
+
+    /// Đổi công tắc OCR khi Tùy chọn đang mở: OK lưu giá trị mới nhất, không ghi đè; khóa khác giữ.
+    #[test]
+    fn settings_save_keeps_live_ocr_switches() {
+        let live = Config {
+            ocr_single_line: true,
+            ocr_paragraphs: false,
+            ocr_auto_copy: true,
+            ..Config::defaults(Path::new("C:/shots"), Lang::En)
+        };
+        let mut new = Config {
+            ocr_single_line: false,
+            ocr_paragraphs: true,
+            ocr_auto_copy: false,
+            history_enabled: true,
+            ..Config::defaults(Path::new("C:/shots"), Lang::En)
+        };
+        keep_live_ocr_switches(&mut new, &live);
+        assert!(new.ocr_single_line && !new.ocr_paragraphs && new.ocr_auto_copy);
+        assert!(new.history_enabled);
+        assert!(!live.history_enabled);
     }
 
     #[test]
