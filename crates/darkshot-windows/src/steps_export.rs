@@ -1,7 +1,8 @@
 //! Xuất phiên chụp từng bước ra thư mục người dùng chọn: tạo thư mục con mới
 //! `darkshot-steps-YYYY-MM-DD_HH-mm` (`_2`, `_3`… nếu tên đã có), chép ảnh theo thứ tự hiển thị
 //! thành `01.png`, `02.png`… và ghi `steps.md`. Chạy trên luồng nền. Bước có ảnh thay thế (đã qua
-//! Privacy Shield lúc xuất) được ghi PNG mã hóa từ ảnh đó thay cho bản chép; tệp của phiên không đổi.
+//! Privacy Shield lúc xuất, mã hóa PNG sẵn ở `steps_window`) được ghi byte PNG đó thay cho bản chép;
+//! tệp của phiên không đổi.
 //!
 //! An toàn: mọi thứ được ghi vào một thư mục tạm mới (`.darkshot-steps-partial-…`, tạo bằng
 //! `create_dir` nên không bao giờ là thư mục có sẵn; tệp tạo bằng `create_new`), rồi đổi tên một lần
@@ -9,7 +10,6 @@
 //! thì xóa thư mục tạm; thư mục tạm còn sót (thoát giữa chừng) được dọn ở lần xuất sau.
 
 use darkshot_core::i18n::Lang;
-use darkshot_core::image::{encode_png, Image};
 use darkshot_core::naming::LocalTime;
 use darkshot_core::steps::{export_dir_name, export_names, markdown, Step};
 use std::path::{Path, PathBuf};
@@ -27,7 +27,8 @@ const MAX_SUFFIX: u32 = 999;
 
 /// Một lần xuất: thư mục cha, thời điểm (đặt tên, ghi trong Markdown), ngôn ngữ của Markdown, các
 /// bước theo thứ tự hiển thị và đường dẫn ảnh nguồn tương ứng, cùng ảnh thay thế `(chỉ số bước,
-/// ảnh đã qua cổng xuất)` cho các bước chưa quét lúc chụp (Privacy Shield bật lúc xuất).
+/// byte PNG của ảnh đã qua cổng xuất)` cho các bước chưa quét lúc chụp (Privacy Shield bật lúc
+/// xuất). Giữ byte PNG thay cho ảnh BGRA để lượt xuất nhiều bước không giữ mọi ảnh thô.
 #[derive(Clone, Debug)]
 pub struct ExportJob {
     pub parent: PathBuf,
@@ -35,7 +36,7 @@ pub struct ExportJob {
     pub lang: Lang,
     pub steps: Vec<Step>,
     pub sources: Vec<PathBuf>,
-    pub replacements: Vec<(usize, Image)>,
+    pub replacements: Vec<(usize, Vec<u8>)>,
 }
 
 /// Tạo thư mục con mới `base` (hoặc `base_2`, `base_3`…) trong `parent`; không bao giờ dùng tên đã
@@ -89,11 +90,7 @@ fn fill(dir: &Path, job: &ExportJob) -> std::io::Result<()> {
     for (k, (src, name)) in job.sources.iter().zip(&names).enumerate() {
         let dst = dir.join(name);
         match job.replacements.iter().find(|(i, _)| *i == k) {
-            Some((_, img)) => {
-                let png =
-                    encode_png(img).map_err(|e| std::io::Error::other(e.message(job.lang)))?;
-                write_new(&dst, &png)?;
-            }
+            Some((_, png)) => write_new(&dst, png)?,
             None => copy_new(src, &dst)?,
         }
     }
@@ -202,6 +199,7 @@ pub fn export(job: &ExportJob) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darkshot_core::image::{encode_png, Image};
 
     fn when() -> LocalTime {
         LocalTime {
@@ -459,10 +457,10 @@ mod tests {
         }
     }
 
-    /// Bước có ảnh thay thế: tệp xuất là PNG mã hóa từ ảnh đó (đọc lại ra đúng điểm đen); bước khác
-    /// chép nguyên; tệp của phiên không bị viết lại.
+    /// Bước có ảnh thay thế: tệp xuất là đúng byte PNG đã mã hóa sẵn của ảnh đó (đọc lại ra đúng
+    /// điểm đen); bước khác chép nguyên; tệp của phiên không bị viết lại.
     #[test]
-    fn replacements_are_encoded_instead_of_copied() {
+    fn replacements_are_written_instead_of_copied() {
         let parent = tmp("replace");
         let src = parent.join("session");
         let files = ["001.png", "002.png", "003.png"];
@@ -476,9 +474,16 @@ mod tests {
             lang: Lang::En,
             steps: files.iter().map(|f| step(f, "")).collect(),
             sources: paths.clone(),
-            replacements: vec![(2, third.clone()), (0, first.clone())],
+            replacements: vec![
+                (2, encode_png(&third).unwrap()),
+                (0, encode_png(&first).unwrap()),
+            ],
         };
         let out = export(&job).unwrap();
+        assert_eq!(
+            std::fs::read(out.join("01.png")).unwrap(),
+            encode_png(&first).unwrap()
+        );
         assert_eq!(names(&out), ["01.png", "02.png", "03.png", MARKDOWN_FILE]);
         for (name, want) in [("01.png", &first), ("03.png", &third)] {
             let got = darkshot_core::thumb::decode_png_file(&out.join(name)).unwrap();
@@ -501,32 +506,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&parent);
     }
 
-    /// Ảnh thay thế cho bước không có (lỗi lập trình) hay không mã hóa được: lỗi, không để lại gì.
+    /// Ảnh thay thế cho bước không có (lỗi lập trình): lỗi, không để lại gì. (Ảnh không mã hóa
+    /// được bị chặn trước đó, ở `steps_window`, khi cổng trả ảnh.)
     #[test]
     fn bad_replacements_fail_without_leaving_anything() {
         let parent = tmp("badrepl");
         let paths = sources(&parent.join("session"), &["001.png"]);
-        let base = ExportJob {
+        let png = encode_png(&covered(4, 4, 7, (0, 0, 1, 1))).unwrap();
+        let job = ExportJob {
             parent: parent.clone(),
             when: when(),
             lang: Lang::En,
             steps: vec![step("001.png", "")],
             sources: paths,
-            replacements: vec![(1, covered(4, 4, 7, (0, 0, 1, 1)))],
-        };
-        assert!(export(&base).is_err());
-        let empty = Image {
-            width: 0,
-            height: 0,
-            bgra: Vec::new(),
-        };
-        let job = ExportJob {
-            replacements: vec![(0, empty)],
-            ..base
+            replacements: vec![(1, png)],
         };
         assert!(!export(&job).unwrap_err().is_empty());
         assert_eq!(names(&parent), ["session"]);
         let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    /// Tệp đích đã có (không bao giờ ghi đè): ghi byte PNG cũng tạo mới, lỗi nếu tên đã có.
+    #[test]
+    fn replacement_bytes_never_overwrite() {
+        let dir = tmp("nooverwrite");
+        let dst = dir.join("01.png");
+        std::fs::write(&dst, b"old").unwrap();
+        assert!(write_new(&dst, b"new").is_err());
+        assert_eq!(std::fs::read(&dst).unwrap(), b"old");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Số bước và số ảnh nguồn lệch nhau (lỗi lập trình): báo lỗi, không tạo gì.

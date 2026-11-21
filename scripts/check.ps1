@@ -295,6 +295,21 @@ foreach ($file in $srcFiles) {
         $logged = $true
     }
 }
+# ocr.rs: ma chay that (ngoai mod tests) cung khong ghi log; kiem thu do hieu nang duoc in so do.
+$ocrFile = 'crates\darkshot-windows\src\ocr.rs'
+foreach ($file in $srcFiles) {
+    $rel = Get-RelPath $file
+    if ($rel -ne $ocrFile) { continue }
+    $p = Get-Parsed $file
+    $mask = Get-TestMask $p.Lines
+    for ($i = 0; $i -lt $p.Lines.Count; $i++) {
+        if ($mask[$i]) { continue }
+        if ($p.Code[$i] -match $logPattern) {
+            Write-Host "CHECK FAILED: logging in ${rel}:$($i + 1)"
+            $logged = $true
+        }
+    }
+}
 if ($logged) { exit 1 }
 
 Write-Host '== no legacy name'
