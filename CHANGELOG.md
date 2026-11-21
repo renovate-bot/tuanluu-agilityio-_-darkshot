@@ -2,6 +2,16 @@
 
 Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên bản theo [SemVer](https://semver.org/lang/vi/): tăng số giữa khi có tính năng mới, số cuối khi chỉ sửa lỗi. Tải bản phát hành ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases).
 
+## [Chưa phát hành]
+
+### Mới
+
+- **Ghi GIF.** Chọn vùng rồi bấm nút **Ghi GIF** (giữa Chụp cuộn và Hủy) hoặc Ctrl+G để ghi vùng đó thành ảnh GIF động. Thanh ghi nổi (chấm đỏ, "Đang ghi 00:05 / 00:15", Dừng, Hủy) không lấy tiêu điểm; thanh và khung viền không nằm trong GIF trên Windows 10 bản 2004 trở lên. Dừng lưu tệp `darkshot_YYYY-MM-DD_HH-MM-SS.gif` vào thư mục Lưu (không ghi đè, trùng tên thì thêm `_2`…) và báo "Đã lưu GIF"; Hủy không tạo tệp. 10 khung hình mỗi giây, tối đa 15 giây, lặp vô hạn, không con trỏ chuột, không âm thanh, 256 màu mỗi khung; vùng lớn hơn 500 000 điểm ảnh được thu nhỏ, vùng quá 64 MP bị từ chối. Tự dừng và lưu khi đạt 15 giây, 256 MiB hoặc khi vùng không còn trên màn hình. Thoát ứng dụng khi đang ghi thì lưu phần đã ghi. Không tải lên, không vào Lịch sử, không đổi "lần chụp trước". Hình đánh dấu không được kèm. Chạy hoàn toàn trên máy, không mạng.
+
+### Đã biết
+
+- Ghi GIF chưa được thử tay trên Windows 10, nhiều màn hình, DPI hỗn hợp và màn hình có tọa độ âm. Thông báo Windows hiện trong lúc ghi có thể lọt vào GIF. Xem mục "Đợt 20: Ghi GIF" trong `docs/testing/manual-checklist.md`.
+
 ## [0.5.0] - 2026-11-21
 
 ### Mới
