@@ -11,7 +11,7 @@ Cập nhật: 2026-11-21
 
 ## Bước kế tiếp
 
-Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/109-…` từ `main`, agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên task mới đánh số từ 109 (108 = ảnh website).
+Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/NN-…` từ `main` (số chưa dùng trên `origin`), gộp qua PR (quyết định 138), agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên trước khi đặt số task mới phải xem `git branch -r` (phiên macOS đã dùng tới 113).
 
 ## Lưu trữ: đợt 14 (đã gộp `main`)
 
