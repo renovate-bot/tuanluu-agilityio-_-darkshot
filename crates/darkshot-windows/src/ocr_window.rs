@@ -1857,6 +1857,35 @@ world",
         assert!(test_windows().is_empty());
     }
 
+    /// Ảnh ghim cuối cùng đóng: `drop_topmost` bỏ topmost của cửa sổ kết quả, cửa sổ vẫn mở.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_drop_topmost_clears_flag() {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::Graphics::Gdi::MONITOR_DEFAULTTOPRIMARY;
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE};
+        close_all();
+        // SAFETY: chỉ hỏi màn hình chính.
+        let mon = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
+        let work = work_area(mon).expect("work area");
+        let topmost = |h: HWND| {
+            // SAFETY: đọc kiểu mở rộng của cửa sổ do luồng này tạo.
+            let ex = unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) } as u32;
+            ex & WS_EX_TOPMOST.0 != 0
+        };
+        open_inner(tiny(), Some(work), no_ocr).expect("open covered");
+        let (h, _) = test_windows()[0];
+        assert!(topmost(h));
+        drop_topmost();
+        assert!(!topmost(h), "topmost must be dropped");
+        // SAFETY: chỉ hỏi tính hợp lệ của handle.
+        assert!(unsafe { IsWindow(Some(h)) }.as_bool());
+        // Gọi lần nữa (không còn cửa sổ topmost) vô hại.
+        drop_topmost();
+        close_all();
+        assert!(test_windows().is_empty());
+    }
+
     /// Quá 8 cửa sổ: cái cũ nhất đóng.
     #[test]
     #[ignore = "mở cửa sổ thật; chạy tay"]
