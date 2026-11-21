@@ -204,6 +204,13 @@ impl Pick {
     }
 }
 
+/// Dòng đầu tiên (thứ tự đọc) có khung không suy biến chạm vùng nhìn `[scroll, scroll + view_h)`
+/// (tọa độ nội dung); không có thì `None`.
+pub fn first_visible_line(lines: &[OcrLine], g: &Geom, scroll: i32) -> Option<usize> {
+    let _ = (lines, g, scroll);
+    todo!()
+}
+
 /// Áp `input` lên vùng chọn `p` của `lines`; trả việc cần làm (chữ cần chép ghép theo `o`).
 pub fn pick(p: &mut Pick, lines: &[OcrLine], o: TextOptions, input: PickInput) -> PickOutcome {
     let n = lines.len();
@@ -543,7 +550,7 @@ mod tests {
 
     #[test]
     fn tall_image_fits_width_and_scrolls() {
-        // Ảnh chụp cuộn 800×12000: bản giữ 273×4096, hẹp hơn khung nên giữ 1:1 và cuộn.
+        // Bản giữ đã co 273×4096 (ví dụ tổng hợp cho ba lớp tọa độ), hẹp hơn khung nên 1:1 và cuộn.
         let g = geom((800, 12_000), (273, 4096), 600, 400, 8);
         assert_eq!(g.img, r(163, 8, 273, 4096));
         assert_eq!(g.content_h, 4112);
@@ -635,6 +642,26 @@ mod tests {
             let d = g.line_rect(b);
             assert!(d.w >= 0 && d.h >= 0);
         }
+    }
+
+    #[test]
+    fn first_visible_line_follows_scroll() {
+        let g = geom((800, 4000), (800, 4000), 900, 400, 8);
+        let lines = vec![
+            line("degenerate", r(20, 10, 0, 30)),
+            line("a", r(20, 100, 300, 40)),
+            line("b", r(20, 1000, 300, 40)),
+            line("c", r(20, 3900, 300, 40)),
+        ];
+        assert_eq!(first_visible_line(&lines, &g, 0), Some(1));
+        // Dòng a vừa khuất (đáy 8+140 = 148 ≤ 148): dòng đầu đang thấy là b khi tới gần.
+        assert_eq!(first_visible_line(&lines, &g, 148), None);
+        assert_eq!(first_visible_line(&lines, &g, 147), Some(1));
+        assert_eq!(first_visible_line(&lines, &g, 700), Some(2));
+        assert_eq!(first_visible_line(&lines, &g, g.max_scroll()), Some(3));
+        assert_eq!(first_visible_line(&[], &g, 0), None);
+        let empty = geom((0, 0), (0, 0), 900, 400, 8);
+        assert_eq!(first_visible_line(&lines, &empty, 0), None);
     }
 
     #[test]

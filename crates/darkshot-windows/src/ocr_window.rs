@@ -1977,6 +1977,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
+/// Cỡ cửa sổ (pixel) mở ra: cỡ mặc định `want`, kẹp vào vùng làm việc `work` nhưng không dưới cỡ
+/// tối thiểu `min`; vùng làm việc nhỏ hơn cả cỡ tối thiểu thì lấy vùng làm việc.
+fn fit_window_size(want: (i32, i32), min: (i32, i32), work: (i32, i32)) -> (i32, i32) {
+    let _ = (want, min, work);
+    todo!()
+}
+
 /// Kiểu mở rộng của cửa sổ kết quả: chồng lên khung cần tránh (ảnh ghim, luôn ở trên cùng) thì
 /// thêm `WS_EX_TOPMOST` để cửa sổ nằm trên ảnh ghim; không thì như thường.
 fn ex_style(overlaps: bool) -> WINDOW_EX_STYLE {
@@ -2354,6 +2361,44 @@ mod tests {
 
     /// Cờ `overlaps`: có chỗ không chồng → false; không chỗ → true (vị trí giữa chồng lên khung);
     /// không có khung → false. Chỉ khi chồng thì cửa sổ là topmost.
+    #[test]
+    fn window_size_fits_work_area() {
+        assert_eq!(
+            fit_window_size((1200, 750), (800, 500), (1920, 1040)),
+            (1200, 750)
+        );
+        assert_eq!(
+            fit_window_size((1200, 750), (800, 500), (1366, 728)),
+            (1200, 728)
+        );
+        assert_eq!(
+            fit_window_size((1200, 750), (800, 500), (1000, 600)),
+            (1000, 600)
+        );
+        // Vùng làm việc nhỏ hơn cả cỡ tối thiểu: lấy vùng làm việc.
+        assert_eq!(
+            fit_window_size((1200, 750), (800, 500), (700, 450)),
+            (700, 450)
+        );
+        assert_eq!(
+            fit_window_size((1200, 750), (800, 500), (900, 450)),
+            (900, 450)
+        );
+        // Màn hình 1366×768 ở 125%: cỡ mặc định 960×600 DIP (kèm khung) không vừa vùng làm việc
+        // 1366×728; sau khi kẹp và đặt, cửa sổ nằm trọn trong vùng.
+        let dpi = 120;
+        let work = r(0, 0, 1366, 728);
+        let want = window_size(DEFAULT_W, DEFAULT_H, dpi);
+        let min = window_size(MIN_W, MIN_H, dpi);
+        assert!(want.1 > work.h, "{want:?}");
+        let (w, h) = fit_window_size(want, min, (work.w, work.h));
+        assert!(w >= min.0 && h >= min.1.min(work.h));
+        for avoid in [None, Some(r(100, 100, 300, 200)), Some(work)] {
+            let (x, y, _) = place_avoiding(work, w, h, avoid, scale(GAP, dpi));
+            assert!(within(r(x, y, w, h), work), "{avoid:?}: {x},{y} {w}x{h}");
+        }
+    }
+
     #[test]
     fn placement_reports_overlap_and_topmost() {
         let work = r(-1920, 0, 1920, 1040);
@@ -3186,7 +3231,7 @@ mod tests {
         close_all();
     }
 
-    /// Review Focus 1: ảnh chụp cuộn 800×12000 (co giữ về 273×4096): khung dòng cuối chỉ hiện sau
+    /// Review Focus 1: ảnh chụp cuộn 800×12000 (trong 16 MP nên giữ nguyên): khung dòng cuối chỉ hiện sau
     /// khi cuộn; cuộn tới cuối bằng thanh cuộn, bấm trúng đúng dòng cuối; bánh xe cuộn ngược.
     #[test]
     #[ignore = "mở cửa sổ thật; chạy tay"]
@@ -3523,6 +3568,67 @@ mod tests {
             );
         }
         assert_eq!((start, end), (0, 0));
+        close_all();
+    }
+
+    /// Sau khi cuộn (thanh cuộn, bánh xe, phím) dòng "rê chuột" tính lại theo vị trí con trỏ hiện tại
+    /// (chỉ đọc vị trí, không di chuyển con trỏ). Không ghi clipboard.
+    #[test]
+    #[ignore = "mở cửa sổ thật; chạy tay"]
+    fn manual_hover_recomputed_after_scroll() {
+        close_all();
+        reset_hooks(Switches::default());
+        open_with(white(800, 12_000), no_ocr).expect("open");
+        let (h, token) = test_windows()[0];
+        post_lines(
+            h,
+            token,
+            (0..40)
+                .map(|i| ocr_line(&format!("r{i}"), 20, 50 + i * 300, 600, 60))
+                .collect(),
+        );
+        assert!(pump(2_000, || !busy(h)));
+        let view = view_hwnd(h);
+        let expected = || {
+            let mut pt = POINT::default();
+            let mut rc = RECT::default();
+            // SAFETY: chỉ đọc vị trí con trỏ và client của khung ảnh; biến cục bộ.
+            unsafe {
+                let _ = GetCursorPos(&mut pt);
+                let _ = ScreenToClient(view, &mut pt);
+                let _ = GetClientRect(view, &mut rc);
+            }
+            let inside = pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom;
+            if inside {
+                hit_line(h, pt.x, pt.y)
+            } else {
+                None
+            }
+        };
+        let stale = Some(39);
+        let steps: [Box<dyn Fn()>; 3] = [
+            // SAFETY (cả ba): thông điệp gửi thẳng tới khung ảnh của cửa sổ này.
+            Box::new(|| unsafe {
+                SendMessageW(view, WM_VSCROLL, Some(WPARAM(SB_PAGEDOWN.0 as usize)), None);
+            }),
+            Box::new(|| unsafe {
+                SendMessageW(
+                    view,
+                    WM_MOUSEWHEEL,
+                    Some(WPARAM((-120i32 as u16 as usize) << 16)),
+                    None,
+                );
+            }),
+            Box::new(|| key(h, VK_DOWN.0)),
+        ];
+        for step in steps.iter() {
+            with_win(h, |w| w.hover = stale);
+            let before = scroll_state(h).0;
+            step();
+            pump(30, || false);
+            assert_ne!(scroll_state(h).0, before, "must scroll");
+            assert_eq!(with_win(h, |w| w.hover).flatten(), expected());
+        }
         close_all();
     }
 
