@@ -224,7 +224,7 @@ fn union_rect(boxes: &[(f32, f32, f32, f32)]) -> Option<Rect> {
 /// Co giãn ảnh BGRA `w×h` thành `nw×nh`: mỗi điểm đích lấy trung bình khối nguồn tương ứng
 /// (thu nhỏ = hộp trung bình; phóng to = láng giềng gần nhất). Alpha luôn 255.
 /// Đầu vào sai cỡ → ảnh đích toàn 0 (không panic; `recognize` đã kiểm tra trước).
-fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8> {
+pub(crate) fn scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Vec<u8> {
     let (w, h, nw, nh) = (w as usize, h as usize, nw as usize, nh as usize);
     let mut out = vec![0u8; nw * nh * 4];
     if w == 0 || h == 0 || nw == 0 || nh == 0 || src.len() != w * h * 4 {

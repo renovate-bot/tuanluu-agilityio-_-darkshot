@@ -1,56 +1,68 @@
-//! Cửa sổ "Chữ nhận dạng": tối, không chặn, đổi cỡ được; tối đa `MAX_WINDOWS` cửa sổ. Mở ra là hiện
-//! "Đang nhận dạng chữ…" và giao ảnh cho `ocr::start` (luồng nền); kết quả về bằng `WM_OCR_RESULT`.
-//! Thông điệp do vòng lặp của ứng dụng phân phối; `pre_translate` lo bàn phím.
+//! Cửa sổ "Chữ nhận dạng": tối, không chặn, đổi cỡ được; tối đa `MAX_WINDOWS` cửa sổ. Hai khung:
+//! trái là ảnh đã nhận dạng (khung dòng, bấm để chép, Ctrl+bấm để gom), phải là ô chữ, ba công tắc
+//! và hàng nút. Mở ra là hiện "Đang nhận dạng chữ…" và giao ảnh cho `ocr::start` (luồng nền); kết
+//! quả về bằng `WM_OCR_RESULT`. Thông điệp do vòng lặp của ứng dụng phân phối; `pre_translate` lo
+//! bàn phím.
 //!
 //! Sở hữu kết quả: mỗi `WM_OCR_RESULT` mang một `Box` (LPARAM) được lấy lại đúng một lần, kể cả khi
 //! token không khớp, khi cửa sổ đã có kết quả, hay khi cửa sổ bị hủy trước khi lấy thông điệp
 //! (vét hàng đợi ở `WM_DESTROY`/`WM_NCDESTROY`, và lưới an toàn trong `pre_translate`).
-//! Không bao giờ gọi `ocr::recognize` trên luồng giao diện.
+//! Không bao giờ gọi `ocr::recognize` trên luồng giao diện. Clipboard chỉ bị ghi khi người dùng bấm
+//! hoặc gõ phím, hoặc khi "Tự chép khi xong" đang bật lúc kết quả về.
 
 use crate::clipboard::WinClipboard;
+use crate::history_paint::Bmp;
 use crate::lang;
 use crate::ocr::{self, OcrError, OcrResult};
+use crate::ocr_view::{self, Geom, Pick, PickInput, PickOutcome};
 use crate::theme;
 use crate::winutil::{self, scale};
 use darkshot_core::actions::{Clipboard, NoticeKind};
 use darkshot_core::geometry::Rect;
 use darkshot_core::i18n::{self, ocr_status, t, Lang, Msg};
 use darkshot_core::image::Image;
-use darkshot_core::ocr_text::{compose_all, line_count, OcrLine, TextOptions};
-use darkshot_core::theme::{BG, INPUT, TEXT, TEXT_MUTED};
+use darkshot_core::ocr_text::{compose_all, line_at, line_count, OcrLine, TextOptions};
+use darkshot_core::theme::{ACCENT, BG, INPUT, LINE, SURFACE, TEXT, TEXT_MUTED};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateFontIndirectW, DeleteObject, EndPaint, GetDC, GetMonitorInfoW,
-    GetTextExtentPoint32W, InvalidateRect, MonitorFromPoint, MonitorFromRect, ReleaseDC,
-    SelectObject, HDC, HFONT, HGDIOBJ, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-    PAINTSTRUCT,
+    BeginPaint, BitBlt, CreateCompatibleDC, CreateFontIndirectW, DeleteDC, DeleteObject, EndPaint,
+    GetDC, GetMonitorInfoW, GetTextExtentPoint32W, InvalidateRect, MonitorFromPoint,
+    MonitorFromRect, ReleaseDC, ScreenToClient, SelectObject, DT_CENTER, DT_NOPREFIX,
+    DT_SINGLELINE, DT_VCENTER, HDC, HFONT, HGDIOBJ, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, SRCCOPY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    EM_SETLIMITTEXT, EM_SETREADONLY, EM_SETSEL, NMHDR, NM_CUSTOMDRAW,
+    SetScrollInfo, EM_SETLIMITTEXT, EM_SETREADONLY, EM_SETSEL, NMHDR, NM_CUSTOMDRAW, WM_MOUSELEAVE,
 };
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForMonitor, GetDpiForWindow, SystemParametersInfoForDpi,
     MDT_EFFECTIVE_DPI,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, GetActiveWindow, GetFocus, GetKeyState, IsWindowEnabled, SetFocus, VK_CONTROL,
-    VK_ESCAPE, VK_RETURN, VK_SHIFT, VK_TAB,
+    EnableWindow, GetActiveWindow, GetFocus, GetKeyState, IsWindowEnabled, SetFocus,
+    TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_RETURN,
+    VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetNextDlgTabItem,
-    GetWindowLongPtrW, IsChild, IsDialogMessageW, IsWindow, LoadCursorW, PeekMessageW,
-    RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow,
-    BS_PUSHBUTTON, EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOVSCROLL, ES_MULTILINE, ES_NOHIDESEL,
-    ES_WANTRETURN, GWL_EXSTYLE, HMENU, HWND_NOTOPMOST, IDC_ARROW, MINMAXINFO, MSG,
-    NONCLIENTMETRICSW, PM_REMOVE, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SW_SHOW, WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP,
-    WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED,
-    WM_GETMINMAXINFO, WM_KEYDOWN, WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETFOCUS, WM_SETFONT,
-    WM_SIZE, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_DISABLED, WS_EX_APPWINDOW,
+    GetScrollInfo, GetWindowLongPtrW, IsChild, IsDialogMessageW, IsWindow, KillTimer, LoadCursorW,
+    PeekMessageW, RegisterClassW, SendMessageW, SetCursor, SetForegroundWindow, SetTimer,
+    SetWindowPos, SetWindowTextW, ShowWindow, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
+    BS_PUSHBUTTON, DLGC_WANTARROWS, DLGC_WANTCHARS, EN_KILLFOCUS, EN_SETFOCUS, ES_AUTOVSCROLL,
+    ES_MULTILINE, ES_NOHIDESEL, ES_WANTRETURN, GWL_EXSTYLE, HMENU, HTCLIENT, HWND_NOTOPMOST,
+    IDC_ARROW, IDC_HAND, MINMAXINFO, MSG, NONCLIENTMETRICSW, PM_REMOVE, SB_BOTTOM, SB_LINEDOWN,
+    SB_LINEUP, SB_PAGEDOWN, SB_PAGEUP, SB_THUMBPOSITION, SB_THUMBTRACK, SB_TOP, SB_VERT,
+    SCROLLBAR_COMMAND, SCROLLINFO, SIF_DISABLENOSCROLL, SIF_PAGE, SIF_POS, SIF_RANGE, SIF_TRACKPOS,
+    SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOW,
+    WA_INACTIVE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETDLGCODE,
+    WM_GETMINMAXINFO, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+    WM_NCDESTROY, WM_NOTIFY, WM_PAINT, WM_SETCURSOR, WM_SETFOCUS, WM_SETFONT, WM_SIZE, WM_TIMER,
+    WM_VSCROLL, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_DISABLED, WS_EX_APPWINDOW,
     WS_EX_CONTROLPARENT, WS_EX_TOPMOST, WS_GROUP, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU,
     WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
@@ -58,10 +70,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// Kết quả nhận dạng gửi về cửa sổ: WPARAM = token, LPARAM = `Box` của `ocr::start`.
 pub const WM_OCR_RESULT: u32 = WM_APP + 12;
 /// Vùng client tối thiểu và mặc định (DIP).
-const MIN_W: i32 = 420;
-const MIN_H: i32 = 260;
-const DEFAULT_W: i32 = 560;
-const DEFAULT_H: i32 = 380;
+const MIN_W: i32 = 640;
+const MIN_H: i32 = 400;
+const DEFAULT_W: i32 = 960;
+const DEFAULT_H: i32 = 600;
 /// Bề rộng tối thiểu của khung phải (DIP) và phần trăm bề rộng dành cho khung ảnh.
 const RIGHT_MIN: i32 = 280;
 const IMAGE_SHARE: i32 = 58;
@@ -69,11 +81,19 @@ const IMAGE_SHARE: i32 = 58;
 const MAX_WINDOWS: usize = 8;
 
 const CLASS: PCWSTR = w!("darkshot-ocr");
-/// Chép mang ID của IDOK, Đóng mang ID của IDCANCEL.
+const VIEW_CLASS: PCWSTR = w!("darkshot-ocr-view");
+/// Chép tất cả mang ID của IDOK, Đóng mang ID của IDCANCEL.
 const ID_COPY: i32 = 1;
 const ID_CLOSE: i32 = 2;
 const ID_EDIT: i32 = 100;
 const ID_STATUS: i32 = 101;
+const ID_VIEW: i32 = 102;
+const ID_HINT: i32 = 103;
+/// Ba công tắc: Gộp thành một dòng, Tách đoạn, Tự chép khi xong.
+const ID_CHECKS: [i32; 3] = [110, 111, 112];
+/// Hẹn giờ ẩn nhãn "Đã chép" (trên khung ảnh).
+const TIP_TIMER: usize = 1;
+const TIP_MS: u32 = 1200;
 
 const STYLE: WINDOW_STYLE = WINDOW_STYLE(
     WS_CAPTION.0
@@ -86,8 +106,11 @@ const STYLE: WINDOW_STYLE = WINDOW_STYLE(
 const EX_STYLE: WINDOW_EX_STYLE = WINDOW_EX_STYLE(WS_EX_APPWINDOW.0 | WS_EX_CONTROLPARENT.0);
 /// Kiểu STATIC của dòng trạng thái: một dòng, căn giữa dọc, cắt bằng dấu ba chấm, không tiền tố &.
 const SS_STATUS: WINDOW_STYLE = WINDOW_STYLE(0x0200 | 0x4000 | 0x0080);
+/// Kiểu STATIC của dòng gợi ý: trái, tự xuống dòng theo từ, không tiền tố &.
+const SS_HINT: WINDOW_STYLE = WINDOW_STYLE(0x0080);
 
-// Bố cục (DIP): lề, khoảng giữa các phần, nút, dòng trạng thái, đệm của ô chữ trong khung.
+// Bố cục (DIP): lề, khoảng giữa các phần, nút, dòng trạng thái, đệm của ô chữ trong khung, công
+// tắc, dòng gợi ý (hai dòng chữ), đệm khung ảnh trong khung viền, đệm ảnh trong khung ảnh.
 const MARGIN: i32 = 12;
 const GAP: i32 = 8;
 const ROW_GAP: i32 = 4;
@@ -96,68 +119,15 @@ const BTN_MIN_W: i32 = 88;
 const BTN_PAD: i32 = 16;
 const STATUS_H: i32 = 20;
 const EDIT_PAD: i32 = 6;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Layout {
-    /// Khung tự vẽ của ô chữ (nền `INPUT`, viền, gạch dưới khi có tiêu điểm).
-    field: Rect,
-    /// Điều khiển EDIT, nằm trong khung.
-    edit: Rect,
-    status: Rect,
-    copy: Rect,
-    close: Rect,
-}
-
-/// Bề rộng nút cho chữ rộng `text_px` pixel ở `dpi`: tối thiểu `BTN_MIN_W`, đủ chỗ cho chữ và đệm.
-fn button_width(text_px: i32, dpi: u32) -> i32 {
-    scale(BTN_MIN_W, dpi).max(text_px.max(0) + 2 * scale(BTN_PAD, dpi))
-}
-
-/// Bố cục trong vùng client `cw`×`ch` pixel: ô chữ trên cùng, dòng trạng thái, hàng nút Chép | Đóng
-/// sát góc dưới phải. Hai nút cùng bề rộng (đủ cho chữ dài hơn, `copy_text`/`close_text` là bề rộng
-/// chữ đo bằng phông đậm). Cỡ nhỏ hơn tối thiểu thì các phần co về 0 chứ không âm.
-fn layout(cw: i32, ch: i32, dpi: u32, copy_text: i32, close_text: i32) -> Layout {
-    let s = |v| scale(v, dpi);
-    let (m, bh) = (s(MARGIN), s(BTN_H));
-    let bw = button_width(copy_text, dpi).max(button_width(close_text, dpi));
-    let btn_y = ch - m - bh;
-    let close = Rect {
-        x: cw - m - bw,
-        y: btn_y,
-        w: bw,
-        h: bh,
-    };
-    let copy = Rect {
-        x: close.x - s(GAP) - bw,
-        ..close
-    };
-    let status = Rect {
-        x: m,
-        y: btn_y - s(ROW_GAP) - s(STATUS_H),
-        w: (cw - 2 * m).max(0),
-        h: s(STATUS_H),
-    };
-    let field = Rect {
-        x: m,
-        y: m,
-        w: (cw - 2 * m).max(0),
-        h: (status.y - s(ROW_GAP) - m).max(0),
-    };
-    let pad = s(EDIT_PAD);
-    let edit = Rect {
-        x: field.x + pad,
-        y: field.y + pad,
-        w: (field.w - 2 * pad).max(0),
-        h: (field.h - 2 * pad).max(0),
-    };
-    Layout {
-        field,
-        edit,
-        status,
-        copy,
-        close,
-    }
-}
+const CHECK_H: i32 = 24;
+const CHECK_GAP: i32 = 2;
+const HINT_H: i32 = 36;
+const VIEW_INSET: i32 = 3;
+const VIEW_PAD: i32 = 8;
+/// Mỗi nấc bánh xe cuộn ảnh bao nhiêu DIP.
+const WHEEL_DIP: i32 = 48;
+/// Độ đục của lớp phủ dòng đang chọn (~30%).
+const SELECT_ALPHA: u8 = 77;
 
 /// Bề rộng chữ (pixel) dùng để đặt cỡ: nút Chép tất cả, nút Đóng (phông đậm), công tắc dài nhất.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -183,9 +153,99 @@ struct PaneLayout {
     close: Rect,
 }
 
+/// Bề rộng nút cho chữ rộng `text_px` pixel ở `dpi`: tối thiểu `BTN_MIN_W`, đủ chỗ cho chữ và đệm.
+fn button_width(text_px: i32, dpi: u32) -> i32 {
+    scale(BTN_MIN_W, dpi).max(text_px.max(0) + 2 * scale(BTN_PAD, dpi))
+}
+
+fn inset(r: Rect, d: i32) -> Rect {
+    Rect {
+        x: r.x + d,
+        y: r.y + d,
+        w: (r.w - 2 * d).max(0),
+        h: (r.h - 2 * d).max(0),
+    }
+}
+
+/// Bố cục trong vùng client `cw`×`ch` pixel: trái là khung ảnh (~58% bề rộng) và dòng gợi ý dưới
+/// nó; phải (tối thiểu 280 DIP) là dòng trạng thái, ô chữ, ba công tắc và hàng nút Chép tất cả |
+/// Đóng sát góc dưới phải (Chép tất cả lấy phần còn lại của hàng). Cỡ nhỏ hơn tối thiểu thì các phần
+/// co về 0 chứ không âm.
 fn pane_layout(cw: i32, ch: i32, dpi: u32, texts: Texts) -> PaneLayout {
-    let _ = (cw, ch, dpi, texts);
-    todo!()
+    let s = |v| scale(v, dpi);
+    let (m, g, bh) = (s(MARGIN), s(GAP), s(BTN_H));
+    let inner = (cw - 2 * m - g).max(0);
+    let mut rw = inner - inner * IMAGE_SHARE / 100;
+    if rw < s(RIGHT_MIN) {
+        rw = s(RIGHT_MIN).min(inner);
+    }
+    let lw = inner - rw;
+    let rx = m + lw + g;
+    let btn_y = ch - m - bh;
+    let close_w = button_width(texts.close, dpi);
+    let close = Rect {
+        x: rx + rw - close_w,
+        y: btn_y,
+        w: close_w,
+        h: bh,
+    };
+    let copy = Rect {
+        x: rx,
+        y: btn_y,
+        w: (close.x - g - rx).max(0),
+        h: bh,
+    };
+    let check_h = s(CHECK_H);
+    let c2 = Rect {
+        x: rx,
+        y: btn_y - g - check_h,
+        w: rw,
+        h: check_h,
+    };
+    let c1 = Rect {
+        y: c2.y - s(CHECK_GAP) - check_h,
+        ..c2
+    };
+    let c0 = Rect {
+        y: c1.y - s(CHECK_GAP) - check_h,
+        ..c2
+    };
+    let status = Rect {
+        x: rx,
+        y: m,
+        w: rw,
+        h: s(STATUS_H),
+    };
+    let field_y = status.bottom() + s(ROW_GAP);
+    let field = Rect {
+        x: rx,
+        y: field_y,
+        w: rw,
+        h: (c0.y - g - field_y).max(0),
+    };
+    let hint = Rect {
+        x: m,
+        y: ch - m - s(HINT_H),
+        w: lw,
+        h: s(HINT_H),
+    };
+    let view_field = Rect {
+        x: m,
+        y: m,
+        w: lw,
+        h: (hint.y - s(ROW_GAP) - m).max(0),
+    };
+    PaneLayout {
+        view_field,
+        view: inset(view_field, s(VIEW_INSET)),
+        hint,
+        status,
+        field,
+        edit: inset(field, s(EDIT_PAD)),
+        checks: [c0, c1, c2],
+        copy,
+        close,
+    }
 }
 
 /// Ba công tắc của cửa sổ (lưu trong cấu hình).
@@ -198,20 +258,33 @@ pub struct Switches {
 
 impl Switches {
     fn text_options(self) -> TextOptions {
-        todo!()
+        TextOptions {
+            single_line: self.single_line,
+            paragraphs: self.paragraphs && !self.single_line,
+        }
     }
 }
 
-/// "Tách đoạn" dùng được không.
+/// "Tách đoạn" dùng được không (không khi "Gộp thành một dòng" bật).
 fn paragraphs_enabled(s: Switches) -> bool {
-    let _ = s;
-    todo!()
+    !s.single_line
+}
+
+/// Chữ của kết quả có chữ theo `o`: ghép từ các dòng (kết quả không có dòng thì chữ thô).
+fn result_text(r: &OcrResult, o: TextOptions) -> String {
+    if r.lines_detail.is_empty() {
+        to_crlf(&r.text)
+    } else {
+        compose_all(&r.lines_detail, o)
+    }
 }
 
 /// Chữ cần tự chép khi kết quả `res` về với công tắc `s`; `None` = không chép.
 fn auto_copy_text(s: Switches, res: &Result<OcrResult, OcrError>) -> Option<String> {
-    let _ = (s, res);
-    todo!()
+    match res {
+        Ok(r) if s.auto_copy && !r.text.trim().is_empty() => Some(result_text(r, s.text_options())),
+        _ => None,
+    }
 }
 
 /// Kết quả mang token `got` có được nhận không: chỉ khi cửa sổ đang chờ (`expected` = `Some`) đúng
@@ -241,8 +314,9 @@ fn busy_view(lang: Lang) -> View {
     }
 }
 
-/// Cửa sổ sau khi có kết quả. Lỗi kỹ thuật (`Failed`) không bao giờ hiện cho người dùng.
-fn view_of(lang: Lang, res: &Result<OcrResult, OcrError>, _o: TextOptions) -> View {
+/// Cửa sổ sau khi có kết quả; chữ ghép theo `o`. Lỗi kỹ thuật (`Failed`) không bao giờ hiện cho
+/// người dùng.
+fn view_of(lang: Lang, res: &Result<OcrResult, OcrError>, o: TextOptions) -> View {
     match res {
         Ok(r) if r.text.trim().is_empty() => View {
             text: t(lang, Msg::OcrEmpty).to_string(),
@@ -250,7 +324,7 @@ fn view_of(lang: Lang, res: &Result<OcrResult, OcrError>, _o: TextOptions) -> Vi
             ..View::default()
         },
         Ok(r) => View {
-            text: to_crlf(&r.text),
+            text: result_text(r, o),
             status: ocr_status(lang, &lang_label(&r.lang_tag, &r.lang_name), r.lines),
             editable: true,
             can_copy: true,
@@ -295,7 +369,8 @@ fn to_crlf(s: &str) -> String {
     out
 }
 
-/// Một cửa sổ đang mở. Không bao giờ giữ mượn sổ `WINS` qua lời gọi Win32 có thể gửi thông điệp.
+/// Một cửa sổ đang mở. Không bao giờ giữ mượn sổ `WINS` qua lời gọi Win32 có thể gửi thông điệp
+/// (vẽ GDI thì được).
 struct Win {
     hwnd: HWND,
     /// Token của lượt nhận dạng (cố định).
@@ -306,6 +381,9 @@ struct Win {
     status: HWND,
     copy: HWND,
     close: HWND,
+    view: HWND,
+    hint: HWND,
+    checks: [HWND; 3],
     dpi: u32,
     font: Option<HFONT>,
     bold: Option<HFONT>,
@@ -316,18 +394,38 @@ struct Win {
     /// Điều khiển có tiêu điểm khi cửa sổ mất kích hoạt (trả lại khi kích hoạt lại).
     focus: HWND,
     field: Rect,
+    view_field: Rect,
     /// Thứ đang hiện (để `relabel` dựng lại chữ khi đổi ngôn ngữ).
     shown: Shown,
+    switches: Switches,
+    /// Các dòng của kết quả (khung ở px ảnh gốc); rỗng khi chưa có kết quả hay lỗi.
+    lines: Vec<OcrLine>,
+    /// Cỡ ảnh gốc và bản giữ (DIB, cạnh dài tối đa `KEEP_MAX`).
+    orig: (u32, u32),
+    kept_size: (u32, u32),
+    kept: Option<Bmp>,
+    /// Bản đã co cho khung hiện tại (`None` khi hiển thị 1:1 bản giữ).
+    disp: Option<Bmp>,
+    geom: Geom,
+    scroll: i32,
+    pick: Pick,
+    hover: Option<usize>,
+    tracking: bool,
+    /// Dòng đang hiện nhãn "Đã chép".
+    tip: Option<usize>,
 }
 
 type Notify = fn(NoticeKind, &str, &str);
 type Starter = fn(Image, HWND, u32, usize) -> Result<(), String>;
+type LoadSwitches = fn() -> Switches;
+type SaveSwitches = fn(Switches);
 
 thread_local! {
     /// Cửa sổ đang mở, cũ nhất trước.
     static WINS: RefCell<Vec<Win>> = const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<usize> = const { Cell::new(1) };
     static NOTIFY: Cell<Option<Notify>> = const { Cell::new(None) };
+    static STORE: Cell<Option<(LoadSwitches, SaveSwitches)>> = const { Cell::new(None) };
 }
 
 #[cfg(test)]
@@ -343,9 +441,35 @@ fn with_win<R>(hwnd: HWND, f: impl FnOnce(&mut Win) -> R) -> Option<R> {
     })
 }
 
+/// Cửa sổ kết quả chứa khung ảnh `view`.
+fn owner_of_view(view: HWND) -> Option<HWND> {
+    WINS.with(|v| {
+        let v = v.try_borrow().ok()?;
+        v.iter().find(|w| w.view == view).map(|w| w.hwnd)
+    })
+}
+
 /// Hàm `main` đăng ký để báo Đã chép / lỗi clipboard qua khay (lọc thông báo Success ở `main`).
 pub fn set_notifier(f: Notify) {
     NOTIFY.with(|n| n.set(Some(f)));
+}
+
+/// Hàm `main` đăng ký để đọc giá trị đầu của ba công tắc và lưu chúng (đường lưu cấu hình hiện có).
+pub fn set_switch_store(load: LoadSwitches, save: SaveSwitches) {
+    STORE.with(|s| s.set(Some((load, save))));
+}
+
+fn load_switches() -> Switches {
+    STORE
+        .with(|s| s.get())
+        .map(|(load, _)| load())
+        .unwrap_or_default()
+}
+
+fn save_switches(sw: Switches) {
+    if let Some((_, save)) = STORE.with(|s| s.get()) {
+        save(sw);
+    }
 }
 
 fn notify(kind: NoticeKind, title: &str, body: &str) {
@@ -390,15 +514,34 @@ fn open_with(image: Image, start: Starter) -> Result<(), String> {
     open_inner(image, None, start)
 }
 
+/// Bản giữ để hiển thị của `image`: DIB cùng cỡ, hay bản co về cạnh dài `KEEP_MAX` (7b.7).
+fn kept_bitmap(image: &Image) -> (Option<Bmp>, (u32, u32)) {
+    let (w, h) = (image.width, image.height);
+    let (kw, kh) = ocr_view::kept_size(w, h);
+    if !image.is_valid() {
+        return (None, (kw, kh));
+    }
+    let bmp = if (kw, kh) == (w, h) {
+        ocr_view::bmp_from_bgra(w, h, &image.bgra)
+    } else {
+        ocr_view::bmp_from_bgra(kw, kh, &ocr::scale_bgra(&image.bgra, w, h, kw, kh))
+    };
+    (bmp, (kw, kh))
+}
+
 fn open_inner(image: Image, avoid: Option<Rect>, start: Starter) -> Result<(), String> {
     close_oldest_over(MAX_WINDOWS - 1);
     let lang = lang::current();
-    let hwnd = create(lang, avoid).ok_or_else(|| "CreateWindowExW failed".to_string())?;
+    let (kept, kept_size) = kept_bitmap(&image);
+    let orig = (image.width, image.height);
+    let hwnd = create(lang, avoid, kept, orig, kept_size)
+        .ok_or_else(|| "CreateWindowExW failed".to_string())?;
     let token = WINS.with(|v| v.borrow().iter().find(|w| w.hwnd == hwnd).map(|w| w.token));
     let Some(token) = token else {
         destroy(hwnd);
         return Err("window not registered".into());
     };
+    // Ảnh gốc chuyển cho luồng nhận dạng; cửa sổ chỉ giữ bản DIB của nó.
     if let Err(e) = start(image, hwnd, WM_OCR_RESULT, token) {
         destroy(hwnd);
         return Err(e);
@@ -484,6 +627,18 @@ fn key_down(vk: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY) -> boo
     unsafe { GetKeyState(i32::from(vk.0)) < 0 }
 }
 
+/// Phím trên khung ảnh (đang có tiêu điểm) → thao tác chọn dòng.
+fn view_key(vk: u16, ctrl: bool) -> Option<PickInput> {
+    match vk {
+        v if v == VK_UP.0 => Some(PickInput::Up),
+        v if v == VK_DOWN.0 => Some(PickInput::Down),
+        v if v == VK_RETURN.0 && !ctrl => Some(PickInput::Enter),
+        v if v == VK_SPACE.0 => Some(PickInput::Space),
+        v if v == u16::from(b'A') && ctrl => Some(PickInput::SelectAll),
+        _ => None,
+    }
+}
+
 /// `true`: thông điệp đã được xử lý, vòng lặp bỏ qua. Chỉ đụng thông điệp của cửa sổ kết quả (và
 /// con của nó), cộng `WM_OCR_RESULT` tới handle không còn là cửa sổ kết quả (giải phóng rồi bỏ).
 pub fn pre_translate(msg: &MSG) -> bool {
@@ -498,10 +653,10 @@ pub fn pre_translate(msg: &MSG) -> bool {
         v.try_borrow().ok().and_then(|v| {
             v.iter()
                 .find(|w| winutil::belongs_to(w.hwnd, msg))
-                .map(|w| (w.hwnd, w.edit, w.close))
+                .map(|w| (w.hwnd, w.edit, w.close, w.view))
         })
     });
-    let Some((hwnd, edit, close)) = owner else {
+    let Some((hwnd, edit, close, view)) = owner else {
         return false;
     };
     if msg.message == WM_KEYDOWN {
@@ -510,12 +665,19 @@ pub fn pre_translate(msg: &MSG) -> bool {
         // SAFETY: chỉ hỏi điều khiển có tiêu điểm của luồng này.
         let focus = unsafe { GetFocus() };
         if vk == VK_ESCAPE.0 {
-            destroy(hwnd);
+            // Có vùng chọn trên ảnh thì bỏ chọn, không thì đóng.
+            view_input(hwnd, PickInput::Escape);
             return true;
+        }
+        if msg.hwnd == view {
+            if let Some(input) = view_key(vk, ctrl) {
+                view_input(hwnd, input);
+                return true;
+            }
         }
         if vk == VK_RETURN.0 {
             if ctrl {
-                copy_and_close(hwnd);
+                copy_all(hwnd);
                 return true;
             }
             if focus == edit {
@@ -525,7 +687,7 @@ pub fn pre_translate(msg: &MSG) -> bool {
             if focus == close {
                 destroy(hwnd);
             } else {
-                copy_and_close(hwnd);
+                copy_all(hwnd);
             }
             return true;
         }
@@ -664,8 +826,31 @@ fn child(parent: HWND, class: PCWSTR, text: &str, style: WINDOW_STYLE, id: i32) 
     }
 }
 
-/// Tạo, đăng ký vào sổ và hiện cửa sổ ở trạng thái "đang nhận dạng". Lỗi thì không còn gì sót.
-fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
+fn check_msgs() -> [Msg; 3] {
+    [Msg::OcrSingleLine, Msg::OcrParagraphs, Msg::OcrAutoCopy]
+}
+
+fn is_checked(h: HWND) -> bool {
+    // SAFETY: chỉ hỏi trạng thái của ô tích thuộc cửa sổ này.
+    unsafe { SendMessageW(h, BM_GETCHECK, None, None).0 == 1 }
+}
+
+fn set_checked(h: HWND, on: bool) {
+    // SAFETY: đặt trạng thái của ô tích thuộc cửa sổ này.
+    unsafe {
+        SendMessageW(h, BM_SETCHECK, Some(WPARAM(usize::from(on))), None);
+    }
+}
+
+/// Tạo, đăng ký vào sổ và hiện cửa sổ ở trạng thái "đang nhận dạng". Lỗi thì không còn gì sót
+/// (bản giữ `kept` được giải phóng cùng cửa sổ hoặc ngay khi không tạo được).
+fn create(
+    lang: Lang,
+    avoid: Option<Rect>,
+    kept: Option<Bmp>,
+    orig: (u32, u32),
+    kept_size: (u32, u32),
+) -> Option<HWND> {
     // Màn hình chứa khung cần tránh, không có thì màn hình có con trỏ.
     // SAFETY: tham số ra là biến cục bộ; MonitorFromRect/Point chỉ đọc.
     let mon = unsafe {
@@ -689,15 +874,24 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
     // SAFETY: đăng ký lớp và tạo cửa sổ ở luồng chính; đăng ký lại lần hai báo lỗi vô hại.
     let hwnd = unsafe {
         let hinst = GetModuleHandleW(None).ok()?;
+        let arrow = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: hinst.into(),
             lpszClassName: CLASS,
             hbrBackground: theme::brush(BG),
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            hCursor: arrow,
             ..Default::default()
         };
         RegisterClassW(&wc);
+        let vc = WNDCLASSW {
+            lpfnWndProc: Some(view_proc),
+            hInstance: hinst.into(),
+            lpszClassName: VIEW_CLASS,
+            hCursor: arrow,
+            ..Default::default()
+        };
+        RegisterClassW(&vc);
         CreateWindowExW(
             ex_style(covered),
             CLASS,
@@ -722,9 +916,11 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
     let font = winutil::system_font(dpi);
     let bold = winutil::system_font_styled(dpi, 100, true);
     let efont = edit_font(dpi);
+    // Thứ tự tạo = thứ tự Tab: khung ảnh → ô chữ → ba công tắc → Chép tất cả → Đóng.
+    let tab = WINDOW_STYLE(WS_TABSTOP.0 | WS_GROUP.0);
+    let view = child(hwnd, VIEW_CLASS, "", tab | WS_VSCROLL, ID_VIEW);
     let edit_style = WINDOW_STYLE(
-        WS_TABSTOP.0
-            | WS_GROUP.0
+        tab.0
             | WS_VSCROLL.0
             | ES_MULTILINE as u32
             | ES_AUTOVSCROLL as u32
@@ -732,25 +928,49 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
             | ES_NOHIDESEL as u32,
     );
     let edit = child(hwnd, w!("EDIT"), "", edit_style, ID_EDIT);
-    let status = child(hwnd, w!("STATIC"), "", SS_STATUS, ID_STATUS);
-    let push = WINDOW_STYLE(WS_TABSTOP.0 | WS_GROUP.0 | BS_PUSHBUTTON as u32);
+    let msgs = check_msgs();
+    let checks: [HWND; 3] = std::array::from_fn(|i| {
+        child(
+            hwnd,
+            w!("BUTTON"),
+            t(lang, msgs[i]),
+            tab | WINDOW_STYLE(BS_AUTOCHECKBOX as u32),
+            ID_CHECKS[i],
+        )
+    });
+    let push = WINDOW_STYLE(tab.0 | BS_PUSHBUTTON as u32);
     let copy = child(
         hwnd,
         w!("BUTTON"),
-        t(lang, Msg::OcrCopy),
+        t(lang, Msg::OcrCopyAll),
         push | WS_DISABLED,
         ID_COPY,
     );
     let close = child(hwnd, w!("BUTTON"), t(lang, Msg::OcrClose), push, ID_CLOSE);
+    let status = child(hwnd, w!("STATIC"), "", SS_STATUS, ID_STATUS);
+    let hint = child(
+        hwnd,
+        w!("STATIC"),
+        t(lang, Msg::OcrPickHint),
+        SS_HINT,
+        ID_HINT,
+    );
     set_font(edit, efont.or(font));
-    set_font(status, font);
-    set_font(copy, font);
-    set_font(close, font);
+    for h in [status, hint, copy, close].into_iter().chain(checks) {
+        set_font(h, font);
+    }
+    let switches = load_switches();
     let token = NEXT_TOKEN.with(|n| {
         let v = n.get();
         n.set(v.wrapping_add(1).max(1));
         v
     });
+    let zero = Rect {
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    };
     WINS.with(|v| {
         v.borrow_mut().push(Win {
             hwnd,
@@ -760,6 +980,9 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
             status,
             copy,
             close,
+            view,
+            hint,
+            checks,
             dpi,
             font,
             bold,
@@ -768,26 +991,47 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
             label: String::new(),
             focus: HWND::default(),
             shown: Shown::Busy,
-            field: Rect {
-                x: 0,
-                y: 0,
-                w: 0,
-                h: 0,
-            },
+            field: zero,
+            view_field: zero,
+            switches,
+            lines: Vec::new(),
+            orig,
+            kept_size,
+            kept,
+            disp: None,
+            geom: ocr_view::geom(orig, kept_size, 0, 0, 0),
+            scroll: 0,
+            pick: Pick::default(),
+            hover: None,
+            tracking: false,
+            tip: None,
         })
     });
-    if [edit, status, copy, close].iter().any(|h| h.is_invalid()) {
-        // WM_NCDESTROY gỡ khỏi sổ và xóa phông.
+    let all = [edit, status, copy, close, view, hint];
+    if all.iter().chain(checks.iter()).any(|h| h.is_invalid()) {
+        // WM_NCDESTROY gỡ khỏi sổ, xóa phông và bitmap.
         destroy(hwnd);
         return None;
     }
-    if !edit.is_invalid() {
-        theme::set_dark_control_theme(edit, theme::DarkClass::Explorer);
-        // SAFETY: ô chữ của cửa sổ này; 0 = giới hạn tối đa (chữ dài tùy ý).
-        unsafe {
-            SendMessageW(edit, EM_SETLIMITTEXT, Some(WPARAM(0)), None);
-        }
+    theme::set_dark_control_theme(edit, theme::DarkClass::Explorer);
+    theme::set_dark_control_theme(view, theme::DarkClass::Explorer);
+    // SAFETY: ô chữ của cửa sổ này; 0 = giới hạn tối đa (chữ dài tùy ý).
+    unsafe {
+        SendMessageW(edit, EM_SETLIMITTEXT, Some(WPARAM(0)), None);
     }
+    for (h, on) in checks.iter().zip([
+        switches.single_line,
+        switches.paragraphs,
+        switches.auto_copy,
+    ]) {
+        set_checked(*h, on);
+    }
+    // SAFETY: ô tích của cửa sổ này.
+    unsafe {
+        let _ = EnableWindow(checks[1], paragraphs_enabled(switches));
+    }
+    // Thanh cuộn luôn hiện (mờ khi không cần) để bề rộng khung ảnh không đổi theo nội dung.
+    update_scrollbar(hwnd);
     apply_view(hwnd, &busy_view(lang));
     relayout(hwnd);
     theme::apply_dark_title_bar(hwnd);
@@ -801,7 +1045,7 @@ fn create(lang: Lang, avoid: Option<Rect>) -> Option<HWND> {
     Some(hwnd)
 }
 
-/// Đưa `view` lên cửa sổ: chữ ô, chỉ đọc hay không, dòng trạng thái, nút Chép.
+/// Đưa `view` lên cửa sổ: chữ ô, chỉ đọc hay không, dòng trạng thái, nút Chép tất cả.
 fn apply_view(hwnd: HWND, view: &View) {
     let Some((edit, status, copy, close)) = with_win(hwnd, |w| {
         w.muted = view.muted;
@@ -827,7 +1071,9 @@ fn apply_view(hwnd: HWND, view: &View) {
     }
 }
 
-/// Nhận một `WM_OCR_RESULT`: lấy lại Box (luôn), dùng chỉ khi token khớp và còn chờ.
+/// Nhận một `WM_OCR_RESULT`: lấy lại Box (luôn), dùng chỉ khi token khớp và còn chờ. Khung dòng
+/// tính lại theo hình học hiện tại của khung ảnh mỗi lần vẽ hay dò, nên kết quả đến sau khi đổi cỡ,
+/// đổi DPI hay đang cuộn vẫn khớp chữ.
 fn on_result(hwnd: HWND, wp: WPARAM, lp: LPARAM) {
     let res = consume(lp);
     let accepted = with_win(hwnd, |w| {
@@ -835,40 +1081,66 @@ fn on_result(hwnd: HWND, wp: WPARAM, lp: LPARAM) {
             w.waiting = None;
             if let Ok(r) = res.as_ref() {
                 w.label = lang_label(&r.lang_tag, &r.lang_name);
+                w.lines = r.lines_detail.clone();
             }
             w.shown = shown_of(&res);
-            true
+            w.pick = Pick::default();
+            w.hover = None;
+            w.tip = None;
+            Some((w.switches, w.view))
         } else {
-            false
+            None
         }
     })
-    .unwrap_or(false);
-    if !accepted {
-        return;
-    }
-    let view = view_of(lang::current(), &res, TextOptions::default());
-    drop(res);
-    apply_view(hwnd, &view);
-    if !view.editable {
-        return;
-    }
-    let Some(edit) = with_win(hwnd, |w| w.edit) else {
+    .flatten();
+    let Some((switches, view_hwnd)) = accepted else {
         return;
     };
-    // SAFETY: ô chữ của cửa sổ này; chỉ chuyển tiêu điểm trong cửa sổ đang kích hoạt.
-    unsafe {
-        SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
-        if GetActiveWindow() == hwnd {
-            let _ = SetFocus(Some(edit));
-        } else {
-            with_win(hwnd, |w| w.focus = edit);
+    let view = view_of(lang::current(), &res, switches.text_options());
+    let auto = auto_copy_text(switches, &res);
+    drop(res);
+    apply_view(hwnd, &view);
+    invalidate(view_hwnd);
+    if view.editable {
+        if let Some(edit) = with_win(hwnd, |w| w.edit) {
+            // SAFETY: ô chữ của cửa sổ này; chỉ chuyển tiêu điểm trong cửa sổ đang kích hoạt.
+            unsafe {
+                SendMessageW(edit, EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
+                if GetActiveWindow() == hwnd {
+                    let _ = SetFocus(Some(edit));
+                } else {
+                    with_win(hwnd, |w| w.focus = edit);
+                }
+            }
         }
+    }
+    // Tự chép theo công tắc lúc kết quả về (7b.6); báo như nút Chép tất cả, cửa sổ ở lại.
+    if let Some(text) = auto {
+        copy_and_notify(hwnd, &text);
     }
 }
 
-/// Chép chữ hiện có trong ô (kể cả đã sửa) rồi đóng; lỗi clipboard thì báo và giữ cửa sổ.
-fn copy_and_close(hwnd: HWND) {
-    let Some((edit, copy, label)) = with_win(hwnd, |w| (w.edit, w.copy, w.label.clone())) else {
+/// Chép `text` và báo qua khay như nút Chép tất cả (Đã chép chữ / lỗi). Cửa sổ ở lại.
+fn copy_and_notify(hwnd: HWND, text: &str) {
+    let label = with_win(hwnd, |w| w.label.clone()).unwrap_or_default();
+    let lang = lang::current();
+    match WinClipboard.set_text(text) {
+        Ok(()) => notify(
+            NoticeKind::Success,
+            t(lang, Msg::OcrCopiedTitle),
+            &ocr_status(lang, &label, line_count(text)),
+        ),
+        Err(e) => notify(
+            NoticeKind::Error,
+            t(lang, Msg::OcrCopyFailedTitle),
+            &i18n::ocr_copy_failed_body(lang, &e),
+        ),
+    }
+}
+
+/// Chép chữ hiện có trong ô (kể cả đã sửa); cửa sổ ở lại để người dùng còn chọn tiếp trên ảnh.
+fn copy_all(hwnd: HWND) {
+    let Some((edit, copy)) = with_win(hwnd, |w| (w.edit, w.copy)) else {
         return;
     };
     // SAFETY: chỉ hỏi trạng thái bật của nút.
@@ -876,21 +1148,111 @@ fn copy_and_close(hwnd: HWND) {
         return;
     }
     let text = String::from_utf16_lossy(&theme::window_text(edit));
+    copy_and_notify(hwnd, &text);
+}
+
+/// Chép chữ của các dòng vừa bấm; thành công thì hiện "Đã chép" cạnh dòng `at` 1,2 s, lỗi thì báo.
+fn copy_lines(hwnd: HWND, text: &str, at: usize) {
     let lang = lang::current();
-    match WinClipboard.set_text(&text) {
+    match WinClipboard.set_text(text) {
         Ok(()) => {
-            notify(
-                NoticeKind::Success,
-                t(lang, Msg::OcrCopiedTitle),
-                &ocr_status(lang, &label, line_count(&text)),
-            );
-            destroy(hwnd);
+            if let Some(view) = with_win(hwnd, |w| {
+                w.tip = Some(at);
+                w.view
+            }) {
+                // SAFETY: hẹn giờ của khung ảnh thuộc cửa sổ này (đặt lại nếu đang chạy); hủy cùng
+                // cửa sổ.
+                unsafe {
+                    SetTimer(Some(view), TIP_TIMER, TIP_MS, None);
+                }
+            }
         }
         Err(e) => notify(
             NoticeKind::Error,
             t(lang, Msg::OcrCopyFailedTitle),
             &i18n::ocr_copy_failed_body(lang, &e),
         ),
+    }
+}
+
+/// Áp một thao tác chọn dòng (chuột hay phím) lên khung ảnh của `hwnd`.
+fn view_input(hwnd: HWND, input: PickInput) {
+    let Some((out, view, cursor_rect)) = with_win(hwnd, |w| {
+        let before = w.pick.cursor;
+        let out = ocr_view::pick(&mut w.pick, &w.lines, w.switches.text_options(), input);
+        // Phím ↑/↓: cuộn cho dòng đang trỏ hiện ra.
+        let moved = w.pick.cursor != before && matches!(input, PickInput::Up | PickInput::Down);
+        let rect = w
+            .pick
+            .cursor
+            .filter(|_| moved)
+            .and_then(|i| w.lines.get(i))
+            .map(|l| w.geom.line_rect(l.rect));
+        (out, w.view, rect)
+    }) else {
+        return;
+    };
+    if let Some(r) = cursor_rect {
+        let target = with_win(hwnd, |w| {
+            w.geom.scroll_to_show(w.scroll, r, scale(VIEW_PAD, w.dpi))
+        });
+        if let Some(t) = target {
+            scroll_to(hwnd, t);
+        }
+    }
+    match out {
+        PickOutcome::Copy { text, at } => copy_lines(hwnd, &text, at),
+        PickOutcome::Close => {
+            destroy(hwnd);
+            return;
+        }
+        PickOutcome::Nothing => {}
+    }
+    invalidate(view);
+}
+
+/// Dòng dưới điểm (tọa độ client của khung ảnh) của cửa sổ `hwnd`.
+fn hit_line(hwnd: HWND, x: i32, y: i32) -> Option<usize> {
+    with_win(hwnd, |w| {
+        let (px, py) = w.geom.to_image(x, y + w.scroll)?;
+        line_at(&w.lines, px, py)
+    })
+    .flatten()
+}
+
+/// Đổi một công tắc: đọc lại ba ô tích, lưu cấu hình, dựng lại ô chữ khi đã có chữ. Không chép lại
+/// vùng chọn đang có (clipboard không bị ghi khi người dùng chưa bấm khung).
+fn on_switch(hwnd: HWND) {
+    let Some(checks) = with_win(hwnd, |w| w.checks) else {
+        return;
+    };
+    let sw = Switches {
+        single_line: is_checked(checks[0]),
+        paragraphs: is_checked(checks[1]),
+        auto_copy: is_checked(checks[2]),
+    };
+    let Some((changed, edit, text)) = with_win(hwnd, |w| {
+        let changed = w.switches != sw;
+        w.switches = sw;
+        let text = (matches!(w.shown, Shown::Text { .. }) && !w.lines.is_empty())
+            .then(|| compose_all(&w.lines, sw.text_options()));
+        (changed, w.edit, text)
+    }) else {
+        return;
+    };
+    // SAFETY: ô tích "Tách đoạn" của cửa sổ này.
+    unsafe {
+        let _ = EnableWindow(checks[1], paragraphs_enabled(sw));
+    }
+    if !changed {
+        return;
+    }
+    save_switches(sw);
+    if let Some(text) = text {
+        // SAFETY: ô chữ của cửa sổ này; chuỗi sống suốt lời gọi. Sửa tay trong ô bị thay (như thiết kế).
+        unsafe {
+            let _ = SetWindowTextW(edit, &HSTRING::from(text.as_str()));
+        }
     }
 }
 
@@ -923,11 +1285,24 @@ fn rect_of(r: Rect) -> RECT {
     }
 }
 
+fn invalidate(h: HWND) {
+    if !h.is_invalid() {
+        // SAFETY: chỉ đánh dấu vẽ lại cửa sổ của luồng này.
+        unsafe {
+            let _ = InvalidateRect(Some(h), None, false);
+        }
+    }
+}
+
 /// Tính lại bố cục theo vùng client hiện tại và DPI của cửa sổ.
 fn relayout(hwnd: HWND) {
-    let Some((dpi, bold, font, edit, status, copy, close)) = with_win(hwnd, |w| {
-        (w.dpi, w.bold, w.font, w.edit, w.status, w.copy, w.close)
-    }) else {
+    let Some((dpi, bold, font, edit, status, copy, close, view, hint, checks)) =
+        with_win(hwnd, |w| {
+            (
+                w.dpi, w.bold, w.font, w.edit, w.status, w.copy, w.close, w.view, w.hint, w.checks,
+            )
+        })
+    else {
         return;
     };
     let mut rc = RECT::default();
@@ -937,28 +1312,117 @@ fn relayout(hwnd: HWND) {
     }
     let lang = lang::current();
     let f = bold.or(font);
-    let l = layout(
-        rc.right - rc.left,
-        rc.bottom - rc.top,
-        dpi,
-        text_width(hwnd, f, t(lang, Msg::OcrCopy)),
-        text_width(hwnd, f, t(lang, Msg::OcrClose)),
-    );
-    with_win(hwnd, |w| w.field = l.field);
-    for (h, r) in [
+    let texts = Texts {
+        copy: text_width(hwnd, f, t(lang, Msg::OcrCopyAll)),
+        close: text_width(hwnd, f, t(lang, Msg::OcrClose)),
+        check: check_msgs()
+            .iter()
+            .map(|m| text_width(hwnd, font, t(lang, *m)))
+            .max()
+            .unwrap_or(0),
+    };
+    let l = pane_layout(rc.right - rc.left, rc.bottom - rc.top, dpi, texts);
+    with_win(hwnd, |w| {
+        w.field = l.field;
+        w.view_field = l.view_field;
+    });
+    let placed = [
+        (view, l.view),
         (edit, l.edit),
         (status, l.status),
+        (hint, l.hint),
         (copy, l.copy),
         (close, l.close),
-    ] {
+        (checks[0], l.checks[0]),
+        (checks[1], l.checks[1]),
+        (checks[2], l.checks[2]),
+    ];
+    for (h, r) in placed {
         // SAFETY: điều khiển con của cửa sổ này.
         unsafe {
             let _ = SetWindowPos(h, None, r.x, r.y, r.w, r.h, SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
+    refresh_view(hwnd);
     // SAFETY: vẽ lại cả cửa sổ (khung ô chữ đổi chỗ).
     unsafe {
         let _ = InvalidateRect(Some(hwnd), None, true);
+    }
+}
+
+/// Tính lại hình học khung ảnh theo cỡ client hiện tại của nó; dựng lại bản đã co khi cỡ hiển thị
+/// đổi (không co lại ở mỗi `WM_PAINT`); kẹp vị trí cuộn; cập nhật thanh cuộn.
+fn refresh_view(hwnd: HWND) {
+    let Some(view) = with_win(hwnd, |w| w.view) else {
+        return;
+    };
+    let mut rc = RECT::default();
+    // SAFETY: rc là biến cục bộ; khung ảnh là con của cửa sổ này.
+    unsafe {
+        let _ = GetClientRect(view, &mut rc);
+    }
+    with_win(hwnd, |w| {
+        let g = ocr_view::geom(
+            w.orig,
+            w.kept_size,
+            rc.right - rc.left,
+            rc.bottom - rc.top,
+            scale(VIEW_PAD, w.dpi),
+        );
+        let (dw, dh) = (g.img.w, g.img.h);
+        let kept_px = (w.kept_size.0 as i32, w.kept_size.1 as i32);
+        let disp_ok = match &w.disp {
+            Some(d) => (d.w, d.h) == (dw, dh),
+            None => (dw, dh) == kept_px,
+        };
+        if !disp_ok {
+            // Bỏ bản cũ trước khi tạo bản mới (chỉ một bản đã co sống cùng bản giữ).
+            w.disp = None;
+            if (dw, dh) != kept_px {
+                w.disp = w.kept.as_ref().and_then(|k| ocr_view::scaled(k, dw, dh));
+            }
+        }
+        w.geom = g;
+        w.scroll = w.scroll.clamp(0, g.max_scroll());
+    });
+    update_scrollbar(hwnd);
+    invalidate(view);
+}
+
+fn update_scrollbar(hwnd: HWND) {
+    let Some((view, content, page, pos)) = with_win(hwnd, |w| {
+        (w.view, w.geom.content_h, w.geom.view_h, w.scroll)
+    }) else {
+        return;
+    };
+    let si = SCROLLINFO {
+        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+        fMask: SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL,
+        nMin: 0,
+        nMax: (content - 1).max(0),
+        nPage: page.max(0) as u32,
+        nPos: pos,
+        nTrackPos: 0,
+    };
+    // SAFETY: si là biến cục bộ đủ cbSize; khung ảnh là cửa sổ con của luồng này.
+    unsafe {
+        SetScrollInfo(view, SB_VERT, &si, true);
+    }
+}
+
+/// Cuộn khung ảnh tới `target` pixel (đã kẹp).
+fn scroll_to(hwnd: HWND, target: i32) {
+    let Some((changed, view)) = with_win(hwnd, |w| {
+        let t = target.clamp(0, w.geom.max_scroll());
+        let changed = t != w.scroll;
+        w.scroll = t;
+        (changed, w.view)
+    }) else {
+        return;
+    };
+    if changed {
+        update_scrollbar(hwnd);
+        invalidate(view);
     }
 }
 
@@ -974,18 +1438,18 @@ fn on_dpi_changed(hwnd: HWND, dpi: u32) {
             std::mem::replace(&mut w.bold, bold),
             std::mem::replace(&mut w.edit_font, efont),
         ];
-        (old, (w.edit, w.status, w.copy, w.close))
+        (old, (w.edit, [w.status, w.hint, w.copy, w.close], w.checks))
     }) else {
         for f in [font, bold, efont] {
             delete_font(f);
         }
         return;
     };
-    let (edit, status, copy, close) = ctrls;
+    let (edit, others, checks) = ctrls;
     set_font(edit, efont.or(font));
-    set_font(status, font);
-    set_font(copy, font);
-    set_font(close, font);
+    for h in others.into_iter().chain(checks) {
+        set_font(h, font);
+    }
     for f in old {
         delete_font(f);
     }
@@ -997,14 +1461,18 @@ fn paint(hwnd: HWND) {
     unsafe {
         let hdc = BeginPaint(hwnd, &mut ps);
         if !hdc.is_invalid() {
-            if let Some((field, dpi, edit)) = with_win(hwnd, |w| (w.field, w.dpi, w.edit)) {
-                if field.w > 0 && field.h > 0 {
-                    let rc = rect_of(field);
-                    let focused = GetFocus() == edit;
-                    theme::buffered(hdc, &rc, |m| {
-                        theme::fill(m, &rc, BG);
-                        theme::draw_field(m, &rc, dpi, theme::edit_border(focused, true));
-                    });
+            if let Some((field, view_field, dpi, edit, view)) =
+                with_win(hwnd, |w| (w.field, w.view_field, w.dpi, w.edit, w.view))
+            {
+                let focus = GetFocus();
+                for (f, ctl) in [(field, edit), (view_field, view)] {
+                    if f.w > 0 && f.h > 0 {
+                        let rc = rect_of(f);
+                        theme::buffered(hdc, &rc, |m| {
+                            theme::fill(m, &rc, BG);
+                            theme::draw_field(m, &rc, dpi, theme::edit_border(focus == ctl, true));
+                        });
+                    }
                 }
             }
         }
@@ -1012,8 +1480,170 @@ fn paint(hwnd: HWND) {
     }
 }
 
+/// Chép phần nhìn thấy được của `bmp` (cỡ `img`, đặt tại `img.x`, `img.y - scroll`) lên `dc`.
+fn blit_visible(dc: HDC, bmp: &Bmp, img: Rect, scroll: i32, client: &RECT) {
+    let top = img.y - scroll;
+    let y0 = top.max(client.top);
+    let y1 = (top + img.h).min(client.bottom);
+    let x0 = img.x.max(client.left);
+    let x1 = (img.x + img.w).min(client.right);
+    if y1 <= y0 || x1 <= x0 {
+        return;
+    }
+    if (bmp.w, bmp.h) != (img.w, img.h) {
+        // Không có bản đã co (thiếu bộ nhớ): co thẳng từ bản giữ.
+        crate::history_paint::blit(
+            dc,
+            bmp,
+            &RECT {
+                left: img.x,
+                top,
+                right: img.x + img.w,
+                bottom: top + img.h,
+            },
+        );
+        return;
+    }
+    // SAFETY: DC tạm tạo ở đây được trả bitmap cũ và xóa trên mọi đường đi; bitmap thuộc `bmp`.
+    unsafe {
+        let mem = CreateCompatibleDC(Some(dc));
+        if mem.is_invalid() {
+            return;
+        }
+        let old = SelectObject(mem, HGDIOBJ(bmp.handle.0));
+        let _ = BitBlt(
+            dc,
+            x0,
+            y0,
+            x1 - x0,
+            y1 - y0,
+            Some(mem),
+            x0 - img.x,
+            y0 - top,
+            SRCCOPY,
+        );
+        SelectObject(mem, old);
+        let _ = DeleteDC(mem);
+    }
+}
+
+fn inflate(r: &RECT, d: i32) -> RECT {
+    RECT {
+        left: r.left - d,
+        top: r.top - d,
+        right: r.right + d,
+        bottom: r.bottom + d,
+    }
+}
+
+/// Vẽ khung ảnh: nền `INPUT`, ảnh, khung dòng (thường 1 px, rê chuột 2 px, chọn: phủ `ACCENT` ~30%
+/// và 2 px), viền nét đứt quanh dòng đang trỏ khi có tiêu điểm, nhãn "Đã chép".
+fn paint_view(view: HWND) {
+    let mut ps = PAINTSTRUCT::default();
+    // SAFETY: BeginPaint/EndPaint cân bằng trong khối; hỏi tiêu điểm và client của chính khung ảnh.
+    unsafe {
+        let hdc = BeginPaint(view, &mut ps);
+        if !hdc.is_invalid() {
+            let mut client = RECT::default();
+            let _ = GetClientRect(view, &mut client);
+            let focused = GetFocus() == view;
+            let tip_text: Vec<u16> = lang::tr(Msg::OcrCopiedTip).encode_utf16().collect();
+            if let Some(hwnd) = owner_of_view(view) {
+                // Chỉ vẽ GDI trong lúc mượn sổ (không gửi thông điệp).
+                with_win(hwnd, |w| {
+                    theme::buffered(hdc, &client, |dc| {
+                        draw_view(dc, &client, w, focused, &tip_text);
+                    });
+                });
+            }
+        }
+        let _ = EndPaint(view, &ps);
+    }
+}
+
+fn draw_view(dc: HDC, client: &RECT, w: &Win, focused: bool, tip_text: &[u16]) {
+    theme::fill(dc, client, INPUT);
+    let g = w.geom;
+    if let Some(bmp) = w.disp.as_ref().or(w.kept.as_ref()) {
+        blit_visible(dc, bmp, g.img, w.scroll, client);
+    }
+    let s = |v| scale(v, w.dpi);
+    let visible = |r: &RECT| r.bottom > client.top && r.top < client.bottom;
+    let shown = |i: usize| -> Option<RECT> {
+        let l = w.lines.get(i)?;
+        // Khung suy biến (mọi từ có khung rỗng): không vẽ.
+        if l.rect.w <= 0 || l.rect.h <= 0 {
+            return None;
+        }
+        let d = g.line_rect(l.rect);
+        let r = RECT {
+            left: d.x,
+            top: d.y - w.scroll,
+            right: d.right(),
+            bottom: d.bottom() - w.scroll,
+        };
+        Some(inflate(&r, 1))
+    };
+    for i in 0..w.lines.len() {
+        let Some(r) = shown(i).filter(|r| visible(r)) else {
+            continue;
+        };
+        let selected = w.pick.is_selected(i);
+        if selected {
+            ocr_view::tint(dc, &r, ACCENT, SELECT_ALPHA);
+        }
+        let thick = if selected || w.hover == Some(i) { 2 } else { 1 };
+        ocr_view::frame(dc, &r, ACCENT, s(thick).max(thick));
+    }
+    if focused {
+        if let Some(r) = w.pick.cursor.and_then(&shown) {
+            ocr_view::dotted(dc, &inflate(&r, s(2)), TEXT);
+        }
+    }
+    if let Some(r) = w.tip.and_then(shown) {
+        let m = theme::draw_text(
+            dc,
+            tip_text,
+            &RECT::default(),
+            TEXT,
+            w.font,
+            DT_SINGLELINE | DT_NOPREFIX | windows::Win32::Graphics::Gdi::DT_CALCRECT,
+        );
+        let (tw, th) = (m.right - m.left + 2 * s(6), m.bottom - m.top + 2 * s(2));
+        let gap = s(4);
+        let mut y = r.top - gap - th;
+        if y < client.top {
+            y = r.bottom + gap;
+        }
+        let x = r.left.min(client.right - tw).max(client.left);
+        let rc = RECT {
+            left: x,
+            top: y,
+            right: x + tw,
+            bottom: y + th,
+        };
+        theme::round_rect(dc, &rc, s(theme::RADIUS), SURFACE, LINE, 1);
+        theme::draw_text(
+            dc,
+            tip_text,
+            &rc,
+            TEXT,
+            w.font,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
+    }
+}
+
 fn lo_word(v: usize) -> u32 {
     (v & 0xFFFF) as u32
+}
+
+/// Tọa độ client (có dấu) trong LPARAM của thông điệp chuột.
+fn point_of(lp: LPARAM) -> (i32, i32) {
+    (
+        i32::from((lp.0 & 0xFFFF) as u16 as i16),
+        i32::from(((lp.0 >> 16) & 0xFFFF) as u16 as i16),
+    )
 }
 
 /// Điều khiển nhận tiêu điểm khi cửa sổ được kích hoạt: cái đã nhớ, không thì ô chữ khi đã có chữ
@@ -1039,6 +1669,159 @@ fn restore_focus(hwnd: HWND) {
     }
 }
 
+/// Thủ tục của khung ảnh (cửa sổ con tự vẽ, có thanh cuộn dọc).
+unsafe extern "system" fn view_proc(view: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    let owner = owner_of_view(view);
+    match (msg, owner) {
+        (WM_PAINT, _) => {
+            paint_view(view);
+            LRESULT(0)
+        }
+        (WM_ERASEBKGND, _) => LRESULT(1),
+        (WM_GETDLGCODE, _) => LRESULT((DLGC_WANTARROWS | DLGC_WANTCHARS) as isize),
+        (WM_SETFOCUS | WM_KILLFOCUS, Some(hwnd)) => {
+            // Viền nét đứt của dòng đang trỏ và gạch dưới của khung đổi theo tiêu điểm.
+            invalidate(view);
+            if let Some(f) = with_win(hwnd, |w| w.view_field) {
+                let rc = rect_of(f);
+                // SAFETY: vẽ lại vùng khung của cửa sổ cha.
+                unsafe {
+                    let _ = InvalidateRect(Some(hwnd), Some(&rc), false);
+                }
+            }
+            LRESULT(0)
+        }
+        (WM_LBUTTONDOWN, Some(hwnd)) => {
+            // SAFETY: đưa tiêu điểm vào khung ảnh (không giữ mượn sổ).
+            unsafe {
+                let _ = SetFocus(Some(view));
+            }
+            let (x, y) = point_of(lp);
+            let hit = hit_line(hwnd, x, y);
+            // Ctrl lấy từ cờ của chính thông điệp (MK_CONTROL), không đọc bàn phím.
+            let input = if wp.0 & 0x0008 != 0 {
+                PickInput::CtrlClick(hit)
+            } else {
+                PickInput::Click(hit)
+            };
+            view_input(hwnd, input);
+            LRESULT(0)
+        }
+        (WM_MOUSEMOVE, Some(hwnd)) => {
+            let (x, y) = point_of(lp);
+            let hit = hit_line(hwnd, x, y);
+            let change = with_win(hwnd, |w| {
+                let old = std::mem::replace(&mut w.hover, hit);
+                let track = !w.tracking;
+                w.tracking = true;
+                (old != hit, track)
+            });
+            if let Some((changed, track)) = change {
+                if track {
+                    let mut tme = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: view,
+                        dwHoverTime: 0,
+                    };
+                    // SAFETY: tme là biến cục bộ đủ cbSize; theo dõi chính khung ảnh.
+                    unsafe {
+                        let _ = TrackMouseEvent(&mut tme);
+                    }
+                }
+                if changed {
+                    invalidate(view);
+                }
+            }
+            LRESULT(0)
+        }
+        (WM_MOUSELEAVE, Some(hwnd)) => {
+            let had = with_win(hwnd, |w| {
+                w.tracking = false;
+                w.hover.take().is_some()
+            });
+            if had == Some(true) {
+                invalidate(view);
+            }
+            LRESULT(0)
+        }
+        (WM_SETCURSOR, Some(hwnd)) if lo_word(lp.0 as usize) == HTCLIENT => {
+            let mut pt = POINT::default();
+            // SAFETY: pt là biến cục bộ; đổi sang tọa độ client của chính khung ảnh.
+            unsafe {
+                let _ = GetCursorPos(&mut pt);
+                let _ = ScreenToClient(view, &mut pt);
+            }
+            if hit_line(hwnd, pt.x, pt.y).is_some() {
+                // SAFETY: con trỏ hệ thống dùng chung, không phải hủy.
+                unsafe {
+                    if let Ok(c) = LoadCursorW(None, IDC_HAND) {
+                        SetCursor(Some(c));
+                    }
+                }
+                return LRESULT(1);
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+            unsafe { DefWindowProcW(view, msg, wp, lp) }
+        }
+        (WM_MOUSEWHEEL, Some(hwnd)) => {
+            let delta = i32::from(((wp.0 >> 16) & 0xFFFF) as u16 as i16);
+            if let Some((scroll, step)) = with_win(hwnd, |w| (w.scroll, scale(WHEEL_DIP, w.dpi))) {
+                scroll_to(hwnd, scroll - delta * step / 120);
+            }
+            LRESULT(0)
+        }
+        (WM_VSCROLL, Some(hwnd)) => {
+            let code = SCROLLBAR_COMMAND(lo_word(wp.0) as i32);
+            let Some((scroll, line, page, max)) = with_win(hwnd, |w| {
+                let line = scale(WHEEL_DIP / 2, w.dpi);
+                (
+                    w.scroll,
+                    line,
+                    (w.geom.view_h - line).max(1),
+                    w.geom.max_scroll(),
+                )
+            }) else {
+                return LRESULT(0);
+            };
+            let target = match code {
+                SB_LINEUP => scroll - line,
+                SB_LINEDOWN => scroll + line,
+                SB_PAGEUP => scroll - page,
+                SB_PAGEDOWN => scroll + page,
+                SB_TOP => 0,
+                SB_BOTTOM => max,
+                SB_THUMBTRACK | SB_THUMBPOSITION => {
+                    let mut si = SCROLLINFO {
+                        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+                        fMask: SIF_TRACKPOS,
+                        ..Default::default()
+                    };
+                    // SAFETY: si là biến cục bộ đủ cbSize; hỏi thanh cuộn của chính khung ảnh.
+                    unsafe {
+                        let _ = GetScrollInfo(view, SB_VERT, &mut si);
+                    }
+                    si.nTrackPos
+                }
+                _ => scroll,
+            };
+            scroll_to(hwnd, target);
+            LRESULT(0)
+        }
+        (WM_TIMER, Some(hwnd)) if wp.0 == TIP_TIMER => {
+            // SAFETY: hẹn giờ của chính khung ảnh.
+            unsafe {
+                let _ = KillTimer(Some(view), TIP_TIMER);
+            }
+            with_win(hwnd, |w| w.tip = None);
+            invalidate(view);
+            LRESULT(0)
+        }
+        // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
+        _ => unsafe { DefWindowProcW(view, msg, wp, lp) },
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_OCR_RESULT => {
@@ -1048,8 +1831,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_COMMAND => {
             let (id, code) = ((wp.0 & 0xFFFF) as i32, ((wp.0 >> 16) & 0xFFFF) as u32);
             match (id, code) {
-                (ID_COPY, 0) => copy_and_close(hwnd),
+                (ID_COPY, 0) => copy_all(hwnd),
                 (ID_CLOSE, 0) => destroy(hwnd),
+                (id, 0) if ID_CHECKS.contains(&id) => on_switch(hwnd),
                 (ID_EDIT, c) if c == EN_SETFOCUS || c == EN_KILLFOCUS => {
                     // Gạch dưới của khung đổi theo tiêu điểm.
                     if let Some(f) = with_win(hwnd, |w| w.field) {
@@ -1071,7 +1855,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC => {
             let ctl = HWND(lp.0 as *mut c_void);
             let hdc = HDC(wp.0 as *mut c_void);
-            // Ô chữ (kể cả khi chỉ đọc, gửi WM_CTLCOLORSTATIC): nền INPUT; dòng trạng thái: nền BG.
+            // Ô chữ (kể cả khi chỉ đọc, gửi WM_CTLCOLORSTATIC): nền INPUT; trạng thái, gợi ý: nền BG.
             match with_win(hwnd, |w| (w.edit == ctl, w.muted)) {
                 Some((true, muted)) => {
                     theme::ctl_color(hdc, if muted { TEXT_MUTED } else { TEXT }, INPUT)
@@ -1085,6 +1869,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             let kind = match hdr.filter(|h| h.code == NM_CUSTOMDRAW).map(|h| h.idFrom) {
                 Some(id) if id == ID_COPY as usize => Some(theme::ButtonKind::Primary),
                 Some(id) if id == ID_CLOSE as usize => Some(theme::ButtonKind::Normal),
+                // Ô tích: `custom_draw_button` nhận ra kiểu BS_AUTOCHECKBOX và vẽ như Tùy chọn.
+                Some(id) if ID_CHECKS.iter().any(|c| *c as usize == id) => {
+                    Some(theme::ButtonKind::Normal)
+                }
                 _ => None,
             };
             if let Some(kind) = kind {
@@ -1173,7 +1961,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 Some(v.remove(i))
             });
             if let Some(w) = removed {
-                // Mọi điều khiển đã bị hủy: phông không còn ai dùng.
+                // Mọi điều khiển đã bị hủy: phông không còn ai dùng. Bitmap tự xóa khi `w` bị bỏ.
                 for f in [w.font, w.bold, w.edit_font] {
                     delete_font(f);
                 }
@@ -1286,13 +2074,25 @@ fn relabel_parts(lang: Lang, shown: &Shown) -> (Option<String>, String) {
 /// trong ô chỉ đọc, rồi tính lại bố cục. Không đụng chữ người dùng đang sửa.
 pub fn relabel() {
     let lang = lang::current();
-    let all: Vec<(HWND, HWND, HWND, HWND, HWND, Shown)> = WINS.with(|v| {
+    type Row = (HWND, HWND, HWND, HWND, HWND, HWND, [HWND; 3], Shown);
+    let all: Vec<Row> = WINS.with(|v| {
         v.borrow()
             .iter()
-            .map(|w| (w.hwnd, w.edit, w.status, w.copy, w.close, w.shown.clone()))
+            .map(|w| {
+                (
+                    w.hwnd,
+                    w.edit,
+                    w.status,
+                    w.copy,
+                    w.close,
+                    w.hint,
+                    w.checks,
+                    w.shown.clone(),
+                )
+            })
             .collect()
     });
-    for (hwnd, edit, status, copy, close, shown) in all {
+    for (hwnd, edit, status, copy, close, hint, checks, shown) in all {
         let (text, line) = relabel_parts(lang, &shown);
         let set = |h: HWND, s: &str| {
             // SAFETY: cửa sổ kết quả hoặc điều khiển con của nó; chuỗi sống suốt lời gọi.
@@ -1301,8 +2101,12 @@ pub fn relabel() {
             }
         };
         set(hwnd, t(lang, Msg::OcrWindowTitle));
-        set(copy, t(lang, Msg::OcrCopy));
+        set(copy, t(lang, Msg::OcrCopyAll));
         set(close, t(lang, Msg::OcrClose));
+        set(hint, t(lang, Msg::OcrPickHint));
+        for (h, m) in checks.iter().zip(check_msgs()) {
+            set(*h, t(lang, m));
+        }
         set(status, &line);
         if let Some(text) = text {
             set(edit, &text);
@@ -1428,7 +2232,10 @@ mod tests {
                             assert!(!overlaps(*a, *b), "{ctx}");
                         }
                     }
-                    assert!(within(l.view, l.view_field) && l.view != l.view_field, "{ctx}");
+                    assert!(
+                        within(l.view, l.view_field) && l.view != l.view_field,
+                        "{ctx}"
+                    );
                     assert!(within(l.edit, l.field) && l.edit != l.field, "{ctx}");
                     // Khung ảnh bên trái, khung phải bên phải.
                     let right_x = l.status.x;
@@ -1809,7 +2616,10 @@ mod tests {
             paragraphs,
             auto_copy,
         };
-        assert_eq!(s(false, false, false).text_options(), TextOptions::default());
+        assert_eq!(
+            s(false, false, false).text_options(),
+            TextOptions::default()
+        );
         assert_eq!(
             s(false, true, false).text_options(),
             TextOptions {
