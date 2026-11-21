@@ -567,6 +567,13 @@ thread_local! {
     static ON_RESULT: Cell<fn(Image, u32)> = const { Cell::new(noop_result) };
     static ON_LIMIT: Cell<fn(u32)> = const { Cell::new(noop_limit) };
     static ON_END: Cell<fn()> = const { Cell::new(noop) };
+    static ON_CAPTURE_FAILED: Cell<fn()> = const { Cell::new(noop) };
+}
+
+/// Hàm báo không chụp được vùng (Xong khi chưa có khung nào và lần chụp cuối lỗi; main: thông báo
+/// "Không chụp được màn hình").
+pub fn set_on_capture_failed(f: fn()) {
+    ON_CAPTURE_FAILED.with(|c| c.set(f));
 }
 
 /// Hàm chạy mỗi khi một phiên đã bắt đầu kết thúc (mọi đường: Xong, Hủy, Esc, giới hạn, vùng mất,
@@ -1034,6 +1041,12 @@ fn relayout_bar(dpi: Option<u32>) {
 
 /// Xong: kết thúc phiên và giao ảnh ghép. Chưa có khung nào (bấm rất sớm) thì chụp một khung.
 pub fn done() {
+    done_with(capture::capture_rect);
+}
+
+/// Thân của `done` với hàm chụp `grab`. Chưa có khung mà chụp lỗi: báo lỗi chụp (không có ảnh nào
+/// để giao), rồi vẫn kết thúc và dọn phiên.
+fn done_with(grab: impl FnOnce(Rect) -> windows::core::Result<Image>) {
     let empty = with(|s| {
         s.stitcher
             .as_ref()
@@ -1041,12 +1054,19 @@ pub fn done() {
             .then_some(s.region)
     })
     .flatten();
+    let mut failed = false;
     if let Some(r) = empty {
-        if let Ok(img) = capture::capture_rect(r) {
-            with(|s| s.stitcher.as_mut().map(|st| st.push(&img)));
+        match grab(r) {
+            Ok(img) => {
+                with(|s| s.stitcher.as_mut().map(|st| st.push(&img)));
+            }
+            Err(_) => failed = true,
         }
     }
     end_with(Input::Done);
+    if failed {
+        ON_CAPTURE_FAILED.with(|c| c.get())();
+    }
 }
 
 /// Hủy (nút Hủy, Esc, thoát ứng dụng): bỏ hết, không giao ảnh.
@@ -1949,7 +1969,11 @@ mod live {
         CAPTURE_FAILS.with(|c| c.set(0));
         assert_eq!(start(region), Ok(()));
         // Trước nhịp hẹn giờ đầu: chưa có khung.
-        done_with(|_| Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_FAIL)));
+        done_with(|_| {
+            Err(windows::core::Error::from_hresult(
+                windows::Win32::Foundation::E_FAIL,
+            ))
+        });
         assert!(!active());
         assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
         assert!(RESULT.with(|r| r.borrow_mut().take()).is_none());

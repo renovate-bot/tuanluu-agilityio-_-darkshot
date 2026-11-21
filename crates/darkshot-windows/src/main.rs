@@ -880,12 +880,11 @@ fn capture_flow_with(hwnd: HWND, requested: CaptureKind, notifier: Option<Arc<dy
                     STEPS_BAR_HELD.with(|h| h.set(true));
                 }
             }
-            Err(scroll_session::StartError::NoRoom) => notify(
-                NoticeKind::Info,
-                lang::tr(Msg::ScrollNoRoomTitle),
-                lang::tr(Msg::ScrollNoRoomBody),
-            ),
-            Err(_) => {}
+            Err(e) => {
+                if let Some((kind, title, body)) = scroll_start_notice(lang::current(), e) {
+                    notify(kind, title, body);
+                }
+            }
         }
         return;
     }
@@ -997,6 +996,46 @@ thread_local! {
 fn on_scroll_end() {
     if STEPS_BAR_HELD.with(|h| h.replace(false)) {
         steps_bar::show_after_capture();
+    }
+}
+
+/// Thông báo khi không bắt đầu được phiên chụp cuộn: không có chỗ cho thanh → Info; lỗi tạo cửa
+/// sổ hay hẹn giờ → Error "Không chụp được màn hình". Đã có phiên (yêu cầu chụp bị cổng chặn trước
+/// đó, nên gần như không xảy ra) hay vùng rỗng → không báo.
+pub fn scroll_start_notice(
+    lang: Lang,
+    e: scroll_session::StartError,
+) -> Option<(NoticeKind, &'static str, &'static str)> {
+    use scroll_session::StartError;
+    match e {
+        StartError::NoRoom => Some((
+            NoticeKind::Info,
+            i18n::t(lang, Msg::ScrollNoRoomTitle),
+            i18n::t(lang, Msg::ScrollNoRoomBody),
+        )),
+        StartError::Failed => Some((
+            NoticeKind::Error,
+            i18n::t(lang, Msg::CaptureFailedTitle),
+            i18n::t(lang, Msg::CaptureFailedBody),
+        )),
+        StartError::Busy | StartError::Empty => None,
+    }
+}
+
+/// Bắt đầu phiên Chụp từng bước được không: không khi đang chụp cuộn (thanh phiên mới có thể lọt
+/// vào vùng chụp trên Windows cũ).
+pub fn steps_start_allowed(scrolling: bool) -> bool {
+    !scrolling
+}
+
+/// Không chụp được vùng khi bấm Xong (chưa có khung nào).
+fn on_scroll_capture_failed() {
+    if let Some(t) = current_tray() {
+        t.notifier().notify(
+            NoticeKind::Error,
+            lang::tr(Msg::CaptureFailedTitle),
+            lang::tr(Msg::CaptureFailedBody),
+        );
     }
 }
 
@@ -1645,8 +1684,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     // Lịch sử, Thông tin và Trợ giúp không đi qua cổng chụp: không chặn gì và không bị chặn.
                     Some(MenuCommand::History) => history_window::show(hwnd),
                     Some(MenuCommand::ClosePins) => pin::close_all(),
+                    // Đang chụp cuộn: bỏ qua (như các yêu cầu chụp khác trong lúc chụp cuộn).
                     Some(MenuCommand::StepsStart) => {
-                        steps_store::start();
+                        if steps_start_allowed(scroll_session::active()) {
+                            steps_store::start();
+                        }
                     }
                     Some(MenuCommand::StepsReview) => steps_window::open(),
                     Some(MenuCommand::About) => about::show(hwnd),
@@ -1889,6 +1931,7 @@ fn main() {
     scroll_result::set_notifier(ocr_notify);
     scroll_session::set_on_limit(on_scroll_limit);
     scroll_session::set_on_end(on_scroll_end);
+    scroll_session::set_on_capture_failed(on_scroll_capture_failed);
     steps_window::set_main_window(hwnd);
     steps_window::set_notifier(ocr_notify);
     steps_window::set_default_dir(steps_export_dir);

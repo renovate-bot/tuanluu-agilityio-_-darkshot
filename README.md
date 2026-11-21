@@ -408,6 +408,7 @@ Giới hạn đã biết:
 - Lớp phủ mỏng thoáng qua ở đáy vùng có thể bị ghép vào một lần.
 - Thanh cuộn của trang nằm trong ảnh ghép sẽ thấy ở nhiều vị trí, vì nó trượt theo nội dung.
 - Chiều cao tối đa 30 000 px hoặc 256 MB. Đạt giới hạn thì chụp tự dừng và hiện "Đã đạt giới hạn chiều cao".
+- Ghim một ảnh chụp cuộn rất cao (hơn khoảng 8 600 px trên màn hình 1080p): kể cả ở mức thu nhỏ nhất 10%, ảnh ghim vẫn cao hơn màn hình và phần trên nằm ngoài màn hình. Với ảnh như vậy, dùng **Lưu**, hoặc cuộn xem trong cửa sổ Ảnh chụp cuộn.
 
 Chạy thử cách ly (dữ liệu tổng hợp, không dùng cấu hình hay khóa R2 thật, không mạng):
 
