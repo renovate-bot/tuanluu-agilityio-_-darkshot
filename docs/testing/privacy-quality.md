@@ -110,9 +110,10 @@ Build `cargo build --release -p darkshot-windows` ở từng mốc gộp của �
 | Task 130 `2a1f30e` | 2.351.104 | +14.336 |
 | Task 131 `daa18c8` | 2.442.752 | +91.648 |
 | Task 132 `6f016ae` | 2.455.552 | +12.800 |
-| Task 133 (nhánh này) | 2.456.576 | +1.024 |
+| Task 133 | 2.456.576 | +1.024 |
+| Task 135 | 2.459.648 | +3.072 |
 
-Cả đợt: **+120.832 byte (118,0 KiB)** — vượt mục tiêu 80 KB, dưới ngưỡng dừng 150 KB. Task 127–129 gần như không tăng vì bộ dò, quét và làm phẳng chưa được gọi từ exe (bị lược khi liên kết); chúng vào exe ở Task 131 khi cổng nối mọi thứ.
+Cả đợt: **+123.904 byte (121,0 KiB)** — vượt mục tiêu 80 KB, dưới ngưỡng dừng 150 KB. Task 127–129 gần như không tăng vì bộ dò, quét và làm phẳng chưa được gọi từ exe (bị lược khi liên kết); chúng vào exe ở Task 131 khi cổng nối mọi thứ.
 
 Phân bổ theo module (build `6f016ae` với một module bị cắt — hàm vào trả về ngay — so với build đầy đủ 2.455.552):
 
