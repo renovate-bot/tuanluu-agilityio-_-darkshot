@@ -126,9 +126,9 @@ export function verticalToolbar(x: number, y: number): Bar {
   };
 }
 
-/** The horizontal action bar: Undo, Redo | Upload, Save, Copy, Pin, Text recognition, Scrolling capture, Cancel. */
+/** The horizontal action bar: Undo, Redo | Upload, Save, Copy, Pin, Text recognition, Scrolling capture, Record GIF, Cancel. */
 export function horizontalBar(x: number, y: number): Bar {
-  const items = ["undo", "redo", "|", "upload", "save", "copy", "pin", "ocr", "scroll", "close"];
+  const items = ["undo", "redo", "|", "upload", "save", "copy", "pin", "ocr", "scroll", "record", "close"];
   const IS = 30;
   const SEP = 9;
   const pad = 4;
