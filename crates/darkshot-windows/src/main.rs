@@ -16,6 +16,7 @@ mod hotkey;
 mod lang;
 mod legacy;
 mod ocr;
+mod ocr_view;
 mod ocr_window;
 mod overlay;
 mod paths;
@@ -325,6 +326,13 @@ pub fn merge_reason(a: OpenReason, b: OpenReason) -> OpenReason {
     } else {
         OpenReason::User
     }
+}
+
+/// Tùy chọn trả cấu hình dựng từ ảnh chụp lúc mở: ba công tắc OCR có thể đã đổi trong cửa sổ Chữ
+/// nhận dạng trong lúc đó. Lấy giá trị mới nhất từ cấu hình đang dùng `live` để OK không ghi đè.
+pub fn keep_live_ocr_switches(new: &mut Config, live: &Config) {
+    let _ = (new, live);
+    todo!()
 }
 
 /// Ngôn ngữ sau khi đóng Tùy chọn: chỉ đổi khi đã ghi cấu hình thành công.
@@ -2384,6 +2392,28 @@ mod tests {
         assert_eq!(merge_reason(User, User), User);
         assert_eq!(merge_reason(User, NeedsR2), NeedsR2);
         assert_eq!(merge_reason(NeedsR2, User), NeedsR2);
+    }
+
+    /// Đổi công tắc OCR khi Tùy chọn đang mở: OK lưu giá trị mới nhất, không ghi đè; khóa khác giữ.
+    #[test]
+    fn settings_save_keeps_live_ocr_switches() {
+        let live = Config {
+            ocr_single_line: true,
+            ocr_paragraphs: false,
+            ocr_auto_copy: true,
+            ..Config::defaults(Path::new("C:/shots"), Lang::En)
+        };
+        let mut new = Config {
+            ocr_single_line: false,
+            ocr_paragraphs: true,
+            ocr_auto_copy: false,
+            history_enabled: true,
+            ..Config::defaults(Path::new("C:/shots"), Lang::En)
+        };
+        keep_live_ocr_switches(&mut new, &live);
+        assert!(new.ocr_single_line && !new.ocr_paragraphs && new.ocr_auto_copy);
+        assert!(new.history_enabled);
+        assert!(!live.history_enabled);
     }
 
     #[test]

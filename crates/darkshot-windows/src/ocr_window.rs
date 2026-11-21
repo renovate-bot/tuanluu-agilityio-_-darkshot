@@ -16,7 +16,7 @@ use darkshot_core::actions::{Clipboard, NoticeKind};
 use darkshot_core::geometry::Rect;
 use darkshot_core::i18n::{self, ocr_status, t, Lang, Msg};
 use darkshot_core::image::Image;
-use darkshot_core::ocr_text::line_count;
+use darkshot_core::ocr_text::{compose_all, line_count, OcrLine, TextOptions};
 use darkshot_core::theme::{BG, INPUT, TEXT, TEXT_MUTED};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -62,6 +62,9 @@ const MIN_W: i32 = 420;
 const MIN_H: i32 = 260;
 const DEFAULT_W: i32 = 560;
 const DEFAULT_H: i32 = 380;
+/// Bề rộng tối thiểu của khung phải (DIP) và phần trăm bề rộng dành cho khung ảnh.
+const RIGHT_MIN: i32 = 280;
+const IMAGE_SHARE: i32 = 58;
 /// Mở cửa sổ thứ chín thì đóng cái cũ nhất.
 const MAX_WINDOWS: usize = 8;
 
@@ -156,6 +159,61 @@ fn layout(cw: i32, ch: i32, dpi: u32, copy_text: i32, close_text: i32) -> Layout
     }
 }
 
+/// Bề rộng chữ (pixel) dùng để đặt cỡ: nút Chép tất cả, nút Đóng (phông đậm), công tắc dài nhất.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Texts {
+    copy: i32,
+    close: i32,
+    check: i32,
+}
+
+/// Bố cục hai khung.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PaneLayout {
+    /// Khung tự vẽ quanh khung ảnh (viền, gạch dưới khi có tiêu điểm).
+    view_field: Rect,
+    /// Cửa sổ con khung ảnh, nằm trong `view_field`.
+    view: Rect,
+    hint: Rect,
+    status: Rect,
+    field: Rect,
+    edit: Rect,
+    checks: [Rect; 3],
+    copy: Rect,
+    close: Rect,
+}
+
+fn pane_layout(cw: i32, ch: i32, dpi: u32, texts: Texts) -> PaneLayout {
+    let _ = (cw, ch, dpi, texts);
+    todo!()
+}
+
+/// Ba công tắc của cửa sổ (lưu trong cấu hình).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Switches {
+    pub single_line: bool,
+    pub paragraphs: bool,
+    pub auto_copy: bool,
+}
+
+impl Switches {
+    fn text_options(self) -> TextOptions {
+        todo!()
+    }
+}
+
+/// "Tách đoạn" dùng được không.
+fn paragraphs_enabled(s: Switches) -> bool {
+    let _ = s;
+    todo!()
+}
+
+/// Chữ cần tự chép khi kết quả `res` về với công tắc `s`; `None` = không chép.
+fn auto_copy_text(s: Switches, res: &Result<OcrResult, OcrError>) -> Option<String> {
+    let _ = (s, res);
+    todo!()
+}
+
 /// Kết quả mang token `got` có được nhận không: chỉ khi cửa sổ đang chờ (`expected` = `Some`) đúng
 /// token đó. Sau khi nhận, cửa sổ đặt `None` nên kết quả thứ hai bị bỏ.
 fn token_matches(expected: Option<usize>, got: usize) -> bool {
@@ -184,7 +242,7 @@ fn busy_view(lang: Lang) -> View {
 }
 
 /// Cửa sổ sau khi có kết quả. Lỗi kỹ thuật (`Failed`) không bao giờ hiện cho người dùng.
-fn view_of(lang: Lang, res: &Result<OcrResult, OcrError>) -> View {
+fn view_of(lang: Lang, res: &Result<OcrResult, OcrError>, _o: TextOptions) -> View {
     match res {
         Ok(r) if r.text.trim().is_empty() => View {
             text: t(lang, Msg::OcrEmpty).to_string(),
@@ -788,7 +846,7 @@ fn on_result(hwnd: HWND, wp: WPARAM, lp: LPARAM) {
     if !accepted {
         return;
     }
-    let view = view_of(lang::current(), &res);
+    let view = view_of(lang::current(), &res, TextOptions::default());
     drop(res);
     apply_view(hwnd, &view);
     if !view.editable {
@@ -1304,9 +1362,10 @@ mod tests {
 
     #[test]
     fn sizes_match_design() {
-        assert_eq!((MIN_W, MIN_H), (420, 260));
-        assert_eq!((DEFAULT_W, DEFAULT_H), (560, 380));
+        assert_eq!((MIN_W, MIN_H), (640, 400));
+        assert_eq!((DEFAULT_W, DEFAULT_H), (960, 600));
         assert_eq!(MAX_WINDOWS, 8);
+        assert_eq!((RIGHT_MIN, IMAGE_SHARE), (280, 58));
     }
 
     #[test]
@@ -1320,15 +1379,28 @@ mod tests {
         }
     }
 
-    /// Ở cỡ tối thiểu và mặc định, mọi DPI 96–192 và hai ngôn ngữ: ô chữ, dòng trạng thái, hai nút
-    /// nằm trong vùng client, không chồng nhau, nút đủ rộng cho chữ; ô chữ nằm trong khung của nó.
+    /// Bề rộng chữ phông thường bi quan (8 DIP mỗi ký tự) cho ô tích và dòng gợi ý.
+    fn regular_px(s: &str, dpi: u32) -> i32 {
+        s.chars().count() as i32 * scale(8, dpi)
+    }
+
+    /// Ở cỡ tối thiểu, mặc định và lớn, mọi DPI 96–192 và hai ngôn ngữ: khung ảnh bên trái (~58%),
+    /// dòng gợi ý dưới nó; bên phải trạng thái, ô chữ, ba công tắc, hàng nút; mọi phần nằm trong vùng
+    /// client, không chồng nhau, không cắt chữ; khung phải ≥ 280 DIP.
     #[test]
-    fn layout_fits_without_overlap() {
+    fn pane_layout_fits_without_overlap() {
         for lang in LANGS {
             for dpi in DPIS {
-                let copy = text_px(t(lang, Msg::OcrCopy), dpi);
-                let close = text_px(t(lang, Msg::OcrClose), dpi);
-                for (w, h) in [(MIN_W, MIN_H), (DEFAULT_W, DEFAULT_H), (1200, 900)] {
+                let texts = Texts {
+                    copy: text_px(t(lang, Msg::OcrCopyAll), dpi),
+                    close: text_px(t(lang, Msg::OcrClose), dpi),
+                    check: [Msg::OcrSingleLine, Msg::OcrParagraphs, Msg::OcrAutoCopy]
+                        .iter()
+                        .map(|m| regular_px(t(lang, *m), dpi))
+                        .max()
+                        .unwrap_or(0),
+                };
+                for (w, h) in [(MIN_W, MIN_H), (DEFAULT_W, DEFAULT_H), (1600, 1000)] {
                     let (cw, ch) = (scale(w, dpi), scale(h, dpi));
                     let client = Rect {
                         x: 0,
@@ -1336,9 +1408,19 @@ mod tests {
                         w: cw,
                         h: ch,
                     };
-                    let l = layout(cw, ch, dpi, copy, close);
+                    let l = pane_layout(cw, ch, dpi, texts);
                     let ctx = format!("{lang:?} dpi {dpi} {w}x{h}: {l:?}");
-                    let parts = [l.field, l.status, l.copy, l.close];
+                    let parts = [
+                        l.view_field,
+                        l.hint,
+                        l.status,
+                        l.field,
+                        l.checks[0],
+                        l.checks[1],
+                        l.checks[2],
+                        l.copy,
+                        l.close,
+                    ];
                     for (i, a) in parts.iter().enumerate() {
                         assert!(a.w > 0 && a.h > 0, "{ctx}");
                         assert!(within(*a, client), "{ctx}");
@@ -1346,17 +1428,46 @@ mod tests {
                             assert!(!overlaps(*a, *b), "{ctx}");
                         }
                     }
+                    assert!(within(l.view, l.view_field) && l.view != l.view_field, "{ctx}");
                     assert!(within(l.edit, l.field) && l.edit != l.field, "{ctx}");
+                    // Khung ảnh bên trái, khung phải bên phải.
+                    let right_x = l.status.x;
+                    assert!(l.view_field.right() < right_x, "{ctx}");
+                    for p in [l.field, l.checks[0], l.checks[2], l.copy] {
+                        assert_eq!(p.x, right_x, "{ctx}");
+                    }
+                    let right_w = l.close.right() - right_x;
+                    assert!(right_w >= scale(RIGHT_MIN, dpi), "{ctx}");
+                    assert_eq!(l.close.right(), cw - scale(12, dpi), "{ctx}");
+                    let inner = cw - 2 * scale(12, dpi) - scale(8, dpi);
+                    if right_w > scale(RIGHT_MIN, dpi) {
+                        let share = l.view_field.w * 100 / inner;
+                        assert!((57..=58).contains(&share), "{ctx}: {share}%");
+                    }
+                    // Gợi ý dưới khung ảnh, đủ hai dòng cho chữ dài nhất.
+                    assert!(l.hint.y >= l.view_field.bottom(), "{ctx}");
+                    assert_eq!(l.hint.x, l.view_field.x, "{ctx}");
+                    assert!(l.hint.h >= 2 * scale(16, dpi), "{ctx}");
+                    let hint = regular_px(t(lang, Msg::OcrPickHint), dpi);
+                    assert!(hint <= 2 * l.hint.w - scale(60, dpi), "{ctx}: hint {hint}");
+                    // Thứ tự dọc bên phải: trạng thái, ô chữ, ba công tắc, hàng nút.
+                    assert!(l.status.bottom() <= l.field.y, "{ctx}");
+                    assert!(l.field.bottom() <= l.checks[0].y, "{ctx}");
+                    assert!(l.checks[0].bottom() <= l.checks[1].y, "{ctx}");
+                    assert!(l.checks[1].bottom() <= l.checks[2].y, "{ctx}");
+                    assert!(l.checks[2].bottom() <= l.copy.y, "{ctx}");
+                    assert!(l.status.h >= scale(16, dpi), "{ctx}");
                     assert!(l.edit.h >= scale(100, dpi), "{ctx}");
-                    assert!(l.copy.w >= copy + 2 * scale(12, dpi), "{ctx}");
-                    assert!(l.close.w >= close + 2 * scale(12, dpi), "{ctx}");
-                    // Chép bên trái Đóng, cùng hàng, sát mép phải; trạng thái ở trên hàng nút.
+                    assert!(l.view.h >= scale(200, dpi), "{ctx}");
+                    for c in l.checks {
+                        assert!(c.h >= scale(20, dpi), "{ctx}");
+                        assert!(c.w >= scale(18 + 8, dpi) + texts.check, "{ctx}");
+                    }
+                    // Chép tất cả bên trái Đóng, cùng hàng; cả hai đủ rộng cho chữ.
                     assert!(l.copy.right() <= l.close.x, "{ctx}");
                     assert_eq!(l.copy.y, l.close.y, "{ctx}");
-                    assert_eq!(l.close.right(), cw - scale(12, dpi), "{ctx}");
-                    assert!(l.status.bottom() <= l.copy.y, "{ctx}");
-                    assert!(l.field.bottom() <= l.status.y, "{ctx}");
-                    assert!(l.status.h >= scale(16, dpi), "{ctx}");
+                    assert!(l.copy.w >= texts.copy + 2 * scale(12, dpi), "{ctx}");
+                    assert!(l.close.w >= texts.close + 2 * scale(12, dpi), "{ctx}");
                 }
             }
         }
@@ -1504,23 +1615,32 @@ mod tests {
         assert_eq!(freed, 0);
     }
 
+    /// Dòng nhận dạng tổng hợp: chữ và khung (px ảnh gốc).
+    fn ocr_line(text: &str, x: i32, y: i32, w: i32, h: i32) -> OcrLine {
+        OcrLine {
+            text: text.into(),
+            rect: Rect { x, y, w, h },
+        }
+    }
+
+    /// Kết quả có chữ ghép từ `lines` như `ocr.rs` (chữ = `compose_all` mặc định).
+    fn ok_lines(lines: Vec<OcrLine>) -> Result<OcrResult, OcrError> {
+        Ok(OcrResult {
+            text: compose_all(&lines, TextOptions::default()),
+            lang_tag: "en-US".into(),
+            lang_name: "English".into(),
+            lines: lines.len(),
+            lines_detail: lines,
+        })
+    }
+
     fn results() -> Vec<Result<OcrResult, OcrError>> {
-        let ok = |text: &str, lines| {
-            Ok(OcrResult {
-                text: text.into(),
-                lang_tag: "en-US".into(),
-                lang_name: "English".into(),
-                lines,
-                lines_detail: Vec::new(),
-            })
-        };
         vec![
-            ok(
-                "Hello
-world",
-                2,
-            ),
-            ok("", 0),
+            ok_lines(vec![
+                ocr_line("Hello", 10, 10, 80, 20),
+                ocr_line("world", 10, 34, 80, 20),
+            ]),
+            ok_lines(Vec::new()),
             Err(OcrError::NoLanguage),
             Err(OcrError::Failed("0x80004005".into())),
         ]
@@ -1539,7 +1659,7 @@ world",
             );
             for res in results() {
                 let shown = shown_of(&res);
-                let v = view_of(lang, &res);
+                let v = view_of(lang, &res, TextOptions::default());
                 let (text, status) = relabel_parts(lang, &shown);
                 assert_eq!(status, v.status, "{lang:?} {shown:?}");
                 if v.editable {
@@ -1608,7 +1728,7 @@ world",
                 GetDlgItem(Some(h), ID_STATUS).unwrap_or_default(),
             )
         };
-        assert_eq!(title_of(copy), t(Lang::En, Msg::OcrCopy));
+        assert_eq!(title_of(copy), t(Lang::En, Msg::OcrCopyAll));
         assert_eq!(title_of(close), t(Lang::En, Msg::OcrClose));
         assert_eq!(title_of(status), ocr_status(Lang::En, "English, en-US", 1));
         assert_eq!(text_of(edit_of(busy_win)), t(Lang::En, Msg::OcrBusy));
@@ -1626,37 +1746,46 @@ world",
 
     #[test]
     fn views_for_each_result() {
+        let plain = TextOptions::default();
         for lang in LANGS {
             let busy = busy_view(lang);
             assert_eq!(busy.text, t(lang, Msg::OcrBusy));
             assert!(!busy.editable && !busy.can_copy && busy.muted);
             assert_eq!(busy.status, "");
 
-            let ok = Ok(OcrResult {
-                text: "Hello\r\nworld".into(),
-                lang_tag: "en-US".into(),
-                lang_name: "English".into(),
-                lines: 2,
-                lines_detail: Vec::new(),
-            });
-            let v = view_of(lang, &ok);
+            let ok = ok_lines(vec![
+                ocr_line("Hello", 10, 10, 80, 20),
+                ocr_line(" world ", 10, 34, 80, 20),
+            ]);
+            let v = view_of(lang, &ok, plain);
             assert_eq!(v.text, "Hello\r\nworld");
             assert!(v.editable && v.can_copy && !v.muted);
             assert_eq!(v.status, ocr_status(lang, "English, en-US", 2));
+            // Công tắc áp dụng cho ô chữ.
+            let one = TextOptions {
+                single_line: true,
+                paragraphs: false,
+            };
+            assert_eq!(view_of(lang, &ok, one).text, "Hello world");
+            let gap = ok_lines(vec![
+                ocr_line("a", 10, 10, 80, 20),
+                ocr_line("b", 10, 34, 80, 20),
+                ocr_line("c", 10, 120, 80, 20),
+            ]);
+            let para = TextOptions {
+                single_line: false,
+                paragraphs: true,
+            };
+            assert_eq!(view_of(lang, &gap, para).text, "a\r\nb\r\n\r\nc");
+            assert_eq!(view_of(lang, &gap, plain).text, "a\r\nb\r\nc");
 
-            let empty = Ok(OcrResult {
-                text: String::new(),
-                lang_tag: "en-US".into(),
-                lang_name: "English".into(),
-                lines: 0,
-                lines_detail: Vec::new(),
-            });
-            let v = view_of(lang, &empty);
+            let empty = ok_lines(Vec::new());
+            let v = view_of(lang, &empty, plain);
             assert_eq!(v.text, t(lang, Msg::OcrEmpty));
             assert!(!v.editable && !v.can_copy);
             assert_eq!(v.status, ocr_status(lang, "English, en-US", 0));
 
-            let v = view_of(lang, &Err(OcrError::NoLanguage));
+            let v = view_of(lang, &Err(OcrError::NoLanguage), one);
             assert_eq!(v.text, t(lang, Msg::OcrNoLanguage));
             assert!(!v.editable && !v.can_copy);
             assert_eq!(v.status, "");
@@ -1664,11 +1793,76 @@ world",
             let v = view_of(
                 lang,
                 &Err(OcrError::Failed("RecognizeAsync: 0x80004005".into())),
+                plain,
             );
             assert_eq!(v.text, t(lang, Msg::OcrFailed));
             assert!(!v.text.contains("0x8") && !v.status.contains("0x8"));
             assert!(!v.editable && !v.can_copy);
         }
+    }
+
+    /// Ba công tắc → cách ghép chữ: "Tách đoạn" mất tác dụng (và bị vô hiệu) khi "Gộp một dòng" bật.
+    #[test]
+    fn switches_map_to_text_options() {
+        let s = |single_line, paragraphs, auto_copy| Switches {
+            single_line,
+            paragraphs,
+            auto_copy,
+        };
+        assert_eq!(s(false, false, false).text_options(), TextOptions::default());
+        assert_eq!(
+            s(false, true, false).text_options(),
+            TextOptions {
+                single_line: false,
+                paragraphs: true
+            }
+        );
+        assert_eq!(
+            s(true, true, true).text_options(),
+            TextOptions {
+                single_line: true,
+                paragraphs: false
+            }
+        );
+        assert!(paragraphs_enabled(s(false, true, false)));
+        assert!(!paragraphs_enabled(s(true, false, false)));
+    }
+
+    /// Tự chép khi xong: chỉ khi công tắc bật lúc kết quả về và kết quả có chữ; chữ theo công tắc.
+    #[test]
+    fn auto_copy_only_when_on_and_text() {
+        let on = Switches {
+            single_line: true,
+            paragraphs: false,
+            auto_copy: true,
+        };
+        let off = Switches {
+            auto_copy: false,
+            ..on
+        };
+        let [ok, empty, nolang, failed]: [Result<OcrResult, OcrError>; 4] =
+            results().try_into().unwrap();
+        assert_eq!(auto_copy_text(on, &ok).as_deref(), Some("Hello world"));
+        assert_eq!(auto_copy_text(off, &ok), None);
+        for r in [&empty, &nolang, &failed] {
+            assert_eq!(auto_copy_text(on, r), None);
+        }
+    }
+
+    /// Khung dòng suy biến (`w == 0` hoặc `h == 0`) từ `lines_detail`: chữ vẫn ghép, không panic.
+    #[test]
+    fn degenerate_line_boxes_keep_text() {
+        let res = ok_lines(vec![
+            ocr_line("a", 0, 0, 0, 0),
+            ocr_line("b", 5, 5, 0, 10),
+            ocr_line("c", 5, 30, 10, 0),
+        ]);
+        let para = TextOptions {
+            single_line: false,
+            paragraphs: true,
+        };
+        let v = view_of(Lang::En, &res, para);
+        assert!(v.text.contains('a') && v.text.contains('b') && v.text.contains('c'));
     }
 
     // ---- Chạy tay (mở cửa sổ thật, nhỏ, không chặn):
