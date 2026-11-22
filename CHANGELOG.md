@@ -4,6 +4,11 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+
+- Dải tab của Tùy chọn có khoảng cách: chữ các tab (Thông thường, Phím tắt, Định dạng, Lưu trữ R2) không còn liền nhau, chữ đậm của tab đang chọn không sát tab kế bên, ở cả hai ngôn ngữ và mọi mức DPI.
+- Website: mục "Tự kiểm tra bản mới" ghi sai là mặc định tắt; thực tế mặc định bật (tắt được ở Tùy chọn → Thông thường). Ảnh Tùy chọn trên website được chụp lại.
+
 ## [0.6.0] - 2026-11-22
 
 ### Mới

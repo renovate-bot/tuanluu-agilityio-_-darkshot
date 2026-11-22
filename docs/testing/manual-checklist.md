@@ -629,3 +629,4 @@ Mọi dòng để `[ ]` cho đến khi có người thử; ghi kết quả và n
 - [ ] DPI 100/125/150/200 %, kéo cửa sổ Kiểm tra giữa hai màn hình khác DPI, thu nhỏ tối thiểu; tab Chung của Tùy chọn không tràn.
 - [ ] Kéo vùng che bằng chuột thật và cuộn danh sách dài (nhiều phát hiện).
 - Ghi chú: ảnh PrintWindow của cửa sổ Kiểm tra ở bản release ra trống (cờ loại khỏi ảnh chụp); muốn chụp lại thì dùng bản kiểm thử.
+- [ ] Task 139: Tùy chọn ở DPI 100/125/150/200 %, hai ngôn ngữ: chữ bốn tab cách nhau rõ ràng (không liền nhau), chữ đậm của tab chọn không sát tab kế; gạch dưới và nền hover không chạm tab bên cạnh; bốn tab nằm trọn một hàng (không mũi tên cuộn); Ctrl+Tab, mũi tên, bấm chuột đổi tab đúng.

@@ -141,6 +141,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 135 Privacy Shield: sửa sau rà soát toàn đợt (thứ tự nhận, PNG khi xuất, hủy theo mã) | task/135-privacy-polish | specialist | opus | xong | 219.202 | 94.859 (reviewer fable); rà soát toàn đợt: 283.273 (specialist fable) | – | 597.334 |
 | 137 Privacy Shield: bảng có đường kẻ (OCR lượt hai trên bản bỏ kẻ), email bị tách | task/137-privacy-table-lines | specialist | opus | xong | 221.718 | 106.550 (reviewer opus, 2 lượt) + 65.961 (reviewer fable, dừng vì quyết định 154) | 23.864 | 418.093 |
 | 138 Phát hành v0.6.0 | task/138-release-0.6.0 | phiên chính | opus | xong | không đo | | | |
+| 139 Tùy chọn: dải tab có khoảng cách, ảnh website Tùy chọn, website "kiểm tra bản mới" mặc định bật | task/139-options-tab-spacing | builder | sonnet | xong | 117.546 | 70.982 (reviewer opus) | 13.468 | 201.996 |
 
 Task 127–135 là đợt 21 (kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`), chạy trên nhánh `feature/privacy-shield`; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22). Trước khi làm: rà đường xuất (Explore) 156.291, đọc thử thiết kế 74.289. Cộng agent con: 3.851.873 (làm 1.962.929; rà soát 1.466.243 gồm rà soát bảo mật Task 131 và rà soát toàn đợt; sửa 192.121; trước khi làm 230.580). Theo model: opus 1.782.544 (làm/sửa 127, 128, 129, 130, 132, 133, 135; rà soát bảo mật 131); fable 1.723.402 (Task 131 làm/sửa, mọi rà soát còn lại); sonnet 115.347 (Task 134); chưa rõ model (Explore, đọc thử) 230.580.
 
