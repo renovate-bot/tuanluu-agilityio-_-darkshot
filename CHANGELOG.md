@@ -4,6 +4,8 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+## [0.6.0] - 2026-11-22
+
 ### Mới
 
 - **Ghi GIF.** Chọn vùng rồi bấm nút **Ghi GIF** (giữa Chụp cuộn và Hủy) hoặc Ctrl+G để ghi vùng đó thành ảnh GIF động. Thanh ghi nổi (chấm đỏ, "Đang ghi 00:05 / 01:00", Dừng, Hủy) không lấy tiêu điểm; thanh và khung viền không nằm trong GIF trên Windows 10 bản 2004 trở lên. Dừng lưu tệp `darkshot_YYYY-MM-DD_HH-MM-SS.gif` vào thư mục Lưu (không ghi đè, trùng tên thì thêm `_2`…) và báo "Đã lưu GIF"; Hủy không tạo tệp. 10 khung hình mỗi giây, tối đa 60 giây, lặp vô hạn, không con trỏ chuột, không âm thanh, 256 màu mỗi khung; vùng lớn hơn 500 000 điểm ảnh được thu nhỏ, vùng quá 64 MP bị từ chối. Tự dừng và lưu khi đạt 60 giây, 256 MiB hoặc khi vùng không còn trên màn hình. Thoát ứng dụng khi đang ghi thì lưu phần đã ghi. Không tải lên, không vào Lịch sử, không đổi "lần chụp trước". Hình đánh dấu không được kèm. Chạy hoàn toàn trên máy, không mạng.
@@ -119,7 +121,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
