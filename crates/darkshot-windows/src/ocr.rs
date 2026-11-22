@@ -549,14 +549,29 @@ fn scan_tile(
 ) -> Result<Vec<Finding>, ScanError> {
     let w = image.width;
     let src = tile_rows(&image.bgra, w, t);
-    let lines = recognize_tile(engine, src, w, t.h, max)?;
+    scan_passes(src, w, t.h, two_pass, |px| {
+        recognize_tile(engine, px, w, t.h, max)
+    })
+}
+
+/// Điều phối hai lượt trên dải `src` (`w×h`): `recognize` nhận dạng một bản điểm ảnh cùng cỡ.
+/// Lượt hai chỉ chạy khi `two_pass` và `strip_rules` trả `Some`; lỗi của nó là lỗi của cả dải;
+/// phát hiện hai lượt được nối lại (gộp sau ở `merge_tile`).
+fn scan_passes(
+    src: &[u8],
+    w: u32,
+    h: u32,
+    two_pass: bool,
+    mut recognize: impl FnMut(&[u8]) -> Result<ScanLines, ScanError>,
+) -> Result<Vec<Finding>, ScanError> {
+    let lines = recognize(src)?;
     let mut found = privacy::detect(&lines.0);
     drop(lines);
     if !two_pass {
         return Ok(found);
     }
-    if let Some(clean) = privacy::rules::strip_rules(src, w, t.h) {
-        let lines = recognize_tile(engine, &clean.bgra, w, t.h, max);
+    if let Some(clean) = privacy::rules::strip_rules(src, w, h) {
+        let lines = recognize(&clean.bgra);
         drop(clean);
         let lines = lines?;
         found.extend(privacy::detect(&lines.0));
@@ -1422,6 +1437,104 @@ pub(crate) mod tests {
         assert!(l.words.iter().all(|w| w.text.is_empty()));
     }
 
+    /// Dải 200×60 trắng, có hoặc không một đường kẻ đen 1 px ở hàng 30.
+    fn pass_tile(ruled: bool) -> Vec<u8> {
+        let mut px = vec![255u8; 200 * 60 * 4];
+        if ruled {
+            px[30 * 200 * 4..31 * 200 * 4]
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p[..3].fill(0));
+        }
+        px
+    }
+
+    fn email_lines() -> ScanLines {
+        ScanLines(vec![OcrLine {
+            text: "a@example.com".into(),
+            rect: Rect {
+                x: 10,
+                y: 10,
+                w: 130,
+                h: 20,
+            },
+            words: vec![OcrWord {
+                text: "a@example.com".into(),
+                rect: Rect {
+                    x: 10,
+                    y: 10,
+                    w: 130,
+                    h: 20,
+                },
+            }],
+        }])
+    }
+
+    #[test]
+    fn second_pass_runs_only_when_rules_found_and_adds_findings() {
+        // Không kẻ: một lượt.
+        let src = pass_tile(false);
+        let mut calls = 0;
+        let f = scan_passes(&src, 200, 60, true, |_| {
+            calls += 1;
+            Ok(ScanLines(Vec::new()))
+        })
+        .unwrap();
+        assert_eq!((calls, f.len()), (1, 0));
+        // Có kẻ: lượt hai nhận bản đã bỏ kẻ; phát hiện của nó được thêm vào.
+        let src = pass_tile(true);
+        let mut seen: Vec<bool> = Vec::new();
+        let f = scan_passes(&src, 200, 60, true, |px| {
+            assert_eq!(px.len(), src.len());
+            let clean = px.iter().all(|&b| b == 255);
+            seen.push(clean);
+            Ok(if clean {
+                email_lines()
+            } else {
+                ScanLines(Vec::new())
+            })
+        })
+        .unwrap();
+        assert_eq!(seen, vec![false, true]);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].category, Category::Email);
+        // `two_pass = false`: không có lượt hai dù có kẻ.
+        let mut calls = 0;
+        scan_passes(&src, 200, 60, false, |_| {
+            calls += 1;
+            Ok(ScanLines(Vec::new()))
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn second_pass_error_fails_the_tile() {
+        let src = pass_tile(true);
+        for e in [ScanError::Timeout, ScanError::Failed] {
+            let mut calls = 0;
+            let r = scan_passes(&src, 200, 60, true, |_| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(email_lines())
+                } else {
+                    Err(e)
+                }
+            });
+            assert_eq!(r.map(|f| f.len()), Err(e));
+            assert_eq!(calls, 2);
+        }
+        // Lỗi ở lượt một: không có lượt hai.
+        let mut calls = 0;
+        let r = scan_passes(&src, 200, 60, true, |_| {
+            calls += 1;
+            Err(ScanError::Failed)
+        });
+        assert!(r.is_err());
+        assert_eq!(calls, 1);
+    }
+
     #[test]
     fn scan_rejects_invalid_image() {
         let img = Image {
@@ -2233,7 +2346,7 @@ pub(crate) mod tests {
     }
 
     /// Quét bằng đường thật (`scan_tile`, như `scan_in_mta`), một hay hai lượt, trên luồng MTA riêng.
-    fn scan_passes(img: &Image, two_pass: bool) -> Result<(Vec<Finding>, u32), ScanError> {
+    fn scan_image_passes(img: &Image, two_pass: bool) -> Result<(Vec<Finding>, u32), ScanError> {
         std::thread::scope(|sc| {
             sc.spawn(|| {
                 let t0 = Instant::now();
@@ -2292,8 +2405,8 @@ pub(crate) mod tests {
                 let _gdi = crate::capture::GDI_TEST_LOCK.lock();
                 table_image(&rows, px, face, rule, drop, dark)
             };
-            let (f1, ms1) = scan_passes(&t.img, false).expect("scan one pass");
-            let (f2, ms2) = scan_passes(&t.img, true).expect("scan two passes");
+            let (f1, ms1) = scan_image_passes(&t.img, false).expect("scan one pass");
+            let (f2, ms2) = scan_image_passes(&t.img, true).expect("scan two passes");
             let (r1, n1) = email_rows(&t, &f1);
             let (r2, n2) = email_rows(&t, &f2);
             let phones1 = f1.iter().filter(|f| f.category == Category::Phone).count();
