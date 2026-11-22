@@ -4,15 +4,15 @@
 //! Quy tắc tái nhập: trạng thái `Pin` chỉ được mượn trong `with_pin`, và closure của nó không gọi
 //! hàm Win32 nào có thể gửi thông điệp cho cửa sổ (SetWindowPos, DestroyWindow, SetCapture...).
 
-use crate::clipboard::WinClipboard;
 use crate::lang;
 use crate::theme;
 use crate::winutil;
-use darkshot_core::actions::{Action, Clipboard};
+use darkshot_core::actions::Action;
 use darkshot_core::geometry::{Point, Rect};
 use darkshot_core::i18n::{t, Lang, Msg};
 use darkshot_core::image::Image;
 use darkshot_core::pin as core_pin;
+use darkshot_core::privacy::{PreparedOutput, Protection};
 use darkshot_core::theme::{ACCENT, DANGER_BUTTON, OVERLAY_BORDER, OVERLAY_LABEL, TEXT};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -126,8 +126,9 @@ impl<T> Default for PendingPin<T> {
 }
 
 /// Hàm nhận hành động Lưu/Chép từ ảnh ghim.
-/// Hành động, bản sao ảnh gốc, khung cửa sổ ảnh ghim (tọa độ màn hình) để cửa sổ mới tránh che.
-type ActionSink = fn(Action, Image, Option<Rect>);
+/// Hành động, bản sao ảnh gốc, trạng thái Privacy Shield của ảnh lúc ghim, khung cửa sổ ảnh ghim
+/// (tọa độ màn hình) để cửa sổ mới tránh che.
+type ActionSink = fn(Action, Image, Protection, Option<Rect>);
 
 thread_local! {
     /// Sổ ảnh ghim của luồng giao diện.
@@ -148,6 +149,8 @@ struct Pin {
     len: usize,
     img_w: u32,
     img_h: u32,
+    /// Trạng thái Privacy Shield của ảnh lúc qua cổng xuất (Lưu/Chép từ ảnh ghim dựa vào đây).
+    protection: Protection,
     /// Khung ẢNH (không kể viền) trên màn hình, pixel vật lý.
     img: Rect,
     zoom: u16,
@@ -266,8 +269,11 @@ fn too_large() -> PinError {
     PinError::TooLarge
 }
 
-/// Tạo một ảnh ghim (sở hữu `image`). Gọi trên luồng giao diện chính.
-pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
+/// Tạo một ảnh ghim từ ảnh đã qua cổng xuất (sở hữu ảnh, giữ `Protection`). Gọi trên luồng giao
+/// diện chính.
+pub fn open(prepared: PreparedOutput, place: PinPlace) -> Result<(), PinError> {
+    let protection = prepared.protection();
+    let image = prepared.into_image();
     if !core_pin::can_add(count()) {
         return Err(PinError::Limit);
     }
@@ -302,6 +308,7 @@ pub fn open(image: Image, place: PinPlace) -> Result<(), PinError> {
         len,
         img_w: iw,
         img_h: ih,
+        protection,
         img: image_rect_of(win, border),
         zoom,
         opacity: 100,
@@ -991,17 +998,14 @@ fn screen_rect_of(hwnd: HWND) -> Option<Rect> {
 
 /// Chép, Lưu hay Nhận dạng chữ trên bản sao ảnh gốc: gửi cho sink của `main`.
 fn copy_or_save(hwnd: HWND, action: Action) {
-    let Some(img) = with_pin(hwnd, |p| p.image_copy()) else {
+    // Không có sink thì không làm gì: ảnh chỉ rời ảnh ghim qua cổng xuất của `main`.
+    let Some(f) = SINK.with(|s| s.get()) else {
         return;
     };
-    match SINK.with(|s| s.get()) {
-        Some(f) => f(action, img, screen_rect_of(hwnd)),
-        None => {
-            if action == Action::Copy {
-                let _ = WinClipboard.set_image(&img);
-            }
-        }
-    }
+    let Some((img, protection)) = with_pin(hwnd, |p| (p.image_copy(), p.protection)) else {
+        return;
+    };
+    f(action, img, protection, screen_rect_of(hwnd));
 }
 
 /// Menu sở hữu tạm thời: tự hủy (kèm menu con đã gắn) khi ra khỏi phạm vi.
@@ -1915,6 +1919,11 @@ mod live {
         }
     }
 
+    /// Ảnh như khi Shield tắt (kiểm thử cửa sổ không qua cổng).
+    fn prep(image: Image) -> PreparedOutput {
+        PreparedOutput::unscanned(image)
+    }
+
     fn image(w: u32, h: u32) -> Image {
         let mut bgra = Vec::with_capacity((w * h * 4) as usize);
         for i in 0..w * h {
@@ -1962,7 +1971,7 @@ mod live {
             } else {
                 PinPlace::CenterOnCursorMonitor
             };
-            open(image(320, 240), place).unwrap();
+            open(prep(image(320, 240)), place).unwrap();
             pump();
             // Phóng một bậc: đổi cỡ cửa sổ, hiện nhãn (phông, hẹn giờ) rồi vẽ lại.
             if let Some(h) = handles().first() {
@@ -2006,7 +2015,11 @@ mod live {
     fn pin_close_all_destroys_every_window() {
         per_monitor();
         for i in 0..5 {
-            open(image(100, 80), PinPlace::At(p(100 + i * 40, 100 + i * 40))).unwrap();
+            open(
+                prep(image(100, 80)),
+                PinPlace::At(p(100 + i * 40, 100 + i * 40)),
+            )
+            .unwrap();
         }
         pump();
         let hs = handles();
@@ -2028,11 +2041,15 @@ mod live {
     fn pin_limit() {
         per_monitor();
         for i in 0..core_pin::MAX_PINS as i32 {
-            open(image(40, 30), PinPlace::At(p(50 + i * 10, 50 + i * 10))).unwrap();
+            open(
+                prep(image(40, 30)),
+                PinPlace::At(p(50 + i * 10, 50 + i * 10)),
+            )
+            .unwrap();
         }
         assert_eq!(count(), core_pin::MAX_PINS);
         assert!(matches!(
-            open(image(40, 30), PinPlace::At(p(10, 10))),
+            open(prep(image(40, 30)), PinPlace::At(p(10, 10))),
             Err(PinError::Limit)
         ));
         assert_eq!(count(), core_pin::MAX_PINS);
@@ -2045,7 +2062,7 @@ mod live {
     fn pin_close_all_during_context_menu() {
         per_monitor();
         for i in 0..3 {
-            open(image(120, 90), PinPlace::At(p(150 + i * 30, 150))).unwrap();
+            open(prep(image(120, 90)), PinPlace::At(p(150 + i * 30, 150))).unwrap();
         }
         pump();
         let hs = handles();
@@ -2069,7 +2086,7 @@ mod live {
             bgra: Vec::new(),
         };
         assert!(matches!(
-            open(bad, PinPlace::At(p(10, 10))),
+            open(prep(bad), PinPlace::At(p(10, 10))),
             Err(PinError::Create(_))
         ));
         let bad = Image {
@@ -2078,13 +2095,13 @@ mod live {
             bgra: vec![0; 12],
         };
         assert!(matches!(
-            open(bad, PinPlace::CenterOnCursorMonitor),
+            open(prep(bad), PinPlace::CenterOnCursorMonitor),
             Err(PinError::Create(_))
         ));
         // Ở 10% vẫn vượt MAX_SIDE.
         for place in [PinPlace::At(p(10, 10)), PinPlace::CenterOnCursorMonitor] {
             assert!(matches!(
-                open(image(200_000, 10), place),
+                open(prep(image(200_000, 10)), place),
                 Err(PinError::TooLarge)
             ));
         }
@@ -2096,7 +2113,7 @@ mod live {
     fn pin_zoom_keeps_anchor() {
         per_monitor();
         let (iw, ih) = (200u32, 200u32);
-        open(image(iw, ih), PinPlace::At(p(300, 300))).unwrap();
+        open(prep(image(iw, ih)), PinPlace::At(p(300, 300))).unwrap();
         pump();
         let h = handles()[0];
         let (ax, ay) = (350i32, 380i32);
@@ -2135,7 +2152,7 @@ mod live {
         per_monitor();
         let at = p(240, 160);
         let (iw, ih) = (123u32, 77u32);
-        open(image(iw, ih), PinPlace::At(at)).unwrap();
+        open(prep(image(iw, ih)), PinPlace::At(at)).unwrap();
         pump();
         let h = handles()[0];
         let mut rc = RECT::default();
@@ -2197,7 +2214,7 @@ mod live {
             fake_chart()
         };
         close_all();
-        open(img, PinPlace::At(p(240, 200))).unwrap();
+        open(prep(img), PinPlace::At(p(240, 200))).unwrap();
         pump();
         crate::webshot::pump(400, crate::webshot::no_pre, || false);
         let h = handles()[0];

@@ -27,6 +27,7 @@ use darkshot_core::history::{Entry, Filter, Kind};
 use darkshot_core::history_store::Store;
 use darkshot_core::i18n::Msg;
 use darkshot_core::image::Image;
+use darkshot_core::privacy::PreparedOutput;
 use darkshot_core::theme::{BG, INPUT, SURFACE, TEXT, TEXT_DISABLED};
 use darkshot_core::thumb::{decode_png_file, downscale};
 use std::cell::{Cell, RefCell};
@@ -110,8 +111,13 @@ pub const WM_HISTORY_THUMB: u32 = WM_APP + 8;
 pub const WM_HISTORY_PREVIEW: u32 = WM_APP + 9;
 /// Kết quả một hành động (`WPARAM` = `history_layout::Status`, không có `LPARAM`).
 pub const WM_HISTORY_STATUS: u32 = WM_APP + 10;
-/// Ảnh đã giải mã cho nút Ghim (`LPARAM` = `Box<Image>`).
+/// Ảnh đã giải mã cho nút Ghim (`WPARAM` = `IMAGE_PIN`) hay Sao chép ảnh (`IMAGE_COPY`);
+/// `LPARAM` = `Box<Image>`.
 pub const WM_HISTORY_PIN: u32 = WM_APP + 11;
+/// `WPARAM` của `WM_HISTORY_PIN`: ảnh để ghim.
+const IMAGE_PIN: usize = 0;
+/// `WPARAM` của `WM_HISTORY_PIN`: ảnh để chép lên clipboard (qua cổng xuất).
+const IMAGE_COPY: usize = 1;
 
 const ID_LIST: i32 = 200;
 /// Nút hành động theo thứ tự nút (và thứ tự Tab): Mở, Sao chép ảnh, Sao chép liên kết, Mở thư mục
@@ -394,13 +400,18 @@ struct PreviewMsg {
 
 /// Đăng `Box` thành `LPARAM`; gửi không được (cửa sổ đã hủy) thì tự giải phóng.
 fn post_box<T>(hwnd: isize, msg: u32, b: Box<T>) {
+    post_box_wp(hwnd, msg, 0, b);
+}
+
+/// Như `post_box`, kèm `WPARAM` = `wp`.
+fn post_box_wp<T>(hwnd: isize, msg: u32, wp: usize, b: Box<T>) {
     let p = Box::into_raw(b);
     // SAFETY: PostMessageW an toàn từ luồng bất kỳ; khi thất bại không ai nhận con trỏ nên ta lấy lại.
     unsafe {
         let ok = PostMessageW(
             Some(HWND(hwnd as *mut c_void)),
             msg,
-            WPARAM(0),
+            WPARAM(wp),
             LPARAM(p as isize),
         )
         .is_ok();
@@ -1754,7 +1765,7 @@ fn drain_results(hwnd: HWND) {
                 _ => {}
             }
         }
-        // Ảnh ghim chưa nhận: giải phóng.
+        // Ảnh ghim hay ảnh chép chưa nhận: giải phóng.
         while PeekMessageW(
             &mut msg,
             Some(hwnd),
@@ -1845,7 +1856,37 @@ fn post_status(hwnd: isize, st: Status) {
 
 /// Trao ảnh đã giải mã cho cửa sổ để ghim (`LPARAM` = `Box<Image>`); không gửi được thì báo lỗi.
 fn post_pin_image(hwnd: isize, img: Image) {
-    post_box(hwnd, WM_HISTORY_PIN, Box::new(img));
+    post_box_wp(hwnd, WM_HISTORY_PIN, IMAGE_PIN, Box::new(img));
+}
+
+/// Trao ảnh đã giải mã cho cửa sổ để chép (`LPARAM` = `Box<Image>`); không gửi được thì ảnh bị thả.
+fn post_copy_image(hwnd: isize, img: Image) {
+    post_box_wp(hwnd, WM_HISTORY_PIN, IMAGE_COPY, Box::new(img));
+}
+
+/// Ảnh đã giải mã của nút Sao chép ảnh, trên luồng giao diện: qua cổng xuất (Shield bật thì luôn
+/// quét lại, mục cũ không được coi là đã che; tắt thì chép ngay như trước). Kết quả chép về
+/// `copy_prepared`; cổng từ chối thì báo lỗi trên cửa sổ.
+fn on_copy_image(img: Image) {
+    if crate::privacy_gate::submit(crate::privacy_gate::OutputAction::HistoryCopy, img).is_err() {
+        let h = current();
+        if !h.is_invalid() {
+            on_status(h, Status::Failed);
+        }
+    }
+}
+
+/// Đầu ra "Chép ảnh từ Lịch sử" của cổng xuất (main): đặt ảnh đã qua cổng lên clipboard, báo
+/// trạng thái trên cửa sổ Lịch sử nếu còn mở.
+pub fn copy_prepared(prepared: PreparedOutput, clipboard: &dyn Clipboard) {
+    let st = match clipboard.set_image(prepared.image()) {
+        Ok(()) => Status::ImageCopied,
+        Err(_) => Status::Failed,
+    };
+    let h = current();
+    if !h.is_invalid() {
+        on_status(h, st);
+    }
 }
 
 /// Ảnh đã giải mã của nút Ghim, trên luồng giao diện: mở ảnh ghim giữa màn hình chứa con trỏ.
@@ -1861,10 +1902,9 @@ fn on_pin_image(img: Image) {
     open_pin(img);
 }
 
+/// Qua cổng xuất (Shield tắt: ghim ngay như trước); lỗi ghim do đầu ra của cổng báo.
 fn open_pin(img: Image) {
-    if let Err(e) = pin::open(img, pin::PinPlace::CenterOnCursorMonitor) {
-        notify_pin_error(&e);
-    }
+    let _ = crate::privacy_gate::submit(crate::privacy_gate::OutputAction::HistoryPin, img);
 }
 
 /// Lỗi ghim hiện thông báo như đường chụp (không kèm lý do kỹ thuật).
@@ -1976,18 +2016,20 @@ fn on_action(id: i32) {
                 });
             }
         }
-        // Sao chép ảnh: giải mã PNG ở luồng nền rồi đặt lên clipboard.
+        // Sao chép ảnh: giải mã PNG ở luồng nền, gửi ảnh về luồng giao diện rồi qua cổng xuất.
         1 => {
             if let Some(p) = e.image_path(&root) {
-                spawn_task(hwnd, move || {
-                    match decode_png_file(&p)
-                        .ok()
-                        .map(|img| WinClipboard.set_image(&img))
-                    {
-                        Some(Ok(())) => Status::ImageCopied,
-                        _ => Status::Failed,
-                    }
-                });
+                let h = hwnd.0 as isize;
+                let spawned = std::thread::Builder::new()
+                    .name("darkshot-history-copy".into())
+                    .spawn(move || match decode_png_file(&p) {
+                        Ok(img) => post_copy_image(h, img),
+                        Err(_) => post_status(h, Status::Failed),
+                    })
+                    .is_ok();
+                if !spawned {
+                    on_status(hwnd, Status::Failed);
+                }
             }
         }
         // Sao chép liên kết: nhanh, làm ngay trên luồng giao diện.
@@ -3249,9 +3291,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_HISTORY_PIN => {
-            // SAFETY: Box<Image> do post_pin_image cấp phát, chuyển quyền cho ta.
+            // SAFETY: Box<Image> do post_pin_image/post_copy_image cấp phát, chuyển quyền cho ta.
             let img = unsafe { Box::from_raw(lp.0 as *mut Image) };
-            on_pin_image(*img);
+            if wp.0 == IMAGE_COPY {
+                on_copy_image(*img);
+            } else {
+                on_pin_image(*img);
+            }
             LRESULT(0)
         }
         WM_HISTORY_THUMB => {
@@ -3986,5 +4032,126 @@ mod tests {
             .unwrap_or(16);
         let root = synthetic_store(&local, n);
         assert!(root.join("index.json").exists());
+    }
+
+    // ---- Chép/Ghim từ Lịch sử qua cổng xuất (đầu ra giả, không clipboard thật, không ghim thật) ----
+
+    use crate::privacy_gate::{self, OutputAction};
+    use darkshot_core::privacy::Protection;
+
+    /// Đầu ra cổng đã nhận: (là Chép? / Ghim?, trạng thái bảo vệ, ảnh).
+    type Out = (&'static str, Protection, Image);
+
+    thread_local! {
+        static OUTS: RefCell<Vec<Out>> = const { RefCell::new(Vec::new()) };
+        static SHIELD_ON: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn sink(action: OutputAction, prepared: PreparedOutput) {
+        let what = match action {
+            OutputAction::HistoryCopy => "copy",
+            OutputAction::HistoryPin => "pin",
+            _ => "other",
+        };
+        let p = prepared.protection();
+        OUTS.with(|o| o.borrow_mut().push((what, p, prepared.into_image())));
+    }
+
+    fn shield() -> bool {
+        SHIELD_ON.with(|s| s.get())
+    }
+
+    fn quiet(_: darkshot_core::actions::NoticeKind, _: &str, _: &str) {}
+
+    fn wire_gate(on: bool) {
+        privacy_gate::set_sink(sink);
+        privacy_gate::set_notifier(quiet);
+        privacy_gate::set_enabled_source(shield);
+        SHIELD_ON.with(|s| s.set(on));
+    }
+
+    fn outs() -> Vec<Out> {
+        OUTS.with(|o| std::mem::take(&mut *o.borrow_mut()))
+    }
+
+    fn pic(v: u8) -> Image {
+        Image {
+            width: 5,
+            height: 4,
+            bgra: vec![v; 5 * 4 * 4],
+        }
+    }
+
+    /// Shield tắt: Chép ảnh và Ghim đi qua cổng, tới đầu ra đúng một lần với đúng ảnh, không quét.
+    #[test]
+    fn history_copy_and_pin_go_through_the_gate_once_when_shield_is_off() {
+        wire_gate(false);
+        on_copy_image(pic(30));
+        let o = outs();
+        assert_eq!(o.len(), 1);
+        assert_eq!((o[0].0, o[0].1), ("copy", Protection::Disabled));
+        assert_eq!(o[0].2, pic(30));
+        on_pin_image(pic(60));
+        let o = outs();
+        assert_eq!(o.len(), 1);
+        assert_eq!((o[0].0, o[0].1), ("pin", Protection::Disabled));
+        assert_eq!(o[0].2, pic(60));
+        assert!(outs().is_empty(), "không chạy lần hai");
+    }
+
+    /// Shield bật: không có gì tới đầu ra khi chưa quét xong (ở đây không có cửa sổ cổng nên không
+    /// bao giờ quét được): mục cũ của Lịch sử không được coi là đã che.
+    #[test]
+    fn history_copy_and_pin_never_skip_the_scan_when_shield_is_on() {
+        wire_gate(true);
+        on_copy_image(pic(30));
+        on_pin_image(pic(60));
+        assert!(outs().is_empty());
+    }
+
+    struct FakeClip {
+        images: std::sync::Mutex<Vec<Image>>,
+        ok: bool,
+    }
+
+    impl Clipboard for FakeClip {
+        fn set_text(&self, _: &str) -> Result<(), String> {
+            panic!("copy image never sets text");
+        }
+        fn set_image(&self, img: &Image) -> Result<(), String> {
+            self.images.lock().unwrap().push(img.clone());
+            if self.ok {
+                Ok(())
+            } else {
+                Err("busy".into())
+            }
+        }
+    }
+
+    /// Đầu ra Chép từ Lịch sử đặt đúng ảnh đã qua cổng (ảnh đã che) lên clipboard, một lần.
+    #[test]
+    fn copy_prepared_puts_the_prepared_image_on_the_clipboard() {
+        let src = pic(200);
+        let plan = darkshot_core::privacy::RedactionPlan {
+            rects: vec![darkshot_core::geometry::Rect {
+                x: 1,
+                y: 1,
+                w: 2,
+                h: 2,
+            }],
+        };
+        let prepared = PreparedOutput::redacted(src.clone(), &plan).unwrap();
+        let want = prepared.image().clone();
+        assert_ne!(want, src);
+        for ok in [true, false] {
+            let clip = FakeClip {
+                images: std::sync::Mutex::new(Vec::new()),
+                ok,
+            };
+            let p = PreparedOutput::redacted(src.clone(), &plan).unwrap();
+            // Không có cửa sổ Lịch sử mở: chỉ chép, không báo gì (không panic).
+            copy_prepared(p, &clip);
+            assert_eq!(*clip.images.lock().unwrap(), std::slice::from_ref(&want));
+        }
     }
 }

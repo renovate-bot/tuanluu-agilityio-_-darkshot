@@ -11,6 +11,7 @@ use crate::paths;
 use darkshot_core::i18n::Lang;
 use darkshot_core::image::{encode_png, Image};
 use darkshot_core::naming::LocalTime;
+use darkshot_core::privacy::PreparedOutput;
 use darkshot_core::steps::{Step, StepSession, MAX_STEPS};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
@@ -38,6 +39,8 @@ const END_FLUSH: Duration = Duration::from_secs(3);
 struct Saved {
     gen: u64,
     file: String,
+    /// Ảnh đã được Privacy Shield quét xong (`Protection::scanned`), ghi vào `session.json`.
+    scanned: bool,
     result: Result<(), String>,
 }
 
@@ -432,6 +435,7 @@ impl Store {
         probe.steps.extend(self.in_flight.iter().map(|f| Step {
             file: f.clone(),
             caption: String::new(),
+            scanned: false,
         }));
         let mut name = probe.next_file_name();
         for _ in 0..999 {
@@ -441,6 +445,7 @@ impl Store {
             probe.steps.push(Step {
                 file: name,
                 caption: String::new(),
+                scanned: false,
             });
             name = probe.next_file_name();
         }
@@ -449,8 +454,8 @@ impl Store {
 
     /// Thêm một bước: giữ tên, đẩy việc mã hóa và ghi ảnh vào hàng nền. Bước chỉ vào danh sách
     /// (và `session.json`) khi `drain` áp kết quả ghi thành công. Không có phiên thì bỏ qua.
-    /// Đủ `MAX_STEPS` (kể cả ảnh đang ghi) thì `Err(Full)`.
-    pub fn add(&mut self, img: Image) -> Result<(), Full> {
+    /// Đủ `MAX_STEPS` (kể cả ảnh đang ghi) thì `Err(Full)`. `scanned` đi theo bước vào `session.json`.
+    pub fn add(&mut self, img: Image, scanned: bool) -> Result<(), Full> {
         if !self.active() {
             return Ok(());
         }
@@ -464,6 +469,7 @@ impl Store {
             self.results().push(Saved {
                 gen,
                 file,
+                scanned,
                 result: Err(e.to_string()),
             });
             (self.notify)();
@@ -483,6 +489,7 @@ impl Store {
                 .push(Saved {
                     gen,
                     file: job_file,
+                    scanned,
                     result,
                 });
             notify();
@@ -491,6 +498,7 @@ impl Store {
             self.results().push(Saved {
                 gen,
                 file,
+                scanned,
                 result: Err(worker_failed(lang)),
             });
             (self.notify)();
@@ -518,7 +526,7 @@ impl Store {
                     let added = self
                         .session
                         .as_mut()
-                        .is_some_and(|s| s.add(d.file.clone()).is_ok());
+                        .is_some_and(|s| s.add_with(d.file.clone(), d.scanned).is_ok());
                     if added {
                         out.added += 1;
                         self.dirty = true;
@@ -811,9 +819,18 @@ pub fn count() -> usize {
     with(|s| s.count())
 }
 
-/// Thêm ảnh bước (ghi nền); bước hiện ra khi `drain_saved` áp kết quả.
-pub fn add(image: Image) -> Result<(), Full> {
-    with(|s| s.add(image))
+/// Mã của phiên đang mở (đổi mỗi lần bắt đầu, khôi phục hay kết thúc); 0 khi không có phiên. Cổng
+/// xuất ghi lại lúc nhận "Thêm bước" để bước duyệt xong muộn không rơi vào phiên khác.
+pub fn session_id() -> u64 {
+    with(|s| if s.active() { s.gen } else { 0 })
+}
+
+/// Thêm ảnh bước đã qua cổng xuất (ghi nền); bước hiện ra khi `drain_saved` áp kết quả. Chỉ
+/// `privacy_gate` tạo được `PreparedOutput`, nên không ảnh nào chưa qua cổng được ghi vào phiên.
+/// Bước nhớ ảnh đã được quét xong hay chưa (`scanned`); xuất phiên quét lại bước chưa quét.
+pub fn add(prepared: PreparedOutput) -> Result<(), Full> {
+    let scanned = prepared.protection().scanned();
+    with(|s| s.add(prepared.into_image(), scanned))
 }
 
 /// Áp các lần ghi ảnh đã xong (ở `WM_STEPS_SAVED`); lỗi được báo qua `set_on_error`.
@@ -973,7 +990,7 @@ mod tests {
 
     /// Thêm một bước và chờ luồng nền ghi xong, rồi áp kết quả.
     fn add_wait(s: &mut Store, v: u8) {
-        s.add(img(v)).unwrap();
+        s.add(img(v), false).unwrap();
         assert!(s.flush(WAIT));
         let d = s.drain();
         assert!(d.errors.is_empty(), "{:?}", d.errors);
@@ -1029,7 +1046,7 @@ mod tests {
         let root = tmp("order");
         let mut s = store(&root);
         s.start_at(now()).unwrap();
-        s.add(img(1)).unwrap();
+        s.add(img(1), false).unwrap();
         assert!(s.flush(WAIT));
         // Ảnh đã ghi, kết quả chưa áp: json và danh sách chưa có bước.
         assert!(root.join("001.png").is_file());
@@ -1194,7 +1211,7 @@ mod tests {
         let root = tmp("endflight");
         let mut s = store(&root);
         s.start_at(now()).unwrap();
-        s.add(img(9)).unwrap();
+        s.add(img(9), false).unwrap();
         s.end().unwrap();
         assert!(!root.exists());
         let d = s.drain();
@@ -1215,12 +1232,12 @@ mod tests {
         s.set_session_for_test(sess);
         assert_eq!(s.count(), MAX_STEPS - 1);
         // Bước thứ 99 đang ghi: bước thứ 100 bị từ chối ngay.
-        s.add(img(1)).unwrap();
-        assert_eq!(s.add(img(2)), Err(Full));
+        s.add(img(1), false).unwrap();
+        assert_eq!(s.add(img(2), false), Err(Full));
         assert!(s.flush(WAIT));
         assert_eq!(s.drain().added, 1);
         assert_eq!(s.count(), MAX_STEPS);
-        assert_eq!(s.add(img(3)), Err(Full));
+        assert_eq!(s.add(img(3), false), Err(Full));
         cleanup(&root);
     }
 
@@ -1247,7 +1264,7 @@ mod tests {
         // Thư mục phiên bị thay bằng một tệp: không tạo được ảnh.
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::write(&root, b"not a dir").unwrap();
-        s.add(img(1)).unwrap();
+        s.add(img(1), false).unwrap();
         assert!(s.flush(WAIT));
         let d = s.drain();
         assert_eq!(d.added, 0);
@@ -1265,7 +1282,7 @@ mod tests {
     fn add_without_session_does_nothing() {
         let root = tmp("inactive");
         let mut s = store(&root);
-        assert_eq!(s.add(img(1)), Ok(()));
+        assert_eq!(s.add(img(1), false), Ok(()));
         assert!(s.flush(WAIT));
         let d = s.drain();
         assert_eq!((d.added, d.errors.len()), (0, 0));
@@ -1363,7 +1380,7 @@ mod tests {
         assert_eq!(s.count(), 2);
         assert!(root.join("002.png").is_file());
         // Thêm bước: ảnh ghi được, json thì không: bước có trong bộ nhớ, lỗi phiên được báo.
-        s.add(img(3)).unwrap();
+        s.add(img(3), false).unwrap();
         assert!(s.flush(WAIT));
         let d = s.drain();
         assert_eq!(d.added, 1);
@@ -1483,7 +1500,7 @@ mod tests {
         let mut s = store(&root);
         s.start_at(now()).unwrap();
         assert!(!s.needs_end_confirm());
-        s.add(img(1)).unwrap();
+        s.add(img(1), false).unwrap();
         assert_eq!(s.count(), 0);
         assert!(s.needs_end_confirm(), "ảnh đang ghi: chưa được xuất");
         let d = s.settle(WAIT);
@@ -1600,7 +1617,7 @@ mod tests {
         use_root_for_test(root.clone());
         set_on_error(record_errors);
         assert!(start());
-        add(img(1)).unwrap();
+        add(PreparedOutput::unscanned(img(1))).unwrap();
         settle(WAIT);
         assert_eq!(count(), 1);
         let held = lock(&root.join("001.png"));
@@ -1611,6 +1628,64 @@ mod tests {
         assert!(matches!(errs[0], StepError::End(_)), "{errs:?}");
         drop(held);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Cờ `scanned` của ảnh bước vào `session.json` và còn sau khi khôi phục.
+    #[test]
+    fn scanned_flag_is_saved_and_restored() {
+        let root = tmp("scanned");
+        {
+            let mut s = store(&root);
+            s.start_at(now()).unwrap();
+            for scanned in [true, false, true] {
+                s.add(img(5), scanned).unwrap();
+                assert!(s.flush(WAIT));
+                assert!(s.drain().errors.is_empty());
+            }
+            let flags: Vec<bool> = json(&root).steps.iter().map(|x| x.scanned).collect();
+            assert_eq!(flags, [true, false, true]);
+            // Chỉ bước đã quét mang khóa `scanned` (thiếu = chưa quét); vẫn phiên bản 1.
+            let raw = std::fs::read_to_string(root.join(SESSION_FILE)).unwrap();
+            assert_eq!(raw.matches("\"scanned\":true").count(), 2, "{raw}");
+            assert!(raw.contains("\"version\":1"), "{raw}");
+        }
+        let mut s = store(&root);
+        s.restore_at(now());
+        let flags: Vec<bool> = s.steps().iter().map(|x| x.scanned).collect();
+        assert_eq!(flags, [true, false, true]);
+        cleanup(&root);
+    }
+
+    /// `add(prepared)` ghi `scanned = protection().scanned()`.
+    #[test]
+    fn add_records_whether_the_image_was_scanned() {
+        use darkshot_core::privacy::RedactionPlan;
+        let root = tmp("prepared_scanned");
+        use_root_for_test(root.clone());
+        assert!(start());
+        let big = Image {
+            width: 8,
+            height: 8,
+            bgra: vec![200; 8 * 8 * 4],
+        };
+        let plan = RedactionPlan {
+            rects: vec![darkshot_core::geometry::Rect {
+                x: 1,
+                y: 1,
+                w: 3,
+                h: 3,
+            }],
+        };
+        add(PreparedOutput::unscanned(img(1))).unwrap();
+        add(PreparedOutput::no_findings(img(2))).unwrap();
+        add(PreparedOutput::reviewed_none(img(3))).unwrap();
+        add(PreparedOutput::redacted(big.clone(), &plan).unwrap()).unwrap();
+        add(PreparedOutput::skipped_after_error(big, &plan).unwrap()).unwrap();
+        settle(WAIT);
+        let flags: Vec<bool> = steps().iter().map(|x| x.scanned).collect();
+        assert_eq!(flags, [false, true, true, true, false]);
+        assert!(end());
+        cleanup(&root);
     }
 
     #[test]

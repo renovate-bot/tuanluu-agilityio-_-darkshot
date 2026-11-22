@@ -7,9 +7,21 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 ### Mới
 
 - **Ghi GIF.** Chọn vùng rồi bấm nút **Ghi GIF** (giữa Chụp cuộn và Hủy) hoặc Ctrl+G để ghi vùng đó thành ảnh GIF động. Thanh ghi nổi (chấm đỏ, "Đang ghi 00:05 / 01:00", Dừng, Hủy) không lấy tiêu điểm; thanh và khung viền không nằm trong GIF trên Windows 10 bản 2004 trở lên. Dừng lưu tệp `darkshot_YYYY-MM-DD_HH-MM-SS.gif` vào thư mục Lưu (không ghi đè, trùng tên thì thêm `_2`…) và báo "Đã lưu GIF"; Hủy không tạo tệp. 10 khung hình mỗi giây, tối đa 60 giây, lặp vô hạn, không con trỏ chuột, không âm thanh, 256 màu mỗi khung; vùng lớn hơn 500 000 điểm ảnh được thu nhỏ, vùng quá 64 MP bị từ chối. Tự dừng và lưu khi đạt 60 giây, 256 MiB hoặc khi vùng không còn trên màn hình. Thoát ứng dụng khi đang ghi thì lưu phần đã ghi. Không tải lên, không vào Lịch sử, không đổi "lần chụp trước". Hình đánh dấu không được kèm. Chạy hoàn toàn trên máy, không mạng.
+- **Privacy Shield (quét thông tin nhạy cảm).** Tùy chọn, mặc định tắt (Tùy chọn → Thông thường → "Quét thông tin nhạy cảm trước khi xuất ảnh"). Trước khi Lưu, Chép, Tải lên hoặc Ghim, darkshot nhận dạng chữ trên máy (OCR của Windows) và tìm email, số điện thoại, thẻ thanh toán, khóa API, token, mật khẩu, khóa riêng. Không có phát hiện thì không hỏi; có thì cửa sổ **Kiểm tra thông tin nhạy cảm** liệt kê (không hiện giá trị), cho bỏ chọn từng mục, thêm vùng che bằng chuột, rồi che bằng ô đặc. Lỗi quét: Thử lại hoặc Tiếp tục không quét (cần xác nhận). Áp cho Lưu, Chép, Tải lên, Ghim, Chép/Ghim từ Lịch sử, Chụp lại vùng trước, phím chụp toàn màn hình, chụp cuộn, Thêm bước và xuất phiên Chụp từng bước. Một cổng chung `privacy_gate` cho mọi đường xuất ảnh (`check.ps1` kiểm). Chạy hoàn toàn trên máy: ảnh và chữ không gửi cho AI hay máy chủ nào. Chỉ là cố gắng hết sức, không bảo đảm. Số đo bộ dò trên bộ mẫu tổng hợp: `docs/testing/privacy-quality.md`. Exe release tăng khoảng 121 KiB.
 
 ### Đã biết
 
+- Tự động có thể bỏ sót hoặc nhận nhầm (OCR đọc sai chữ nhỏ/phông lạ; ví dụ đã đo trong `docs/testing/privacy-quality.md`); nên tự xem lại và tự thêm vùng che.
+- Privacy Shield không phát hiện khuôn mặt, mã QR, hình ảnh, chữ viết tay; không áp cho Ghi GIF và chữ chép từ Nhận dạng chữ.
+- Mục Lịch sử và ảnh bước tạo khi Shield tắt không được che lại trên đĩa (chỉ được quét khi Chép/Ghim/xuất lúc Shield bật); "Mở"/"Hiện trong thư mục" của Lịch sử không quét.
+- Lưu/Chép từ ảnh ghim hay Lịch sử khi Shield bật luôn quét lại: có thể thấy lại phát hiện đã bỏ chọn.
+- Ảnh rộng hơn 10000 px (giới hạn OCR của Windows) bị co theo chiều rộng khi quét: chữ nhỏ có thể bị bỏ sót.
+- Tệp cấu hình hỏng hoặc khóa `privacy_shield` sai kiểu → Shield về tắt (thông báo cấu hình hỏng không nhắc riêng Shield).
+- Tắt Shield lúc bấm Xuất phiên rồi bật ngay: lượt xuất đó chép như khi tắt.
+- Đang có 3 lượt chờ duyệt thì lượt mới bị bỏ (kể cả tự Lưu của chụp cuộn khi không mở được cửa sổ kết quả).
+- Cửa sổ Kiểm tra bị ẩn khi chia sẻ màn hình/ghi màn hình (Windows 10 2004 trở lên).
+- Trình đọc màn hình đọc cửa sổ Kiểm tra hạn chế (cửa sổ tự vẽ).
+- Privacy Shield đã qua bản demo (2026-11-22) nhưng chưa được thử tay đầy đủ (DPI, nhiều màn hình, máy không có gói OCR en-US). Xem mục "Đợt 21: Privacy Shield" trong `docs/testing/manual-checklist.md`.
 - Ghi GIF chưa được thử tay trên Windows 10, nhiều màn hình, DPI hỗn hợp và màn hình có tọa độ âm. Thông báo Windows hiện trong lúc ghi có thể lọt vào GIF. Xem mục "Đợt 20: Ghi GIF" trong `docs/testing/manual-checklist.md`.
 
 ## [0.5.0] - 2026-11-21
@@ -107,7 +119,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.1.0...v0.2.0

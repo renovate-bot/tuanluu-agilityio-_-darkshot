@@ -442,6 +442,9 @@ messages! {
         "Export or end the session to capture more."
     ),
     StepsExportFailedTitle => ("Không xuất được các bước", "Couldn't export the steps"),
+    StepsExportCancelledTitle => ("Đã hủy xuất", "Export cancelled"),
+    StepsExportCancelledBody => ("Chưa có tệp nào được tạo.", "No files were created."),
+    StepsImageUnreadable => ("Không đọc được ảnh của bước.", "Couldn't read the step image."),
     StepsStartFailedTitle => (
         "Không bắt đầu được phiên chụp từng bước",
         "Couldn't start step capture"
@@ -482,6 +485,7 @@ messages! {
     OverlayRecordGif => ("Ghi GIF (Ctrl+G)", "Record GIF (Ctrl+G)"),
     RecordStatus => ("Đang ghi", "Recording"),
     RecordSaving => ("Đang lưu…", "Saving…"),
+    RecordNotScanned => ("GIF không được quét", "GIF is not scanned"),
     RecordStop => ("Dừng", "Stop"),
     RecordCancel => ("Hủy", "Cancel"),
     RecordSavedTitle => ("Đã lưu GIF", "GIF saved"),
@@ -502,6 +506,72 @@ messages! {
     RecordFaultSizeChanged => ("Kích thước vùng ghi đã thay đổi.", "The size of the recording region changed."),
     RecordFaultInternal => ("Lỗi nội bộ của bộ ghi GIF.", "Internal error in the GIF recorder."),
     RecordNoRoomTitle => ("Không có chỗ cho thanh ghi GIF", "No room for the recording bar"),
+    PrivacyCatPhone => ("Số điện thoại", "Phone number"),
+    PrivacyCatCard => ("Thẻ thanh toán", "Payment card"),
+    PrivacyCatApiKey => ("Khóa API", "API key"),
+    PrivacyCatToken => ("Token truy cập", "Access token"),
+    PrivacyCatPassword => ("Mật khẩu", "Password"),
+    PrivacyCatPrivateKey => ("Khóa riêng", "Private key"),
+    PrivacyConfHigh => ("Cao", "High"),
+    PrivacyConfMedium => ("Trung bình", "Medium"),
+    PrivacyErrNoLanguage => ("Windows chưa có ngôn ngữ nhận dạng chữ nào.", "Windows has no text recognition language installed."),
+    PrivacyErrFailed => ("Không nhận dạng được chữ trong ảnh.", "Could not recognize text in the image."),
+    PrivacyErrTimeout => ("Quét quá lâu.", "Scanning took too long."),
+    PrivacyErrTooLarge => ("Ảnh quá lớn để quét.", "The image is too large to scan."),
+    PrivacyReviewTitle => ("Kiểm tra thông tin nhạy cảm", "Check for sensitive information"),
+    PrivacyScanning => ("Đang quét thông tin nhạy cảm…", "Scanning for sensitive information…"),
+    PrivacySelectAll => ("Chọn tất cả", "Select all"),
+    PrivacyDeselectAll => ("Bỏ chọn hết", "Deselect all"),
+    PrivacyManual => ("Vùng tự thêm", "Added area"),
+    PrivacyRemove => ("Xóa", "Remove"),
+    PrivacyNote => ("Tự động có thể bỏ sót. Hãy xem lại ảnh.", "Automatic detection can miss things. Review the image."),
+    PrivacyCancel => ("Hủy", "Cancel"),
+    PrivacyAddArea => ("+ Thêm vùng che", "+ Add cover area"),
+    PrivacyApply => ("Che và tiếp tục", "Cover and continue"),
+    PrivacyDragHint => ("Kéo trên ảnh để thêm vùng che · Esc để thôi", "Drag on the image to add a cover area · Esc to stop"),
+    PrivacyConfirmEmpty => ("Không có vùng nào được che. Tiếp tục mà không che?", "Nothing will be covered. Continue without covering?"),
+    PrivacyBack => ("Quay lại", "Go back"),
+    PrivacyContinueNone => ("Tiếp tục không che", "Continue without covering"),
+    PrivacyErrHeading => ("Không quét được ảnh này", "Could not scan this image"),
+    PrivacyErrUnchecked => ("Ảnh CHƯA được kiểm tra.", "The image has NOT been checked."),
+    PrivacyRetry => ("Thử lại", "Try again"),
+    PrivacyContinueUnscanned => ("Tiếp tục không quét", "Continue without scanning"),
+    PrivacyConfirmUnscanned => ("Ảnh chưa được kiểm tra. Vẫn tiếp tục?", "The image has not been checked. Continue anyway?"),
+    PrivacyContinueAnyway => ("Vẫn tiếp tục", "Continue anyway"),
+    PrivacyActionSave => ("Lưu ảnh", "Save image"),
+    PrivacyActionCopy => ("Chép ảnh", "Copy image"),
+    PrivacyActionUpload => ("Tải lên và chép link", "Upload and copy link"),
+    PrivacyActionPin => ("Ghim lên màn hình", "Pin to screen"),
+    PrivacyActionAddStep => ("Thêm bước", "Add step"),
+    PrivacyActionExportSteps => ("Xuất các bước", "Export steps"),
+    ChkPrivacyShield => (
+        "Quét thông tin nhạy cảm trước khi xuất ảnh",
+        "Scan for sensitive information before exporting"
+    ),
+    NotePrivacyShield => (
+        "Nhận dạng chữ trên máy rồi che email, số điện thoại, thẻ, khóa API, token, mật khẩu, khóa riêng. Không phát hiện được mọi thứ; nên tự xem lại ảnh.",
+        "Reads text on this PC, then covers emails, phone numbers, cards, API keys, tokens, passwords and private keys. It can miss things; review your image."
+    ),
+    PrivacyQueueFull => (
+        "Đang có ảnh chờ kiểm tra. Ảnh mới chưa được xuất.",
+        "Images are already waiting to be checked. The new image was not exported."
+    ),
+    PrivacyWindowFailed => (
+        "Không mở được cửa sổ kiểm tra; ảnh chưa được xuất.",
+        "Could not open the review window; the image was not exported."
+    ),
+    PrivacyScanStalled => (
+        "Quét quá lâu; ảnh chưa được xuất.",
+        "Scanning took too long; the image was not exported."
+    ),
+    PrivacyStepSessionGone => (
+        "Phiên chụp từng bước đã kết thúc hoặc đã đổi; bước chưa được thêm.",
+        "The step capture session ended or changed; the step was not added."
+    ),
+    PrivacyRedactFailed => (
+        "Không che được ảnh; ảnh chưa được xuất.",
+        "Could not cover the image; it was not exported."
+    ),
 }
 
 /// Mọi mục dùng làm tiêu đề thông báo.
@@ -525,6 +595,7 @@ pub const NOTICE_TITLES: &[Msg] = &[
     Msg::OcrCopyFailedTitle,
     Msg::StepsFullTitle,
     Msg::StepsExportFailedTitle,
+    Msg::StepsExportCancelledTitle,
     Msg::StepsStartFailedTitle,
     Msg::StepsSessionSaveFailedTitle,
     Msg::StepsEndFailedTitle,
@@ -540,6 +611,9 @@ pub const NOTICE_TITLES: &[Msg] = &[
 /// Chữ trên nút OK: giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`
 /// (bảng đòi hai bản khác nhau).
 pub const OK_LABEL: &str = "OK";
+
+/// Tên loại phát hiện "Email": giống nhau ở mọi ngôn ngữ nên nằm ngoài bảng `Msg`.
+pub const PRIVACY_EMAIL_LABEL: &str = "Email";
 
 pub fn history_clear_confirm_body(lang: Lang, n: usize) -> String {
     match (lang, n) {
@@ -827,7 +901,10 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px.
 
 9. Ghi GIF
-Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000)."
+Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000).
+
+10. Quét thông tin nhạy cảm
+Bật \"Quét thông tin nhạy cảm trước khi xuất ảnh\" ở Tùy chọn, tab Thông thường (mặc định tắt). Trước khi Lưu, Chép, Tải lên hoặc Ghim, darkshot nhận dạng chữ trên máy rồi tìm email, số điện thoại, thẻ, khóa API, token, mật khẩu và khóa riêng; có phát hiện thì hiện cửa sổ để bạn xem lại và che. Ảnh và chữ không gửi đi đâu. Tự động có thể bỏ sót hoặc nhận nhầm, nên hãy tự xem lại ảnh. Không áp cho Ghi GIF và chữ chép từ Nhận dạng chữ."
         ),
         Lang::En => format!(
             "1. Taking a screenshot\n\
@@ -877,7 +954,10 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall.
 
 9. Recording a GIF
-To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels."
+To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels.
+
+10. Scanning for sensitive information
+Turn on \"Scan for sensitive information before exporting\" in Options, General tab (off by default). Before you save, copy, upload or pin, darkshot reads the image text on this PC and looks for emails, phone numbers, cards, API keys, tokens, passwords and private keys; if it finds something, a window lets you review and cover them. The image and its text are not sent anywhere. Automatic detection can miss things or flag the wrong text, so review the image yourself. It does not apply to GIF recordings or to text copied by text recognition."
         ),
     }
 }
@@ -966,6 +1046,33 @@ pub fn steps_exported(lang: Lang, n: usize) -> String {
         (Lang::En, n) => format!("Exported {n} steps"),
     }
 }
+/// Tiêu đề cửa sổ Duyệt, có "Bước k/n" khi duyệt một bước của lượt xuất các bước.
+pub fn privacy_review_title(lang: Lang, step: Option<(u32, u32)>) -> String {
+    let base = t(lang, Msg::PrivacyReviewTitle);
+    match (lang, step) {
+        (_, None) => base.to_string(),
+        (Lang::Vi, Some((k, n))) => format!("{base} · Bước {k}/{n}"),
+        (Lang::En, Some((k, n))) => format!("{base} · Step {k}/{n}"),
+    }
+}
+
+/// Tóm tắt của cửa sổ Duyệt: "Tìm thấy N mục · <hành động>".
+pub fn privacy_found(lang: Lang, n: usize, action: &str) -> String {
+    match (lang, n) {
+        (Lang::Vi, n) => format!("Tìm thấy {n} mục · {action}"),
+        (Lang::En, 1) => format!("Found 1 item · {action}"),
+        (Lang::En, n) => format!("Found {n} items · {action}"),
+    }
+}
+
+/// Tiến độ quét theo dải: "dải k/n" | "part k of n".
+pub fn privacy_scan_tile(lang: Lang, k: u32, n: u32) -> String {
+    match lang {
+        Lang::Vi => format!("dải {k}/{n}"),
+        Lang::En => format!("part {k} of {n}"),
+    }
+}
+
 /// Chiều cao hiện có trên thanh chụp cuộn: "1840 px".
 pub fn scroll_height(lang: Lang, px: u32) -> String {
     match lang {
@@ -1815,6 +1922,26 @@ mod tests {
             ),
             (Msg::RecordStatus, "Đang ghi", "Recording"),
             (Msg::RecordSaving, "Đang lưu…", "Saving…"),
+            (
+                Msg::RecordNotScanned,
+                "GIF không được quét",
+                "GIF is not scanned",
+            ),
+            (
+                Msg::StepsExportCancelledTitle,
+                "Đã hủy xuất",
+                "Export cancelled",
+            ),
+            (
+                Msg::StepsExportCancelledBody,
+                "Chưa có tệp nào được tạo.",
+                "No files were created.",
+            ),
+            (
+                Msg::StepsImageUnreadable,
+                "Không đọc được ảnh của bước.",
+                "Couldn't read the step image.",
+            ),
             (Msg::RecordStop, "Dừng", "Stop"),
             (Msg::RecordCancel, "Hủy", "Cancel"),
             (Msg::RecordSavedTitle, "Đã lưu GIF", "GIF saved"),
@@ -1879,5 +2006,51 @@ mod tests {
         let en = help_text(Lang::En, &HelpKeys::default());
         assert!(vi.contains("9. Ghi GIF"));
         assert!(en.contains("9. Recording a GIF"));
+    }
+
+    #[test]
+    fn privacy_review_texts() {
+        assert_eq!(
+            privacy_review_title(Lang::Vi, None),
+            "Kiểm tra thông tin nhạy cảm"
+        );
+        assert_eq!(
+            privacy_review_title(Lang::Vi, Some((3, 12))),
+            "Kiểm tra thông tin nhạy cảm · Bước 3/12"
+        );
+        assert_eq!(
+            privacy_review_title(Lang::En, Some((3, 12))),
+            "Check for sensitive information · Step 3/12"
+        );
+        let save_vi = t(Lang::Vi, Msg::PrivacyActionSave);
+        assert_eq!(
+            privacy_found(Lang::Vi, 3, save_vi),
+            "Tìm thấy 3 mục · Lưu ảnh"
+        );
+        assert_eq!(
+            privacy_found(Lang::En, 1, t(Lang::En, Msg::PrivacyActionSave)),
+            "Found 1 item · Save image"
+        );
+        assert_eq!(privacy_found(Lang::En, 2, "Pin"), "Found 2 items · Pin");
+        assert_eq!(privacy_scan_tile(Lang::Vi, 2, 5), "dải 2/5");
+        assert_eq!(privacy_scan_tile(Lang::En, 2, 5), "part 2 of 5");
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyNote),
+            "Tự động có thể bỏ sót. Hãy xem lại ảnh."
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyConfirmEmpty),
+            "Không có vùng nào được che. Tiếp tục mà không che?"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyConfirmUnscanned),
+            "Ảnh chưa được kiểm tra. Vẫn tiếp tục?"
+        );
+        assert_eq!(
+            t(Lang::Vi, Msg::PrivacyScanning),
+            "Đang quét thông tin nhạy cảm…"
+        );
+        assert_eq!(t(Lang::Vi, Msg::PrivacyManual), "Vùng tự thêm");
+        assert_eq!(t(Lang::Vi, Msg::PrivacyApply), "Che và tiếp tục");
     }
 }

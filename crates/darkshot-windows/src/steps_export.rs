@@ -1,6 +1,8 @@
 //! Xuất phiên chụp từng bước ra thư mục người dùng chọn: tạo thư mục con mới
 //! `darkshot-steps-YYYY-MM-DD_HH-mm` (`_2`, `_3`… nếu tên đã có), chép ảnh theo thứ tự hiển thị
-//! thành `01.png`, `02.png`… và ghi `steps.md`. Chạy trên luồng nền.
+//! thành `01.png`, `02.png`… và ghi `steps.md`. Chạy trên luồng nền. Bước có ảnh thay thế (đã qua
+//! Privacy Shield lúc xuất, mã hóa PNG sẵn ở `steps_window`) được ghi byte PNG đó thay cho bản chép;
+//! tệp của phiên không đổi.
 //!
 //! An toàn: mọi thứ được ghi vào một thư mục tạm mới (`.darkshot-steps-partial-…`, tạo bằng
 //! `create_dir` nên không bao giờ là thư mục có sẵn; tệp tạo bằng `create_new`), rồi đổi tên một lần
@@ -24,7 +26,9 @@ pub const STAGING_PREFIX: &str = ".darkshot-steps-partial-";
 const MAX_SUFFIX: u32 = 999;
 
 /// Một lần xuất: thư mục cha, thời điểm (đặt tên, ghi trong Markdown), ngôn ngữ của Markdown, các
-/// bước theo thứ tự hiển thị và đường dẫn ảnh nguồn tương ứng.
+/// bước theo thứ tự hiển thị và đường dẫn ảnh nguồn tương ứng, cùng ảnh thay thế `(chỉ số bước,
+/// byte PNG của ảnh đã qua cổng xuất)` cho các bước chưa quét lúc chụp (Privacy Shield bật lúc
+/// xuất). Giữ byte PNG thay cho ảnh BGRA để lượt xuất nhiều bước không giữ mọi ảnh thô.
 #[derive(Clone, Debug)]
 pub struct ExportJob {
     pub parent: PathBuf,
@@ -32,6 +36,7 @@ pub struct ExportJob {
     pub lang: Lang,
     pub steps: Vec<Step>,
     pub sources: Vec<PathBuf>,
+    pub replacements: Vec<(usize, Vec<u8>)>,
 }
 
 /// Tạo thư mục con mới `base` (hoặc `base_2`, `base_3`…) trong `parent`; không bao giờ dùng tên đã
@@ -79,11 +84,15 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     f.sync_all()
 }
 
-/// Chép ảnh và ghi `steps.md` vào thư mục `dir` (vừa tạo, rỗng).
+/// Chép ảnh (hay ghi ảnh thay thế) và ghi `steps.md` vào thư mục `dir` (vừa tạo, rỗng).
 fn fill(dir: &Path, job: &ExportJob) -> std::io::Result<()> {
     let names = export_names(job.steps.len());
-    for (src, name) in job.sources.iter().zip(&names) {
-        copy_new(src, &dir.join(name))?;
+    for (k, (src, name)) in job.sources.iter().zip(&names).enumerate() {
+        let dst = dir.join(name);
+        match job.replacements.iter().find(|(i, _)| *i == k) {
+            Some((_, png)) => write_new(&dst, png)?,
+            None => copy_new(src, &dst)?,
+        }
     }
     let md = markdown(job.lang, job.when, &job.steps);
     write_new(&dir.join(MARKDOWN_FILE), md.as_bytes())
@@ -165,7 +174,8 @@ fn publish(staging: &Path, parent: &Path, base: &str) -> std::io::Result<PathBuf
 
 /// Xuất `job`; trả thư mục vừa tạo, hay lý do lỗi (chữ của hệ thống). Lỗi thì không để lại gì.
 pub fn export(job: &ExportJob) -> Result<PathBuf, String> {
-    if job.steps.len() != job.sources.len() {
+    let stray = job.replacements.iter().any(|(i, _)| *i >= job.steps.len());
+    if job.steps.len() != job.sources.len() || stray {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput).to_string());
     }
     clean_stale(&job.parent);
@@ -189,6 +199,7 @@ pub fn export(job: &ExportJob) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darkshot_core::image::{encode_png, Image};
 
     fn when() -> LocalTime {
         LocalTime {
@@ -225,6 +236,7 @@ mod tests {
         Step {
             file: file.to_string(),
             caption: caption.to_string(),
+            scanned: false,
         }
     }
 
@@ -282,6 +294,7 @@ mod tests {
             lang: Lang::Vi,
             steps: steps.clone(),
             sources: paths,
+            replacements: Vec::new(),
         };
         let out = export(&job).unwrap();
         assert_eq!(out, parent.join(export_dir_name(when())));
@@ -319,6 +332,7 @@ mod tests {
             lang: Lang::En,
             steps: vec![step("001.png", "a")],
             sources: paths,
+            replacements: Vec::new(),
         };
         let out = export(&job).unwrap();
         assert_ne!(out, base);
@@ -342,6 +356,7 @@ mod tests {
             lang: Lang::En,
             steps: vec![step("001.png", "")],
             sources: paths,
+            replacements: Vec::new(),
         };
         let out = export(&job).unwrap();
         assert_eq!(out, parent.join(format!("{base}_2")));
@@ -372,6 +387,7 @@ mod tests {
             lang: Lang::En,
             steps: vec![step("001.png", "")],
             sources: paths,
+            replacements: Vec::new(),
         };
         export(&job).unwrap();
         assert!(!stale.exists());
@@ -396,6 +412,7 @@ mod tests {
                 step("003.png", ""),
             ],
             sources: paths,
+            replacements: Vec::new(),
         };
         let err = export(&job).unwrap_err();
         assert!(!err.is_empty());
@@ -412,12 +429,112 @@ mod tests {
             lang: Lang::En,
             steps: Vec::new(),
             sources: Vec::new(),
+            replacements: Vec::new(),
         };
         assert!(export(&job).is_err());
         assert!(!parent.exists());
         if let Some(p) = parent.parent() {
             let _ = std::fs::remove_dir_all(p);
         }
+    }
+
+    /// Ảnh tổng hợp `w × h` màu `v`, có vùng đen đặc `black` (x, y, w, h) như ảnh đã che.
+    fn covered(w: u32, h: u32, v: u8, black: (u32, u32, u32, u32)) -> Image {
+        let mut bgra = vec![v; (w * h * 4) as usize];
+        for y in black.1..black.1 + black.3 {
+            for x in black.0..black.0 + black.2 {
+                let i = ((y * w + x) * 4) as usize;
+                bgra[i..i + 4].copy_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+        for px in bgra.chunks_mut(4) {
+            px[3] = 255;
+        }
+        Image {
+            width: w,
+            height: h,
+            bgra,
+        }
+    }
+
+    /// Bước có ảnh thay thế: tệp xuất là đúng byte PNG đã mã hóa sẵn của ảnh đó (đọc lại ra đúng
+    /// điểm đen); bước khác chép nguyên; tệp của phiên không bị viết lại.
+    #[test]
+    fn replacements_are_written_instead_of_copied() {
+        let parent = tmp("replace");
+        let src = parent.join("session");
+        let files = ["001.png", "002.png", "003.png"];
+        let paths = sources(&src, &files);
+        let before: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+        let first = covered(20, 10, 180, (2, 3, 6, 4));
+        let third = covered(12, 12, 90, (0, 0, 12, 5));
+        let job = ExportJob {
+            parent: parent.clone(),
+            when: when(),
+            lang: Lang::En,
+            steps: files.iter().map(|f| step(f, "")).collect(),
+            sources: paths.clone(),
+            replacements: vec![
+                (2, encode_png(&third).unwrap()),
+                (0, encode_png(&first).unwrap()),
+            ],
+        };
+        let out = export(&job).unwrap();
+        assert_eq!(
+            std::fs::read(out.join("01.png")).unwrap(),
+            encode_png(&first).unwrap()
+        );
+        assert_eq!(names(&out), ["01.png", "02.png", "03.png", MARKDOWN_FILE]);
+        for (name, want) in [("01.png", &first), ("03.png", &third)] {
+            let got = darkshot_core::thumb::decode_png_file(&out.join(name)).unwrap();
+            assert_eq!((got.width, got.height), (want.width, want.height), "{name}");
+            for (i, (g, w)) in got.bgra.chunks(4).zip(want.bgra.chunks(4)).enumerate() {
+                assert_eq!(g[..3], w[..3], "{name} pixel {i}");
+            }
+        }
+        let black = |img: &Image, x: u32, y: u32| {
+            let i = ((y * img.width + x) * 4) as usize;
+            img.bgra[i..i + 3] == [0, 0, 0]
+        };
+        let got = darkshot_core::thumb::decode_png_file(&out.join("01.png")).unwrap();
+        assert!(black(&got, 4, 5) && !black(&got, 15, 8));
+        // Bước không thay thế: bản chép nguyên.
+        assert_eq!(std::fs::read(out.join("02.png")).unwrap(), b"img-002.png");
+        for (p, b) in paths.iter().zip(&before) {
+            assert_eq!(&std::fs::read(p).unwrap(), b, "{p:?}");
+        }
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    /// Ảnh thay thế cho bước không có (lỗi lập trình): lỗi, không để lại gì. (Ảnh không mã hóa
+    /// được bị chặn trước đó, ở `steps_window`, khi cổng trả ảnh.)
+    #[test]
+    fn bad_replacements_fail_without_leaving_anything() {
+        let parent = tmp("badrepl");
+        let paths = sources(&parent.join("session"), &["001.png"]);
+        let png = encode_png(&covered(4, 4, 7, (0, 0, 1, 1))).unwrap();
+        let job = ExportJob {
+            parent: parent.clone(),
+            when: when(),
+            lang: Lang::En,
+            steps: vec![step("001.png", "")],
+            sources: paths,
+            replacements: vec![(1, png)],
+        };
+        assert!(!export(&job).unwrap_err().is_empty());
+        assert_eq!(names(&parent), ["session"]);
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    /// Tệp đích đã có (không bao giờ ghi đè): ghi byte PNG cũng tạo mới, lỗi nếu tên đã có.
+    #[test]
+    fn replacement_bytes_never_overwrite() {
+        let dir = tmp("nooverwrite");
+        let dst = dir.join("01.png");
+        std::fs::write(&dst, b"old").unwrap();
+        assert!(write_new(&dst, b"new").is_err());
+        assert_eq!(std::fs::read(&dst).unwrap(), b"old");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Số bước và số ảnh nguồn lệch nhau (lỗi lập trình): báo lỗi, không tạo gì.
@@ -430,6 +547,7 @@ mod tests {
             lang: Lang::En,
             steps: vec![step("001.png", "")],
             sources: Vec::new(),
+            replacements: Vec::new(),
         };
         assert!(export(&job).is_err());
         assert!(names(&parent).is_empty());

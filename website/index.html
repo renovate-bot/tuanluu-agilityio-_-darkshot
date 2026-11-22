@@ -251,6 +251,8 @@
               <li data-i18n="fc.l2">Hold Shift for a perfect square.</li>
               <li data-i18n="fc.l3">Applies to the saved, copied and uploaded image alike.</li>
             </ul>
+            <p data-i18n-html="fc.shield"><strong>Privacy Shield</strong> (off by default, Options → General) can also look for you. Before an image is saved, copied, uploaded or pinned, darkshot reads its text on your PC with Windows' built-in OCR and looks for emails, phone numbers, payment cards, API keys, access tokens, passwords and private keys. If it finds something, a review window lists the findings (never their values) and covers each one with a solid box when you continue. You can untick items or drag extra boxes. If nothing is found, you are not asked anything.</p>
+            <p class="small" data-i18n="fc.shieldWarn">Best effort, not a guarantee: it can miss things or flag the wrong text, so always look at the image yourself. It doesn't detect faces, QR codes, pictures or handwriting, and it doesn't apply to GIF recordings or to text copied by text recognition. Nothing is sent to an AI or any server for this.</p>
             <p class="small" data-i18n="fc.warn">Tip: redactions are burned in when you export. If you move or delete one before exporting, what was underneath is visible again.</p>
           </div>
           <figure class="feature-visual">
@@ -558,6 +560,7 @@
               <li data-i18n="pv.l3">Window selection reads window geometry, not titles or contents.</li>
               <li data-i18n="pv.l4">Your R2 secret key is encrypted with Windows DPAPI.</li>
               <li data-i18n="pv.l5">No analytics, no usage statistics, no log files.</li>
+              <li data-i18n="pv.l7">Privacy Shield (optional, off by default) finds likely emails, phone numbers, cards, keys, tokens and passwords with Windows' on-device OCR. Your image and its text are not sent to any AI or server for this. It is best effort and can miss things.</li>
               <li data-i18n="pv.l6">Text recognition (Ctrl+T) runs on your PC with Windows' built-in OCR: no network, no history entry, no text file written. The result window shows your image with a box around each line: click a box to copy that line, Ctrl+click to pick several. Windows has no Vietnamese recognizer yet, so accented letters may lose their marks.</li>
             </ul>
           </div>
@@ -666,6 +669,8 @@
           <details><summary data-i18n="faq.q8">Is darkshot available on macOS or Linux?</summary><p data-i18n="faq.a8">No. darkshot is a Windows-only app and there are no macOS or Linux builds.</p></details>
           <details><summary data-i18n="faq.q9">Why does Windows SmartScreen show a warning?</summary><p data-i18n="faq.a9">The executable is not yet digitally signed, so SmartScreen has no publisher reputation to check. Verify the file against SHA256SUMS.txt, then choose More info → Run anyway if you're comfortable.</p></details>
           <details><summary data-i18n="faq.q11">Can text recognition read Vietnamese?</summary><p data-i18n="faq.a11">Not reliably yet. It uses the recognizers Windows provides, and Windows has no Vietnamese one, so accented letters may lose their marks. It still runs entirely on your PC, with no network.</p></details>
+          <details><summary data-i18n="faq.q12">Does Privacy Shield send my screenshots anywhere?</summary><p data-i18n="faq.a12">No. It runs entirely on your PC using the text recognition built into Windows. The image and the text found are not sent to an AI or to any server, and findings are not written to a file.</p></details>
+          <details><summary data-i18n="faq.q13">Can I rely on Privacy Shield to hide everything sensitive?</summary><p data-i18n="faq.a13">No. It is a best-effort helper that can miss things, for example small or unusual text, and sometimes flags harmless text. It doesn't detect faces, QR codes, pictures or handwriting, and it doesn't apply to GIF recordings or text copied by text recognition. Look at the image and add your own boxes before you share it. It is off by default.</p></details>
           <details><summary data-i18n="faq.q10">How can I verify the download?</summary><p data-i18n-html="faq.a10">Each release includes <code>SHA256SUMS.txt</code>. Run <code>Get-FileHash .\darkshot.exe -Algorithm SHA256</code> in PowerShell and compare the result with the matching line.</p></details>
         </div>
       </div>

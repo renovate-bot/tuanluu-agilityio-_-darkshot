@@ -277,6 +277,8 @@ pub struct Config {
     pub ocr_paragraphs: bool,
     /// Cửa sổ OCR: tự chép khi xong; mặc định tắt.
     pub ocr_auto_copy: bool,
+    /// Privacy Shield: quét thông tin nhạy cảm trước khi xuất ảnh; mặc định tắt.
+    pub privacy_shield: bool,
 }
 
 impl Config {
@@ -301,6 +303,7 @@ impl Config {
             ocr_single_line: false,
             ocr_paragraphs: false,
             ocr_auto_copy: false,
+            privacy_shield: false,
         }
     }
 }
@@ -416,6 +419,7 @@ struct FileConfig {
     ocr_single_line: serde_json::Value,
     ocr_paragraphs: serde_json::Value,
     ocr_auto_copy: serde_json::Value,
+    privacy_shield: serde_json::Value,
     save_dir: Option<PathBuf>,
     autostart: bool,
     language: String,
@@ -444,6 +448,7 @@ impl Default for FileConfig {
             ocr_single_line: serde_json::Value::Bool(false),
             ocr_paragraphs: serde_json::Value::Bool(false),
             ocr_auto_copy: serde_json::Value::Bool(false),
+            privacy_shield: serde_json::Value::Bool(false),
             save_dir: None,
             autostart: false,
             language: String::new(),
@@ -560,6 +565,7 @@ pub fn load(
         ocr_single_line: f.ocr_single_line.as_bool().unwrap_or(false),
         ocr_paragraphs: f.ocr_paragraphs.as_bool().unwrap_or(false),
         ocr_auto_copy: f.ocr_auto_copy.as_bool().unwrap_or(false),
+        privacy_shield: f.privacy_shield.as_bool().unwrap_or(false),
     };
     Ok(Loaded {
         config,
@@ -612,6 +618,7 @@ pub fn save(path: &Path, cfg: &Config, store: &dyn SecretStore) -> Result<(), Co
         ocr_single_line: serde_json::Value::Bool(cfg.ocr_single_line),
         ocr_paragraphs: serde_json::Value::Bool(cfg.ocr_paragraphs),
         ocr_auto_copy: serde_json::Value::Bool(cfg.ocr_auto_copy),
+        privacy_shield: serde_json::Value::Bool(cfg.privacy_shield),
         save_dir: Some(cfg.save_dir.clone()),
         autostart: cfg.autostart,
         language: cfg.language.code().to_string(),
@@ -1467,7 +1474,13 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(after["history_enabled"], false);
         after.as_object_mut().unwrap().remove("history_enabled");
-        for k in ["ocr_single_line", "ocr_paragraphs", "ocr_auto_copy"] {
+        assert!(!l.config.privacy_shield);
+        for k in [
+            "ocr_single_line",
+            "ocr_paragraphs",
+            "ocr_auto_copy",
+            "privacy_shield",
+        ] {
             assert_eq!(after[k], false, "{k}");
             after.as_object_mut().unwrap().remove(k);
         }
@@ -1518,5 +1531,52 @@ mod tests {
         assert!(!c.ocr_single_line && c.ocr_paragraphs && !c.ocr_auto_copy);
         let c = load_text(r#"{"ocr_auto_copy":true,"ocr_single_line":true}"#).config;
         assert!(c.ocr_single_line && !c.ocr_paragraphs && c.ocr_auto_copy);
+    }
+    #[test]
+    fn privacy_shield_round_trip_and_default_false() {
+        let d = Config::defaults(Path::new("C:/pics"), Lang::Vi);
+        assert!(!d.privacy_shield);
+        for on in [true, false] {
+            let path = temp_dir().join("config.json");
+            let mut c = sample();
+            c.privacy_shield = on;
+            save(&path, &c, &XorStore).unwrap();
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(v["privacy_shield"], on);
+            let l = load(&path, &XorStore, Path::new("C:/pics"), Lang::Vi).unwrap();
+            assert_eq!(l.config, c);
+        }
+    }
+
+    #[test]
+    fn privacy_shield_missing_or_wrong_type_is_false() {
+        assert!(!load_text(r#"{"language":"vi"}"#).config.privacy_shield);
+        for bad in ["\"yes\"", "1", "null", "[true]"] {
+            let c = load_text(&format!("{{\"privacy_shield\":{bad}}}")).config;
+            assert!(!c.privacy_shield, "{bad}");
+        }
+        let c = load_text(r#"{"privacy_shield":true}"#).config;
+        assert!(c.privacy_shield);
+        // Khóa mới không đụng khóa khác.
+        assert!(!c.history_enabled && !c.ocr_auto_copy && c.snap_windows);
+    }
+
+    #[test]
+    fn privacy_shield_save_keeps_other_keys() {
+        let path = temp_dir().join("config.json");
+        let mut c = sample();
+        c.history_enabled = true;
+        c.ocr_paragraphs = true;
+        save(&path, &c, &XorStore).unwrap();
+        let before: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        c.privacy_shield = true;
+        save(&path, &c, &XorStore).unwrap();
+        let mut after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after["privacy_shield"], true);
+        after["privacy_shield"] = serde_json::Value::Bool(false);
+        assert_eq!(after, before);
     }
 }

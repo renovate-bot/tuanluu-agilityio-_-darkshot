@@ -130,6 +130,17 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 124 Ghi GIF: tài liệu, website | task/124-gif-docs | scaffolder | sonnet | xong | 77.281 | phiên điều phối (thêm nút vào hình SVG thanh ngang) | – | 77.281 |
 | 125 Ghi GIF: gia cố sau rà soát toàn đợt 20 | task/125-gif-polish | specialist | opus | xong | 20.772 (cùng agent Task 123) | 45.842 (reviewer fable); rà soát toàn đợt: 172.703 (specialist fable) | – | 239.317 |
 | 126 Ghi GIF: tối đa 60 giây (quyết định 143) | task/126-gif-60s | builder | sonnet | xong | 60.504 | 27.353 (reviewer sonnet) | – | 87.857 |
+| 127 Privacy Shield: lõi dò (7 loại, dựng chữ dòng, khung từ) (đợt 21) | task/127-privacy-detect-core | builder | opus | xong | 156.104 | 160.742 (reviewer fable, 3 vòng) | 46.599 | 363.445 |
+| 128 Privacy Shield: quét OCR trên luồng nền (khung từ, dải, en-US, hạn 20 s) | task/128-privacy-ocr-scan | specialist | opus | xong | 151.484 | 83.517 (reviewer fable) | 3.484 | 238.485 |
+| 129 Privacy Shield: tô che, PreparedOutput, luật check.ps1 | task/129-privacy-renderer | builder | opus | xong | 101.509 | 67.807 (reviewer fable) | 11.883 | 181.199 |
+| 130 Privacy Shield: cửa sổ Kiểm tra (mô hình thuần + cửa sổ tự vẽ) | task/130-privacy-review-window | specialist | opus | xong | 284.181 | 127.471 (reviewer fable, CẦN SỬA: bấm đúp xuyên xác nhận) | 27.604 | 439.256 |
+| 131 Privacy Shield: cổng xuất, cài đặt, nối mọi đường xuất ảnh | task/131-privacy-gate | specialist | fable | xong | 352.731 | 195.948 (reviewer fable) + 174.503 (rà soát bảo mật specialist opus) | 78.931 | 802.113 |
+| 132 Privacy Shield: Chụp từng bước, Lịch sử Chép ảnh, nhãn GIF | task/132-privacy-steps-history | specialist | opus | xong | 255.105 | 104.864 (reviewer fable) | – | 359.969 |
+| 133 Privacy Shield: gia cố, đo chất lượng/hiệu năng, demo | task/133-privacy-hardening | specialist | opus | xong | 327.266 | 173.259 (reviewer fable) | 23.620 | 524.145 |
+| 134 Privacy Shield: tài liệu, website, quyết định | task/134-privacy-docs | scaffolder | sonnet | xong | 115.347 | phiên điều phối (sửa 2 câu README) | – | 115.347 |
+| 135 Privacy Shield: sửa sau rà soát toàn đợt (thứ tự nhận, PNG khi xuất, hủy theo mã) | task/135-privacy-polish | specialist | opus | xong | 219.202 | 94.859 (reviewer fable); rà soát toàn đợt: 283.273 (specialist fable) | – | 597.334 |
+
+Task 127–135 là đợt 21 (kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`), chạy trên nhánh `feature/privacy-shield`; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22). Trước khi làm: rà đường xuất (Explore) 156.291, đọc thử thiết kế 74.289. Cộng agent con: 3.851.873 (làm 1.962.929; rà soát 1.466.243 gồm rà soát bảo mật Task 131 và rà soát toàn đợt; sửa 192.121; trước khi làm 230.580). Theo model: opus 1.782.544 (làm/sửa 127, 128, 129, 130, 132, 133, 135; rà soát bảo mật 131); fable 1.723.402 (Task 131 làm/sửa, mọi rà soát còn lại); sonnet 115.347 (Task 134); chưa rõ model (Explore, đọc thử) 230.580.
 
 Task 122–125 là đợt 20 (kế hoạch `docs/superpowers/plans/2026-11-21-gif-recording.md`). Cộng agent con: 1.055.974 (làm 557.092; rà soát 464.006 gồm rà soát toàn đợt; sửa 34.876). Theo model: opus 514.687 (làm và sửa 122, 123, 125); fable 464.006 (mọi rà soát); sonnet 77.281 (Task 124).
 

@@ -13,6 +13,15 @@
 //! báo về cửa sổ chính bằng `WM_STEPS_EXPORTED` (kết quả trong `EXPORT_DONE`), nên đóng cửa sổ giữa
 //! chừng vẫn có thông báo.
 //!
+//! Privacy Shield bật lúc xuất: trước khi luồng xuất chạy, từng bước chưa quét lúc chụp
+//! (`Step::scanned == false`) được giải mã trên luồng nền (kết quả trong `DECODED`, báo bằng cùng
+//! `WM_STEPS_EXPORTED`) rồi đi qua cổng xuất (`privacy_gate::submit_with`, `StepExport`) lần lượt
+//! trên luồng giao diện. Ảnh đã qua cổng được mã hóa PNG ngay (ảnh > 4 MP: trên luồng nền, kết quả
+//! trong `ENCODED`, báo bằng `WM_STEPS_EXPORTED`) và chỉ byte PNG được giữ. Hủy ở bất kỳ bước nào
+//! (hay mã hóa lỗi) hủy cả lượt; lượt bị bỏ thì lượt của cổng cũng bị hủy (`privacy_gate::cancel`),
+//! cửa sổ Duyệt của nó đóng. Xong hết thì luồng xuất ghi byte PNG đó thay cho bản chép. Tệp trong
+//! thư mục phiên không bị viết lại.
+//!
 //! Quy tắc tái nhập: trạng thái `STATE` chỉ được mượn trong khối ngắn, không gọi hàm của
 //! `steps_store` (có thể gọi lại `on_store_changed`) hay hàm Win32 gửi thông điệp cho cửa sổ này.
 
@@ -23,6 +32,7 @@ use crate::history_layout::{
 use crate::history_paint::{self as hp, Bmp, Fonts};
 use crate::lang;
 use crate::paths;
+use crate::privacy_gate::{self, OutputAction, SubmitError};
 use crate::steps_export::{self, ExportJob};
 use crate::steps_store;
 use crate::theme::{self, ButtonKind};
@@ -30,13 +40,15 @@ use crate::winutil::{self, scale};
 use darkshot_core::actions::NoticeKind;
 use darkshot_core::geometry::Rect;
 use darkshot_core::i18n::{self, step_label, t, Lang, Msg};
+use darkshot_core::image::Image;
+use darkshot_core::privacy::PreparedOutput;
 use darkshot_core::steps::{Step, MAX_CAPTION};
 use darkshot_core::theme::{
     ACCENT, BG, BUTTON, INPUT, LINE, SURFACE, TEXT, TEXT_DISABLED, TEXT_MUTED,
 };
 use darkshot_core::thumb::{decode_png_file, downscale};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
@@ -733,12 +745,68 @@ fn no_dir() -> Option<PathBuf> {
 
 /// Một lượt xuất đã xong: các bước lúc bắt đầu xuất và kết quả.
 struct ExportDone {
+    /// Luồng giao diện đã bắt đầu lượt (chỉ luồng đó nhận kết quả; kiểm thử chạy nhiều luồng).
+    owner: std::thread::ThreadId,
     steps: Vec<Step>,
     result: Result<PathBuf, String>,
 }
 
 /// Kết quả xuất chờ luồng giao diện (`on_exported`).
 static EXPORT_DONE: Mutex<Vec<ExportDone>> = Mutex::new(Vec::new());
+
+/// Ảnh một bước chưa quét, giải mã xong trên luồng nền, của lượt quét `gen`.
+struct Decoded {
+    owner: std::thread::ThreadId,
+    gen: u64,
+    index: usize,
+    result: Result<Image, String>,
+}
+
+/// Ảnh bước đã giải mã chờ luồng giao diện (`on_exported`).
+static DECODED: Mutex<Vec<Decoded>> = Mutex::new(Vec::new());
+
+/// Byte PNG của một ảnh đã qua cổng, mã hóa trên luồng nền (ảnh lớn).
+struct Encoded {
+    owner: std::thread::ThreadId,
+    gen: u64,
+    index: usize,
+    result: Result<Vec<u8>, String>,
+}
+
+/// Ảnh đã qua cổng đã mã hóa, chờ luồng giao diện (`on_exported`).
+static ENCODED: Mutex<Vec<Encoded>> = Mutex::new(Vec::new());
+
+/// Ảnh đã qua cổng nhiều điểm hơn mức này được mã hóa PNG trên luồng nền (như cổng làm phẳng).
+const ENCODE_INLINE_MAX_PIXELS: u64 = 4_000_000;
+
+/// Lấy khỏi hàng `q` các phần tử của luồng hiện tại (`owner`), giữ phần của luồng khác.
+fn take_own<T>(q: &Mutex<Vec<T>>, owner: impl Fn(&T) -> std::thread::ThreadId) -> Vec<T> {
+    let me = std::thread::current().id();
+    let mut all = q.lock().unwrap_or_else(|e| e.into_inner());
+    let (mine, rest): (Vec<T>, Vec<T>) = std::mem::take(&mut *all)
+        .into_iter()
+        .partition(|x| owner(x) == me);
+    *all = rest;
+    mine
+}
+
+/// Lượt xuất đang đưa các bước chưa quét qua cổng xuất (Privacy Shield bật lúc bắt đầu xuất).
+struct ExportScan {
+    gen: u64,
+    /// Phiên lúc bắt đầu xuất (`steps_store::session_id`); đổi thì bỏ lượt.
+    session: u64,
+    /// Byte PNG của ảnh đã qua cổng dồn vào `job.replacements`.
+    job: ExportJob,
+    /// Chỉ số các bước còn phải quét, theo thứ tự hiển thị.
+    todo: VecDeque<usize>,
+    /// Bước đang chờ kết quả của cổng và mã lượt của cổng cho nó (để hủy khi bỏ lượt xuất).
+    waiting: Option<usize>,
+    gate: Option<privacy_gate::Id>,
+}
+
+/// Cách đưa một ảnh qua cổng (kiểm thử thay bằng cổng giả).
+type SubmitWith =
+    fn(OutputAction, Image, privacy_gate::Done) -> Result<privacy_gate::Id, SubmitError>;
 /// Cửa sổ chính nhận `WM_STEPS_EXPORTED` (0: chưa có).
 static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
@@ -753,6 +821,15 @@ thread_local! {
     static PICKING: Cell<bool> = const { Cell::new(false) };
     /// Luồng xuất đang chạy (để lúc thoát chờ có hạn).
     static EXPORT_THREAD: RefCell<Option<std::thread::JoinHandle<()>>> = const { RefCell::new(None) };
+    /// Lượt xuất đang quét các bước chưa quét (EXPORTING đúng suốt lúc này).
+    static EXPORT_SCAN: RefCell<Option<ExportScan>> = const { RefCell::new(None) };
+    /// Mã lượt quét gần nhất; kết quả của lượt cũ bị bỏ.
+    static SCAN_GEN: Cell<u64> = const { Cell::new(0) };
+    static SUBMIT: Cell<SubmitWith> = const { Cell::new(privacy_gate::submit_with) };
+    /// Hủy một lượt của cổng theo mã (kiểm thử thay bằng cổng giả).
+    static CANCEL: Cell<fn(privacy_gate::Id)> = const { Cell::new(privacy_gate::cancel) };
+    /// Công tắc Privacy Shield (kiểm thử thay; mặc định đọc cổng xuất).
+    static SHIELD: Cell<fn() -> bool> = const { Cell::new(privacy_gate::enabled) };
 }
 
 /// Đang xuất hay đang chọn thư mục để xuất: không kết thúc phiên.
@@ -1165,6 +1242,7 @@ const WS_SHOW_STYLE: u32 = windows::Win32::UI::WindowsAndMessaging::WS_VISIBLE.0
 /// Phiên đổi (main đăng ký qua `steps_store::on_change`): phiên hết thì đóng cửa sổ, không thì
 /// làm mới danh sách.
 pub fn on_store_changed() {
+    check_scan_session();
     if current().is_none() {
         return;
     }
@@ -1795,7 +1873,8 @@ fn pick_folder(owner: HWND, default: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Bắt đầu xuất các bước hiện có vào thư mục con mới của `parent` trên luồng nền. `false` khi
-/// không có gì để xuất, đang xuất, hay không tạo được luồng (đã báo lỗi).
+/// không có gì để xuất, đang xuất, hay không tạo được luồng (đã báo lỗi). Privacy Shield bật và
+/// có bước chưa quét: các bước đó qua cổng xuất trước (`true`; nút Xuất khóa suốt lúc quét).
 fn start_export(parent: PathBuf) -> bool {
     if EXPORTING.with(|e| e.get()) || !steps_store::active() {
         return false;
@@ -1808,13 +1887,323 @@ fn start_export(parent: PathBuf) -> bool {
         .filter_map(steps_store::image_path)
         .collect();
     let lang = lang::current();
+    let todo: VecDeque<usize> = if SHIELD.with(|f| f.get())() {
+        (0..steps.len()).filter(|&i| !steps[i].scanned).collect()
+    } else {
+        VecDeque::new()
+    };
     let job = ExportJob {
         parent,
         when: paths::local_now(),
         lang,
         steps,
         sources,
+        replacements: Vec::new(),
     };
+    if todo.is_empty() || job.sources.len() != job.steps.len() {
+        // Không có gì phải quét (hay phiên lệch: luồng xuất báo lỗi như trước).
+        return spawn_export(job);
+    }
+    let gen = SCAN_GEN.with(|g| {
+        g.set(g.get() + 1);
+        g.get()
+    });
+    EXPORT_SCAN.with(|c| {
+        *c.borrow_mut() = Some(ExportScan {
+            gen,
+            session: steps_store::session_id(),
+            job,
+            todo,
+            waiting: None,
+            gate: None,
+        })
+    });
+    EXPORTING.with(|e| e.set(true));
+    if let Some(h) = current() {
+        relayout(h);
+    }
+    scan_next();
+    true
+}
+
+/// Giải mã bước kế tiếp cần quét trên luồng nền; hết bước thì chạy luồng xuất với ảnh đã qua cổng.
+fn scan_next() {
+    enum Next {
+        Decode(u64, usize, PathBuf),
+        Export(Box<ExportJob>),
+    }
+    let next = EXPORT_SCAN.with(|c| {
+        let mut b = c.borrow_mut();
+        let scan = b.as_mut()?;
+        match scan.todo.front().copied() {
+            Some(i) => Some(Next::Decode(scan.gen, i, scan.job.sources[i].clone())),
+            None => b.take().map(|s| Next::Export(Box::new(s.job))),
+        }
+    });
+    match next {
+        None => {}
+        Some(Next::Export(job)) => {
+            if !spawn_export(*job) {
+                end_scan_ui();
+            }
+        }
+        Some(Next::Decode(gen, index, path)) => {
+            let lang = lang::current();
+            let owner = std::thread::current().id();
+            let spawned = std::thread::Builder::new()
+                .name("darkshot-steps-decode".into())
+                .spawn(move || {
+                    let result = std::panic::catch_unwind(|| decode_png_file(&path))
+                        .map_err(|_| t(lang, Msg::StepsWorkerFailed).to_string())
+                        .and_then(|r| r.map_err(|e| decode_reason(lang, e)));
+                    DECODED
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(Decoded {
+                            owner,
+                            gen,
+                            index,
+                            result,
+                        });
+                    post_exported();
+                });
+            if let Err(e) = spawned {
+                fail_scan(&e.to_string());
+            }
+        }
+    }
+}
+
+/// Lý do không giải mã được ảnh bước (để báo lỗi xuất).
+fn decode_reason(lang: Lang, e: darkshot_core::thumb::DecodeError) -> String {
+    use darkshot_core::thumb::DecodeError;
+    match e {
+        DecodeError::Io(why) => why,
+        DecodeError::TooLarge => t(lang, Msg::PrivacyErrTooLarge).to_string(),
+        DecodeError::Corrupt => t(lang, Msg::StepsImageUnreadable).to_string(),
+    }
+}
+
+/// Báo cửa sổ chính có kết quả (thông điệp không mang con trỏ).
+fn post_exported() {
+    let main = MAIN_WINDOW.load(Ordering::SeqCst);
+    if main != 0 {
+        // SAFETY: PostMessageW an toàn từ luồng bất kỳ; thông điệp không mang con trỏ.
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(main as *mut c_void)),
+                WM_STEPS_EXPORTED,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
+/// Áp các ảnh bước đã giải mã: đưa qua cổng xuất (kết quả về `on_step_checked`).
+fn drain_decoded() {
+    for d in take_own(&DECODED, |d| d.owner) {
+        if !scan_is(d.gen) {
+            continue;
+        }
+        let image = match d.result {
+            Ok(img) => img,
+            Err(why) => {
+                fail_scan(&why);
+                continue;
+            }
+        };
+        let Some(steps) = EXPORT_SCAN.with(|c| c.borrow().as_ref().map(|s| s.job.steps.len()))
+        else {
+            continue;
+        };
+        let action = OutputAction::StepExport {
+            step: u32::try_from(d.index + 1).unwrap_or(u32::MAX),
+            steps: u32::try_from(steps).unwrap_or(u32::MAX),
+        };
+        let (gen, index) = (d.gen, d.index);
+        let done: privacy_gate::Done = Box::new(move |p| on_step_checked(gen, index, p));
+        with_scan(|s| {
+            s.waiting = Some(index);
+            s.gate = None;
+        });
+        // Không mượn `EXPORT_SCAN` lúc gọi: cổng có thể gọi `done` ngay (Shield vừa tắt).
+        let submit = SUBMIT.with(|f| f.get());
+        match submit(action, image, done) {
+            // Cổng chưa trả lời bước này: nhớ mã lượt để hủy nếu lượt xuất bị bỏ.
+            Ok(id) => with_scan(|s| {
+                if s.gen == gen && s.waiting == Some(index) {
+                    s.gate = Some(id);
+                }
+            }),
+            Err(e) => {
+                // `done` không được gọi khi `submit_with` trả lỗi.
+                let why = match e {
+                    SubmitError::QueueFull => Msg::PrivacyQueueFull,
+                    SubmitError::WindowFailed => Msg::PrivacyWindowFailed,
+                };
+                fail_scan(t(lang::current(), why));
+            }
+        }
+    }
+}
+
+/// Sửa lượt quét đang chạy (nếu có).
+fn with_scan(f: impl FnOnce(&mut ExportScan)) {
+    EXPORT_SCAN.with(|c| {
+        if let Some(s) = c.borrow_mut().as_mut() {
+            f(s);
+        }
+    });
+}
+
+/// Lượt quét `gen` còn là lượt đang chạy và phiên không đổi (đổi thì bỏ lượt).
+fn scan_is(gen: u64) -> bool {
+    check_scan_session();
+    EXPORT_SCAN.with(|c| c.borrow().as_ref().is_some_and(|s| s.gen == gen))
+}
+
+/// Kết quả của cổng cho bước `index`: ảnh đã qua cổng thì mã hóa PNG (ảnh lớn: trên luồng nền) rồi
+/// quét bước kế; Hủy (hay lỗi) thì hủy cả lượt, không tạo thư mục nào.
+fn on_step_checked(gen: u64, index: usize, prepared: Option<PreparedOutput>) {
+    if !scan_is(gen) {
+        return;
+    }
+    with_scan(|s| {
+        s.waiting = None;
+        s.gate = None;
+    });
+    match prepared {
+        Some(p) => {
+            let image = p.into_image();
+            let lang = lang::current();
+            let pixels = u64::from(image.width) * u64::from(image.height);
+            if pixels <= ENCODE_INLINE_MAX_PIXELS {
+                on_step_encoded(gen, index, encode(&image, lang));
+                return;
+            }
+            let owner = std::thread::current().id();
+            let spawned = std::thread::Builder::new()
+                .name("darkshot-steps-encode".into())
+                .spawn(move || {
+                    let result = std::panic::catch_unwind(|| encode(&image, lang))
+                        .unwrap_or_else(|_| Err(t(lang, Msg::StepsWorkerFailed).to_string()));
+                    drop(image);
+                    ENCODED
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(Encoded {
+                            owner,
+                            gen,
+                            index,
+                            result,
+                        });
+                    post_exported();
+                });
+            // Không tạo được luồng: không xuất (ảnh đã bị thả cùng closure).
+            if let Err(e) = spawned {
+                fail_scan(&e.to_string());
+            }
+        }
+        None => {
+            drop_scan();
+            let lang = lang::current();
+            notify(
+                NoticeKind::Info,
+                t(lang, Msg::StepsExportCancelledTitle),
+                t(lang, Msg::StepsExportCancelledBody),
+            );
+        }
+    }
+}
+
+/// Mã hóa PNG ảnh đã qua cổng; lỗi thành lý do (chữ của lượt xuất).
+fn encode(image: &Image, lang: Lang) -> Result<Vec<u8>, String> {
+    darkshot_core::image::encode_png(image).map_err(|e| e.message(lang))
+}
+
+/// Byte PNG của bước `index` đã có: giữ rồi quét bước kế; mã hóa lỗi thì hủy lượt, báo lỗi xuất.
+fn on_step_encoded(gen: u64, index: usize, result: Result<Vec<u8>, String>) {
+    if !scan_is(gen) {
+        return;
+    }
+    let png = match result {
+        Ok(png) => png,
+        Err(why) => {
+            fail_scan(&why);
+            return;
+        }
+    };
+    let took = EXPORT_SCAN.with(|c| {
+        let mut b = c.borrow_mut();
+        let s = b.as_mut()?;
+        (s.todo.front() == Some(&index)).then(|| {
+            s.todo.pop_front();
+            s.job.replacements.push((index, png));
+        })
+    });
+    match took {
+        Some(()) => scan_next(),
+        // Kết quả không khớp bước đang chờ (lỗi lập trình): không xuất gì.
+        None => fail_scan(t(lang::current(), Msg::StepsWorkerFailed)),
+    }
+}
+
+/// Áp byte PNG đã mã hóa trên luồng nền.
+fn drain_encoded() {
+    for e in take_own(&ENCODED, |e| e.owner) {
+        on_step_encoded(e.gen, e.index, e.result);
+    }
+}
+
+/// Lỗi trong lúc quét (giải mã, cổng từ chối, không tạo được luồng): hủy lượt, báo lỗi xuất.
+fn fail_scan(why: &str) {
+    drop_scan();
+    let lang = lang::current();
+    notify(
+        NoticeKind::Error,
+        t(lang, Msg::StepsExportFailedTitle),
+        &i18n::reason_try_again(lang, why),
+    );
+}
+
+/// Bỏ lượt quét đang chạy (ảnh đã qua cổng bị thả), mở khóa nút Xuất. Bước đang chờ cổng: hủy lượt
+/// của cổng theo mã, để cửa sổ Duyệt của nó đóng (`done` muộn của nó không làm gì).
+fn drop_scan() {
+    let old = EXPORT_SCAN.with(|c| c.borrow_mut().take());
+    let gate = old.as_ref().and_then(|s| s.gate);
+    drop(old);
+    drop(take_own(&DECODED, |d| d.owner));
+    drop(take_own(&ENCODED, |e| e.owner));
+    end_scan_ui();
+    if let Some(id) = gate {
+        CANCEL.with(|c| c.get())(id);
+    }
+}
+
+fn end_scan_ui() {
+    EXPORTING.with(|e| e.set(false));
+    if let Some(h) = current() {
+        relayout(h);
+    }
+}
+
+/// Phiên đã kết thúc hay đổi trong lúc quét: bỏ lượt xuất (không báo gì).
+fn check_scan_session() {
+    let started = EXPORT_SCAN.with(|c| {
+        c.try_borrow()
+            .ok()
+            .and_then(|b| b.as_ref().map(|s| s.session))
+    });
+    if started.is_some_and(|s| s == 0 || s != steps_store::session_id()) {
+        drop_scan();
+    }
+}
+
+/// Chạy luồng xuất cho `job`. `false` khi không tạo được luồng (đã báo lỗi).
+fn spawn_export(job: ExportJob) -> bool {
+    let lang = job.lang;
+    let owner = std::thread::current().id();
     let spawned = std::thread::Builder::new()
         .name("darkshot-steps-export".into())
         .spawn(move || {
@@ -1829,21 +2218,11 @@ fn start_export(parent: PathBuf) -> bool {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(ExportDone {
+                    owner,
                     steps: job.steps,
                     result,
                 });
-            let main = MAIN_WINDOW.load(Ordering::SeqCst);
-            if main != 0 {
-                // SAFETY: PostMessageW an toàn từ luồng bất kỳ; thông điệp không mang con trỏ.
-                unsafe {
-                    let _ = PostMessageW(
-                        Some(HWND(main as *mut c_void)),
-                        WM_STEPS_EXPORTED,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
-                }
-            }
+            post_exported();
         });
     match spawned {
         Ok(handle) => {
@@ -1875,6 +2254,11 @@ fn wait_export() {
 /// Lúc thoát: chờ lượt xuất đang chạy xong tối đa `timeout` (xong thì thư mục đã đổi sang tên cuối;
 /// chưa xong thì thư mục tạm còn sót được dọn ở lần xuất sau vào cùng thư mục cha).
 pub fn wait_export_on_exit(timeout: std::time::Duration) {
+    // Lượt đang quét các bước: bỏ (không xuất, ảnh đã qua cổng bị thả).
+    let scan = EXPORT_SCAN.with(|c| c.borrow_mut().take());
+    drop(scan);
+    drop(take_own(&DECODED, |d| d.owner));
+    drop(take_own(&ENCODED, |e| e.owner));
     let Some(t) = EXPORT_THREAD.with(|t| t.borrow_mut().take()) else {
         return;
     };
@@ -1890,8 +2274,9 @@ pub fn wait_export_on_exit(timeout: std::time::Duration) {
 /// Lượt xuất xong (main gọi ở `WM_STEPS_EXPORTED`): đánh dấu đã xuất nếu phiên không đổi trong lúc
 /// xuất, báo thông báo; lỗi thì báo lỗi, phiên giữ nguyên.
 pub fn on_exported() {
-    let done: Vec<ExportDone> =
-        std::mem::take(&mut *EXPORT_DONE.lock().unwrap_or_else(|e| e.into_inner()));
+    drain_decoded();
+    drain_encoded();
+    let done: Vec<ExportDone> = take_own(&EXPORT_DONE, |d| d.owner);
     if done.is_empty() {
         return;
     }
@@ -2716,6 +3101,7 @@ mod tests {
     use super::*;
     use crate::winutil::scale;
     use darkshot_core::i18n::{t, Lang, Msg};
+    use darkshot_core::privacy::PreparedOutput;
 
     const DPIS: [u32; 4] = [96, 120, 144, 192];
 
@@ -2966,6 +3352,7 @@ mod tests {
         Step {
             file: file.to_string(),
             caption: String::new(),
+            scanned: false,
         }
     }
 
@@ -3074,10 +3461,12 @@ mod tests {
 
     /// Phiên tổng hợp 3 bước trong thư mục tạm `base\current` (phiên của luồng này).
     pub(super) fn session_of_three(base: &Path) {
+        // Privacy Shield tắt: xuất chép như trước (các kiểm thử Shield bật ở dưới).
+        SHIELD.with(|s| s.set(shield_off));
         crate::steps_store::use_root_for_test(base.join("current"));
         assert!(crate::steps_store::start());
         for v in [10, 20, 30] {
-            crate::steps_store::add(img(v)).unwrap();
+            crate::steps_store::add(PreparedOutput::unscanned(img(v))).unwrap();
         }
         crate::steps_store::flush(std::time::Duration::from_secs(20));
         assert_eq!(crate::steps_store::count(), 3);
@@ -3178,6 +3567,503 @@ mod tests {
         assert!(crate::steps_store::start());
         assert!(!start_export(base.clone()));
         assert!(export_dirs(&base).is_empty());
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ---- Xuất khi Privacy Shield bật: cổng giả (không cửa sổ Duyệt, không OCR) ----
+
+    type Held = (
+        privacy_gate::Id,
+        u32,
+        u32,
+        darkshot_core::image::Image,
+        privacy_gate::Done,
+    );
+
+    thread_local! {
+        static GATE: RefCell<Vec<Held>> = const { RefCell::new(Vec::new()) };
+        static GATE_REFUSE: Cell<Option<SubmitError>> = const { Cell::new(None) };
+        static GATE_NEXT: Cell<privacy_gate::Id> = const { Cell::new(100) };
+        /// Mã lượt mà cửa sổ các bước đã hủy trong cổng giả.
+        static CANCELLED: RefCell<Vec<privacy_gate::Id>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn shield_on() -> bool {
+        true
+    }
+
+    fn shield_off() -> bool {
+        false
+    }
+
+    /// Cổng giả: giữ yêu cầu (bước k/n, ảnh, `done`) cho kiểm thử trả lời.
+    fn fake_submit(
+        action: OutputAction,
+        image: darkshot_core::image::Image,
+        done: privacy_gate::Done,
+    ) -> Result<privacy_gate::Id, SubmitError> {
+        if let Some(e) = GATE_REFUSE.with(|r| r.get()) {
+            return Err(e);
+        }
+        let OutputAction::StepExport { step, steps } = action else {
+            panic!("only StepExport goes through the export scan");
+        };
+        let id = GATE_NEXT.with(|n| {
+            n.set(n.get() + 1);
+            n.get()
+        });
+        GATE.with(|g| g.borrow_mut().push((id, step, steps, image, done)));
+        Ok(id)
+    }
+
+    /// Cổng giả: chỉ ghi lại mã bị hủy (kiểm thử tự trả lời `done` muộn).
+    fn fake_cancel(id: privacy_gate::Id) {
+        CANCELLED.with(|c| c.borrow_mut().push(id));
+    }
+
+    fn take_cancelled() -> Vec<privacy_gate::Id> {
+        CANCELLED.with(|c| std::mem::take(&mut *c.borrow_mut()))
+    }
+
+    fn held_ids() -> Vec<privacy_gate::Id> {
+        GATE.with(|g| g.borrow().iter().map(|h| h.0).collect())
+    }
+
+    fn gate_len() -> usize {
+        GATE.with(|g| g.borrow().len())
+    }
+
+    /// Bơm như `WM_STEPS_EXPORTED` tới khi cổng giả có `n` yêu cầu (giải mã ở luồng nền).
+    fn wait_gate(n: usize) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while gate_len() < n {
+            assert!(std::time::Instant::now() < end, "gate never got {n}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            on_exported();
+        }
+    }
+
+    /// Trả lời yêu cầu cũ nhất của cổng giả; trả (bước, số bước, ảnh đã nhận).
+    fn answer(f: impl FnOnce(darkshot_core::image::Image) -> Option<PreparedOutput>) -> (u32, u32) {
+        let (_, step, steps, image, done) = GATE.with(|g| g.borrow_mut().remove(0));
+        done(f(image));
+        (step, steps)
+    }
+
+    /// Che một khung đen 2×2 ở góc trên trái (như cửa sổ Duyệt đã che).
+    fn cover(img: darkshot_core::image::Image) -> Option<PreparedOutput> {
+        let plan = darkshot_core::privacy::RedactionPlan {
+            rects: vec![Rect {
+                x: 0,
+                y: 0,
+                w: 2,
+                h: 2,
+            }],
+        };
+        Some(PreparedOutput::redacted(img, &plan).unwrap())
+    }
+
+    /// Phiên tổng hợp trong `base\current`: mỗi bước một ảnh màu riêng, `scanned` theo `flags`.
+    fn session_with(base: &Path, flags: &[bool]) {
+        crate::steps_store::use_root_for_test(base.join("current"));
+        assert!(crate::steps_store::start());
+        for (k, &scanned) in flags.iter().enumerate() {
+            let v = 40 + 30 * k as u8;
+            let p = if scanned {
+                PreparedOutput::no_findings(img(v))
+            } else {
+                PreparedOutput::unscanned(img(v))
+            };
+            crate::steps_store::add(p).unwrap();
+        }
+        crate::steps_store::flush(std::time::Duration::from_secs(20));
+        crate::steps_store::settle(std::time::Duration::from_secs(20));
+        assert_eq!(crate::steps_store::count(), flags.len());
+        SUBMIT.with(|s| s.set(fake_submit));
+        CANCEL.with(|c| c.set(fake_cancel));
+        SHIELD.with(|s| s.set(shield_on));
+        set_notifier(record);
+    }
+
+    fn session_bytes() -> Vec<Vec<u8>> {
+        (0..crate::steps_store::count())
+            .map(|i| std::fs::read(crate::steps_store::image_path(i).unwrap()).unwrap())
+            .collect()
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    fn exporting() -> bool {
+        EXPORTING.with(|e| e.get())
+    }
+
+    /// Shield bật, mọi bước đã quét lúc chụp: chép như cũ, không qua cổng.
+    #[test]
+    fn shield_on_with_no_unscanned_step_copies_without_the_gate() {
+        let base = tmp("shield_none");
+        session_with(&base, &[true, true]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_export();
+        on_exported();
+        assert_eq!(gate_len(), 0);
+        let dirs = export_dirs(&parent);
+        assert_eq!(dirs.len(), 1);
+        let src = session_bytes();
+        for (k, want) in src.iter().enumerate() {
+            let out = std::fs::read(dirs[0].join(format!("{:02}.png", k + 1))).unwrap();
+            assert_eq!(&out, want);
+        }
+        assert_eq!(take_notices()[0].0, NoticeKind::Success);
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Một bước chưa quét: đúng một yêu cầu "Bước 2/3", ảnh xuất là ảnh đã che, bước khác chép
+    /// nguyên, tệp của phiên không đổi; nút Xuất khóa suốt lúc quét và chưa có thư mục nào.
+    #[test]
+    fn one_unscanned_step_is_rescanned_and_written_covered() {
+        let base = tmp("shield_one");
+        session_with(&base, &[true, false, true]);
+        let before = session_bytes();
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        assert!(exporting());
+        assert!(!button_enabled(Some(0), 3, exporting())[3], "Xuất bị khóa");
+        assert!(
+            !start_export(parent.clone()),
+            "đang quét: không xuất lượt hai"
+        );
+        wait_gate(1);
+        assert!(entries(&parent).is_empty(), "chưa duyệt: không tạo gì");
+        assert!(EXPORT_THREAD.with(|t| t.borrow().is_none()));
+        let mut want = None;
+        let (step, steps) = answer(|got| {
+            // Ảnh của bước 2, giải mã từ tệp phiên (PNG ghi RGB).
+            assert_eq!((got.width, got.height), (4, 3));
+            assert!(got.bgra.chunks(4).all(|p| p[..3] == [70, 70, 70]));
+            let p = cover(got);
+            want = p.as_ref().map(|p| p.image().clone());
+            p
+        });
+        let want = want.unwrap();
+        assert_eq!((step, steps), (2, 3));
+        wait_export();
+        on_exported();
+        assert!(!exporting());
+        assert_eq!(gate_len(), 0);
+        let dirs = export_dirs(&parent);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(
+            entries(&dirs[0]),
+            ["01.png", "02.png", "03.png", "steps.md"]
+        );
+        assert_eq!(std::fs::read(dirs[0].join("01.png")).unwrap(), before[0]);
+        assert_eq!(std::fs::read(dirs[0].join("03.png")).unwrap(), before[2]);
+        let got = decode_png_file(&dirs[0].join("02.png")).unwrap();
+        assert_eq!((got.width, got.height), (4, 3));
+        // Đúng ảnh đã che (vùng che đen đặc), không phải ảnh của phiên.
+        for (g, w) in got.bgra.chunks(4).zip(want.bgra.chunks(4)) {
+            assert_eq!(g[..3], w[..3]);
+        }
+        assert_eq!(got.bgra[..3], [0, 0, 0]);
+        assert_eq!(session_bytes(), before, "tệp phiên không bị viết lại");
+        let n = take_notices();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].0, NoticeKind::Success);
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Nhiều bước chưa quét: lần lượt từng bước theo thứ tự (không song song), mỗi bước một lần.
+    #[test]
+    fn many_unscanned_steps_go_through_the_gate_one_at_a_time() {
+        let base = tmp("shield_many");
+        session_with(&base, &[false, true, false, false]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            wait_gate(1);
+            // Bước kế chỉ được giải mã sau khi bước này có kết quả.
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            on_exported();
+            assert_eq!(gate_len(), 1);
+            seen.push(answer(cover));
+        }
+        assert_eq!(seen, [(1, 4), (3, 4), (4, 4)]);
+        wait_export();
+        on_exported();
+        let dirs = export_dirs(&parent);
+        assert_eq!(dirs.len(), 1);
+        for name in ["01.png", "03.png", "04.png"] {
+            let got = decode_png_file(&dirs[0].join(name)).unwrap();
+            assert_eq!(got.bgra[..3], [0, 0, 0], "{name}");
+        }
+        let src = session_bytes();
+        assert_eq!(std::fs::read(dirs[0].join("02.png")).unwrap(), src[1]);
+        assert_eq!(gate_len(), 0);
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Hủy ở bước thứ hai: hủy cả lượt, không tạo thư mục (kể cả thư mục tạm), báo "Đã hủy xuất",
+    /// không quét tiếp; nút Xuất mở lại.
+    #[test]
+    fn cancel_midway_cancels_the_whole_export() {
+        let base = tmp("shield_cancel");
+        session_with(&base, &[false, false, false]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        assert_eq!(answer(cover), (1, 3));
+        wait_gate(1);
+        assert_eq!(answer(|_| None), (2, 3));
+        assert!(!exporting());
+        assert!(take_cancelled().is_empty(), "cổng đã tự bỏ lượt");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        on_exported();
+        assert_eq!(gate_len(), 0, "không quét tiếp");
+        assert!(EXPORT_THREAD.with(|t| t.borrow().is_none()));
+        assert!(entries(&parent).is_empty());
+        let lang = crate::lang::current();
+        let n = take_notices();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].0, NoticeKind::Info);
+        assert_eq!(n[0].1, t(lang, Msg::StepsExportCancelledTitle));
+        assert!(crate::steps_store::dirty(), "chưa xuất");
+        // Lượt sau bắt đầu lại từ đầu.
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        assert_eq!(answer(|_| None), (1, 3));
+        assert!(entries(&parent).is_empty());
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Cổng từ chối (hàng đợi đầy, cổng đóng) hay ảnh bước hỏng: hủy lượt, báo lỗi xuất, không tạo gì.
+    #[test]
+    fn gate_refusal_and_unreadable_step_fail_the_export() {
+        let base = tmp("shield_fail");
+        session_with(&base, &[true, false]);
+        let lang = crate::lang::current();
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        for refuse in [SubmitError::QueueFull, SubmitError::WindowFailed] {
+            GATE_REFUSE.with(|r| r.set(Some(refuse)));
+            assert!(start_export(parent.clone()));
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while exporting() {
+                assert!(std::time::Instant::now() < end);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                on_exported();
+            }
+            let n = take_notices();
+            assert_eq!(n.len(), 1, "{n:?}");
+            assert_eq!(n[0].0, NoticeKind::Error);
+            assert_eq!(n[0].1, t(lang, Msg::StepsExportFailedTitle));
+            assert!(entries(&parent).is_empty());
+        }
+        GATE_REFUSE.with(|r| r.set(None));
+        // Ảnh bước 2 hỏng trên đĩa: lỗi giải mã như lỗi xuất.
+        std::fs::write(crate::steps_store::image_path(1).unwrap(), b"not a png").unwrap();
+        assert!(start_export(parent.clone()));
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while exporting() {
+            assert!(std::time::Instant::now() < end);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            on_exported();
+        }
+        assert_eq!(gate_len(), 0);
+        let n = take_notices();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].0, NoticeKind::Error);
+        assert!(n[0].2.contains(t(lang, Msg::StepsImageUnreadable)), "{n:?}");
+        assert!(entries(&parent).is_empty());
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Phiên kết thúc giữa chừng (hay thoát): bỏ lượt, kết quả muộn của cổng không làm gì.
+    #[test]
+    fn session_end_or_exit_midway_drops_the_export() {
+        let base = tmp("shield_end");
+        session_with(&base, &[false, false]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        let held = held_ids();
+        take_cancelled();
+        assert!(crate::steps_store::end());
+        on_store_changed();
+        assert!(!exporting());
+        assert!(EXPORT_SCAN.with(|c| c.borrow().is_none()));
+        // Task 135: lượt của cổng (và cửa sổ Duyệt của nó) bị hủy theo mã.
+        assert_eq!(take_cancelled(), held);
+        answer(cover);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        on_exported();
+        assert_eq!(gate_len(), 0);
+        assert!(entries(&parent).is_empty());
+        assert!(take_notices().is_empty());
+        // Thoát khi đang quét: lượt bị bỏ, `done` muộn không xuất gì.
+        session_with(&base, &[false]);
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        wait_export_on_exit(std::time::Duration::from_millis(10));
+        assert!(EXPORT_SCAN.with(|c| c.borrow().is_none()));
+        answer(cover);
+        on_exported();
+        assert!(entries(&parent).is_empty());
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Task 135: ảnh đã qua cổng được mã hóa PNG ngay (ảnh nhỏ: trên luồng giao diện) và chỉ byte
+    /// PNG được giữ tới khi xuất; ghi ra đúng ảnh đó.
+    #[test]
+    fn checked_steps_are_kept_as_png_bytes() {
+        let base = tmp("shield_png");
+        session_with(&base, &[false, false]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        let mut want = None;
+        answer(|got| {
+            let p = cover(got);
+            want = p.as_ref().map(|p| p.image().clone());
+            p
+        });
+        let want = want.unwrap();
+        let kept = EXPORT_SCAN.with(|c| {
+            let b = c.borrow();
+            let s = b.as_ref().expect("still scanning step 2");
+            s.job.replacements.clone()
+        });
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].0, 0);
+        assert_eq!(kept[0].1, darkshot_core::image::encode_png(&want).unwrap());
+        wait_gate(1);
+        answer(cover);
+        wait_export();
+        on_exported();
+        let dirs = export_dirs(&parent);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(std::fs::read(dirs[0].join("01.png")).unwrap(), kept[0].1);
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Task 135: ảnh đã qua cổng lớn hơn 4 MP được mã hóa trên luồng nền; lượt chờ tới khi có byte
+    /// PNG rồi mới xuất.
+    #[test]
+    fn large_checked_step_is_encoded_off_the_ui_thread() {
+        let base = tmp("shield_big");
+        session_with(&base, &[false]);
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        let (w, h) = (2100u32, 2000u32);
+        assert!(u64::from(w) * u64::from(h) > ENCODE_INLINE_MAX_PIXELS);
+        answer(|_| {
+            let big = darkshot_core::image::Image {
+                width: w,
+                height: h,
+                bgra: vec![90; (w * h * 4) as usize],
+            };
+            cover(big)
+        });
+        // Chưa có byte PNG (đang mã hóa nền): chưa xuất, nút Xuất vẫn khóa.
+        assert!(exporting());
+        assert!(EXPORT_THREAD.with(|t| t.borrow().is_none()));
+        assert!(EXPORT_SCAN.with(|c| c
+            .borrow()
+            .as_ref()
+            .is_some_and(|s| s.job.replacements.is_empty())));
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while EXPORT_THREAD.with(|t| t.borrow().is_none()) {
+            assert!(std::time::Instant::now() < end, "encode never finished");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            on_exported();
+        }
+        wait_export();
+        on_exported();
+        let dirs = export_dirs(&parent);
+        assert_eq!(dirs.len(), 1);
+        let got = decode_png_file(&dirs[0].join("01.png")).unwrap();
+        assert_eq!((got.width, got.height), (w, h));
+        assert_eq!(got.bgra[..3], [0, 0, 0]);
+        assert_eq!(got.bgra[(100 * w as usize + 100) * 4], 90);
+        assert_eq!(take_notices()[0].0, NoticeKind::Success);
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Task 135: ảnh đã qua cổng không mã hóa được: hủy lượt xuất, báo lỗi xuất, không tạo gì.
+    #[test]
+    fn encode_failure_cancels_the_export_with_an_error() {
+        let base = tmp("shield_enc");
+        session_with(&base, &[false, false]);
+        let lang = crate::lang::current();
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_gate(1);
+        answer(|_| {
+            Some(PreparedOutput::unscanned(darkshot_core::image::Image {
+                width: 0,
+                height: 0,
+                bgra: Vec::new(),
+            }))
+        });
+        assert!(!exporting());
+        assert!(EXPORT_SCAN.with(|c| c.borrow().is_none()));
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        on_exported();
+        assert_eq!(gate_len(), 0, "không quét tiếp");
+        assert!(entries(&parent).is_empty());
+        let n = take_notices();
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(n[0].0, NoticeKind::Error);
+        assert_eq!(n[0].1, t(lang, Msg::StepsExportFailedTitle));
+        assert!(n[0].2.contains(t(lang, Msg::EncodeInvalidImage)), "{n:?}");
+        assert!(crate::steps_store::end());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Shield tắt: bước chưa quét vẫn chép như cũ, không qua cổng.
+    #[test]
+    fn shield_off_copies_unscanned_steps_as_before() {
+        let base = tmp("shield_off");
+        session_with(&base, &[false, false]);
+        SHIELD.with(|s| s.set(shield_off));
+        let parent = base.join("out");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(start_export(parent.clone()));
+        wait_export();
+        on_exported();
+        assert_eq!(gate_len(), 0);
+        let dirs = export_dirs(&parent);
+        let src = session_bytes();
+        for (k, want) in src.iter().enumerate() {
+            let out = std::fs::read(dirs[0].join(format!("{:02}.png", k + 1))).unwrap();
+            assert_eq!(&out, want);
+        }
         assert!(crate::steps_store::end());
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -3471,7 +4357,8 @@ mod live {
         assert!(root.starts_with(std::env::temp_dir()));
         assert!(crate::steps_store::start());
         for img in shots {
-            crate::steps_store::add(img).unwrap();
+            let prepared = darkshot_core::privacy::PreparedOutput::unscanned(img);
+            crate::steps_store::add(prepared).unwrap();
         }
         crate::steps_store::flush(std::time::Duration::from_secs(20));
         assert_eq!(crate::steps_store::count(), 3);

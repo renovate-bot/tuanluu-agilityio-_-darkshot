@@ -458,6 +458,7 @@ mod tests {
         OcrLine {
             text: text.into(),
             rect,
+            words: Vec::new(),
         }
     }
 

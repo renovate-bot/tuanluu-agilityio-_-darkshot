@@ -1,9 +1,10 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-21
+Cập nhật: 2026-11-22
 
 ## Đang ở đâu
 
+- **Đợt 21 (Privacy Shield: quét và che thông tin nhạy cảm trước khi xuất ảnh): XONG mã, rà soát (từng task, bảo mật Task 131, toàn đợt), tài liệu, website; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22).** Thiết kế `docs/superpowers/specs/2026-11-22-sensitive-info-redaction-design.md`, kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`, gói `docs/tasks/127-…` đến `135-…`, quyết định 144–153, số đo `docs/testing/privacy-quality.md`. Exe release 2.459.648 byte (+123.904, vượt mục tiêu 80 KB, dưới ngưỡng 150 KB: chủ dự án chấp nhận). Chưa phát hành (CHANGELOG mục "Chưa phát hành"). Chưa thử tay hết: checklist "Đợt 21: Privacy Shield" (DPI, nhiều màn hình, máy sạch không có OCR en-US, chuột thật).
 - **Đợt 20 (Ghi GIF): XONG mã, rà soát, tài liệu; gộp `main` qua PR.** Thiết kế `docs/superpowers/specs/2026-11-21-gif-recording-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-gif-recording.md`, gói `docs/tasks/122-…` đến `124-…` (Task 125 sửa sau rà soát toàn đợt, không gói riêng), quyết định 139–142. Lõi `darkshot-core/src/gif_record.rs` (crate `gif`), phiên `darkshot-windows/src/record_session.rs`, nút lớp phủ Ctrl+G. Exe release 2.335.744 byte (+78.848). Task 126 (2026-11-22, quyết định 143): thời lượng ghi tối đa 15 s -> 60 s. Chưa phát hành (CHANGELOG mục "Chưa phát hành"). Chưa thử tay: checklist "Đợt 20: Ghi GIF" (nhất là khung đầu sạch, màn hình tọa độ âm, DPI hỗn hợp, Windows 10).
 - Đợt 16–19, task 115–121 dành cho kế hoạch MCP (nhánh máy `task/115-mcp-design`, chưa gộp, chưa đẩy).
 - **Đợt 15 (OCR nâng cao: chọn dòng trên ảnh): XONG, đã gộp `main` và đẩy `origin`.** Thiết kế `docs/superpowers/specs/2026-11-21-ocr-pro-design.md`, kế hoạch `docs/superpowers/plans/2026-11-21-ocr-pro.md`, gói `docs/tasks/97-…` đến `100-…` (Task 101 sửa sau rà soát toàn đợt, không có gói riêng), quyết định 133–135.
@@ -13,7 +14,7 @@ Cập nhật: 2026-11-21
 
 ## Bước kế tiếp
 
-Chờ chủ dự án. Lỗi báo khi thử tay: nhánh `task/NN-…` từ `main` (số chưa dùng trên `origin`), gộp qua PR (quyết định 138), agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên trước khi đặt số task mới phải xem `git branch -r` (phiên macOS đã dùng tới 113; MCP giữ 115–121; đợt 20 dùng 122–125).
+Đợt 21 đã gộp `main` (2026-11-22). Không task nào đang làm. Lỗi báo khi thử tay: nhánh `task/NN-…` từ `main` (số chưa dùng trên `origin`), gộp qua PR (quyết định 138), agent/model theo độ khó. Đợt mới cần thiết kế mới. Lưu ý: `origin` có các nhánh `feat/macos-port`, `task/101-core-shared-logic`, `task/102a-…` đến `task/107-macos-options` của một phiên khác (chưa gộp, phiên này không đụng tới); số 101 và 102 trùng với `task/101-ocr-switch-sync` và `task/102-release-0.5.0`, nên trước khi đặt số task mới phải xem `git branch -r` (phiên macOS đã dùng tới 113; MCP giữ 115–121; đợt 20 dùng 122–125).
 
 ## Lưu trữ: đợt 14 (đã gộp `main`)
 
