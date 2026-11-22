@@ -317,8 +317,10 @@ fn try_scale_bgra(src: &[u8], w: u32, h: u32, nw: u32, nh: u32) -> Option<Vec<u8
 
 /// Hai dải liền nhau chồng ít nhất chừng này px (lớn hơn chiều cao dòng thường gặp).
 pub const SCAN_TILE_OVERLAP: u32 = 128;
-/// Thời hạn nhận dạng một dải; quá hạn = cả lượt quét lỗi `Timeout`.
+/// Thời hạn mỗi lượt nhận dạng một dải; quá hạn = cả lượt quét lỗi `Timeout`. Một dải có tối đa
+/// `SCAN_PASSES_PER_TILE` lượt (bản gốc, rồi bản sao đã bỏ đường kẻ bảng).
 pub const SCAN_TILE_TIMEOUT: Duration = Duration::from_secs(20);
+pub const SCAN_PASSES_PER_TILE: u32 = 2;
 
 /// Giá trị `Windows.Foundation.AsyncStatus` (crate `windows` không tái xuất kiểu này).
 const ASYNC_STARTED: i32 = 0;
@@ -492,20 +494,20 @@ fn opaque(bgra: &[u8]) -> bool {
     bgra.as_chunks::<4>().0.iter().all(|p| p[3] == 255)
 }
 
-/// Nhận dạng một dải (px gốc), trả các dòng có khung ở px của dải. Một dải trong bộ nhớ một lúc.
+/// Nhận dạng một dải `src` (`w×h` px gốc), trả các dòng có khung ở px của dải. Một dải trong bộ
+/// nhớ một lúc.
 fn recognize_tile(
     engine: &OcrEngine,
-    image: &Image,
-    t: Tile,
+    src: &[u8],
+    w: u32,
+    h: u32,
     max: u32,
 ) -> Result<ScanLines, ScanError> {
-    let w = image.width;
-    let src = tile_rows(&image.bgra, w, t);
-    let (ow, oh) = ocr_scale(w, t.h, max).unwrap_or((w, t.h));
-    let bitmap = if (ow, oh) == (w, t.h) && opaque(src) {
+    let (ow, oh) = ocr_scale(w, h, max).unwrap_or((w, h));
+    let bitmap = if (ow, oh) == (w, h) && opaque(src) {
         bitmap_from(src, ow, oh)
     } else {
-        let px = try_scale_bgra(src, w, t.h, ow, oh).ok_or(ScanError::TooLarge)?;
+        let px = try_scale_bgra(src, w, h, ow, oh).ok_or(ScanError::TooLarge)?;
         bitmap_from(&px, ow, oh)
     }
     .map_err(|_| ScanError::Failed)?;
@@ -530,12 +532,56 @@ fn recognize_tile(
     drop(op);
     drop(bitmap);
     let mut lines = ScanLines(Vec::new());
-    read_lines(&result, ow, oh, w, t.h, &mut lines.0).map_err(|_| ScanError::Failed)?;
+    read_lines(&result, ow, oh, w, h, &mut lines.0).map_err(|_| ScanError::Failed)?;
     Ok(lines)
 }
 
-/// Quét trên luồng hiện tại (đã ở MTA): OCR từng dải, dò, dịch tọa độ, gộp. Chữ OCR chỉ sống
-/// trong `ScanLines` của từng dải và bị ghi đè trước khi sang dải sau.
+/// Phát hiện của một dải `t`, tọa độ px của dải. Lượt một: OCR bản gốc. Lượt hai (Task 137), chỉ
+/// khi dải có đường kẻ bảng: OCR bản sao đã bỏ đường kẻ (`privacy::rules::strip_rules`), cùng
+/// engine, cùng tỉ lệ, cùng khung tọa độ. Lỗi hay hết hạn ở lượt nào cũng là lỗi quét. Chữ OCR mỗi
+/// lượt bị ghi đè ngay sau khi dò; bản sao ảnh được nhả trước khi về.
+fn scan_tile(
+    engine: &OcrEngine,
+    image: &Image,
+    t: Tile,
+    max: u32,
+    two_pass: bool,
+) -> Result<Vec<Finding>, ScanError> {
+    let w = image.width;
+    let src = tile_rows(&image.bgra, w, t);
+    scan_passes(src, w, t.h, two_pass, |px| {
+        recognize_tile(engine, px, w, t.h, max)
+    })
+}
+
+/// Điều phối hai lượt trên dải `src` (`w×h`): `recognize` nhận dạng một bản điểm ảnh cùng cỡ.
+/// Lượt hai chỉ chạy khi `two_pass` và `strip_rules` trả `Some`; lỗi của nó là lỗi của cả dải;
+/// phát hiện hai lượt được nối lại (gộp sau ở `merge_tile`).
+fn scan_passes(
+    src: &[u8],
+    w: u32,
+    h: u32,
+    two_pass: bool,
+    mut recognize: impl FnMut(&[u8]) -> Result<ScanLines, ScanError>,
+) -> Result<Vec<Finding>, ScanError> {
+    let lines = recognize(src)?;
+    let mut found = privacy::detect(&lines.0);
+    drop(lines);
+    if !two_pass {
+        return Ok(found);
+    }
+    if let Some(clean) = privacy::rules::strip_rules(src, w, h) {
+        let lines = recognize(&clean.bgra);
+        drop(clean);
+        let lines = lines?;
+        found.extend(privacy::detect(&lines.0));
+        drop(lines);
+    }
+    Ok(found)
+}
+
+/// Quét trên luồng hiện tại (đã ở MTA): OCR từng dải (hai lượt nếu dải có đường kẻ bảng), dò,
+/// dịch tọa độ, gộp. Chữ OCR chỉ sống trong `ScanLines` của từng lượt và bị ghi đè trước lượt sau.
 fn scan_in_mta(
     image: &Image,
     t0: Instant,
@@ -554,9 +600,7 @@ fn scan_in_mta(
     let mut findings: Vec<Finding> = Vec::new();
     for (k, &t) in tiles.iter().enumerate() {
         progress(k as u32 + 1, n);
-        let lines = recognize_tile(&engine, image, t, max)?;
-        let found = privacy::detect(&lines.0);
-        drop(lines);
+        let found = scan_tile(&engine, image, t, max, true)?;
         privacy::merge_tile(&mut findings, found, t.y as i32);
     }
     Ok(ScanReport {
@@ -666,6 +710,7 @@ pub(crate) mod tests {
         BI_RGB, DIB_RGB_COLORS, DT_CALCRECT, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_TOP, LOGFONTW,
         TRANSPARENT,
     };
+    use windows::Win32::Graphics::Gdi::{GetTextMetricsW, TEXTMETRICW};
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, PeekMessageW, HWND_MESSAGE, MSG, PM_REMOVE,
         WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP,
@@ -1392,6 +1437,104 @@ pub(crate) mod tests {
         assert!(l.words.iter().all(|w| w.text.is_empty()));
     }
 
+    /// Dải 200×60 trắng, có hoặc không một đường kẻ đen 1 px ở hàng 30.
+    fn pass_tile(ruled: bool) -> Vec<u8> {
+        let mut px = vec![255u8; 200 * 60 * 4];
+        if ruled {
+            px[30 * 200 * 4..31 * 200 * 4]
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p[..3].fill(0));
+        }
+        px
+    }
+
+    fn email_lines() -> ScanLines {
+        ScanLines(vec![OcrLine {
+            text: "a@example.com".into(),
+            rect: Rect {
+                x: 10,
+                y: 10,
+                w: 130,
+                h: 20,
+            },
+            words: vec![OcrWord {
+                text: "a@example.com".into(),
+                rect: Rect {
+                    x: 10,
+                    y: 10,
+                    w: 130,
+                    h: 20,
+                },
+            }],
+        }])
+    }
+
+    #[test]
+    fn second_pass_runs_only_when_rules_found_and_adds_findings() {
+        // Không kẻ: một lượt.
+        let src = pass_tile(false);
+        let mut calls = 0;
+        let f = scan_passes(&src, 200, 60, true, |_| {
+            calls += 1;
+            Ok(ScanLines(Vec::new()))
+        })
+        .unwrap();
+        assert_eq!((calls, f.len()), (1, 0));
+        // Có kẻ: lượt hai nhận bản đã bỏ kẻ; phát hiện của nó được thêm vào.
+        let src = pass_tile(true);
+        let mut seen: Vec<bool> = Vec::new();
+        let f = scan_passes(&src, 200, 60, true, |px| {
+            assert_eq!(px.len(), src.len());
+            let clean = px.iter().all(|&b| b == 255);
+            seen.push(clean);
+            Ok(if clean {
+                email_lines()
+            } else {
+                ScanLines(Vec::new())
+            })
+        })
+        .unwrap();
+        assert_eq!(seen, vec![false, true]);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].category, Category::Email);
+        // `two_pass = false`: không có lượt hai dù có kẻ.
+        let mut calls = 0;
+        scan_passes(&src, 200, 60, false, |_| {
+            calls += 1;
+            Ok(ScanLines(Vec::new()))
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn second_pass_error_fails_the_tile() {
+        let src = pass_tile(true);
+        for e in [ScanError::Timeout, ScanError::Failed] {
+            let mut calls = 0;
+            let r = scan_passes(&src, 200, 60, true, |_| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(email_lines())
+                } else {
+                    Err(e)
+                }
+            });
+            assert_eq!(r.map(|f| f.len()), Err(e));
+            assert_eq!(calls, 2);
+        }
+        // Lỗi ở lượt một: không có lượt hai.
+        let mut calls = 0;
+        let r = scan_passes(&src, 200, 60, true, |_| {
+            calls += 1;
+            Err(ScanError::Failed)
+        });
+        assert!(r.is_err());
+        assert_eq!(calls, 1);
+    }
+
     #[test]
     fn scan_rejects_invalid_image() {
         let img = Image {
@@ -1704,6 +1847,35 @@ pub(crate) mod tests {
             rep.elapsed_ms,
             rep.findings.len()
         );
+        // Cùng ảnh 1920×1080 kẻ bảng (Task 137): đường ngang 1 px sát chân chữ mỗi dòng, đường dọc
+        // mỗi 480 px — có lượt thứ hai.
+        let (mut img, drawn) = {
+            let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+            lines_image(1920, 1080, 24, &refs)
+        };
+        let row = 1920usize * 4;
+        for d in &drawn {
+            let y = (d.bottom - 4) as usize;
+            img.bgra[y * row..(y + 1) * row]
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p[..3].fill(0));
+        }
+        for x in (0..1920usize).step_by(480) {
+            for y in 0..1080usize {
+                img.bgra[y * row + x * 4..y * row + x * 4 + 3].fill(0);
+            }
+        }
+        assert!(privacy::rules::strip_rules(&img.bgra, 1920, 1080).is_some());
+        let (res, _) = run_scan(img, Duration::from_secs(120));
+        let rep = res.expect("scan 1920x1080 table");
+        println!(
+            "1920x1080 table: tiles={} elapsed_ms={} findings={}",
+            rep.tiles,
+            rep.elapsed_ms,
+            rep.findings.len()
+        );
         let uhd: Vec<(String, i32)> = (0..24)
             .map(|i| {
                 (
@@ -1999,5 +2171,291 @@ pub(crate) mod tests {
     #[ignore]
     fn manual_mem_steps_export_10x4k_noisy() {
         mem_steps_export_10x4k(10);
+    }
+
+    // ---- Task 137: bảng có đường kẻ sát chân chữ (chạy tay, bản release, chỉ in số) ----
+    // cargo test --release -p darkshot-windows --bin darkshot ocr::tests::manual_table -- --ignored --nocapture --test-threads=1
+
+    /// Bảng tổng hợp kiểu Excel (dữ liệu GIẢ) và vị trí để chấm điểm.
+    struct Table {
+        img: Image,
+        /// Tâm y của từng hàng dữ liệu.
+        centers: Vec<i32>,
+        /// Cột email `[x0, x1)`.
+        email_x: (i32, i32),
+    }
+
+    /// `rows` × 3 cột, chữ `font_px` phông `face` vẽ bằng GDI, đường kẻ ô 1 px độ sáng `rule` nằm
+    /// `drop` px dưới đường chân chữ (chân g/y/p/q cắt qua đường kẻ). `dark`: nền tối chữ sáng.
+    fn table_image(
+        rows: &[[String; 3]],
+        font_px: i32,
+        face: &str,
+        rule: u8,
+        drop: i32,
+        dark: bool,
+    ) -> Table {
+        let cols = [0i32, 360, 900, 1300];
+        let w = cols[3] + 1;
+        let (bg, fg) = if dark { (32u8, 230u32) } else { (255u8, 0u32) };
+        let mut lf = LOGFONTW {
+            lfHeight: -font_px,
+            lfWeight: 400,
+            ..Default::default()
+        };
+        for (i, c) in face.encode_utf16().enumerate() {
+            lf.lfFaceName[i] = c;
+        }
+        let mut tm = TEXTMETRICW::default();
+        // SAFETY: DC và phông tạm (đo đường chân chữ), giải phóng ngay trong khối.
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            let font = CreateFontIndirectW(&lf);
+            let old = SelectObject(dc, font.into());
+            let _ = GetTextMetricsW(dc, &mut tm);
+            SelectObject(dc, old);
+            let _ = DeleteObject(font.into());
+            let _ = DeleteDC(dc);
+        }
+        let pad = 4;
+        let row_h = pad + tm.tmAscent + drop;
+        let h = row_h * (rows.len() as i32 + 1) + 1;
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let len = (w as usize) * (h as usize) * 4;
+        let mut out = vec![bg; len];
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let mut centers = Vec::new();
+        // SAFETY: DC, DIB và phông chỉ dùng trong khối này và đều được giải phóng ở cuối.
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            assert!(!dc.is_invalid());
+            let bmp =
+                CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).expect("dib");
+            assert!(!bits.is_null());
+            std::ptr::write_bytes(bits.cast::<u8>(), bg, len);
+            let old = SelectObject(dc, bmp.into());
+            let font = CreateFontIndirectW(&lf);
+            let old_font = SelectObject(dc, font.into());
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(
+                dc,
+                windows::Win32::Foundation::COLORREF(fg | (fg << 8) | (fg << 16)),
+            );
+            let header = ["Name", "Email", "Phone"].map(String::from);
+            for (r, cells) in std::iter::once(&header).chain(rows.iter()).enumerate() {
+                // Hàng r: đường kẻ trên ở y = row_h·r, chữ bắt đầu ở y + 1 + pad.
+                let top = row_h * r as i32 + 1;
+                if r > 0 {
+                    centers.push(top + pad + tm.tmAscent / 2);
+                }
+                for (c, t) in cells.iter().enumerate() {
+                    let mut s: Vec<u16> = t.encode_utf16().collect();
+                    let mut rc = RECT {
+                        left: cols[c] + 6,
+                        top: top + pad - 1,
+                        right: cols[c + 1] - 2,
+                        bottom: top + row_h + tm.tmDescent,
+                    };
+                    DrawTextW(
+                        dc,
+                        &mut s,
+                        &mut rc,
+                        DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX,
+                    );
+                }
+            }
+            let _ = GdiFlush();
+            std::ptr::copy_nonoverlapping(bits.cast::<u8>(), out.as_mut_ptr(), len);
+            SelectObject(dc, old_font);
+            let _ = DeleteObject(font.into());
+            SelectObject(dc, old);
+            let _ = DeleteObject(bmp.into());
+            let _ = DeleteDC(dc);
+        }
+        let (wu, hu) = (w as usize, h as usize);
+        // Đường kẻ vẽ sau chữ, đè lên chân chữ như lưới ô của bảng tính.
+        let mut put = |x: usize, y: usize| {
+            let i = (y * wu + x) * 4;
+            out[i..i + 3].fill(rule);
+        };
+        for r in 0..=rows.len() + 1 {
+            let y = (row_h as usize * r).min(hu - 1);
+            for x in 0..wu {
+                put(x, y);
+            }
+        }
+        for &x in &cols {
+            for y in 0..hu {
+                put(x as usize, y);
+            }
+        }
+        for p in out.chunks_mut(4) {
+            p[3] = 255;
+        }
+        Table {
+            img: Image {
+                width: w as u32,
+                height: h as u32,
+                bgra: out,
+            },
+            centers,
+            email_x: (cols[1], cols[2]),
+        }
+    }
+
+    /// 14 hàng GIẢ: tên có dấu, email `@example.com` nhiều chữ g/y/p/q, số điện thoại giả.
+    fn table_rows() -> Vec<[String; 3]> {
+        let names = [
+            "gia.huy",
+            "quynh.yen",
+            "phuong.ngoc",
+            "yogi.pham",
+            "giang.quy",
+            "thuy.duong",
+            "hung.nguyen",
+            "ngoc.yen",
+            "quang.huy",
+            "phuc.giang",
+            "my.pham",
+            "yen.nhi",
+            "duy.quyen",
+            "gia.phong",
+        ];
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                [
+                    format!("Nguy\u{1EC5}n V\u{0103}n {}", (b'A' + i as u8) as char),
+                    format!("{}{}@example.com", n.replace('.', ""), 10 + i),
+                    format!("0912 345 {:03}", 100 + i),
+                ]
+            })
+            .collect()
+    }
+
+    /// Quét bằng đường thật (`scan_tile`, như `scan_in_mta`), một hay hai lượt, trên luồng MTA riêng.
+    fn scan_image_passes(img: &Image, two_pass: bool) -> Result<(Vec<Finding>, u32), ScanError> {
+        std::thread::scope(|sc| {
+            sc.spawn(|| {
+                let t0 = Instant::now();
+                let _m = Mta::enter().map_err(|_| ScanError::Failed)?;
+                let engine = scan_engine()?;
+                let max = OcrEngine::MaxImageDimension().map_err(|_| ScanError::Failed)?;
+                let mut findings = Vec::new();
+                for t in scan_tiles(img.height, max, SCAN_TILE_OVERLAP) {
+                    let found = scan_tile(&engine, img, t, max, two_pass)?;
+                    privacy::merge_tile(&mut findings, found, t.y as i32);
+                }
+                Ok((findings, t0.elapsed().as_millis() as u32))
+            })
+            .join()
+            .unwrap()
+        })
+    }
+
+    /// (số hàng có một phát hiện Email phủ tâm ô email của hàng, số phát hiện Email).
+    fn email_rows(t: &Table, f: &[Finding]) -> (usize, usize) {
+        let email: Vec<&Finding> = f.iter().filter(|f| f.category == Category::Email).collect();
+        let rows = t
+            .centers
+            .iter()
+            .filter(|&&cy| {
+                email.iter().any(|f| {
+                    f.rects.iter().any(|r| {
+                        cy >= r.y && cy < r.y + r.h && r.x >= t.email_x.0 && r.x < t.email_x.1
+                    })
+                })
+            })
+            .count();
+        (rows, email.len())
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_table_rules_two_pass() {
+        let Some((max, tag)) = engine_info() else {
+            println!("NoLanguage: may khong co goi OCR");
+            return;
+        };
+        println!("MaxImageDimension={max} scan language={tag}");
+        let rows = table_rows();
+        let cases: [(&str, i32, u8, i32, bool); 7] = [
+            ("Calibri", 20, 0, 1, false),
+            ("Calibri", 20, 0, 2, false),
+            ("Calibri", 20, 0, 3, false),
+            ("Calibri", 20, 160, 2, false),
+            ("Calibri", 20, 212, 2, false),
+            ("Segoe UI", 20, 0, 2, false),
+            ("Calibri", 20, 200, 2, true),
+        ];
+        for (face, px, rule, drop, dark) in cases {
+            let t = {
+                let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+                table_image(&rows, px, face, rule, drop, dark)
+            };
+            let (f1, ms1) = scan_image_passes(&t.img, false).expect("scan one pass");
+            let (f2, ms2) = scan_image_passes(&t.img, true).expect("scan two passes");
+            let (r1, n1) = email_rows(&t, &f1);
+            let (r2, n2) = email_rows(&t, &f2);
+            let phones1 = f1.iter().filter(|f| f.category == Category::Phone).count();
+            let phones2 = f2.iter().filter(|f| f.category == Category::Phone).count();
+            let strip = Instant::now();
+            let changed =
+                privacy::rules::strip_rules(&t.img.bgra, t.img.width, t.img.height).is_some();
+            let strip_ms = strip.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "{face} {px}px rule={rule} drop={drop} dark={dark} {}x{}: one pass email rows \
+                 {r1}/14 (email findings {n1}, phone {phones1}, {ms1} ms); two passes {r2}/14 \
+                 (email findings {n2}, phone {phones2}, {ms2} ms); strip={changed} {strip_ms:.1} ms",
+                t.img.width, t.img.height
+            );
+            assert!(r2 >= r1, "two passes must not lose rows");
+            assert!(phones2 >= phones1, "two passes must not lose phones");
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_perf_strip_rules_4k() {
+        // 4K: lưới 1 px (mỗi 30 hàng, mỗi 200 cột) cộng các khối "chữ" 6×12.
+        let (w, h) = (3840usize, 2160usize);
+        let mut px = vec![255u8; w * h * 4];
+        for y in 0..h {
+            for x in 0..w {
+                let line = y % 30 == 29 || x % 200 == 0;
+                let glyph = (12..24).contains(&(y % 30)) && x % 12 < 6 && x % 200 > 10;
+                if line || glyph {
+                    let i = (y * w + x) * 4;
+                    px[i..i + 3].fill(if line { 90 } else { 0 });
+                }
+            }
+        }
+        let blank = vec![255u8; w * h * 4];
+        for (name, data) in [("table", &px), ("blank", &blank)] {
+            let mut runs = Vec::new();
+            for _ in 0..5 {
+                let t = Instant::now();
+                let out = privacy::rules::strip_rules(data, w as u32, h as u32);
+                runs.push(t.elapsed().as_secs_f64() * 1000.0);
+                assert_eq!(out.is_some(), name == "table");
+            }
+            println!(
+                "strip_rules 3840x2160 {name}: median {:.1} ms (runs {:?})",
+                median_ms(runs.clone()),
+                runs.iter().map(|x| x.round()).collect::<Vec<_>>()
+            );
+        }
     }
 }

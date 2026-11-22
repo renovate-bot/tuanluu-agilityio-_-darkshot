@@ -471,7 +471,7 @@ Tùy chọn, **mặc định tắt**. Bật ở Tùy chọn, tab **Thông thư�
 
 **Không được bảo vệ:** Ghi GIF; chữ từ Nhận dạng chữ; **Mở** và **Hiện trong thư mục** của Lịch sử; mục Lịch sử và ảnh bước đã tạo lúc Shield tắt (không được che lại trên đĩa).
 
-**Giới hạn khi quét:** ưu tiên bộ nhận dạng `en-US` nếu Windows có, không thì ngôn ngữ hồ sơ; chữ nhỏ dễ bị bỏ sót; ảnh rộng hơn 10000 px (giới hạn OCR của Windows) bị co theo chiều rộng khi quét; ảnh rất cao được quét theo từng dải (mỗi dải tối đa 20 giây). Cửa sổ Kiểm tra được ẩn khỏi ảnh chụp, ghi màn hình và chia sẻ màn hình (Windows 10 2004 trở lên), và trình đọc màn hình đọc nó hạn chế. Tối đa 3 lượt chờ duyệt; lượt thứ tư bị bỏ kèm thông báo.
+**Giới hạn khi quét:** ưu tiên bộ nhận dạng `en-US` nếu Windows có, không thì ngôn ngữ hồ sơ; chữ nhỏ dễ bị bỏ sót; ảnh rộng hơn 10000 px (giới hạn OCR của Windows) bị co theo chiều rộng khi quét; ảnh rất cao được quét theo từng dải (mỗi lượt nhận dạng một dải tối đa 20 giây); dải có đường kẻ bảng được quét thêm một lượt trên bản sao đã bỏ đường kẻ (ảnh xuất không đổi), vì đường kẻ sát chân chữ làm OCR đọc sai. Cửa sổ Kiểm tra được ẩn khỏi ảnh chụp, ghi màn hình và chia sẻ màn hình (Windows 10 2004 trở lên), và trình đọc màn hình đọc nó hạn chế. Tối đa 3 lượt chờ duyệt; lượt thứ tư bị bỏ kèm thông báo.
 
 Đã chạy qua bản demo cách ly (`scripts/demo-privacy.ps1`) nhưng chưa thử tay hết: xem mục "Đợt 21: Privacy Shield" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
 

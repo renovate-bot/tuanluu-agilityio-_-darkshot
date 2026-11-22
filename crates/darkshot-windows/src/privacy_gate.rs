@@ -47,9 +47,10 @@ const TIMER_BASE: usize = 0x0001_0000;
 /// Hẹn giờ canh cửa sổ Duyệt mất mà không gửi kết quả.
 const WATCHDOG_TIMER_ID: usize = TIMER_BASE - 1;
 const WATCHDOG_MS: u32 = 1000;
-/// Hạn của một dải quét (như `ocr`): quá `SCAN_TILE_LIMIT_MS × số dải + SCAN_GRACE_MS` mà kết quả
-/// quét chưa về thì lượt bị bỏ (không xuất).
-pub const SCAN_TILE_LIMIT_MS: u64 = 20_000;
+/// Hạn của một dải quét (như `ocr`: hai lượt nhận dạng × 20 s, Task 137): quá
+/// `SCAN_TILE_LIMIT_MS × số dải + SCAN_GRACE_MS` mà kết quả quét chưa về thì lượt bị bỏ (không xuất).
+pub const SCAN_TILE_LIMIT_MS: u64 =
+    ocr::SCAN_TILE_TIMEOUT.as_millis() as u64 * ocr::SCAN_PASSES_PER_TILE as u64;
 pub const SCAN_GRACE_MS: u64 = 10_000;
 /// Quá hạn này mà ảnh làm phẳng chưa về thì lượt bị bỏ (không xuất).
 pub const FLATTEN_LIMIT_MS: u64 = 30_000;
@@ -2262,12 +2263,22 @@ mod tests {
     }
 
     #[test]
+    fn tile_limit_covers_every_recognition_pass() {
+        let per_pass = ocr::SCAN_TILE_TIMEOUT.as_millis() as u64;
+        assert_eq!(
+            SCAN_TILE_LIMIT_MS,
+            per_pass * u64::from(ocr::SCAN_PASSES_PER_TILE)
+        );
+        assert_eq!(SCAN_TILE_LIMIT_MS, 40_000);
+    }
+
+    #[test]
     fn scan_deadline_grows_with_tiles_and_closes_the_scanning_window() {
         let mut g = GateCore::new();
         let (id, scan) = accept(&mut g, false);
         g.step(Event::Timer { id }, false);
         assert_eq!(g.open(), Some(id));
-        // Mã quét lạ không đổi hạn; ba dải: 3 × 20 s + 10 s.
+        // Mã quét lạ không đổi hạn; ba dải: 3 × 40 s + 10 s.
         g.step(
             Event::Progress {
                 scan: scan + 50,

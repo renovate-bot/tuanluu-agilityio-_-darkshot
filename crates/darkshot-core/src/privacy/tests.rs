@@ -103,6 +103,78 @@ fn email_rejects() {
     none("name@localhost");
 }
 
+/// Dòng ở hàng 0 với khe riêng cho từng chỗ nối (`gaps[k]` giữa từ k và k + 1).
+fn line_gaps(words: &[&str], gaps: &[i32]) -> OcrLine {
+    let mut x = 0;
+    let mut out = Vec::new();
+    for (k, w) in words.iter().enumerate() {
+        let width = 10 * w.chars().count() as i32;
+        out.push(OcrWord {
+            text: w.to_string(),
+            rect: rc(x, 0, width, H),
+        });
+        x += width + gaps.get(k).copied().unwrap_or(10);
+    }
+    let right = out.last().map_or(0, |w| w.rect.right());
+    OcrLine {
+        text: words.join(" "),
+        rect: rc(0, 0, right, H),
+        words: out,
+    }
+}
+
+#[test]
+fn email_extends_over_ocr_split_local_part() {
+    // Task 137: OCR chèn space vào phần trước `@` ("jane doe@example.com", khe 2 px).
+    let l = line_gaps(&["mail", "jane", "doe@example.com"], &[10, 2]);
+    let f = detect(std::slice::from_ref(&l));
+    assert_eq!(cats(&f), vec![Category::Email]);
+    assert_eq!(
+        (f[0].confidence, f[0].rule),
+        (Confidence::Medium, RuleId::EmailSpaced)
+    );
+    assert_eq!(
+        f[0].rects,
+        vec![text::union(l.words[1].rect, l.words[2].rect)]
+    );
+    // Từ trước có số, `.`, `_`; khe 6 px (< 0,35 × 20): vẫn là phần tên email.
+    let l = line_gaps(&["x1.y_z", "dng@example.com"], &[6]);
+    let f = detect(std::slice::from_ref(&l));
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].confidence, Confidence::Medium);
+    assert_eq!(
+        f[0].rects,
+        vec![text::union(l.words[0].rect, l.words[1].rect)]
+    );
+}
+
+#[test]
+fn email_does_not_extend_over_normal_words() {
+    // Khe bình thường giữa hai từ (10 px, cao dòng 20; 7 px là ngưỡng): không mở rộng.
+    for (words, gap) in [
+        (&["contact", "at", "a@example.com"][..], 10),
+        (&["write", "jane@example.com"][..], 10),
+        (&["write", "jane@example.com"][..], 7),
+    ] {
+        let l = line_gaps(words, &[gap, gap]);
+        let f = detect(std::slice::from_ref(&l));
+        assert_eq!(cats(&f), vec![Category::Email]);
+        assert_eq!(f[0].confidence, Confidence::High);
+        assert_eq!(f[0].rects, vec![l.words[words.len() - 1].rect]);
+    }
+    // Khe nhỏ nhưng từ trước không phải phần tên email: có `:`, chữ hoa, 1 ký tự, có dấu, `/`.
+    for (k, prev) in ["email:", "Contact", "x", "t\u{00EA}n", "a/b", ".ab"]
+        .iter()
+        .enumerate()
+    {
+        let l = line_gaps(&[prev, "user@example.com"], &[2]);
+        let f = detect(std::slice::from_ref(&l));
+        assert_eq!(cats(&f), vec![Category::Email], "case {k}");
+        assert_eq!(f[0].confidence, Confidence::High, "case {k}");
+        assert_eq!(f[0].rects, vec![l.words[1].rect], "case {k}");
+    }
+}
+
 // ---------- Phone ----------
 
 #[test]
