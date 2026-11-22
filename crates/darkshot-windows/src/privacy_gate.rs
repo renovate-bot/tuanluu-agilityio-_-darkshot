@@ -47,7 +47,7 @@ const TIMER_BASE: usize = 0x0001_0000;
 /// Hẹn giờ canh cửa sổ Duyệt mất mà không gửi kết quả.
 const WATCHDOG_TIMER_ID: usize = TIMER_BASE - 1;
 const WATCHDOG_MS: u32 = 1000;
-/// Hạn của một dải quét (như `ocr`: hai lượt nhận dạng × 20 s, Task 136): quá
+/// Hạn của một dải quét (như `ocr`: hai lượt nhận dạng × 20 s, Task 137): quá
 /// `SCAN_TILE_LIMIT_MS × số dải + SCAN_GRACE_MS` mà kết quả quét chưa về thì lượt bị bỏ (không xuất).
 pub const SCAN_TILE_LIMIT_MS: u64 =
     ocr::SCAN_TILE_TIMEOUT.as_millis() as u64 * ocr::SCAN_PASSES_PER_TILE as u64;

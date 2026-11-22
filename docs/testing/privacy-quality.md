@@ -112,7 +112,7 @@ Build `cargo build --release -p darkshot-windows` ở từng mốc gộp của �
 | Task 132 `6f016ae` | 2.455.552 | +12.800 |
 | Task 133 | 2.456.576 | +1.024 |
 | Task 135 | 2.459.648 | +3.072 |
-| Task 136 | 2.465.280 | +5.632 |
+| Task 137 | 2.465.280 | +5.632 |
 
 Cả đợt: **+123.904 byte (121,0 KiB)** — vượt mục tiêu 80 KB, dưới ngưỡng dừng 150 KB. Task 127–129 gần như không tăng vì bộ dò, quét và làm phẳng chưa được gọi từ exe (bị lược khi liên kết); chúng vào exe ở Task 131 khi cổng nối mọi thứ.
 
@@ -141,9 +141,9 @@ Không có `cargo bloat` (không cài mới).
 
 Chất lượng 50, mép trong 4 px vượt ngưỡng 8 của gói task: đó là nhiễu nén từ nền trắng bên ngoài cùng khối 8×8, không phải chữ đã che. Kiểm thử lõi `redact::tests::jpeg_bytes_do_not_depend_on_covered_pixels` khẳng định hai ảnh chỉ khác nhau trong vùng che cho cùng byte PNG và JPEG (90, 50) sau khi làm phẳng, tức tệp xuất không mang thông tin nào của phần bị che.
 
-## 7. Bảng có đường kẻ: quét hai lượt (Task 136)
+## 7. Bảng có đường kẻ: quét hai lượt (Task 137)
 
-Lỗi chủ dự án báo: ảnh chụp bảng Excel (chữ đen nền trắng, kẻ ô mảnh sát chân chữ, chữ ~20 px) có số điện thoại được che nhưng 14/14 email không được che — OCR bỏ `@` và các chữ có phần xuống dưới (g, y, p, q) vì đường kẻ dính vào chân chữ. Sửa: mỗi dải có đường kẻ bảng được OCR thêm một lượt trên bản sao đã bỏ đường kẻ (`privacy::rules::strip_rules`, quyết định 154); ảnh xuất không đổi.
+Lỗi chủ dự án báo: ảnh chụp bảng Excel (chữ đen nền trắng, kẻ ô mảnh sát chân chữ, chữ ~20 px) có số điện thoại được che nhưng 14/14 email không được che — OCR bỏ `@` và các chữ có phần xuống dưới (g, y, p, q) vì đường kẻ dính vào chân chữ. Sửa: mỗi dải có đường kẻ bảng được OCR thêm một lượt trên bản sao đã bỏ đường kẻ (`privacy::rules::strip_rules`, quyết định 155); ảnh xuất không đổi.
 
 Đo ngày 2026-11-22, cùng máy, bản release, OCR `en-US`. Lệnh: `cargo test --release -p darkshot-windows --bin darkshot -- --ignored --nocapture --test-threads=1 ocr::tests::manual_table ocr::tests::manual_perf_strip ocr::tests::manual_scan_timing`.
 
@@ -167,7 +167,7 @@ Lỗi phụ (email bị OCR chèn space vào phần trước `@`, chỉ phần s
 
 ### Hiệu năng
 
-| Việc | Ảnh | Task 133 | Task 136 |
+| Việc | Ảnh | Task 133 | Task 137 |
 |---|---|---|---|
 | `strip_rules` | 3840×2160 lưới 1 px + khối "chữ" | — | trung vị 132,8 ms (124–137), có bản sao 33 MB |
 | `strip_rules` | 3840×2160 trắng (không kẻ → `None`) | — | trung vị 57,1 ms (52–63) |

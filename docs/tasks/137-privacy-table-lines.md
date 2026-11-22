@@ -1,6 +1,6 @@
-# Task 136: Privacy Shield — đọc được chữ trong bảng có đường kẻ
+# Task 137: Privacy Shield — đọc được chữ trong bảng có đường kẻ
 
-**Agent:** `specialist` · **Model:** opus (đổi luồng quét OCR, ảnh hưởng độ phủ của tính năng bảo mật) · **Nhánh:** `task/136-privacy-table-lines` (từ `main`), worktree `D:\2026 - Tuan\shotme-136` · **Rà soát:** `reviewer` (fable)
+**Agent:** `specialist` · **Model:** opus (đổi luồng quét OCR, ảnh hưởng độ phủ của tính năng bảo mật) · **Nhánh:** `task/137-privacy-table-lines` (từ `main`), worktree `D:\2026 - Tuan\shotme-136` · **Rà soát:** `reviewer` (opus, quyết định 154)
 
 Thiết kế: `docs/superpowers/specs/2026-11-22-sensitive-info-redaction-design.md` (mục 4, 5, 11, 12, 18). Global Constraints và Review Focus: `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`. Số đo: `docs/testing/privacy-quality.md`. Quyết định 144–153.
 
@@ -14,7 +14,7 @@ Không đưa ảnh thật hay dữ liệu của chủ dự án vào kiểm thử
 
 ## Files
 
-`crates/darkshot-core/src/privacy/` (mô-đun mới, ví dụ `rules.rs`, + `mod.rs`, `detect/email.rs`, `quality_tests.rs`/`tests.rs`), `crates/darkshot-windows/src/ocr.rs` (quét), `crates/darkshot-windows/src/privacy_gate.rs` (hạn quét nếu đổi), `docs/testing/privacy-quality.md`, `CHANGELOG.md` (Chưa phát hành), `README.md` (mục Privacy Shield nếu cần một câu), `memory-bank/decisions.md` (quyết định 154), `memory-bank/activeContext.md`, `memory-bank/progress.md` (phiên điều phối ghi token).
+`crates/darkshot-core/src/privacy/` (mô-đun mới, ví dụ `rules.rs`, + `mod.rs`, `detect/email.rs`, `quality_tests.rs`/`tests.rs`), `crates/darkshot-windows/src/ocr.rs` (quét), `crates/darkshot-windows/src/privacy_gate.rs` (hạn quét nếu đổi), `docs/testing/privacy-quality.md`, `CHANGELOG.md` (Chưa phát hành), `README.md` (mục Privacy Shield nếu cần một câu), `memory-bank/decisions.md` (quyết định 155), `memory-bank/activeContext.md`, `memory-bank/progress.md` (phiên điều phối ghi token).
 
 ## Yêu cầu
 
@@ -28,5 +28,5 @@ Không đưa ảnh thật hay dữ liệu của chủ dự án vào kiểm thử
 3. **Email bị OCR chèn space trước `@`**: khi phần trước `@` bắt đầu ngay sau một space và trước space đó là một từ chỉ gồm ký tự hợp lệ của phần tên email (chữ thường/số/`._%+-`, ≥ 2 ký tự, không chữ hoa), và khoảng cách giữa hai khung từ nhỏ (ví dụ < 0,6 × chiều cao dòng, dùng khung từ sẵn có), mở rộng vùng che sang từ đó (độ tin cậy Trung bình). Không mở rộng khi từ trước là chữ thường gặp tách xa (`email: a@b.com`, `contact at a@b.com` theo khoảng cách bình thường). Kiểm thử cả hai hướng.
 4. **Chất lượng** (`quality_tests.rs`): thêm bộ mẫu dòng mô phỏng lỗi OCR bảng nếu hợp lý; ngưỡng = số đo mới. Thêm kiểm thử `#[ignore]` trong `darkshot-windows` vẽ một bảng tổng hợp (dữ liệu GIẢ, `@example.com`, chữ đen nền trắng, kẻ ô sát chân chữ có g/y/p/q, ~20 px) bằng GDI, quét bằng đường thật, ghi số email phát hiện trước (lượt một) và sau (hai lượt). Ghi số thật vào `privacy-quality.md`; nếu ảnh tổng hợp không tái hiện được lỗi thì ghi rõ như vậy, không bịa.
 5. **Hiệu năng**: đo lại OCR+dò 1920×1080 (có bảng và không bảng), 3840×2160, 1000×20000; thời gian `strip_rules` 4K. Cập nhật `privacy-quality.md`. Exe trước/sau (trước: 2.459.648).
-6. **Tài liệu**: CHANGELOG "Chưa phát hành" — thêm vào mục Privacy Shield một câu: bảng có đường kẻ được quét thêm một lượt trên bản sao đã bỏ đường kẻ (ảnh xuất không đổi). `memory-bank/decisions.md` quyết định 154 (ngày 2026-11-22, chủ dự án duyệt hướng sửa). Website không đổi nếu không có hành vi người dùng thấy mới ngoài độ phủ (ghi lý do trong báo cáo).
+6. **Tài liệu**: CHANGELOG "Chưa phát hành" — thêm vào mục Privacy Shield một câu: bảng có đường kẻ được quét thêm một lượt trên bản sao đã bỏ đường kẻ (ảnh xuất không đổi). `memory-bank/decisions.md` quyết định 155 (ngày 2026-11-22, chủ dự án duyệt hướng sửa). Website không đổi nếu không có hành vi người dùng thấy mới ngoài độ phủ (ghi lý do trong báo cáo).
 7. `cargo fmt --all`; `powershell -File scripts/check.ps1` phải in `ALL CHECKS PASSED`; chạy tay các `#[ignore]` của `ocr`, `privacy_gate` liên quan và ghi số. Không giả lập chuột/phím thật (chủ dự án đang dùng máy). Commit `fix:` / `test:` / `docs:` trên nhánh, KHÔNG gộp, không đẩy. Báo cáo: thay đổi, số đo, rủi ro, token.

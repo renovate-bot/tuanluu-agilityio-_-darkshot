@@ -536,7 +536,7 @@ fn recognize_tile(
     Ok(lines)
 }
 
-/// Phát hiện của một dải `t`, tọa độ px của dải. Lượt một: OCR bản gốc. Lượt hai (Task 136), chỉ
+/// Phát hiện của một dải `t`, tọa độ px của dải. Lượt một: OCR bản gốc. Lượt hai (Task 137), chỉ
 /// khi dải có đường kẻ bảng: OCR bản sao đã bỏ đường kẻ (`privacy::rules::strip_rules`), cùng
 /// engine, cùng tỉ lệ, cùng khung tọa độ. Lỗi hay hết hạn ở lượt nào cũng là lỗi quét. Chữ OCR mỗi
 /// lượt bị ghi đè ngay sau khi dò; bản sao ảnh được nhả trước khi về.
@@ -1734,7 +1734,7 @@ pub(crate) mod tests {
             rep.elapsed_ms,
             rep.findings.len()
         );
-        // Cùng ảnh 1920×1080 kẻ bảng (Task 136): đường ngang 1 px sát chân chữ mỗi dòng, đường dọc
+        // Cùng ảnh 1920×1080 kẻ bảng (Task 137): đường ngang 1 px sát chân chữ mỗi dòng, đường dọc
         // mỗi 480 px — có lượt thứ hai.
         let (mut img, drawn) = {
             let _gdi = crate::capture::GDI_TEST_LOCK.lock();
@@ -2060,7 +2060,7 @@ pub(crate) mod tests {
         mem_steps_export_10x4k(10);
     }
 
-    // ---- Task 136: bảng có đường kẻ sát chân chữ (chạy tay, bản release, chỉ in số) ----
+    // ---- Task 137: bảng có đường kẻ sát chân chữ (chạy tay, bản release, chỉ in số) ----
     // cargo test --release -p darkshot-windows --bin darkshot ocr::tests::manual_table -- --ignored --nocapture --test-threads=1
 
     /// Bảng tổng hợp kiểu Excel (dữ liệu GIẢ) và vị trí để chấm điểm.

@@ -125,7 +125,7 @@ fn line_gaps(words: &[&str], gaps: &[i32]) -> OcrLine {
 
 #[test]
 fn email_extends_over_ocr_split_local_part() {
-    // Task 136: OCR chèn space vào phần trước `@` ("jane doe@example.com", khe 2 px).
+    // Task 137: OCR chèn space vào phần trước `@` ("jane doe@example.com", khe 2 px).
     let l = line_gaps(&["mail", "jane", "doe@example.com"], &[10, 2]);
     let f = detect(std::slice::from_ref(&l));
     assert_eq!(cats(&f), vec![Category::Email]);

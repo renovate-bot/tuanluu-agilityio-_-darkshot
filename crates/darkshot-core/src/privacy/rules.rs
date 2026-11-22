@@ -1,4 +1,4 @@
-//! Bỏ đường kẻ bảng trên bản sao một dải ảnh trước lượt OCR thứ hai (Task 136).
+//! Bỏ đường kẻ bảng trên bản sao một dải ảnh trước lượt OCR thứ hai (Task 137).
 //!
 //! Đường kẻ = dải ngang (hay dọc) dày 1–3 px, dài ≥ `MIN_LEN` px, mà mỗi điểm khác hẳn (độ sáng)
 //! cả điểm ngay trên dải VÀ điểm ngay dưới dải (đường dọc: trái và phải), còn hai điểm hai bên
