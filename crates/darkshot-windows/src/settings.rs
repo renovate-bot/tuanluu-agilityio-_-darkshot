@@ -2747,37 +2747,22 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
     }
 }
 
-/// Đặt đệm ngang `TAB_PAD_X` cho mọi mục của dải tab, giữ nguyên chiều cao mục (đệm dọc suy từ chiều
-/// cao đo được) để bố cục khung bên dưới không xê dịch. Gọi sau khi đã chèn mục và đặt phông.
+/// Đặt đệm ngang `TAB_PAD_X` cho mọi mục của dải tab. Phải gọi ngay sau khi tạo dải tab và TRƯỚC khi
+/// chèn mục: gửi sau khi đã chèn thì Common Controls không tính lại ô mục tới khi đổi kích thước. Đệm
+/// dọc giữ mức mặc định (3 DIP) nên chiều cao mục và `TCM_ADJUSTRECT` không đổi.
 fn set_tab_padding(b: &Builder, tabs: HWND) {
-    let pad = |cx: i32, cy: i32| {
-        // SAFETY: chỉ gửi thông điệp cho dải tab vừa tạo; LPARAM là (cx, cy) đóng gói.
-        unsafe {
-            SendMessageW(
-                tabs,
-                TCM_SETPADDING,
-                None,
-                Some(LPARAM(((cy as u32) << 16 | (cx as u32 & 0xFFFF)) as isize)),
-            );
-        }
-    };
-    let item_h = || {
-        let mut r = RECT::default();
-        // SAFETY: r là biến cục bộ, dải tab chỉ ghi vào nó.
-        unsafe {
-            SendMessageW(
-                tabs,
-                TCM_GETITEMRECT,
-                Some(WPARAM(0)),
-                Some(LPARAM(&mut r as *mut RECT as isize)),
-            );
-        }
-        r.bottom - r.top
-    };
-    let before = item_h();
-    pad(b.s(TAB_PAD_X), 0);
-    let flat = item_h();
-    pad(b.s(TAB_PAD_X), ((before - flat) / 2).max(0));
+    let (cx, cy) = (b.s(TAB_PAD_X), b.s(3));
+    // SAFETY: chỉ gửi thông điệp cho dải tab vừa tạo; LPARAM là (cx, cy) đóng gói.
+    unsafe {
+        SendMessageW(
+            tabs,
+            TCM_SETPADDING,
+            None,
+            Some(LPARAM(
+                (((cy as u32) << 16) | (cx as u32 & 0xFFFF)) as isize,
+            )),
+        );
+    }
 }
 
 /// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
@@ -2819,6 +2804,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         (12, tab_top, inner_w, 300),
         ID_TABS,
     );
+    set_tab_padding(b, tabs);
     for (i, t) in Tab::ALL.iter().enumerate() {
         let mut text: Vec<u16> = lang::tr(t.label())
             .encode_utf16()
@@ -2839,8 +2825,6 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
             );
         }
     }
-    set_tab_padding(b, tabs);
-
     // Bốn khung (ẩn, tắt) và ô của chúng; kích thước khung đặt sau khi biết tab cao nhất.
     let frames = [
         b.frame(ID_FRAME0),
@@ -4681,8 +4665,8 @@ mod tests {
         use windows::Win32::Graphics::Gdi::{GetDC, GetTextExtentPoint32W, ReleaseDC};
         let tabs = find_tabs(h);
         use windows::Win32::Graphics::Gdi::{CreateFontIndirectW, GetObjectW, LOGFONTW};
-        // Phông đậm suy ra từ chính phông của dải tab; DPI suy từ cỡ phông (Segoe UI 9 pt = 12 px ở
-        // 96 DPI) vì luồng phụ có thể thấy DPI khác của cửa sổ.
+        // Phông đậm suy ra từ chính phông của dải tab; DPI suy từ cỡ phông (Segoe UI 9 pt = 12 px ở 96
+        // DPI) vì `GetDpiForWindow` gọi từ luồng phụ trả 192 trong khi cửa sổ (phông -18) ở 144.
         // SAFETY: chỉ đọc LOGFONT của phông thuộc cửa sổ của tiến trình này.
         let (bold, dpi) = unsafe {
             let font = SendMessageW(
