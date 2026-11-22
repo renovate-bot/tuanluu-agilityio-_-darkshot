@@ -112,9 +112,9 @@ Build `cargo build --release -p darkshot-windows` ở từng mốc gộp của �
 | Task 132 `6f016ae` | 2.455.552 | +12.800 |
 | Task 133 | 2.456.576 | +1.024 |
 | Task 135 | 2.459.648 | +3.072 |
-| Task 137 | 2.465.280 | +5.632 |
+| Task 137 | 2.470.400 | +10.752 |
 
-Cả đợt: **+123.904 byte (121,0 KiB)** — vượt mục tiêu 80 KB, dưới ngưỡng dừng 150 KB. Task 127–129 gần như không tăng vì bộ dò, quét và làm phẳng chưa được gọi từ exe (bị lược khi liên kết); chúng vào exe ở Task 131 khi cổng nối mọi thứ.
+Cả đợt (gồm Task 137): **+134.656 byte (131,5 KiB)** — vượt mục tiêu 80 KB, dưới ngưỡng dừng 150 KB. Task 127–129 gần như không tăng vì bộ dò, quét và làm phẳng chưa được gọi từ exe (bị lược khi liên kết); chúng vào exe ở Task 131 khi cổng nối mọi thứ.
 
 Phân bổ theo module (build `6f016ae` với một module bị cắt — hàm vào trả về ngay — so với build đầy đủ 2.455.552):
 
@@ -153,15 +153,15 @@ Lỗi chủ dự án báo: ảnh chụp bảng Excel (chữ đen nền trắng, 
 
 | Phông | Màu kẻ | `drop` | Nền | Lượt một | Hai lượt | Điện thoại (cả hai) | `strip_rules` |
 |---|---|---|---|---|---|---|---|
-| Calibri | đen 0 | 1 px | trắng | 0/14 | 13/14 | 14/14 | 9 ms |
-| Calibri | đen 0 | 2 px | trắng | 0/14 | **14/14** | 14/14 | 12 ms |
+| Calibri | đen 0 | 1 px | trắng | 0/14 | 13/14 | 14/14 | 7 ms |
+| Calibri | đen 0 | 2 px | trắng | 0/14 | **14/14** | 14/14 | 8 ms |
 | Calibri | đen 0 | 3 px | trắng | 0/14 | 14/14 | 14/14 | 8 ms |
-| Calibri | xám 160 | 2 px | trắng | 0/14 | 14/14 | 14/14 | 11 ms |
-| Calibri | xám 212 (lưới Excel) | 2 px | trắng | 13/14 | 14/14 | 14/14 | 8 ms |
-| Segoe UI | đen 0 | 2 px | trắng | 0/14 | 14/14 | 14/14 | 13 ms |
-| Calibri | sáng 200 | 2 px | tối 32 (chữ sáng) | 0/14 | 14/14 | 14/14 | 7 ms |
+| Calibri | xám 160 | 2 px | trắng | 0/14 | 14/14 | 14/14 | 6 ms |
+| Calibri | xám 212 (lưới Excel) | 2 px | trắng | 13/14 | 14/14 | 14/14 | 7 ms |
+| Segoe UI | đen 0 | 2 px | trắng | 0/14 | 14/14 | 14/14 | 8 ms |
+| Calibri | sáng 200 | 2 px | tối 32 (chữ sáng) | 0/14 | 14/14 | 14/14 | 6 ms |
 
-Ảnh tổng hợp tái hiện đúng lỗi (0/14 ở lượt một với kẻ đậm) và hai lượt đọc lại 13–14/14. Hàng còn sót ở `drop` 1 px: đường kẻ chạm sát chân chữ thường, phần đường còn lại giữa các chữ quá ngắn hay bị chữ chắn quá nhiều để coi là đường kẻ. Không có hàng nào mất ở hai lượt so với lượt một (kiểm thử khẳng định). Nền tối kẻ sáng chạy như nền sáng (luật dựa trên tương phản hai bên, không ngưỡng tối tuyệt đối).
+Số trong bảng đo lại sau các sửa theo rà soát (kẻ dày 2–3 px sát mép trên/trái, kẻ đôi): số hàng không đổi so với bản đầu. Ảnh tổng hợp tái hiện đúng lỗi (0/14 ở lượt một với kẻ đậm) và hai lượt đọc lại 13–14/14. Hàng còn sót ở `drop` 1 px: đường kẻ chạm sát chân chữ thường, phần đường còn lại giữa các chữ quá ngắn hay bị chữ chắn quá nhiều để coi là đường kẻ. Không có hàng nào mất ở hai lượt so với lượt một (kiểm thử khẳng định). Nền tối kẻ sáng chạy như nền sáng (luật dựa trên tương phản hai bên, không ngưỡng tối tuyệt đối).
 
 Lỗi phụ (email bị OCR chèn space vào phần trước `@`, chỉ phần sau space được che): kiểm ở `privacy/tests.rs` (`email_extends_over_ocr_split_local_part`, `email_does_not_extend_over_normal_words`). Ngưỡng khe là 0,35 × chiều cao dòng (như ngưỡng ghép từ bị tách sẵn có), không phải 0,6 như ví dụ trong gói task: bộ mẫu dùng khe 0,5 × cao dòng làm khoảng trắng bình thường, và 0,6 sẽ mở rộng sang từ thường (`mail user@…`). Bộ mẫu chất lượng (mục 1) không đổi: nó chấm "có phát hiện cùng loại", nên email bị tách vốn đã tính là đúng trước khi sửa; độ phủ vùng che được kiểm ở `privacy/tests.rs`. Ảnh tổng hợp ở trên không tái hiện lỗi chèn space (OCR đọc các email liền).
 
@@ -169,13 +169,13 @@ Lỗi phụ (email bị OCR chèn space vào phần trước `@`, chỉ phần s
 
 | Việc | Ảnh | Task 133 | Task 137 |
 |---|---|---|---|
-| `strip_rules` | 3840×2160 lưới 1 px + khối "chữ" | — | trung vị 132,8 ms (124–137), có bản sao 33 MB |
-| `strip_rules` | 3840×2160 trắng (không kẻ → `None`) | — | trung vị 57,1 ms (52–63) |
+| `strip_rules` | 3840×2160 lưới 1 px + khối "chữ" | — | trung vị 95,1 ms (86–101), có bản sao 33 MB (bản đầu: 132,8 ms) |
+| `strip_rules` | 3840×2160 trắng (không kẻ → `None`) | — | trung vị 48,8 ms (48–50) (bản đầu: 57,1 ms) |
 | OCR + dò | 1920×1080, 12 dòng, không bảng | 57 ms | 81–207 ms (3 lần) |
 | OCR + dò | 1920×1080, cùng ảnh có kẻ bảng (hai lượt) | — | 159–730 ms (3 lần) |
 | OCR + dò | 3840×2160, 24 dòng | 135 ms | 297–629 ms (3 lần) |
 | OCR + dò | 1000×20000, 3 dải | 376 ms | 625–1890 ms (3 lần) |
 
-Số OCR lần này dao động mạnh (chủ dự án đang dùng máy khi đo; cùng một ảnh chênh tới 4 lần giữa các lần chạy), nên chỉ ghi khoảng. Phần thêm chắc chắn cho ảnh không có kẻ là `strip_rules` (≈ 57 ms cho 4K, tỉ lệ với số điểm); ảnh có kẻ thêm một lượt OCR (bảng 1301×376, lần đo cuối: 42–59 ms một lượt → 120–128 ms hai lượt). Hạn: mỗi lượt nhận dạng vẫn 20 s; hạn của cổng tăng thành 40 s × số dải + 10 s cho đủ hai lượt.
+Số OCR lần này dao động mạnh (chủ dự án đang dùng máy khi đo; cùng một ảnh chênh tới 4 lần giữa các lần chạy), nên chỉ ghi khoảng. Phần thêm chắc chắn cho ảnh không có kẻ là `strip_rules` (≈ 49 ms cho 4K, tỉ lệ với số điểm); ảnh có kẻ thêm một lượt OCR (bảng 1301×376, lần đo cuối: 33–56 ms một lượt → 78–154 ms hai lượt). Hạn: mỗi lượt nhận dạng vẫn 20 s; hạn của cổng tăng thành 40 s × số dải + 10 s cho đủ hai lượt.
 
-Exe release: 2.459.648 → 2.465.280 byte (+5.632).
+Exe release: 2.459.648 → 2.470.400 byte (+10.752; bản đầu của task 2.465.280, sau các sửa theo rà soát — xóa đường dọc dồn về cuối, điều phối hai lượt tách hàm — 2.470.400).
