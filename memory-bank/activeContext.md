@@ -1,9 +1,10 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-22
+Cập nhật: 2026-11-23
 
 ## Đang ở đâu
 
+- **Task 140 (2026-11-23, quyết định 158): XONG, gộp `main` qua PR.** Hướng dẫn từng bước đăng ký Cloudflare R2 và cấu hình darkshot: `docs/r2-setup.md` (VI), `docs/r2-setup.en.md` (EN); hình Cloudflare là SVG giản lược `docs/img/r2/01-…08-…svg` (không logo, không ảnh chụp thật); ảnh thật tab Lưu trữ R2 `docs/img/r2/options-r2-{vi,en}.png` từ kiểm thử `#[ignore]` `webshot_options_r2`. README trỏ tới hai bản. Không đổi app, không đổi website.
 - **Task 139 (2026-11-22, quyết định 157): XONG, gộp `main` qua PR.** Dải tab của Tùy chọn có đệm ngang 16 DIP (chủ dự án báo tab liền nhau); ảnh website `options-*.webp` chụp lại (776×560, có ô Quét thông tin nhạy cảm); website sửa "kiểm tra bản mới" thành mặc định bật. Chưa phát hành (CHANGELOG "Chưa phát hành" → "Sửa lỗi"). Chưa thử tay DPI 100/125/200 %.
 - **Phát hành v0.6.0** (2026-11-22, chủ dự án yêu cầu; quyết định 156): Ghi GIF (đợt 20), Privacy Shield (đợt 21) và Task 137. Tag `v0.6.0`, release kèm `darkshot-v0.6.0-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Exe 2.470.400 byte, chưa ký số.
 - **Đợt 21 (Privacy Shield: quét và che thông tin nhạy cảm trước khi xuất ảnh): XONG mã, rà soát (từng task, bảo mật Task 131, toàn đợt), tài liệu, website; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22).** Thiết kế `docs/superpowers/specs/2026-11-22-sensitive-info-redaction-design.md`, kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`, gói `docs/tasks/127-…` đến `135-…`, quyết định 144–153, số đo `docs/testing/privacy-quality.md`. Exe release 2.459.648 byte (+123.904, vượt mục tiêu 80 KB, dưới ngưỡng 150 KB: chủ dự án chấp nhận). Đã phát hành trong v0.6.0. Chưa thử tay hết: checklist "Đợt 21: Privacy Shield" (DPI, nhiều màn hình, máy sạch không có OCR en-US, chuột thật).
