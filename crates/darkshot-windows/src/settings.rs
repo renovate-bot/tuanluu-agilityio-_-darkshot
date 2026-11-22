@@ -4735,6 +4735,16 @@ mod tests {
         cfg: &Config,
         f: impl FnOnce(HWND) -> R + Send + 'static,
     ) -> R {
+        with_options_window_at(parent, cfg, OpenReason::User, f)
+    }
+
+    /// Như `with_options_window`, mở theo `reason` (NeedsR2 mở thẳng tab Lưu trữ R2).
+    fn with_options_window_at<R: Send + 'static>(
+        parent: HWND,
+        cfg: &Config,
+        reason: OpenReason,
+        f: impl FnOnce(HWND) -> R + Send + 'static,
+    ) -> R {
         let worker = std::thread::spawn(move || {
             let h = HWND(wait_settings_window() as *mut c_void);
             crate::webshot::per_monitor();
@@ -4745,8 +4755,44 @@ mod tests {
             }
             r
         });
-        assert!(show(parent, cfg, None, OpenReason::User).is_none());
+        assert!(show(parent, cfg, None, reason).is_none());
         worker.join().unwrap()
+    }
+
+    /// Ảnh PrintWindow tab Lưu trữ R2 với giá trị mẫu (không có khóa thật), cho `docs/r2-setup.md`.
+    /// Chạy tay: `$env:DARKSHOT_WEBSHOTS="target\webshots"; cargo test -p darkshot-windows -- --ignored --nocapture webshot_options_r2`.
+    #[test]
+    #[ignore]
+    fn webshot_options_r2() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let _profile = crate::webshot::Profile::new("options-r2");
+        crate::webshot::per_monitor();
+        let parent = test_parent(w!("darkshot-settings-r2-shot-parent"));
+        let mut cfg = Config::defaults(std::path::Path::new("C:/Screenshots"), Lang::Vi);
+        cfg.r2.account_id = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d".into();
+        cfg.r2.access_key_id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".into();
+        cfg.r2.secret_access_key = "xxxxxxxxxxxxxxxxxxxxxxxx".into();
+        cfg.r2.bucket = "darkshot-images".into();
+        cfg.r2.public_base_url = "https://img.example.com".into();
+        crate::webshot::each_lang(|lang, code| {
+            let (dir, code) = (dir.clone(), code.to_string());
+            let mut cfg = cfg.clone();
+            cfg.language = lang;
+            with_options_window_at(parent, &cfg, OpenReason::NeedsR2, move |h| {
+                repaint_now(h);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let shot = crate::webshot::print_window(h);
+                assert!(crate::webshot::not_blank(&shot));
+                crate::webshot::save(&dir, &format!("options-r2-{code}"), &shot);
+            });
+        });
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
     }
 
     /// Giữa chữ hai tab liền kề (kể cả khi cả hai in đậm) cách nhau ít nhất `MIN_TAB_GAP_DIP`, chữ đậm
