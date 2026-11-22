@@ -21,7 +21,7 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 - Đang có 3 lượt chờ duyệt thì lượt mới bị bỏ (kể cả tự Lưu của chụp cuộn khi không mở được cửa sổ kết quả).
 - Cửa sổ Kiểm tra bị ẩn khi chia sẻ màn hình/ghi màn hình (Windows 10 2004 trở lên).
 - Trình đọc màn hình đọc cửa sổ Kiểm tra hạn chế (cửa sổ tự vẽ).
-- Privacy Shield chưa được thử tay đầy đủ (DPI, nhiều màn hình, máy không có gói OCR en-US). Xem mục "Đợt 21: Privacy Shield" trong `docs/testing/manual-checklist.md`.
+- Privacy Shield đã qua bản demo (2026-11-22) nhưng chưa được thử tay đầy đủ (DPI, nhiều màn hình, máy không có gói OCR en-US). Xem mục "Đợt 21: Privacy Shield" trong `docs/testing/manual-checklist.md`.
 - Ghi GIF chưa được thử tay trên Windows 10, nhiều màn hình, DPI hỗn hợp và màn hình có tọa độ âm. Thông báo Windows hiện trong lúc ghi có thể lọt vào GIF. Xem mục "Đợt 20: Ghi GIF" trong `docs/testing/manual-checklist.md`.
 
 ## [0.5.0] - 2026-11-21
@@ -119,7 +119,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.1.0...v0.2.0

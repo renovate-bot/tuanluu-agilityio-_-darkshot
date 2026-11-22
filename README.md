@@ -473,7 +473,7 @@ Tùy chọn, **mặc định tắt**. Bật ở Tùy chọn, tab **Thông thư�
 
 **Giới hạn khi quét:** ưu tiên bộ nhận dạng `en-US` nếu Windows có, không thì ngôn ngữ hồ sơ; chữ nhỏ dễ bị bỏ sót; ảnh rộng hơn 10000 px (giới hạn OCR của Windows) bị co theo chiều rộng khi quét; ảnh rất cao được quét theo từng dải (mỗi dải tối đa 20 giây). Cửa sổ Kiểm tra được ẩn khỏi ảnh chụp, ghi màn hình và chia sẻ màn hình (Windows 10 2004 trở lên), và trình đọc màn hình đọc nó hạn chế. Tối đa 3 lượt chờ duyệt; lượt thứ tư bị bỏ kèm thông báo.
 
-Chưa thử tay hết: xem mục "Đợt 21: Privacy Shield" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
+Đã chạy qua bản demo cách ly (`scripts/demo-privacy.ps1`) nhưng chưa thử tay hết: xem mục "Đợt 21: Privacy Shield" trong [docs/testing/manual-checklist.md](docs/testing/manual-checklist.md).
 
 ### Menu khay
 
