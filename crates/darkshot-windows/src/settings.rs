@@ -42,7 +42,7 @@ use windows::Win32::UI::Controls::{
     INITCOMMONCONTROLSEX, NMHDR, NM_CUSTOMDRAW, TBM_SETLINESIZE, TBM_SETPAGESIZE, TBM_SETPOS,
     TBM_SETRANGE, TBS_HORZ, TCHITTESTINFO, TCIF_TEXT, TCITEMW, TCM_ADJUSTRECT, TCM_GETCURFOCUS,
     TCM_GETCURSEL, TCM_GETITEMCOUNT, TCM_GETITEMRECT, TCM_HITTEST, TCM_INSERTITEMW, TCM_SETCURSEL,
-    TCN_SELCHANGE, TCN_SELCHANGING, TRACKBAR_CLASSW, WC_TABCONTROLW, WM_MOUSELEAVE,
+    TCM_SETPADDING, TCN_SELCHANGE, TCN_SELCHANGING, TRACKBAR_CLASSW, WC_TABCONTROLW, WM_MOUSELEAVE,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -2045,9 +2045,12 @@ const RIGHT_MARGIN: i32 = 50;
 const HK_BOX: i32 = 24;
 const HK_BTN_W: i32 = 70;
 const HK_GAP: i32 = 6;
-/// Phần cộng thêm vào bề rộng chữ của mỗi tab (lề trong của mục tab, rộng rãi hơn mức mặc định
-/// 2 × 6 của Common Controls) và phần dải tab không dùng cho mục (tab đang chọn nhô ra hai bên).
-const TAB_ITEM_PAD: i32 = 24;
+/// Đệm ngang mỗi bên của mục tab (DIP): chữ hai tab liền kề cách nhau ít nhất 2 × giá trị này trừ phần
+/// chữ đậm rộng hơn chữ thường (tab đang chọn in đậm).
+const TAB_PAD_X: i32 = 16;
+/// Phần cộng thêm vào bề rộng chữ của mỗi tab (hai lần đệm ngang `TAB_PAD_X`); `TAB_STRIP_SLACK` là phần
+/// dải tab không dùng cho mục (tab đang chọn nhô ra hai bên).
+const TAB_ITEM_PAD: i32 = 2 * TAB_PAD_X;
 const TAB_STRIP_SLACK: i32 = 8;
 
 impl Layout {
@@ -2744,6 +2747,39 @@ fn build_r2(b: &mut Builder, current: &Config) -> R2Ctl {
     }
 }
 
+/// Đặt đệm ngang `TAB_PAD_X` cho mọi mục của dải tab, giữ nguyên chiều cao mục (đệm dọc suy từ chiều
+/// cao đo được) để bố cục khung bên dưới không xê dịch. Gọi sau khi đã chèn mục và đặt phông.
+fn set_tab_padding(b: &Builder, tabs: HWND) {
+    let pad = |cx: i32, cy: i32| {
+        // SAFETY: chỉ gửi thông điệp cho dải tab vừa tạo; LPARAM là (cx, cy) đóng gói.
+        unsafe {
+            SendMessageW(
+                tabs,
+                TCM_SETPADDING,
+                None,
+                Some(LPARAM(((cy as u32) << 16 | (cx as u32 & 0xFFFF)) as isize)),
+            );
+        }
+    };
+    let item_h = || {
+        let mut r = RECT::default();
+        // SAFETY: r là biến cục bộ, dải tab chỉ ghi vào nó.
+        unsafe {
+            SendMessageW(
+                tabs,
+                TCM_GETITEMRECT,
+                Some(WPARAM(0)),
+                Some(LPARAM(&mut r as *mut RECT as isize)),
+            );
+        }
+        r.bottom - r.top
+    };
+    let before = item_h();
+    pad(b.s(TAB_PAD_X), 0);
+    let flat = item_h();
+    pad(b.s(TAB_PAD_X), ((before - flat) / 2).max(0));
+}
+
 /// Dựng các điều khiển; trả về chiều cao vùng client (đơn vị DIP) và bộ HWND.
 ///
 /// Thứ tự Z (cũng là thứ tự Tab của `IsDialogMessageW`): khung các tab, dòng lỗi, Trợ giúp, OK, Hủy, rồi
@@ -2803,6 +2839,7 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
             );
         }
     }
+    set_tab_padding(b, tabs);
 
     // Bốn khung (ẩn, tắt) và ô của chúng; kích thước khung đặt sau khi biết tab cao nhất.
     let frames = [
@@ -4633,6 +4670,156 @@ mod tests {
         // SAFETY: dọn cửa sổ cha.
         unsafe {
             assert!(IsWindow(Some(parent)).as_bool());
+            let _ = DestroyWindow(parent);
+        }
+    }
+
+    /// Khoảng trống (px) giữa chữ hai tab liền kề, tính xấu nhất: cả hai tab đều in đậm (tab đang chọn
+    /// in đậm nên bên nào cũng có thể là tab chọn). Đo từ `TCM_GETITEMRECT` và độ rộng chữ đậm; kèm
+    /// phần dư (px) giữa chữ đậm và mép ô của từng tab. Trả `(dpi, khoảng trống, phần dư)`.
+    fn tab_gaps_px(h: HWND) -> (u32, Vec<i32>, Vec<i32>) {
+        use windows::Win32::Graphics::Gdi::{GetDC, GetTextExtentPoint32W, ReleaseDC};
+        let tabs = find_tabs(h);
+        use windows::Win32::Graphics::Gdi::{CreateFontIndirectW, GetObjectW, LOGFONTW};
+        // Phông đậm suy ra từ chính phông của dải tab; DPI suy từ cỡ phông (Segoe UI 9 pt = 12 px ở
+        // 96 DPI) vì luồng phụ có thể thấy DPI khác của cửa sổ.
+        // SAFETY: chỉ đọc LOGFONT của phông thuộc cửa sổ của tiến trình này.
+        let (bold, dpi) = unsafe {
+            let font = SendMessageW(
+                tabs,
+                windows::Win32::UI::WindowsAndMessaging::WM_GETFONT,
+                None,
+                None,
+            )
+            .0;
+            let mut lf = LOGFONTW::default();
+            GetObjectW(
+                HGDIOBJ(font as *mut c_void),
+                std::mem::size_of::<LOGFONTW>() as i32,
+                Some((&mut lf as *mut LOGFONTW).cast()),
+            );
+            let dpi = (lf.lfHeight.unsigned_abs() * 96 / 12).max(96);
+            lf.lfWeight = 700;
+            (CreateFontIndirectW(&lf), dpi)
+        };
+        let mut rects = Vec::new();
+        let mut widths = Vec::new();
+        // SAFETY: DC màn hình lấy và trả trong khối này; phông đậm tạo ở trên được xóa ở cuối.
+        unsafe {
+            let hdc = GetDC(None);
+            let old = SelectObject(hdc, HGDIOBJ(bold.0));
+            for (i, t) in Tab::ALL.iter().enumerate() {
+                let mut r = RECT::default();
+                SendMessageW(
+                    tabs,
+                    TCM_GETITEMRECT,
+                    Some(WPARAM(i)),
+                    Some(LPARAM(&mut r as *mut RECT as isize)),
+                );
+                rects.push(r);
+                let w: Vec<u16> = lang::tr(t.label()).encode_utf16().collect();
+                let mut size = SIZE::default();
+                assert!(GetTextExtentPoint32W(hdc, &w, &mut size).as_bool());
+                widths.push(size.cx);
+            }
+            SelectObject(hdc, old);
+            ReleaseDC(None, hdc);
+            let _ = DeleteObject(HGDIOBJ(bold.0));
+        }
+        println!(
+            "rects {:?} widths {widths:?}",
+            rects.iter().map(|r| (r.left, r.right)).collect::<Vec<_>>()
+        );
+        let gaps = (0..rects.len() - 1)
+            .map(|i| {
+                let c0 = (rects[i].left + rects[i].right) / 2;
+                let c1 = (rects[i + 1].left + rects[i + 1].right) / 2;
+                c1 - c0 - (widths[i] + widths[i + 1]) / 2
+            })
+            .collect();
+        let slack = rects
+            .iter()
+            .zip(&widths)
+            .map(|(r, w)| (r.right - r.left) - w)
+            .collect();
+        (dpi, gaps, slack)
+    }
+
+    /// Chạy `f` trên luồng phụ khi Tùy chọn (ngôn ngữ hiện tại) đã hiện, rồi đóng cửa sổ.
+    fn with_options_window<R: Send + 'static>(
+        parent: HWND,
+        cfg: &Config,
+        f: impl FnOnce(HWND) -> R + Send + 'static,
+    ) -> R {
+        let worker = std::thread::spawn(move || {
+            let h = HWND(wait_settings_window() as *mut c_void);
+            crate::webshot::per_monitor();
+            let r = f(h);
+            // SAFETY: đăng thông điệp đóng cho cửa sổ Tùy chọn của tiến trình này.
+            unsafe {
+                PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+            }
+            r
+        });
+        assert!(show(parent, cfg, None, OpenReason::User).is_none());
+        worker.join().unwrap()
+    }
+
+    /// Giữa chữ hai tab liền kề (kể cả khi cả hai in đậm) cách nhau ít nhất `MIN_TAB_GAP_DIP`, chữ đậm
+    /// nằm trọn trong ô của tab, ở cả hai ngôn ngữ; số đo in ra để ghi báo cáo. Cần màn hình thật.
+    /// Chạy tay: `cargo test -p darkshot-windows -- --ignored --nocapture options_tab_gaps`.
+    #[test]
+    #[ignore]
+    fn options_tab_gaps() {
+        const MIN_TAB_GAP_DIP: i32 = 24;
+        crate::webshot::per_monitor();
+        let parent = test_parent(w!("darkshot-settings-gap-parent"));
+        let cfg = Config::defaults(std::path::Path::new("C:/Screenshots"), Lang::Vi);
+        crate::webshot::each_lang(|_, code| {
+            let (dpi, gaps, slack) = with_options_window(parent, &cfg, tab_gaps_px);
+            let min_px = (MIN_TAB_GAP_DIP * dpi as i32 + 48) / 96;
+            println!("{code} dpi {dpi} gaps px {gaps:?} slack px {slack:?} need {min_px}");
+            for g in &gaps {
+                assert!(*g >= min_px, "{code}: gap {g}px < {min_px}px");
+            }
+            for s in &slack {
+                assert!(*s >= 0, "{code}: bold text wider than its tab");
+            }
+        });
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+    }
+
+    /// Ảnh PrintWindow của cửa sổ Tùy chọn (tab Thông thường), mỗi ngôn ngữ một PNG, để xem bằng mắt và
+    /// làm ảnh trang web. Hồ sơ tạm, thư mục lưu giả, không chuột/phím thật, không clipboard.
+    /// Chạy tay: `$env:DARKSHOT_WEBSHOTS="target\webshots"; cargo test -p darkshot-windows -- --ignored --nocapture webshot_options`.
+    #[test]
+    #[ignore]
+    fn webshot_options() {
+        let Some(dir) = crate::webshot::out_dir() else {
+            println!("DARKSHOT_WEBSHOTS unset: skip");
+            return;
+        };
+        let _profile = crate::webshot::Profile::new("options");
+        crate::webshot::per_monitor();
+        let parent = test_parent(w!("darkshot-settings-shot-parent"));
+        let cfg = Config::defaults(std::path::Path::new("C:/Screenshots"), Lang::Vi);
+        crate::webshot::each_lang(|_, code| {
+            let (dir, code) = (dir.clone(), code.to_string());
+            let (dpi, gaps, slack) = with_options_window(parent, &cfg, move |h| {
+                repaint_now(h);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let shot = crate::webshot::print_window(h);
+                assert!(crate::webshot::not_blank(&shot));
+                crate::webshot::save(&dir, &format!("options-{code}"), &shot);
+                tab_gaps_px(h)
+            });
+            println!("dpi {dpi} gaps px {gaps:?} slack px {slack:?}");
+        });
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
             let _ = DestroyWindow(parent);
         }
     }
