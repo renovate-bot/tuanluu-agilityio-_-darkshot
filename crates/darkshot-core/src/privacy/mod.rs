@@ -7,6 +7,7 @@ pub mod model;
 pub mod prepared;
 pub mod redact;
 pub mod review;
+pub mod rules;
 pub mod text;
 
 pub use detect::{Detector, LineCtx, RawMatch, Span};

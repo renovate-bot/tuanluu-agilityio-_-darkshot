@@ -37,6 +37,11 @@ impl<'a> LineCtx<'a> {
             .map(|i| self.lines[i].spaced.folded.as_slice())
     }
 
+    /// Khe (px) giữa từ kết thúc ở `prev_end` và từ bắt đầu ở `next_start`, kèm chiều cao dòng.
+    pub fn word_gap(&self, prev_end: usize, next_start: usize) -> Option<(i64, i64)> {
+        self.lines[self.index].word_gap(self.joined, prev_end, next_start)
+    }
+
     /// Khoảng `[start, end)` trên dòng và bản đang quét.
     pub fn span(&self, start: usize, end: usize) -> Span {
         Span {

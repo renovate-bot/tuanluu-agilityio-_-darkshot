@@ -205,6 +205,31 @@ impl LineText {
         self.spaced.chars.len() != self.joined.chars.len()
     }
 
+    /// Khe (px) giữa từ chứa ký tự `prev_end - 1` và từ bắt đầu ở `next_start`, kèm chiều cao dòng.
+    /// `None` khi không ánh xạ được hay khung từ hỏng.
+    pub(crate) fn word_gap(
+        &self,
+        joined: bool,
+        prev_end: usize,
+        next_start: usize,
+    ) -> Option<(i64, i64)> {
+        let v = self.version(joined);
+        let prev = v
+            .map
+            .iter()
+            .find(|&&(s, e, _)| s < prev_end && prev_end <= e)?
+            .2;
+        let next = v.map.iter().find(|&&(s, _, _)| s == next_start)?.2;
+        let (a, b) = (self.word_rects[prev], self.word_rects[next]);
+        if prev == next || !valid(a) || !valid(b) {
+            return None;
+        }
+        Some((
+            i64::from(b.x) - i64::from(a.right()),
+            i64::from(self.rect.h.max(0)),
+        ))
+    }
+
     /// Khung của khoảng ký tự `[start, end)`: hợp khung các từ giao khoảng đó.
     /// Không có từ, không ánh xạ được, hoặc có từ khung hỏng → khung cả dòng, `Mapping::Line`.
     pub fn span_rect(&self, joined: bool, start: usize, end: usize) -> (Rect, Mapping) {

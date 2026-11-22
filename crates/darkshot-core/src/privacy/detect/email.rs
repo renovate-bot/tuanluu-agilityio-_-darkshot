@@ -45,6 +45,29 @@ fn domain_end(chars: &[char], s: usize) -> Option<usize> {
     Some(e)
 }
 
+/// Khe giữa hai khung từ dưới mức này (phần trăm chiều cao dòng) coi như OCR chèn space vào giữa
+/// một từ — cùng ngưỡng ghép từ bị tách của `text::LineText`.
+const SPLIT_GAP_PCT: i64 = 35;
+
+/// Phần trước `@` bắt đầu ở `ls`, ngay sau một space; trước đó là một từ trọn chỉ gồm chữ thường,
+/// số, `._%+-` (≥ 2 ký tự, không bắt đầu bằng `.`), cách từ sau một khe nhỏ: OCR đã tách phần tên
+/// email (Task 136). Trả vị trí đầu từ đó.
+fn split_local_start(ctx: &LineCtx<'_>, c: &[char], ls: usize) -> Option<usize> {
+    if ls < 3 || c[ls - 1] != ' ' {
+        return None;
+    }
+    let pe = ls - 1;
+    let mut ps = pe;
+    while ps > 0 && local_char(c[ps - 1]) && !c[ps - 1].is_ascii_uppercase() && pe - ps < 64 {
+        ps -= 1;
+    }
+    if pe - ps < 2 || c[ps] == '.' || (ps > 0 && c[ps - 1] != ' ') {
+        return None;
+    }
+    let (gap, h) = ctx.word_gap(pe, ls)?;
+    (gap * 100 < SPLIT_GAP_PCT * h).then_some(ps)
+}
+
 impl Detector for Email {
     fn scan(&self, ctx: &LineCtx<'_>, out: &mut Vec<RawMatch>) {
         let c = ctx.chars();
@@ -79,12 +102,22 @@ impl Detector for Email {
             let Some(de) = domain_end(c, ds) else {
                 continue;
             };
-            let (conf, rule) = if spaced {
+            let (mut conf, mut rule) = if spaced {
                 (Confidence::Medium, RuleId::EmailSpaced)
             } else {
                 (Confidence::High, RuleId::EmailPlain)
             };
-            out.push(RawMatch::one(ctx.span(ls, de), Category::Email, conf, rule));
+            let mut start = ls;
+            if let Some(ps) = split_local_start(ctx, c, ls) {
+                start = ps;
+                (conf, rule) = (Confidence::Medium, RuleId::EmailSpaced);
+            }
+            out.push(RawMatch::one(
+                ctx.span(start, de),
+                Category::Email,
+                conf,
+                rule,
+            ));
         }
     }
 }
