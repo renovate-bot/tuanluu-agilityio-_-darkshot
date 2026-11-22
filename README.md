@@ -40,7 +40,7 @@ Nếu một bước chuyển bị lỗi, darkshot vẫn chạy với các thiế
 
 1. Chạy `darkshot.exe`. Biểu tượng xuất hiện ở khay hệ thống, chú thích "darkshot".
 2. Bấm chuột trái hoặc phải vào biểu tượng để mở menu: **Chụp màn hình**, **Chụp lại vùng trước**, **Lịch sử ảnh chụp**, **Chụp từng bước**, **Tùy chọn...**, **Thông tin...**, **Trợ giúp**, **Thoát**.
-3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới) rồi bấm **OK**.
+3. Lần chạy đầu, khi chưa có cấu hình, cửa sổ **Tùy chọn** tự mở ở tab **Lưu trữ R2**. Điền thông tin R2 (xem mục bên dưới và [hướng dẫn từng bước có hình](docs/r2-setup.md); English: [docs/r2-setup.en.md](docs/r2-setup.en.md)) rồi bấm **OK**.
 4. Bấm `PrintScreen` hoặc chọn **Chụp màn hình**. Màn hình tối đi và đứng yên.
 5. Kéo chuột để chọn vùng. Vùng chọn sáng, có nhãn kích thước `{rộng} × {cao}` tính bằng pixel. Hoặc rê chuột lên một cửa sổ (hay nền của một màn hình) rồi bấm một lần, hoặc Enter, để chọn đúng khung đó (xem "Gợi ý cửa sổ").
 6. Chỉnh vùng chọn nếu cần: kéo 8 tay nắm ở góc và cạnh để đổi kích thước, kéo bên trong để di chuyển (khi không chọn công cụ đánh dấu), kéo ở ngoài khung để chọn lại từ đầu (khi chưa có nét vẽ).
@@ -502,6 +502,8 @@ Chỉ một bản darkshot chạy cùng lúc. Mở bản thứ hai thì bản m�
 - Ô tích, nút chọn, thanh trượt, ô nhập và hộp chọn trong Tùy chọn được vẽ lại theo màu tối, cạnh khử răng cưa; bàn phím, Tab và Trình tường thuật vẫn dùng như điều khiển gốc của Windows.
 
 ## Chuẩn bị Cloudflare R2
+
+**Hướng dẫn từng bước có hình minh họa: [docs/r2-setup.md](docs/r2-setup.md)** (English: [docs/r2-setup.en.md](docs/r2-setup.en.md)).
 
 Các bước dưới đây theo tài liệu R2 của Cloudflare, đối chiếu ngày 2026-11-16. Giao diện Cloudflare có thể đổi tên nút. Nếu tên không khớp, hãy tìm theo mô tả trong tài liệu.
 
