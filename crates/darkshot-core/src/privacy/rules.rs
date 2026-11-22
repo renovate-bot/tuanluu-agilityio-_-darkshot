@@ -36,6 +36,7 @@ pub fn strip_rules(bgra: &[u8], width: u32, height: u32) -> Option<Image> {
         copy: None,
         w,
         h,
+        writes: 0,
     };
     horizontal(&mut buf);
     vertical(&mut buf);
@@ -52,6 +53,8 @@ struct Buf<'a> {
     copy: Option<Vec<u8>>,
     w: usize,
     h: usize,
+    /// Số điểm đã ghi (để biết khi nào phải đọc lại độ sáng).
+    writes: usize,
 }
 
 impl Buf<'_> {
@@ -86,6 +89,7 @@ impl Buf<'_> {
         let src = self.src;
         let d = self.copy.get_or_insert_with(|| src.to_vec());
         d[i..i + 4].copy_from_slice(&v);
+        self.writes += 1;
     }
 }
 
@@ -217,7 +221,8 @@ fn clear_v(b: &mut Buf, r: Run, x0: usize, t: usize) {
 }
 
 /// Đường ngang: mỗi hàng đầu `y0`, chạy dọc hàng, một đường đang dựng cho mỗi độ dày. Độ sáng
-/// đọc từ vòng `RING` hàng (dựng một lần mỗi hàng, từ ảnh lúc đó).
+/// đọc từ vòng `RING` hàng; hàng nào vừa bị xóa đường kẻ thì đọc lại (không để hàng sau so với
+/// đường đã xóa, ví dụ kẻ đôi).
 fn horizontal(b: &mut Buf) {
     if b.w < MIN_LEN {
         return;
@@ -233,15 +238,13 @@ fn horizontal(b: &mut Buf) {
         }
         let tmax = MAX_THICK.min(b.h - y0);
         let mut runs = [Run::default(); MAX_THICK];
-        // Lọc nhanh: điểm đầu dải phải tương phản với hàng trên (hàng dưới khi ở mép trên).
-        let side = match (y0.checked_sub(1), y0 + 1 < b.h) {
-            (Some(y), _) => y,
-            (None, true) => y0 + 1,
-            (None, false) => continue,
-        };
-        let (cur, near) = (&ring[y0 % RING], &ring[side % RING]);
+        let before = b.writes;
+        // Lọc nhanh: điểm đầu dải phải tương phản với hàng trên. Ở mép trên không lọc (dải dày
+        // 2–3 px sát mép không có hàng nào để so ngoài chính nó).
+        let above = y0.checked_sub(1);
+        let (cur, near) = (&ring[y0 % RING], above.map(|y| &ring[y % RING]));
         for x in 0..b.w {
-            if (cur[x] - near[x]).abs() < MIN_CONTRAST {
+            if near.is_some_and(|n| (cur[x] - n[x]).abs() < MIN_CONTRAST) {
                 continue;
             }
             for t in 1..=tmax {
@@ -255,29 +258,38 @@ fn horizontal(b: &mut Buf) {
         for t in 1..=tmax {
             clear_h(b, &ring, runs[t - 1], y0, t);
         }
+        if b.writes != before {
+            for y in y0..y0 + tmax {
+                b.lum_row(y, &mut ring[y % RING]);
+            }
+        }
     }
 }
 
-/// Đường dọc: chạy theo hàng (đọc ảnh theo thứ tự bộ nhớ), giữ một đường đang dựng mỗi cột và độ dày.
+/// Đường dọc: dò theo hàng (đọc ảnh theo thứ tự bộ nhớ), giữ một đường đang dựng mỗi cột và độ
+/// dày. Các đường tìm được chỉ được xóa ở cuối, từ trái sang phải, mỗi điểm dò lại trên ảnh lúc
+/// đó: khe sáng giữa hai đường tối (kẻ đôi) không còn là "đường" khi đường bên trái đã bị xóa.
 fn vertical(b: &mut Buf) {
-    if b.h < MIN_LEN || b.w < 2 {
+    if b.h < MIN_LEN {
         return;
     }
     let mut runs = vec![Run::default(); b.w * MAX_THICK];
+    let mut found: Vec<(usize, usize, Run)> = Vec::new();
     let mut row = Vec::with_capacity(b.w);
     for y in 0..b.h {
         b.lum_row(y, &mut row);
         for x0 in 0..b.w {
-            // Lọc nhanh: điểm đầu dải phải tương phản với điểm bên trái (bên phải khi ở mép trái).
-            let near = if x0 > 0 { row[x0 - 1] } else { row[1] };
-            if (row[x0] - near).abs() < MIN_CONTRAST {
+            // Lọc nhanh: điểm đầu dải phải tương phản với điểm bên trái. Ở mép trái không lọc.
+            if x0 > 0 && (row[x0] - row[x0 - 1]).abs() < MIN_CONTRAST {
                 continue;
             }
             for t in 1..=MAX_THICK.min(b.w - x0) {
                 if v_band(&row, x0, t) {
                     let slot = x0 * MAX_THICK + t - 1;
                     if let Some(old) = runs[slot].hit(y) {
-                        clear_v(b, old, x0, t);
+                        if old.is_rule() {
+                            found.push((x0, t, old));
+                        }
                     }
                 }
             }
@@ -286,8 +298,14 @@ fn vertical(b: &mut Buf) {
     for x0 in 0..b.w {
         for t in 1..=MAX_THICK.min(b.w - x0) {
             let r = runs[x0 * MAX_THICK + t - 1];
-            clear_v(b, r, x0, t);
+            if r.is_rule() {
+                found.push((x0, t, r));
+            }
         }
+    }
+    found.sort_by_key(|&(x0, t, r)| (x0, t, r.start));
+    for (x0, t, r) in found {
+        clear_v(b, r, x0, t);
     }
 }
 
@@ -447,6 +465,38 @@ mod tests {
         c.rect(0, 0, 1, 100, BLACK);
         c.rect(199, 0, 1, 100, BLACK);
         assert!(all(&c.strip().expect("edge rules"), WHITE));
+    }
+
+    #[test]
+    fn thick_rules_on_top_and_left_edges_are_removed() {
+        for t in 2..=3 {
+            let mut c = Canvas::new(200, 100, WHITE);
+            c.rect(0, 0, 200, t, BLACK);
+            assert!(all(&c.strip().expect("top edge"), WHITE), "top {t}");
+            let mut c = Canvas::new(200, 100, WHITE);
+            c.rect(0, 0, t, 100, BLACK);
+            assert!(all(&c.strip().expect("left edge"), WHITE), "left {t}");
+        }
+    }
+
+    #[test]
+    fn double_rules_leave_no_gray_stripe() {
+        // Hai đường 1 px cách một hàng/cột trắng.
+        let mut c = Canvas::new(200, 60, WHITE);
+        c.rect(0, 20, 200, 1, BLACK);
+        c.rect(0, 22, 200, 1, BLACK);
+        assert!(all(&c.strip().expect("double h"), WHITE));
+        let mut c = Canvas::new(60, 200, WHITE);
+        c.rect(20, 0, 1, 200, BLACK);
+        c.rect(22, 0, 1, 200, BLACK);
+        assert!(all(&c.strip().expect("double v"), WHITE));
+        // Đường dọc kép ngắt quãng (mỗi cột đóng đường ở thời điểm khác nhau).
+        let mut c = Canvas::new(60, 300, WHITE);
+        c.rect(20, 0, 1, 120, BLACK);
+        c.rect(22, 0, 1, 200, BLACK);
+        c.rect(20, 150, 1, 150, BLACK);
+        c.rect(22, 230, 1, 70, BLACK);
+        assert!(all(&c.strip().expect("double v broken"), WHITE));
     }
 
     #[test]
