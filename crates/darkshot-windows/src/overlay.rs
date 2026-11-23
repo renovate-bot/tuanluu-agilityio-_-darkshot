@@ -77,8 +77,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
     SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE,
     WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSEXW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-overlay");
@@ -165,11 +165,21 @@ const MAX_FOCUS_RETRIES: u32 = 5;
 /// Mất tiêu điểm trong chừng này ms sau lần nhấn Alt/Win thì coi là người dùng chủ động chuyển
 /// (Alt+Tab, Start mở khi nhả phím Win); ngoài ra là chương trình khác tự giành (Task 142).
 const SWITCH_KEY_WINDOW_MS: u64 = 1500;
+/// Trần số lần giữ lớp phủ và lấy lại tiêu điểm trong một phiên; vượt thì hủy như trước Task 142.
+const MAX_FOCUS_RECOVERIES: u32 = 20;
 
 /// Mất tiêu điểm có hủy lớp phủ không: chỉ khi người dùng chủ động chuyển cửa sổ (Alt/Win đang giữ,
 /// hoặc vừa nhấn trong `SWITCH_KEY_WINDOW_MS`). Cửa sổ khác tự giành thoáng qua thì không hủy.
-fn deactivation_cancels(switch_key_down: bool, since_switch_key_ms: Option<u64>) -> bool {
-    switch_key_down || since_switch_key_ms.is_some_and(|ms| ms <= SWITCH_KEY_WINDOW_MS)
+/// `recoveries`: số lần đã giữ lớp phủ trong phiên này; đủ `MAX_FOCUS_RECOVERIES` thì hủy như cũ để
+/// không giằng co vô hạn với chương trình khác.
+fn deactivation_cancels(
+    switch_key_down: bool,
+    since_switch_key_ms: Option<u64>,
+    recoveries: u32,
+) -> bool {
+    switch_key_down
+        || since_switch_key_ms.is_some_and(|ms| ms <= SWITCH_KEY_WINDOW_MS)
+        || recoveries >= MAX_FOCUS_RECOVERIES
 }
 
 /// Phím chuyển cửa sổ của hệ thống: Alt (mọi biến thể) hoặc Win.
@@ -180,10 +190,10 @@ fn is_switch_key(vk: u16) -> bool {
 }
 
 fn switch_key_down_now() -> bool {
-    [VK_MENU, VK_LWIN, VK_RWIN]
-        .iter()
-        // SAFETY: chỉ đọc trạng thái phím; bit cao = đang giữ.
-        .any(|k| unsafe { GetAsyncKeyState(i32::from(k.0)) } < 0)
+    // SAFETY: chỉ đọc trạng thái phím; bit cao (số âm) = đang giữ.
+    let held = |k: VIRTUAL_KEY| unsafe { GetAsyncKeyState(i32::from(k.0)) } < 0;
+    // Ctrl+Esc (Start) và Ctrl+Shift+Esc (Trình quản lý tác vụ) cũng là chuyển chủ động.
+    [VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(held) || (held(VK_CONTROL) && held(VK_ESCAPE))
 }
 /// Bộ hẹn giờ nháy con trỏ của ô chữ.
 const CARET_TIMER_ID: usize = 2;
@@ -1182,6 +1192,19 @@ fn ime_composing(hwnd: HWND) -> bool {
     }
 }
 
+/// Hủy chuỗi soạn dở của bộ gõ trên `hwnd`, không đụng cửa sổ soạn.
+fn ime_cancel_composition(hwnd: HWND) {
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ngay.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return;
+        }
+        let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        let _ = ImmReleaseContext(hwnd, himc);
+    }
+}
+
 /// Kết thúc chuỗi soạn dở của bộ gõ trên `hwnd` khi ô chữ đóng. `keep`: trả chuỗi đang soạn để
 /// chèn thẳng vào ô cũ (hoàn tất); không thì bỏ. Chuỗi soạn luôn được xóa bằng `CPS_CANCEL`, nên bộ
 /// gõ không gửi thêm WM_CHAR sau đó (sẽ rơi vào ô mới hoặc mất). Đặt lại cửa sổ soạn về
@@ -1443,6 +1466,8 @@ struct State {
     back: Option<BackBuffer>,
     /// Số lần đã thử lại giành tiêu điểm.
     focus_retries: u32,
+    /// Số lần đã giữ lớp phủ khi mất tiêu điểm (trần `MAX_FOCUS_RECOVERIES`).
+    focus_recoveries: u32,
     /// Lần nhấn Alt/Win gần nhất (Task 142).
     switch_key_at: Option<std::time::Instant>,
     monitors: Vec<Rect>,
@@ -3013,7 +3038,11 @@ impl State {
         } else if self.palette {
             self.close_palette();
         } else if self.text.is_some() {
-            if !ime_composing(self.hwnd) {
+            if ime_composing(self.hwnd) {
+                // Esc toàn cục có thể đang đăng ký (đường thoát khi mất tiêu điểm) nên bộ gõ không
+                // nhận được Esc: tự hủy chuỗi soạn, ô chữ giữ nguyên; Esc sau đó đóng ô.
+                ime_cancel_composition(self.hwnd);
+            } else {
                 self.close_text(false);
             }
         } else if self.gesture.is_some() {
@@ -5047,15 +5076,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_KEYDOWN => {
-            if is_switch_key(wp.0 as u16) {
+            if is_switch_key(wp.0 as u16)
+                || (wp.0 == usize::from(VK_ESCAPE.0) && key_held(VK_CONTROL))
+            {
                 with_state(|s| s.switch_key_at = Some(std::time::Instant::now()));
             }
             with_state(|s| s.on_key(wp.0 as u16, key_repeat(lp)));
             release_if_idle(hwnd);
             LRESULT(0)
         }
-        WM_KEYUP => {
-            if wp.0 == usize::from(VK_SHIFT.0) {
+        WM_KEYUP | WM_SYSKEYUP => {
+            if is_switch_key(wp.0 as u16) {
+                // Start mở khi nhả phím Win: nhớ cả lần nhả.
+                with_state(|s| s.switch_key_at = Some(std::time::Instant::now()));
+            }
+            if msg == WM_KEYUP && wp.0 == usize::from(VK_SHIFT.0) {
                 with_state(|s| s.shift_changed(false));
             }
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
@@ -5092,10 +5127,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     let since = s
                         .switch_key_at
                         .map(|t| t.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
-                    if deactivation_cancels(down, since) {
+                    if deactivation_cancels(down, since, s.focus_recoveries) {
                         s.result = Some(None);
                     } else {
                         s.focus_retries = 0;
+                        s.focus_recoveries += 1;
                         rearm = true;
                     }
                 });
@@ -5124,7 +5160,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             })
             .unwrap_or(MAX_FOCUS_RETRIES);
             // Gọi ngoài lúc mượn trạng thái: SetForegroundWindow gửi WM_ACTIVATE đồng bộ.
-            if take_focus(hwnd) || tries >= MAX_FOCUS_RETRIES {
+            let regained = take_focus(hwnd);
+            if !regained && tries >= MAX_FOCUS_RETRIES {
+                // Không lấy lại được: luôn còn đường thoát bằng phím (Esc toàn cục có thể đang gỡ
+                // vì ô chữ mở; escape() tự hủy chuỗi soạn IME dở).
+                with_state(|s| s.set_esc_hotkey(true));
+            }
+            if regained || tries >= MAX_FOCUS_RETRIES {
                 // SAFETY: hủy bộ hẹn giờ của chính cửa sổ này.
                 unsafe {
                     let _ = KillTimer(Some(hwnd), FOCUS_TIMER_ID);
@@ -5290,6 +5332,7 @@ impl State {
             dark,
             back: BackBuffer::new(w, h),
             focus_retries: 0,
+            focus_recoveries: 0,
             switch_key_at: None,
             monitors: shot.monitors.clone(),
             dpis,
@@ -5774,14 +5817,21 @@ mod tests {
     #[test]
     fn deactivation_rule_cancels_only_on_user_switch() {
         // Alt/Win đang giữ: hủy.
-        assert!(deactivation_cancels(true, None));
-        assert!(deactivation_cancels(true, Some(99_999)));
+        assert!(deactivation_cancels(true, None, 0));
+        assert!(deactivation_cancels(true, Some(99_999), 0));
         // Vừa nhấn trong cửa sổ thời gian (kể cả biên): hủy.
-        assert!(deactivation_cancels(false, Some(0)));
-        assert!(deactivation_cancels(false, Some(SWITCH_KEY_WINDOW_MS)));
+        assert!(deactivation_cancels(false, Some(0), 0));
+        assert!(deactivation_cancels(false, Some(SWITCH_KEY_WINDOW_MS), 0));
         // Ngoài cửa sổ hoặc chưa từng nhấn: không hủy.
-        assert!(!deactivation_cancels(false, Some(SWITCH_KEY_WINDOW_MS + 1)));
-        assert!(!deactivation_cancels(false, None));
+        assert!(!deactivation_cancels(
+            false,
+            Some(SWITCH_KEY_WINDOW_MS + 1),
+            0
+        ));
+        assert!(!deactivation_cancels(false, None, 0));
+        // Trần phục hồi: lần thứ MAX - 1 còn giữ, đủ MAX thì hủy.
+        assert!(!deactivation_cancels(false, None, MAX_FOCUS_RECOVERIES - 1));
+        assert!(deactivation_cancels(false, None, MAX_FOCUS_RECOVERIES));
         // Chỉ Alt/Win là phím chuyển.
         assert!(is_switch_key(VK_MENU.0) && is_switch_key(VK_LWIN.0) && is_switch_key(VK_RWIN.0));
         assert!(is_switch_key(VK_LMENU.0) && is_switch_key(VK_RMENU.0));
