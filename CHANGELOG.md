@@ -4,6 +4,10 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+
+- Lớp phủ chọn vùng không còn tự đóng khi một chương trình khác giành tiêu điểm thoáng qua (ví dụ phần mềm màn hình hay chuột chạy nền, tự hiện một cửa sổ vài chục mili giây): lớp phủ giữ vùng chọn và nét vẽ rồi lấy lại tiêu điểm. Alt+Tab và phím Win vẫn đóng lớp phủ như trước.
+
 ## [0.6.1] - 2026-11-23
 
 ### Mới
