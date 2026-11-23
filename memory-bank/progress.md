@@ -144,6 +144,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 139 Tùy chọn: dải tab có khoảng cách, ảnh website Tùy chọn, website "kiểm tra bản mới" mặc định bật | task/139-options-tab-spacing | builder | sonnet | xong | 117.546 | 70.982 (reviewer opus) | 13.468 | 201.996 |
 | 140 Hướng dẫn đăng ký Cloudflare R2 và cấu hình darkshot (VI/EN, hình SVG + ảnh thật tab R2) | task/140-r2-setup-guide | scaffolder | sonnet | xong | 115.619 | 53.474 (reviewer sonnet) | – | 169.093 |
 | 141 Phát hành v0.6.1 | task/141-release-0.6.1 | phiên chính | opus | xong | không đo | | | |
+| 142 Lớp phủ không tự hủy khi chương trình khác giành tiêu điểm thoáng qua (tiện ích Lenovo `MaskWnd`) | task/142-overlay-focus-steal | builder | sonnet | xong | 92.254 | 68.977 (reviewer opus) | 105.428 | 266.659 |
 
 Task 127–135 là đợt 21 (kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`), chạy trên nhánh `feature/privacy-shield`; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22). Trước khi làm: rà đường xuất (Explore) 156.291, đọc thử thiết kế 74.289. Cộng agent con: 3.851.873 (làm 1.962.929; rà soát 1.466.243 gồm rà soát bảo mật Task 131 và rà soát toàn đợt; sửa 192.121; trước khi làm 230.580). Theo model: opus 1.782.544 (làm/sửa 127, 128, 129, 130, 132, 133, 135; rà soát bảo mật 131); fable 1.723.402 (Task 131 làm/sửa, mọi rà soát còn lại); sonnet 115.347 (Task 134); chưa rõ model (Explore, đọc thử) 230.580.
 

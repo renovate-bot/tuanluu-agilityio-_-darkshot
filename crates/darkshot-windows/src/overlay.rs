@@ -63,10 +63,10 @@ use windows::Win32::UI::Input::Ime::{
     CPS_CANCEL, GCS_COMPSTR, NI_COMPOSITIONSTR,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetCapture, GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture, SetFocus,
-    UnregisterHotKey, MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
-    VK_ESCAPE, VK_HOME, VK_LEFT, VK_MENU, VK_OEM_4, VK_OEM_6, VK_RETURN, VK_RIGHT, VK_SHIFT,
-    VK_TAB, VK_UP,
+    GetAsyncKeyState, GetCapture, GetKeyState, RegisterHotKey, ReleaseCapture, SetCapture,
+    SetFocus, UnregisterHotKey, MOD_NOREPEAT, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN,
+    VK_END, VK_ESCAPE, VK_HOME, VK_LEFT, VK_LMENU, VK_LWIN, VK_MENU, VK_OEM_4, VK_OEM_6, VK_RETURN,
+    VK_RIGHT, VK_RMENU, VK_RWIN, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -77,8 +77,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, MSG, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
     SWP_NOACTIVATE, SWP_NOZORDER, SW_SHOW, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CHAR, WM_CLOSE,
     WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_SETCURSOR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_TIMER,
+    WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS: PCWSTR = w!("darkshot-overlay");
@@ -162,6 +162,39 @@ const ESC_HOTKEY_ID: i32 = 0x0E5C;
 const FOCUS_TIMER_ID: usize = 1;
 const FOCUS_RETRY_MS: u32 = 100;
 const MAX_FOCUS_RETRIES: u32 = 5;
+/// Mất tiêu điểm trong chừng này ms sau lần nhấn Alt/Win thì coi là người dùng chủ động chuyển
+/// (Alt+Tab, Start mở khi nhả phím Win); ngoài ra là chương trình khác tự giành (Task 142).
+const SWITCH_KEY_WINDOW_MS: u64 = 1500;
+/// Trần số lần giữ lớp phủ và lấy lại tiêu điểm trong một phiên; vượt thì hủy như trước Task 142.
+const MAX_FOCUS_RECOVERIES: u32 = 20;
+
+/// Mất tiêu điểm có hủy lớp phủ không: chỉ khi người dùng chủ động chuyển cửa sổ (Alt/Win đang giữ,
+/// hoặc vừa nhấn trong `SWITCH_KEY_WINDOW_MS`). Cửa sổ khác tự giành thoáng qua thì không hủy.
+/// `recoveries`: số lần đã giữ lớp phủ trong phiên này; đủ `MAX_FOCUS_RECOVERIES` thì hủy như cũ để
+/// không giằng co vô hạn với chương trình khác.
+fn deactivation_cancels(
+    switch_key_down: bool,
+    since_switch_key_ms: Option<u64>,
+    recoveries: u32,
+) -> bool {
+    switch_key_down
+        || since_switch_key_ms.is_some_and(|ms| ms <= SWITCH_KEY_WINDOW_MS)
+        || recoveries >= MAX_FOCUS_RECOVERIES
+}
+
+/// Phím chuyển cửa sổ của hệ thống: Alt (mọi biến thể) hoặc Win.
+fn is_switch_key(vk: u16) -> bool {
+    [VK_MENU, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN]
+        .iter()
+        .any(|k| k.0 == vk)
+}
+
+fn switch_key_down_now() -> bool {
+    // SAFETY: chỉ đọc trạng thái phím; bit cao (số âm) = đang giữ.
+    let held = |k: VIRTUAL_KEY| unsafe { GetAsyncKeyState(i32::from(k.0)) } < 0;
+    // Ctrl+Esc (Start) và Ctrl+Shift+Esc (Trình quản lý tác vụ) cũng là chuyển chủ động.
+    [VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(held) || (held(VK_CONTROL) && held(VK_ESCAPE))
+}
 /// Bộ hẹn giờ nháy con trỏ của ô chữ.
 const CARET_TIMER_ID: usize = 2;
 /// Khung nét đứt quanh ô chữ: cách chữ, rộng tối thiểu khi ô rỗng, nét và khe (DIP).
@@ -1159,6 +1192,19 @@ fn ime_composing(hwnd: HWND) -> bool {
     }
 }
 
+/// Hủy chuỗi soạn dở của bộ gõ trên `hwnd`, không đụng cửa sổ soạn.
+fn ime_cancel_composition(hwnd: HWND) {
+    // SAFETY: ngữ cảnh IME của cửa sổ luồng này, trả lại ngay.
+    unsafe {
+        let himc = ImmGetContext(hwnd);
+        if himc.is_invalid() {
+            return;
+        }
+        let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        let _ = ImmReleaseContext(hwnd, himc);
+    }
+}
+
 /// Kết thúc chuỗi soạn dở của bộ gõ trên `hwnd` khi ô chữ đóng. `keep`: trả chuỗi đang soạn để
 /// chèn thẳng vào ô cũ (hoàn tất); không thì bỏ. Chuỗi soạn luôn được xóa bằng `CPS_CANCEL`, nên bộ
 /// gõ không gửi thêm WM_CHAR sau đó (sẽ rơi vào ô mới hoặc mất). Đặt lại cửa sổ soạn về
@@ -1420,6 +1466,10 @@ struct State {
     back: Option<BackBuffer>,
     /// Số lần đã thử lại giành tiêu điểm.
     focus_retries: u32,
+    /// Số lần đã giữ lớp phủ khi mất tiêu điểm (trần `MAX_FOCUS_RECOVERIES`).
+    focus_recoveries: u32,
+    /// Lần nhấn Alt/Win gần nhất (Task 142).
+    switch_key_at: Option<std::time::Instant>,
     monitors: Vec<Rect>,
     dpis: Vec<u32>,
     sel: Selection,
@@ -2988,7 +3038,11 @@ impl State {
         } else if self.palette {
             self.close_palette();
         } else if self.text.is_some() {
-            if !ime_composing(self.hwnd) {
+            if ime_composing(self.hwnd) {
+                // Esc toàn cục có thể đang đăng ký (đường thoát khi mất tiêu điểm) nên bộ gõ không
+                // nhận được Esc: tự hủy chuỗi soạn, ô chữ giữ nguyên; Esc sau đó đóng ô.
+                ime_cancel_composition(self.hwnd);
+            } else {
                 self.close_text(false);
             }
         } else if self.gesture.is_some() {
@@ -5022,12 +5076,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             LRESULT(0)
         }
         WM_KEYDOWN => {
+            if is_switch_key(wp.0 as u16)
+                || (wp.0 == usize::from(VK_ESCAPE.0) && key_held(VK_CONTROL))
+            {
+                with_state(|s| s.switch_key_at = Some(std::time::Instant::now()));
+            }
             with_state(|s| s.on_key(wp.0 as u16, key_repeat(lp)));
             release_if_idle(hwnd);
             LRESULT(0)
         }
-        WM_KEYUP => {
-            if wp.0 == usize::from(VK_SHIFT.0) {
+        WM_KEYUP | WM_SYSKEYUP => {
+            if is_switch_key(wp.0 as u16) {
+                // Start mở khi nhả phím Win: nhớ cả lần nhả.
+                with_state(|s| s.switch_key_at = Some(std::time::Instant::now()));
+            }
+            if msg == WM_KEYUP && wp.0 == usize::from(VK_SHIFT.0) {
                 with_state(|s| s.shift_changed(false));
             }
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
@@ -5044,14 +5107,40 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             with_state(|s| s.blink());
             LRESULT(0)
         }
+        WM_SYSKEYDOWN => {
+            if is_switch_key(wp.0 as u16) {
+                with_state(|s| s.switch_key_at = Some(std::time::Instant::now()));
+            }
+            // SAFETY: chuyển nguyên tham số cho xử lý mặc định (Alt+Tab, Alt+F4...).
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
         WM_ACTIVATE => {
-            // WA_INACTIVE = 0: mất tiêu điểm (Alt+Tab, Win...) thì hủy.
+            // WA_INACTIVE = 0: mất tiêu điểm. Người dùng chủ động chuyển (Alt+Tab, Win) thì hủy;
+            // chương trình khác tự giành thoáng qua thì giữ lớp phủ và lấy lại tiêu điểm (Task 142).
             if wp.0 & 0xFFFF == 0 {
+                let down = switch_key_down_now();
+                let mut rearm = false;
                 with_state(|s| {
-                    if s.result.is_none() {
+                    if s.result.is_some() {
+                        return;
+                    }
+                    let since = s
+                        .switch_key_at
+                        .map(|t| t.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+                    if deactivation_cancels(down, since, s.focus_recoveries) {
                         s.result = Some(None);
+                    } else {
+                        s.focus_retries = 0;
+                        s.focus_recoveries += 1;
+                        rearm = true;
                     }
                 });
+                if rearm {
+                    // SAFETY: hẹn giờ của chính cửa sổ; không giành tiêu điểm ngay trong WM_ACTIVATE.
+                    unsafe {
+                        SetTimer(Some(hwnd), FOCUS_TIMER_ID, FOCUS_RETRY_MS, None);
+                    }
+                }
             }
             // Xử lý mặc định đặt tiêu điểm bàn phím vào cửa sổ khi được kích hoạt.
             // SAFETY: chuyển nguyên tham số cho xử lý mặc định.
@@ -5071,7 +5160,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             })
             .unwrap_or(MAX_FOCUS_RETRIES);
             // Gọi ngoài lúc mượn trạng thái: SetForegroundWindow gửi WM_ACTIVATE đồng bộ.
-            if take_focus(hwnd) || tries >= MAX_FOCUS_RETRIES {
+            let regained = take_focus(hwnd);
+            if !regained && tries >= MAX_FOCUS_RETRIES {
+                // Không lấy lại được: luôn còn đường thoát bằng phím (Esc toàn cục có thể đang gỡ
+                // vì ô chữ mở; escape() tự hủy chuỗi soạn IME dở).
+                with_state(|s| s.set_esc_hotkey(true));
+            }
+            if regained || tries >= MAX_FOCUS_RETRIES {
                 // SAFETY: hủy bộ hẹn giờ của chính cửa sổ này.
                 unsafe {
                     let _ = KillTimer(Some(hwnd), FOCUS_TIMER_ID);
@@ -5237,6 +5332,8 @@ impl State {
             dark,
             back: BackBuffer::new(w, h),
             focus_retries: 0,
+            focus_recoveries: 0,
+            switch_key_at: None,
             monitors: shot.monitors.clone(),
             dpis,
             sel: Selection::with_rect(Rect { x: 0, y: 0, w, h }, initial),
@@ -5715,6 +5812,195 @@ mod tests {
         assert!(!blit_in_bounds(r(0, 0, 10, 10), 100, 50, full - 1));
         // tràn số khi cộng
         assert!(!blit_in_bounds(r(i32::MAX, 0, 10, 10), 100, 50, full));
+    }
+
+    #[test]
+    fn deactivation_rule_cancels_only_on_user_switch() {
+        // Alt/Win đang giữ: hủy.
+        assert!(deactivation_cancels(true, None, 0));
+        assert!(deactivation_cancels(true, Some(99_999), 0));
+        // Vừa nhấn trong cửa sổ thời gian (kể cả biên): hủy.
+        assert!(deactivation_cancels(false, Some(0), 0));
+        assert!(deactivation_cancels(false, Some(SWITCH_KEY_WINDOW_MS), 0));
+        // Ngoài cửa sổ hoặc chưa từng nhấn: không hủy.
+        assert!(!deactivation_cancels(
+            false,
+            Some(SWITCH_KEY_WINDOW_MS + 1),
+            0
+        ));
+        assert!(!deactivation_cancels(false, None, 0));
+        // Trần phục hồi: lần thứ MAX - 1 còn giữ, đủ MAX thì hủy.
+        assert!(!deactivation_cancels(false, None, MAX_FOCUS_RECOVERIES - 1));
+        assert!(deactivation_cancels(false, None, MAX_FOCUS_RECOVERIES));
+        // Chỉ Alt/Win là phím chuyển.
+        assert!(is_switch_key(VK_MENU.0) && is_switch_key(VK_LWIN.0) && is_switch_key(VK_RWIN.0));
+        assert!(is_switch_key(VK_LMENU.0) && is_switch_key(VK_RMENU.0));
+        assert!(!is_switch_key(VK_ESCAPE.0) && !is_switch_key(VK_SHIFT.0));
+    }
+
+    /// Một cửa sổ của chính tiến trình (luồng khác) giành tiêu điểm thoáng qua như `MaskWnd`.
+    /// `alt_first`: đăng WM_SYSKEYDOWN VK_MENU vào lớp phủ trước khi giành (người dùng chủ động).
+    /// Không giả lập chuột/phím thật: chỉ PostMessage vào cửa sổ của tiến trình kiểm thử.
+    /// Trả (kết quả, lớp phủ có lấy lại tiêu điểm không, vùng đã chọn).
+    fn focus_steal_run(alt_first: bool) -> (Result<Option<Picked>, String>, Option<bool>, Rect) {
+        use crate::capture::capture_virtual_screen;
+        use std::sync::atomic::{AtomicU8, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+        use windows::Win32::UI::HiDpi::{
+            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WS_VISIBLE};
+
+        // SAFETY: như ứng dụng thật (manifest PerMonitorV2), áp cho luồng kiểm thử.
+        unsafe {
+            SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        let shot = capture_virtual_screen(false).unwrap();
+        let m0 = shot.monitors[0];
+        let (a, b) = (
+            Point {
+                x: m0.x + 100,
+                y: m0.y + 100,
+            },
+            Point {
+                x: m0.x + 400,
+                y: m0.y + 300,
+            },
+        );
+        let sel = Rect::from_points(a, b);
+        let corner = Point {
+            x: sel.right() - 1,
+            y: sel.bottom() - 1,
+        };
+        let mon = monitor_containing(corner, &shot.monitors);
+        let dpi = monitor_dpi_at(POINT {
+            x: shot.origin.x + mon.x + mon.w / 2,
+            y: shot.origin.y + mon.y + mon.h / 2,
+        });
+        let (bar, _) = bars_for(sel, mon, dpi);
+        let save_btn = bar_item_rect(bar, dpi, BarItem::Act(Action::Save)).unwrap();
+        let save = Point {
+            x: save_btn.x + save_btn.w / 2,
+            y: save_btn.y + save_btn.h / 2,
+        };
+        // 0: chưa biết, 1: lấy lại tiêu điểm, 2: không.
+        let regained = Arc::new(AtomicU8::new(0));
+        let regained_t = Arc::clone(&regained);
+        let driver = std::thread::spawn(move || {
+            let lp = |p: Point| LPARAM(((p.y as isize & 0xFFFF) << 16) | (p.x as isize & 0xFFFF));
+            for _ in 0..50 {
+                std::thread::sleep(Duration::from_millis(100));
+                // SAFETY: tìm cửa sổ lớp phủ theo tên lớp, chỉ đăng thông điệp vào nó.
+                let Ok(h) = (unsafe { FindWindowW(CLASS, None) }) else {
+                    continue;
+                };
+                let post = |m: u32, wp: usize, l: LPARAM| {
+                    // SAFETY: đăng thông điệp vào hàng đợi của cửa sổ còn sống.
+                    let _ = unsafe { PostMessageW(Some(h), m, WPARAM(wp), l) };
+                };
+                post(WM_LBUTTONDOWN, 1, lp(a));
+                post(WM_MOUSEMOVE, 1, lp(b));
+                post(WM_LBUTTONUP, 0, lp(b));
+                std::thread::sleep(Duration::from_millis(300));
+                if alt_first {
+                    post(WM_SYSKEYDOWN, usize::from(VK_MENU.0), LPARAM(0));
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                // Cửa sổ cấp cao nhỏ trên luồng riêng (hàng đợi nhập riêng), giành rồi tự hủy.
+                // SAFETY: chỉ hỏi cửa sổ đang ở trước.
+                let was_fg = unsafe { GetForegroundWindow() } == h;
+                // Khóa tiêu điểm có thể khiến lớp phủ chưa bao giờ ở trước trong kiểm thử; đăng
+                // thêm WM_ACTIVATE(WA_INACTIVE) để chắc chắn quy tắc được chạy.
+                post(WM_ACTIVATE, 0, LPARAM(0));
+                let thief = std::thread::spawn(|| {
+                    // SAFETY: cửa sổ STATIC của chính tiến trình, tạo và hủy trên cùng một luồng.
+                    unsafe {
+                        let Ok(t) = CreateWindowExW(
+                            WS_EX_TOOLWINDOW,
+                            w!("STATIC"),
+                            w!("thief"),
+                            WS_POPUP | WS_VISIBLE,
+                            0,
+                            0,
+                            50,
+                            50,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ) else {
+                            return;
+                        };
+                        let _ = SetForegroundWindow(t);
+                        std::thread::sleep(Duration::from_millis(50));
+                        let _ = DestroyWindow(t);
+                    }
+                });
+                let _ = thief.join();
+                std::thread::sleep(Duration::from_millis(1000));
+                // SAFETY: chỉ hỏi cửa sổ đang ở trước.
+                let fg = unsafe { GetForegroundWindow() };
+                // 3: lớp phủ chưa từng ở trước (khóa tiêu điểm) nên không có gì để lấy lại.
+                let code = if !was_fg {
+                    3
+                } else if fg == h {
+                    1
+                } else {
+                    2
+                };
+                regained_t.store(code, Ordering::SeqCst);
+                post(WM_MOUSEMOVE, 0, lp(save));
+                std::thread::sleep(Duration::from_millis(300));
+                post(WM_LBUTTONDOWN, 1, lp(save));
+                post(WM_LBUTTONUP, 0, lp(save));
+                return true;
+            }
+            false
+        });
+        let r = pick_region(&shot, None, &mut CustomColors::default(), false);
+        assert!(driver.join().unwrap(), "không thấy cửa sổ lớp phủ");
+        let got = match regained.load(Ordering::SeqCst) {
+            1 => Some(true),
+            2 => Some(false),
+            _ => None,
+        };
+        eprintln!("lấy lại tiêu điểm (None = lớp phủ chưa từng ở trước): {got:?}");
+        (r, got, sel)
+    }
+
+    /// Cửa sổ khác giành tiêu điểm thoáng qua, không có phím chuyển: lớp phủ còn mở, giữ vùng
+    /// chọn, lấy lại tiêu điểm; bấm Lưu vẫn trả đúng vùng.
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored"]
+    fn overlay_survives_transient_focus_steal() {
+        use crate::capture::GDI_TEST_LOCK;
+        let _gdi = GDI_TEST_LOCK.lock();
+        let (r, regained, sel) = focus_steal_run(false);
+        assert_eq!(
+            r,
+            Ok(Some(Picked {
+                action: Action::Save,
+                rect: sel,
+                shapes: Vec::new(),
+            }))
+        );
+        // Chỉ kiểm lấy lại tiêu điểm khi lớp phủ thật sự từng ở trước.
+        assert_ne!(
+            regained,
+            Some(false),
+            "lớp phủ không lấy lại được tiêu điểm"
+        );
+    }
+
+    /// Alt vừa nhấn rồi mất tiêu điểm: người dùng chủ động chuyển, lớp phủ hủy như cũ.
+    #[test]
+    #[ignore = "mở lớp phủ thật; chạy tay: cargo test -p darkshot-windows -- --ignored"]
+    fn overlay_cancels_when_alt_precedes_focus_loss() {
+        use crate::capture::GDI_TEST_LOCK;
+        let _gdi = GDI_TEST_LOCK.lock();
+        let (r, _, _) = focus_steal_run(true);
+        assert_eq!(r, Ok(None));
     }
 
     /// Mở lớp phủ thật, giả lập kéo khung rồi bấm nút Lưu (hoặc Esc), kiểm kết quả và
