@@ -143,6 +143,7 @@ Trạng thái: `chờ`, `đang làm`, `rà soát`, `xong`. Token là số do age
 | 138 Phát hành v0.6.0 | task/138-release-0.6.0 | phiên chính | opus | xong | không đo | | | |
 | 139 Tùy chọn: dải tab có khoảng cách, ảnh website Tùy chọn, website "kiểm tra bản mới" mặc định bật | task/139-options-tab-spacing | builder | sonnet | xong | 117.546 | 70.982 (reviewer opus) | 13.468 | 201.996 |
 | 140 Hướng dẫn đăng ký Cloudflare R2 và cấu hình darkshot (VI/EN, hình SVG + ảnh thật tab R2) | task/140-r2-setup-guide | scaffolder | sonnet | xong | 115.619 | 53.474 (reviewer sonnet) | – | 169.093 |
+| 141 Phát hành v0.6.1 | task/141-release-0.6.1 | phiên chính | opus | xong | không đo | | | |
 
 Task 127–135 là đợt 21 (kế hoạch `docs/superpowers/plans/2026-11-22-sensitive-info-redaction.md`), chạy trên nhánh `feature/privacy-shield`; chủ dự án duyệt demo và gộp `main` qua PR (2026-11-22). Trước khi làm: rà đường xuất (Explore) 156.291, đọc thử thiết kế 74.289. Cộng agent con: 3.851.873 (làm 1.962.929; rà soát 1.466.243 gồm rà soát bảo mật Task 131 và rà soát toàn đợt; sửa 192.121; trước khi làm 230.580). Theo model: opus 1.782.544 (làm/sửa 127, 128, 129, 130, 132, 133, 135; rà soát bảo mật 131); fable 1.723.402 (Task 131 làm/sửa, mọi rà soát còn lại); sonnet 115.347 (Task 134); chưa rõ model (Explore, đọc thử) 230.580.
 
@@ -235,3 +236,5 @@ Phát hành v0.4.0 (2026-11-18, task `73-release-0.4.0`, phiên điều phối t
 Phát hành v0.5.0 (2026-11-21, task `102-release-0.5.0`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, website (mục H Nhận dạng chữ, mục I Chụp từng bước và chụp cuộn), `check.ps1` ALL CHECKS PASSED, tag `v0.5.0`, GitHub release.
 
 Task 108 ảnh website (2026-11-21, nhánh `task/108-website-shots`): specialist opus làm kiểm thử chụp (134.588 token), reviewer sonnet duyệt (46.930 token; hai góp ý nhỏ không chặn: mutex cho `Profile` khi chạy song song, guard panic cho `webshot_steps`); phiên điều phối đổi WebP và sửa website. Tổng 181.518.
+
+Phát hành v0.6.1 (2026-11-23, task `141-release-0.6.1`, phiên điều phối tự làm, không agent con): nâng phiên bản, CHANGELOG, README, website (link hướng dẫn R2 ở mục Cài đặt), `check.ps1` ALL CHECKS PASSED, tag `v0.6.1`, GitHub release.

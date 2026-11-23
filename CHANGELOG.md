@@ -4,10 +4,22 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+## [0.6.1] - 2026-11-23
+
+### Mới
+
+- **Hướng dẫn đăng ký Cloudflare R2 từng bước có hình:** [docs/r2-setup.md](docs/r2-setup.md) (tiếng Việt) và [docs/r2-setup.en.md](docs/r2-setup.en.md) (English), từ tạo tài khoản, bật R2, tạo bucket, mở truy cập công khai, lấy Account ID và khóa API tới quy tắc tự xóa, kèm ảnh tab Lưu trữ R2 của darkshot. README và mục Cài đặt trên website trỏ tới hướng dẫn. Ứng dụng không đổi.
+
 ### Sửa lỗi
 
 - Dải tab của Tùy chọn có khoảng cách: chữ các tab (Thông thường, Phím tắt, Định dạng, Lưu trữ R2) không còn liền nhau, chữ đậm của tab đang chọn không sát tab kế bên, ở cả hai ngôn ngữ và mọi mức DPI.
 - Website: mục "Tự kiểm tra bản mới" ghi sai là mặc định tắt; thực tế mặc định bật (tắt được ở Tùy chọn → Thông thường). Ảnh Tùy chọn trên website được chụp lại.
+
+### Đã biết
+
+- Khoảng cách dải tab mới chỉ được đo ở DPI 150 %; chưa thử tay ở 100 %, 125 % và 200 %.
+- Cửa sổ Tùy chọn còn khoảng trống thừa dưới mô tả Lịch sử (tab Thông thường) và phía trên các nút.
+- Các mục "Đã biết" của 0.6.0 vẫn đúng.
 
 ## [0.6.0] - 2026-11-22
 
@@ -126,7 +138,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.0...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.3.0...v0.4.0

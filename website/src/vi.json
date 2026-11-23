@@ -278,7 +278,7 @@
   "in.4t": "Tìm ở khay hệ thống",
   "in.4d": "darkshot xuất hiện ở khay hệ thống của Windows. Bấm vào biểu tượng để mở menu, hoặc bấm PrintScreen.",
   "in.5t": "Thiết lập R2 (chỉ khi cần)",
-  "in.5d": "Mở Tùy chọn → Lưu trữ R2 để kết nối kho Cloudflare R2 của bạn cho việc tải lên đám mây.",
+  "in.5d": "Mở Tùy chọn → Lưu trữ R2 để kết nối kho Cloudflare R2 của bạn cho việc tải lên đám mây. <a href=\"https://github.com/tuanluu-agilityio/darkshot/blob/main/docs/r2-setup.md\" target=\"_blank\" rel=\"noopener\">Hướng dẫn cài đặt R2 từng bước</a>.",
   "in.note": "Lưu vào máy và chép vào clipboard không cần thông tin đăng nhập R2.",
   "in.readme": "Đọc README đầy đủ",
   "faq.eyebrow": "HỎI ĐÁP",
