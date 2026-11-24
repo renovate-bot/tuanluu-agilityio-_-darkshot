@@ -4,15 +4,21 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
-### Mới
-
-- Chụp cuộn: thanh chụp cuộn nói lý do khi một khung không ghép được: "Cuộn chậm hơn" (cuộn quá nhanh), "Cuộn xuống, không cuộn lên" (cuộn ngược) hoặc "Nội dung đang đổi — thử vùng hẹp hơn" (video, quảng cáo chạy hay phần tự đổi tại chỗ trong vùng). Trước đây mọi trường hợp đều hiện "Cuộn chậm hơn".
+## [0.6.2] - 2026-11-24
 
 ### Sửa lỗi
 
+- Chụp cuộn: thanh chụp cuộn nói đúng lý do khi một khung không ghép được: "Cuộn chậm hơn" (cuộn quá nhanh), "Cuộn xuống, không cuộn lên" (cuộn ngược) hoặc "Nội dung đang đổi — thử vùng hẹp hơn" (video, quảng cáo chạy hay phần tự đổi tại chỗ trong vùng). Trước đây mọi trường hợp đều hiện "Cuộn chậm hơn".
 - Chụp cuộn ghép được trang có cột đứng yên hai bên (ảnh nền hay quảng cáo cố định ở hai mép vùng chọn): trước đây mọi khung sau khung đầu bị bỏ. Chỉ các cột giống hệt khung đầu ở mọi khung mới được bỏ khỏi phép so và khỏi ảnh, nên ảnh có thể hẹp hơn vùng chọn; dải hẹp ở mép phải (chỗ thanh cuộn) luôn được giữ để không mất nội dung. Quảng cáo động hay đổi hình hai bên chưa được hỗ trợ. Thanh dính chỉ rộng một phần vùng và nội dung động (video, quảng cáo chạy) vẫn làm khung bị bỏ như trước.
 - Chụp cuộn vùng lớn không còn làm chậm thanh và ứng dụng: việc chụp vùng và ghép ảnh chạy trên một luồng nền riêng; luồng giao diện chỉ cập nhật thanh và nút. Hủy, Esc và thoát ứng dụng không phải chờ lượt chụp đang dở.
 - Lớp phủ chọn vùng không còn tự đóng khi một chương trình khác giành tiêu điểm thoáng qua (ví dụ phần mềm màn hình hay chuột chạy nền, tự hiện một cửa sổ vài chục mili giây): lớp phủ giữ vùng chọn và nét vẽ rồi lấy lại tiêu điểm. Alt+Tab, phím Win, Ctrl+Esc và Ctrl+Shift+Esc vẫn đóng lớp phủ; Esc luôn đóng được. Bị giành quá 20 lần trong một lần mở thì lớp phủ đóng như trước để không giành qua giành lại mãi. Win+L và hộp UAC có thể không đóng lớp phủ.
+
+### Đã biết
+
+- Chụp cuộn chưa ghép được trang có quảng cáo hay hình động ở hai bên vùng chọn (nhiều trang tin): khung bị bỏ với lời nhắc "Nội dung đang đổi — thử vùng hẹp hơn". Chọn vùng hẹp chỉ gồm cột nội dung, hoặc dùng chức năng chụp toàn trang của trình duyệt.
+- Thanh dính chỉ rộng một phần vùng chọn vẫn làm khung bị bỏ.
+- Bản sửa lớp phủ đã được thử với tiện ích chạy nền thật trên một máy; Win+L và hộp UAC có thể không đóng lớp phủ.
+- Các mục "Đã biết" của 0.6.1 vẫn đúng.
 
 ## [0.6.1] - 2026-11-23
 
@@ -148,7 +154,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.1...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.4.0...v0.5.0
