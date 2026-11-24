@@ -21,14 +21,25 @@ pub const MIN_OVERLAP_FRAC: f64 = 0.33;
 pub const MATCH_RATIO: f64 = 0.98;
 /// Số hàng phân biệt tối thiểu trong vùng chồng lấp đã khớp.
 pub const MIN_DISTINCT_ROWS: u32 = 8;
+/// Khung không khớp độ dịch nào mà tỉ lệ hàng chạy không đổi chỗ (d = 0, không kể hàng một màu ở
+/// cả hai khung) đạt mức này thì lý do là `Reason::Changed` thay vì `NoOverlap`. Đo (Task 145,
+/// `changed_ratio_measure`, 4 160 cú cuộn quá xa trên trang tổng hợp): cuộn quá xa cho tỉ lệ tối
+/// đa 0,000; hộp đổi chiếm 5% số hàng khung cho 0,75–0,90, 10% cho 0,52–0,80, 20% cho 0,13–0,61,
+/// 30% cho ≤ 0,44. Chọn 0,5 (nghiêng về `NoOverlap` khi không chắc: báo sai "nội dung đang đổi"
+/// khi người dùng cuộn quá nhanh tệ hơn lời nhắc cũ). Vùng đổi lớn hơn khoảng 15% khung vẫn ra
+/// `NoOverlap`. Chỉ đổi lời nhắc, không đổi khung bị bỏ hay được nối.
+pub const CHANGED_RATIO: f64 = 0.5;
 
 /// Lý do một khung không ghép được.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
     /// Nhiều độ dịch khớp gần như nhau, hoặc quá ít hàng phân biệt (nền một màu, nền lặp).
     Ambiguous,
-    /// Không còn chồng lấp đủ (cuộn quá nhanh) hoặc nội dung đổi không phải do cuộn.
+    /// Không còn chồng lấp đủ (cuộn quá nhanh hoặc quá xa).
     NoOverlap,
+    /// Nội dung không cuộn mà đổi tại chỗ (video, quảng cáo chạy): không khớp độ dịch nào, nhưng
+    /// ít nhất `CHANGED_RATIO` số hàng chạy giống hàng cùng vị trí của khung trước.
+    Changed,
     /// Nội dung bị cuộn lên.
     Backward,
     /// Khung khác cỡ với `Stitcher::new`, rỗng hoặc hỏng.
@@ -327,6 +338,32 @@ fn static_bands(prev: &Frame, cur: &Frame) -> (u32, u32) {
     (top as u32, bottom as u32)
 }
 
+/// Tỉ lệ hàng [`r0`, `r1`) của khung mới giống hàng cùng vị trí của khung trước, không kể hàng
+/// một màu giống nhau ở cả hai khung (nền trắng giữa các dòng chữ trùng nhau cả khi đã cuộn xa).
+/// `None` khi không còn hàng nào để so.
+fn unchanged_ratio(prev: &Frame, cur: &Frame, r0: usize, r1: usize) -> Option<f64> {
+    let (mut same, mut n) = (0u32, 0u32);
+    for y in r0..r1.min(cur.hash.len()).min(prev.hash.len()) {
+        let eq = cur.hash[y] == prev.hash[y];
+        if eq && cur.uniform[y] && prev.uniform[y] {
+            continue;
+        }
+        n += 1;
+        same += u32::from(eq);
+    }
+    (n > 0).then(|| f64::from(same) / f64::from(n))
+}
+
+/// Lý do cho khung không khớp độ dịch nào trên vùng chạy [`top`, `top + run_h`): `Changed` khi
+/// phần lớn hàng không đổi chỗ (nội dung đổi tại chỗ), còn lại `NoOverlap`.
+fn no_overlap_reason(prev: &Frame, cur: &Frame, top: u32, run_h: u32) -> Reason {
+    let (r0, r1) = (top as usize, (top + run_h) as usize);
+    match unchanged_ratio(prev, cur, r0, r1) {
+        Some(r) if r >= CHANGED_RATIO => Reason::Changed,
+        _ => Reason::NoOverlap,
+    }
+}
+
 /// Có độ dịch khác `d` mà cả khung (không bỏ dải tĩnh) khớp ≥ MATCH_RATIO − 0,005.
 fn other_shift_on_full_frame(prev: &Frame, cur: &Frame, d: u32) -> bool {
     let h = cur.hash.len() as u32;
@@ -565,7 +602,7 @@ impl Stitcher {
         }
         let min_ov = min_overlap(run_h);
         if run_h <= min_ov {
-            return Match::Fail(Reason::NoOverlap);
+            return Match::Fail(no_overlap_reason(prev, cur, top, run_h));
         }
         let max_d = i64::from(run_h - min_ov);
         let run = top as usize..(top + run_h) as usize;
@@ -575,10 +612,10 @@ impl Stitcher {
             .filter_map(|d| score(p, c, d, floor).map(|s| (d, s)))
             .collect();
         let Some(&(best_d, best)) = scored.iter().max_by(|a, b| a.1.total_cmp(&b.1)) else {
-            return Match::Fail(Reason::NoOverlap);
+            return Match::Fail(no_overlap_reason(prev, cur, top, run_h));
         };
         if best < MATCH_RATIO {
-            return Match::Fail(Reason::NoOverlap);
+            return Match::Fail(no_overlap_reason(prev, cur, top, run_h));
         }
         if scored
             .iter()
@@ -628,7 +665,7 @@ impl Stitcher {
         if !moved_with(cur, prev, top64, ct64, d)
             || !moved_with(cur, prev, h64 - cb64 - d64, h64 - bottom64 - d64, d)
         {
-            return Match::Fail(Reason::NoOverlap);
+            return Match::Fail(no_overlap_reason(prev, cur, top, run_h));
         }
         Match::Shift { d, top, bottom }
     }
@@ -1534,6 +1571,141 @@ mod tests {
         let (img, n) = st.finish();
         assert_eq!(n, 2);
         assert_eq!(img, slice(&pg, 0, 400 + H));
+    }
+
+    /// Khung `f` với hộp nhiễu mới (seed `seed`) ở các hàng [`y0`, `y0 + n`), cột [`x0`, `x1`).
+    fn with_box(f: &Image, y0: u32, n: u32, x0: u32, x1: u32, seed: u64) -> Image {
+        let mut g = f.clone();
+        let mut rng = Rng::new(seed);
+        for y in y0..y0 + n {
+            for x in x0..x1 {
+                set_px(&mut g, x, y, rng.color());
+            }
+        }
+        g
+    }
+
+    /// Video giả (hộp nhấp nháy) chiếm khoảng 10% số hàng mà không cuộn: lý do `Changed`; khung
+    /// vẫn bị bỏ và cách đếm chỗ không chắc chắn không đổi.
+    #[test]
+    fn content_changing_in_place_is_changed() {
+        let pg = page(W, 6000, 11);
+        // Ngay sau khung đầu (chưa có dải tĩnh đã lưu): hộp hết bề rộng ở giữa khung.
+        let mut st = Stitcher::new(W, H);
+        let f0 = frame(&pg, 300, H);
+        assert_eq!(st.push(&f0), Push::Appended(H));
+        let v1 = with_box(&f0, 300, 70, 0, W, 1);
+        assert_eq!(st.push(&v1), Push::Uncertain(Reason::Changed));
+        assert_eq!(st.uncertain_count(), 1);
+        // Khung kế cũng đổi: vẫn một chỗ.
+        let v2 = with_box(&f0, 300, 70, 0, W, 2);
+        assert_eq!(st.push(&v2), Push::Uncertain(Reason::Changed));
+        assert_eq!(st.uncertain_count(), 1);
+        // Hộp hẹp (một phần bề rộng) gần đầu khung, sau một lần nối (dải tĩnh đã lưu).
+        let mut st = Stitcher::new(W, H);
+        st.push(&frame(&pg, 0, H));
+        assert_eq!(st.push(&frame(&pg, 100, H)), Push::Appended(100));
+        let f1 = frame(&pg, 100, H);
+        for (k, y0) in [40u32, 320, 600].into_iter().enumerate() {
+            let v = with_box(&f1, y0, 70, 200, 520, 10 + k as u64);
+            assert_eq!(
+                st.push(&v),
+                Push::Uncertain(Reason::Changed),
+                "box at row {y0}"
+            );
+        }
+        // Rồi cuộn tiếp từ khung đã nhận: ghép đúng nội dung, ảnh không có hộp nào.
+        assert_eq!(st.push(&frame(&pg, 200, H)), Push::Appended(100));
+        assert_eq!(st.uncertain_count(), 1);
+        assert_eq!(st.finish().0, slice(&pg, 0, 200 + H));
+    }
+
+    /// Cuộn quá xa (không còn chồng lấp) trên trang có nền trắng, sọc, dải tĩnh và thanh cuộn:
+    /// vẫn `NoOverlap`, không bao giờ `Changed`.
+    #[test]
+    fn far_jumps_stay_no_overlap() {
+        for seed in 1..=24u64 {
+            let mut rng = Rng::new(seed * 7919);
+            let w = 140 + rng.below(160) as u32;
+            let pg = fuzz_page(w, 2500, &mut rng);
+            let fz = Fuzz::new(seed, pg);
+            let max_o = fz.pg.height - fz.h;
+            for k in 0..20u32 {
+                let o0 = rng.below(u64::from(max_o / 2)) as u32;
+                let jump = fz.h + rng.below(u64::from(max_o - o0 - fz.h)) as u32;
+                let mut st = Stitcher::new(w, fz.h);
+                st.push(&fz.frame(o0));
+                let got = st.push(&fz.frame(o0 + jump));
+                assert_ne!(
+                    got,
+                    Push::Uncertain(Reason::Changed),
+                    "seed {seed} step {k}: {o0} -> {}",
+                    o0 + jump
+                );
+            }
+        }
+        for seed in [7u64, 8, 11, 30] {
+            let pg = page(W, 6000, seed);
+            for (a, b) in [(0u32, 810u32), (120, 1500), (400, 3000), (2000, 2800)] {
+                let mut st = Stitcher::new(W, H);
+                st.push(&frame(&pg, a, H));
+                assert_eq!(
+                    st.push(&frame(&pg, b, H)),
+                    Push::Uncertain(Reason::NoOverlap),
+                    "seed {seed}: {a} -> {b}"
+                );
+            }
+        }
+    }
+
+    /// Đo tỉ lệ hàng không đổi chỗ (căn cứ chọn `CHANGED_RATIO`)
+    /// (`cargo test -p darkshot-core --release --lib changed_ratio_measure -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn changed_ratio_measure() {
+        // Tỉ lệ như `no_overlap_reason` khi chưa có dải tĩnh đã lưu.
+        fn ratio(a: &Image, b: &Image) -> f64 {
+            let (p, c) = (Frame::new(a), Frame::new(b));
+            let h = a.height;
+            let (top, bottom) = static_bands(&p, &c);
+            let mut run = (top, h - top - bottom);
+            if run.1 < 2 * min_overlap(run.1) {
+                run = (0, h);
+            }
+            unchanged_ratio(&p, &c, run.0 as usize, (run.0 + run.1) as usize).unwrap_or(0.0)
+        }
+        let mut far = 0.0f64;
+        for seed in 1..=200u64 {
+            let mut rng = Rng::new(seed * 104_729);
+            let w = 140 + rng.below(160) as u32;
+            let pg = fuzz_page(w, 3000, &mut rng);
+            let fz = Fuzz::new(seed, pg);
+            let max_o = fz.pg.height - fz.h;
+            for _ in 0..20 {
+                let o0 = rng.below(u64::from(max_o / 2)) as u32;
+                let jump = fz.h + rng.below(u64::from(max_o - o0 - fz.h)) as u32;
+                far = far.max(ratio(&fz.frame(o0), &fz.frame(o0 + jump)));
+            }
+        }
+        for seed in 1..=40u64 {
+            let pg = page(W, 6000, seed);
+            for (a, b) in [(0u32, 810u32), (120, 1500), (400, 3000), (2000, 2800)] {
+                far = far.max(ratio(&frame(&pg, a, H), &frame(&pg, b, H)));
+            }
+        }
+        println!("far jumps: max unchanged ratio {far:.3}");
+        let pg = page(W, 6000, 11);
+        let f0 = frame(&pg, 300, H);
+        for pct in [5u32, 10, 20, 30, 40] {
+            let n = H * pct / 100;
+            let (mut lo, mut hi) = (1.0f64, 0.0f64);
+            for y0 in (0..H - n).step_by(50) {
+                let r = ratio(&f0, &with_box(&f0, y0, n, 0, W, u64::from(y0)));
+                lo = lo.min(r);
+                hi = hi.max(r);
+            }
+            println!("box {pct}% of rows: unchanged ratio {lo:.3}..{hi:.3}");
+        }
     }
 
     #[test]

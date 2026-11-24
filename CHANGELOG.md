@@ -4,9 +4,14 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+### Mới
+
+- Chụp cuộn: thanh chụp cuộn nói lý do khi một khung không ghép được: "Cuộn chậm hơn" (cuộn quá nhanh), "Cuộn xuống, không cuộn lên" (cuộn ngược) hoặc "Nội dung đang đổi — thử vùng hẹp hơn" (video, quảng cáo chạy hay phần tự đổi tại chỗ trong vùng). Trước đây mọi trường hợp đều hiện "Cuộn chậm hơn".
+
 ### Sửa lỗi
 
 - Chụp cuộn ghép được trang có cột đứng yên hai bên (ảnh nền hay quảng cáo cố định ở hai mép vùng chọn): trước đây mọi khung sau khung đầu bị bỏ. Chỉ các cột giống hệt khung đầu ở mọi khung mới được bỏ khỏi phép so và khỏi ảnh, nên ảnh có thể hẹp hơn vùng chọn; dải hẹp ở mép phải (chỗ thanh cuộn) luôn được giữ để không mất nội dung. Quảng cáo động hay đổi hình hai bên chưa được hỗ trợ. Thanh dính chỉ rộng một phần vùng và nội dung động (video, quảng cáo chạy) vẫn làm khung bị bỏ như trước.
+- Chụp cuộn vùng lớn không còn làm chậm thanh và ứng dụng: việc chụp vùng và ghép ảnh chạy trên một luồng nền riêng; luồng giao diện chỉ cập nhật thanh và nút. Hủy, Esc và thoát ứng dụng không phải chờ lượt chụp đang dở.
 - Lớp phủ chọn vùng không còn tự đóng khi một chương trình khác giành tiêu điểm thoáng qua (ví dụ phần mềm màn hình hay chuột chạy nền, tự hiện một cửa sổ vài chục mili giây): lớp phủ giữ vùng chọn và nét vẽ rồi lấy lại tiêu điểm. Alt+Tab, phím Win, Ctrl+Esc và Ctrl+Shift+Esc vẫn đóng lớp phủ; Esc luôn đóng được. Bị giành quá 20 lần trong một lần mở thì lớp phủ đóng như trước để không giành qua giành lại mãi. Win+L và hộp UAC có thể không đóng lớp phủ.
 
 ## [0.6.1] - 2026-11-23
