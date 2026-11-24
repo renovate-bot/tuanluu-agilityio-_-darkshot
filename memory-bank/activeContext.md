@@ -4,7 +4,8 @@ Cập nhật: 2026-11-24
 
 ## Đang ở đâu
 
-- **Phát hành v0.6.2** (2026-11-24, chủ dự án yêu cầu; quyết định 164): Task 142, 144, 145. Tag `v0.6.2`, release kèm `darkshot-v0.6.2-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Exe 2.483.712 byte, chưa ký số. Website không đổi. Không task nào đang làm. Còn dọn trên máy: worktree `shotme-143` (nhánh tra cứu), `shotme-diag`, thư mục `shotme-144`, `shotme-145`.
+- **Phát hành v0.6.2** (2026-11-24, chủ dự án yêu cầu; quyết định 164): Task 142, 144, 145. Tag `v0.6.2`, release kèm `darkshot-v0.6.2-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Exe 2.483.712 byte, chưa ký số. Website không đổi. Đã dọn worktree và thư mục tạm; nhánh máy `task/143-scroll-column-stitch` giữ để tra cứu (chưa đẩy).
+- **Task 147 (2026-11-24, quyết định 165): XONG, gộp `main` qua PR.** Lời nhắc riêng khi cuộn quá xa (`NoOverlap`): "Cuộn lên một chút rồi cuộn chậm hơn" (`Msg::ScrollBackUp`); thanh đo bề rộng mọi lời nhắc trong `WARN_MSGS`. Chưa phát hành (CHANGELOG "Chưa phát hành"). Không task nào đang làm.
 
 - **Task 145 (2026-11-24, quyết định 163): XONG, gộp `main` qua PR.** Chụp cuộn: chụp và ghép chạy trên luồng nền `darkshot-scroll` (thông điệp `WM_APP + 25`, hẹn giờ dự phòng 250 ms), thanh không còn chậm với vùng lớn; lời nhắc theo lý do (`ScrollDownNotUp`, `ScrollContentChanging`, lý do `Reason::Changed`). Đã phát hành trong v0.6.2. Task 143 (ghép theo cột) đã DỪNG theo yêu cầu chủ dự án (quyết định 161, nhánh chỉ để tra cứu). Task 144 (quyết định 162, XONG, gộp `main` qua PR): bỏ cột giống hệt khung đầu ở mọi khung ở hai bên, luôn giữ dải thanh cuộn; phát lại khung thật trang tin vẫn không ghép (quảng cáo động), nay báo `Changed`. Chủ dự án chấp nhận chưa hỗ trợ trang tin có quảng cáo động hai bên.
 

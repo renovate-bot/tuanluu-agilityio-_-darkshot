@@ -405,13 +405,15 @@ fn warn_msg(r: Reason) -> Msg {
     match r {
         Reason::Backward => Msg::ScrollDownNotUp,
         Reason::Changed => Msg::ScrollContentChanging,
-        Reason::NoOverlap | Reason::Ambiguous | Reason::SizeMismatch => Msg::ScrollSlowDown,
+        Reason::NoOverlap => Msg::ScrollBackUp,
+        Reason::Ambiguous | Reason::SizeMismatch => Msg::ScrollSlowDown,
     }
 }
 
 /// Mọi chữ trạng thái vàng (thanh dành chỗ cho chữ dài nhất).
-const WARN_MSGS: [Msg; 3] = [
+const WARN_MSGS: [Msg; 4] = [
     Msg::ScrollSlowDown,
+    Msg::ScrollBackUp,
     Msg::ScrollDownNotUp,
     Msg::ScrollContentChanging,
 ];
@@ -1048,12 +1050,9 @@ fn build_ui(dpi: u32) -> BarUi {
     let widest = height_text(MAX_HEIGHT);
     let warns = WARN_MSGS.map(|m| wide(lang::tr(m)));
     let labels = BUTTONS.map(|b| wide(lang::tr(b.label())));
-    let m = measure(
-        font,
-        &[
-            &title, &widest, &labels[0], &labels[1], &warns[0], &warns[1], &warns[2],
-        ],
-    );
+    let mut parts: Vec<&[u16]> = vec![&title, &widest, &labels[0], &labels[1]];
+    parts.extend(warns.iter().map(|w| w.as_slice()));
+    let m = measure(font, &parts);
     let texts = Texts {
         title: m[0].0,
         height: m[1].0,
@@ -2635,15 +2634,17 @@ mod tests {
         let mut m = Machine::new();
         assert_eq!(m.warning_msg(0), None);
         m.input(Input::Push(Push::Uncertain(Reason::NoOverlap)), 100);
-        assert_eq!(m.warning_msg(100), Some(Msg::ScrollSlowDown));
+        assert_eq!(m.warning_msg(100), Some(Msg::ScrollBackUp));
         m.input(Input::Push(Push::Uncertain(Reason::Backward)), 200);
         assert_eq!(m.warning_msg(200), Some(Msg::ScrollDownNotUp));
         m.input(Input::Push(Push::Uncertain(Reason::Changed)), 250);
         assert_eq!(m.warning_msg(250), Some(Msg::ScrollContentChanging));
-        for r in [Reason::Ambiguous, Reason::SizeMismatch, Reason::NoOverlap] {
+        for r in [Reason::Ambiguous, Reason::SizeMismatch] {
             m.input(Input::Push(Push::Uncertain(r)), 300);
             assert_eq!(m.warning_msg(300), Some(Msg::ScrollSlowDown), "{r:?}");
         }
+        m.input(Input::Push(Push::Uncertain(Reason::NoOverlap)), 300);
+        assert_eq!(m.warning_msg(300), Some(Msg::ScrollBackUp));
         m.input(Input::Push(Push::Uncertain(Reason::Changed)), 300);
         // Nối được hay không đổi: chữ giữ đến hết hạn, rồi tắt.
         m.input(Input::Push(Push::Appended(10)), 400);

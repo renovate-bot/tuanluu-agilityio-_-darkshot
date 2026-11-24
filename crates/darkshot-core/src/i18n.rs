@@ -463,6 +463,10 @@ messages! {
     ScrollBarTitle => ("Chụp cuộn", "Scrolling capture"),
     ScrollHint => ("Cuộn xuống từ từ", "Scroll down slowly"),
     ScrollSlowDown => ("Cuộn chậm hơn", "Scroll more slowly"),
+    ScrollBackUp => (
+        "Cuộn lên một chút rồi cuộn chậm hơn",
+        "Scroll up a little, then more slowly"
+    ),
     ScrollDownNotUp => ("Cuộn xuống, không cuộn lên", "Scroll down, not up"),
     ScrollContentChanging => (
         "Nội dung đang đổi — thử vùng hẹp hơn",
@@ -1716,6 +1720,11 @@ mod tests {
             (Msg::ScrollBarTitle, "Chụp cuộn", "Scrolling capture"),
             (Msg::ScrollHint, "Cuộn xuống từ từ", "Scroll down slowly"),
             (Msg::ScrollSlowDown, "Cuộn chậm hơn", "Scroll more slowly"),
+            (
+                Msg::ScrollBackUp,
+                "Cuộn lên một chút rồi cuộn chậm hơn",
+                "Scroll up a little, then more slowly",
+            ),
             (
                 Msg::ScrollDownNotUp,
                 "Cuộn xuống, không cuộn lên",

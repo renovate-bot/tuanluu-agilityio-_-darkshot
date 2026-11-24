@@ -4,6 +4,10 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+
+- Chụp cuộn: khi cuộn quá xa nên khung mới không còn chồng lấp, thanh nói "Cuộn lên một chút rồi cuộn chậm hơn" (trước đây chỉ "Cuộn chậm hơn"), vì phải cuộn lên lại chỗ còn chồng lấp thì mới ghép tiếp được.
+
 ## [0.6.2] - 2026-11-24
 
 ### Sửa lỗi
