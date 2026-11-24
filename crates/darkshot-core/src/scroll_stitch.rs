@@ -151,21 +151,67 @@ fn right_strip(w: u32) -> u32 {
     }
 }
 
-/// Một khung đã băm: điểm ảnh, băm và cờ một màu của phần chính mỗi hàng (bỏ dải phải).
+/// Bề rộng tối thiểu (điểm ảnh) của phần giữa còn lại sau khi bỏ cột đứng yên hai bên. Phần
+/// giữa hẹp hơn `MIN_MIDDLE_PX` hoặc 1/4 phần chính thì không bỏ cột nào và so trên cả hàng như
+/// cũ: phần giữa quá hẹp có ít điểm ảnh để phân biệt các hàng.
+const MIN_MIDDLE_PX: u32 = 128;
+
+/// Bề rộng tối thiểu của phần giữa khi phần chính rộng `main` cột.
+fn min_middle(main: u32) -> u32 {
+    MIN_MIDDLE_PX.max(main / 4)
+}
+
+/// Số điểm ảnh đầu của hai đoạn BGRA cùng dài có cùng B, G, R.
+fn same_prefix(a: &[u8], b: &[u8]) -> u32 {
+    if a == b {
+        return (a.len() / 4) as u32;
+    }
+    let (pa, pb) = (a.as_chunks::<4>().0, b.as_chunks::<4>().0);
+    pa.iter()
+        .zip(pb)
+        .take_while(|(p, q)| p[..3] == q[..3])
+        .count() as u32
+}
+
+/// Số điểm ảnh cuối của hai đoạn BGRA cùng dài có cùng B, G, R.
+fn same_suffix(a: &[u8], b: &[u8]) -> u32 {
+    if a == b {
+        return (a.len() / 4) as u32;
+    }
+    let (pa, pb) = (a.as_chunks::<4>().0, b.as_chunks::<4>().0);
+    pa.iter()
+        .rev()
+        .zip(pb.iter().rev())
+        .take_while(|(p, q)| p[..3] == q[..3])
+        .count() as u32
+}
+
+/// Một khung đã băm: điểm ảnh, băm và cờ một màu của phần dùng để so mỗi hàng (phần chính, bỏ
+/// dải phải và cột đứng yên hai bên).
 struct Frame {
     bgra: Vec<u8>,
     hash: Vec<u64>,
     uniform: Vec<bool>,
-    /// Số byte đầu mỗi hàng thuộc phần chính.
-    main: usize,
+    /// Khoảng byte [đầu, cuối) của mỗi hàng dùng để so.
+    cols: (usize, usize),
 }
 
 impl Frame {
-    /// `img` phải hợp lệ (đã kiểm `is_valid`).
+    /// `img` phải hợp lệ (đã kiểm `is_valid`). So trên cả phần chính.
+    #[cfg(test)]
     fn new(img: &Image) -> Frame {
-        let stride = img.width as usize * 4;
-        let main = (img.width - right_strip(img.width)) as usize * 4;
-        let rows: Vec<&[u8]> = img.bgra.chunks_exact(stride).map(|r| &r[..main]).collect();
+        let main = img.width - right_strip(img.width);
+        Frame::with_cols(img.bgra.clone(), img.width, 0, main)
+    }
+
+    /// Khung rộng `w` (điểm ảnh `bgra` hợp lệ), so trên cột [`lo`, `hi`) với lo ≤ hi ≤ w.
+    fn with_cols(bgra: Vec<u8>, w: u32, lo: u32, hi: u32) -> Frame {
+        let stride = w as usize * 4;
+        let cols = (lo as usize * 4, hi as usize * 4);
+        let rows: Vec<&[u8]> = bgra
+            .chunks_exact(stride)
+            .map(|r| &r[cols.0..cols.1])
+            .collect();
         let mut hash = Vec::with_capacity(rows.len());
         let (groups, rest) = rows.as_chunks::<4>();
         for g in groups {
@@ -174,17 +220,17 @@ impl Frame {
         hash.extend(rest.iter().map(|r| row_hash(r)));
         let uniform = rows.iter().map(|r| row_uniform(r)).collect();
         Frame {
-            bgra: img.bgra.clone(),
+            bgra,
             hash,
             uniform,
-            main,
+            cols,
         }
     }
 
-    /// Phần chính của hàng `y`.
+    /// Phần dùng để so của hàng `y`.
     fn main_row(&self, y: u32, stride: usize) -> &[u8] {
         let s = y as usize * stride;
-        &self.bgra[s..s + self.main]
+        &self.bgra[s + self.cols.0..s + self.cols.1]
     }
 
     /// Đúng khi các hàng `ys` có ít nhất `MIN_DISTINCT_ROWS` giá trị băm khác nhau, không kể
@@ -347,10 +393,21 @@ fn score(prev: &[u64], cur: &[u64], d: i64, floor: f64) -> Option<f64> {
 /// trước hàng `tail` của `prev`, nên phần đuôi (chân trang dính) chỉ có một lần, lấy từ khung cuối.
 /// Khung không ghép được bị bỏ; `prev` luôn là khung đã nhận cuối cùng, nên mọi chỗ nối đều đã
 /// được xác nhận bằng vùng chồng lấp.
+///
+/// Cột đứng yên hai bên (quảng cáo, ảnh nền cố định, lề): cột giống hệt khung đầu ở mọi khung
+/// hợp lệ đã nhận, kể cả khung bị bỏ, nên không thể chứa nội dung đang cuộn. Mọi phép so dùng
+/// phần giữa không gồm các cột đó (`cols`), và `finish` cắt chúng khỏi ảnh. Không có cột đứng
+/// yên thì mọi thứ như trước.
 pub struct Stitcher {
     w: u32,
     h: u32,
     prev: Option<Frame>,
+    /// Điểm ảnh của khung đầu, để đo cột đứng yên.
+    first: Vec<u8>,
+    /// Số cột liền nhau từ mép trái phần chính giống hệt khung đầu ở mọi khung đã nhận. Chỉ giảm.
+    left: u32,
+    /// Như `left`, tính từ mép phải phần chính (không gồm dải phải `right_strip`). Chỉ giảm.
+    right: u32,
     body: Vec<u8>,
     tail: u32,
     /// Dải tĩnh (trên, dưới) nhỏ nhất đã dùng cho một lần nối.
@@ -375,6 +432,9 @@ impl Stitcher {
             w,
             h,
             prev: None,
+            first: Vec::new(),
+            left: 0,
+            right: 0,
             body: Vec::new(),
             tail: 0,
             bands: None,
@@ -389,6 +449,47 @@ impl Stitcher {
         self.w as usize * 4
     }
 
+    /// Bề rộng phần chính (bỏ dải phải).
+    fn main_w(&self) -> u32 {
+        self.w - right_strip(self.w)
+    }
+
+    /// Cột [lo, hi) dùng để so khớp: phần chính bỏ cột đứng yên hai bên, nếu phần giữa còn rộng
+    /// ít nhất `min_middle`; không thì cả phần chính.
+    fn cols(&self) -> (u32, u32) {
+        let main = self.main_w();
+        let mid = main
+            .checked_sub(self.left)
+            .and_then(|m| m.checked_sub(self.right));
+        match mid {
+            Some(m) if m >= min_middle(main) => (self.left, main - self.right),
+            _ => (0, main),
+        }
+    }
+
+    /// Thu `left`, `right` theo khung hợp lệ `img`: chỉ còn các cột vẫn giống hệt khung đầu.
+    fn measure(&mut self, img: &Image) {
+        let stride = self.stride();
+        let main = self.main_w() as usize * 4;
+        for (a, b) in img
+            .bgra
+            .chunks_exact(stride)
+            .zip(self.first.chunks_exact(stride))
+        {
+            if self.left == 0 && self.right == 0 {
+                break;
+            }
+            let l = self.left as usize * 4;
+            self.left = same_prefix(&a[..l], &b[..l]);
+            if self.left as usize * 4 == main {
+                // Cả phần chính của hàng giống khung đầu: `right` không đổi.
+                continue;
+            }
+            let r = main - self.right as usize * 4;
+            self.right = same_suffix(&a[r..main], &b[r..main]);
+        }
+    }
+
     /// Nhận một khung.
     pub fn push(&mut self, frame: &Image) -> Push {
         if self.limited {
@@ -397,11 +498,22 @@ impl Stitcher {
         if !frame.is_valid() || frame.width != self.w || frame.height != self.h {
             return self.fail(Reason::SizeMismatch);
         }
-        let Some(prev) = &self.prev else {
+        let Some(prev) = self.prev.take() else {
             return self.first(frame);
         };
-        let cur = Frame::new(frame);
-        match self.find_shift(prev, &cur) {
+        // Đo trước khi so: cột bị bỏ khỏi phép so phải giống khung đầu ở cả khung mới.
+        self.measure(frame);
+        let (lo, hi) = self.cols();
+        // Hai khung phải so trên cùng khoảng cột: băm lại khung trước khi khoảng đổi.
+        let prev = if prev.cols == (lo as usize * 4, hi as usize * 4) {
+            prev
+        } else {
+            Frame::with_cols(prev.bgra, self.w, lo, hi)
+        };
+        let cur = Frame::with_cols(frame.bgra.clone(), self.w, lo, hi);
+        let m = self.find_shift(&prev, &cur);
+        self.prev = Some(prev);
+        match m {
             Match::Same => Push::NoChange,
             Match::Fail(r) => self.fail(r),
             Match::Shift { d, top, bottom } => self.append(cur, d, top, bottom),
@@ -413,8 +525,11 @@ impl Stitcher {
             self.limited = true;
             return Push::Limit;
         }
-        let f = Frame::new(frame);
+        let main = self.main_w();
+        let f = Frame::with_cols(frame.bgra.clone(), self.w, 0, main);
         self.body = f.bgra.clone();
+        self.first = f.bgra.clone();
+        (self.left, self.right) = (main, main);
         self.tail = self.h;
         self.prev = Some(f);
         self.appended = 1;
@@ -616,6 +731,9 @@ impl Stitcher {
             return (empty, self.uncertain);
         };
         let stride = self.stride();
+        // Cắt cột đứng yên: giữ [lo, x1); có cột đứng yên bên phải thì bỏ luôn dải thanh cuộn.
+        let (lo, hi) = self.cols();
+        let x1 = if hi < self.main_w() { hi } else { self.w };
         let mut bgra = self.body;
         let tail_bytes = &prev.bgra[self.tail as usize * stride..];
         // Không cấp được bộ nhớ cho phần đuôi: trả phần thân, vẫn là ảnh đúng.
@@ -623,15 +741,30 @@ impl Stitcher {
             bgra.extend_from_slice(tail_bytes);
         }
         let height = (bgra.len() / stride) as u32;
+        keep_columns(&mut bgra, stride, lo as usize * 4, x1 as usize * 4);
         (
             Image {
-                width: self.w,
+                width: x1 - lo,
                 height,
                 bgra,
             },
             self.uncertain,
         )
     }
+}
+
+/// Giữ byte [a, b) của mỗi hàng dài `stride`, tại chỗ (không cấp thêm bộ nhớ).
+fn keep_columns(bgra: &mut Vec<u8>, stride: usize, a: usize, b: usize) {
+    let n = b - a;
+    if n == stride || stride == 0 {
+        return;
+    }
+    let rows = bgra.len() / stride;
+    for y in 0..rows {
+        // Đích y·n ≤ nguồn y·stride + a vì n ≤ stride: chép tăng dần không đè phần chưa chép.
+        bgra.copy_within(y * stride + a..y * stride + b, y * n);
+    }
+    bgra.truncate(rows * n);
 }
 
 #[cfg(test)]
@@ -1232,6 +1365,7 @@ mod tests {
             assert_eq!(bad, 0);
             total += ok;
         }
+        println!("non-repeating pages: {total} correct appends, 0 wrong");
         // Đủ nhiều lần nối để kiểm thử có nghĩa.
         assert!(total > 300, "{total}");
     }
@@ -1555,5 +1689,459 @@ mod tests {
         let ms = best_of(&pg, 90, Push::Appended(90));
         println!("push 1920x1080 cards: {ms:.2} ms");
         assert!(ms < 15.0, "{ms} ms");
+    }
+
+    // ---- Task 144: cột đứng yên hai bên ----
+
+    /// Cột [x0, x1) của ảnh.
+    fn cols_of(img: &Image, x0: u32, x1: u32) -> Image {
+        img.crop(Rect {
+            x: x0 as i32,
+            y: 0,
+            w: (x1 - x0) as i32,
+            h: img.height as i32,
+        })
+    }
+
+    /// Phủ `left` lên cột [0, left.width) và `right` lên cột [x_r, x_r + right.width) của `f`.
+    fn with_sides(mut f: Image, left: &Image, right: &Image, x_r: u32) -> Image {
+        let s = (f.width * 4) as usize;
+        let (lw, rw) = (left.width as usize * 4, right.width as usize * 4);
+        for y in 0..f.height as usize {
+            let row = &mut f.bgra[y * s..(y + 1) * s];
+            if lw > 0 {
+                row[..lw].copy_from_slice(&left.bgra[y * lw..(y + 1) * lw]);
+            }
+            if rw > 0 {
+                let x = x_r as usize * 4;
+                row[x..x + rw].copy_from_slice(&right.bgra[y * rw..(y + 1) * rw]);
+            }
+        }
+        f
+    }
+
+    /// Ảnh w×h một màu `c`.
+    fn solid(w: u32, h: u32, c: [u8; 4]) -> Image {
+        let mut img = blank(w, h);
+        for p in img.bgra.chunks_mut(4) {
+            p.copy_from_slice(&c);
+        }
+        img
+    }
+
+    /// Hai cột quảng cáo cố định không đều màu (nhiễu) ở hai bên: cột [0, 150) và [750, 900).
+    /// `main` (trước Task 144), đo 2026-11-24: khung đầu `Appended(700)`, cả chín khung sau
+    /// `Uncertain(NoOverlap)`; ảnh ra 900×700 (chỉ khung đầu), 1 chỗ không chắc chắn. Bản mới:
+    /// mọi khung nối đúng 120 hàng, ảnh chỉ gồm cột [150, 750) và khớp từng điểm ảnh.
+    #[test]
+    fn fixed_side_ads_are_dropped_and_stitched_exactly() {
+        let pg = page(W, 6000, 144);
+        let left = noise_page(150, H, 1441);
+        let right = noise_page(150, H, 1442);
+        let mut st = Stitcher::new(W, H);
+        let offsets: Vec<u32> = (0..10).map(|k| k * 120).collect();
+        let mut res = Vec::new();
+        for &o in &offsets {
+            res.push(st.push(&with_sides(frame(&pg, o, H), &left, &right, 750)));
+        }
+        let last = *offsets.last().unwrap();
+        let (img, n) = st.finish();
+        println!(
+            "fixed side ads: {res:?}; {}x{}, {n} uncertain",
+            img.width, img.height
+        );
+        assert_eq!(res[0], Push::Appended(H));
+        assert!(
+            res[1..].iter().all(|r| *r == Push::Appended(120)),
+            "{res:?}"
+        );
+        assert_eq!(n, 0);
+        assert_eq!((img.width, img.height), (600, last + H));
+        assert!(img == cols_of(&slice(&pg, 0, last + H), 150, 750));
+    }
+
+    /// Thanh cuộn 12 px ở mép phải, con trượt di chuyển, ngay cạnh cột quảng cáo phải.
+    #[test]
+    fn side_ads_next_to_a_moving_scrollbar() {
+        let page_h = 4000;
+        let pg = page(W, page_h, 145);
+        let left = noise_page(150, H, 1451);
+        let right = noise_page(138, H, 1452);
+        let bar_x = W - 12;
+        let shot = |o: u32| {
+            let mut f = with_sides(frame(&pg, o, H), &left, &right, 750);
+            let ty = o * (H - 100) / (page_h - H);
+            for y in 0..H {
+                let c = if (ty..ty + 100).contains(&y) {
+                    [90, 90, 90, 255]
+                } else {
+                    [30, 30, 30, 255]
+                };
+                for x in bar_x..W {
+                    set_px(&mut f, x, y, c);
+                }
+            }
+            f
+        };
+        let mut st = Stitcher::new(W, H);
+        assert_eq!(st.push(&shot(0)), Push::Appended(H));
+        let mut o = 0;
+        for step in [3u32, 6, 20, 100, 3, 6, 20, 100] {
+            o += step;
+            assert_eq!(st.push(&shot(o)), Push::Appended(step), "step {step}");
+        }
+        let (img, n) = st.finish();
+        assert_eq!(n, 0);
+        // Cột phải [750, 868) đứng yên nên ảnh bỏ cả nó lẫn dải thanh cuộn [868, 900).
+        assert_eq!((img.width, img.height), (600, o + H));
+        assert!(img == cols_of(&slice(&pg, 0, o + H), 150, 750));
+    }
+
+    /// Quảng cáo trái đổi hình giữa phiên (cột [100, 150) đổi từ khung thứ năm): L giảm, lần so
+    /// kế tiếp thất bại và có báo; phần đã ghép vẫn đúng, không mất nội dung âm thầm.
+    #[test]
+    fn side_change_mid_session_never_loses_content_silently() {
+        let pg = page(W, 6000, 146);
+        let left = noise_page(150, H, 1461);
+        let mut left2 = left.clone();
+        let other = noise_page(150, H, 1463);
+        let s = 150 * 4;
+        for y in 0..H as usize {
+            left2.bgra[y * s + 400..(y + 1) * s]
+                .copy_from_slice(&other.bgra[y * s + 400..(y + 1) * s]);
+        }
+        let right = noise_page(150, H, 1462);
+        let mut st = Stitcher::new(W, H);
+        let mut res = Vec::new();
+        for k in 0..8u32 {
+            let l = if k < 4 { &left } else { &left2 };
+            res.push(st.push(&with_sides(frame(&pg, k * 120, H), l, &right, 750)));
+        }
+        assert_eq!(
+            res[..4],
+            [
+                Push::Appended(H),
+                Push::Appended(120),
+                Push::Appended(120),
+                Push::Appended(120)
+            ]
+        );
+        assert!(
+            res[4..].iter().all(|r| matches!(r, Push::Uncertain(_))),
+            "{res:?}"
+        );
+        let (img, n) = st.finish();
+        assert!(n >= 1);
+        // Ảnh giữ cột [100, 750): cột [100, 150) là quảng cáo cũ, phần còn lại đúng trang.
+        assert_eq!((img.width, img.height), (650, 360 + H));
+        assert!(cols_of(&img, 50, 650) == cols_of(&slice(&pg, 0, 360 + H), 150, 750));
+    }
+
+    /// Quảng cáo trái chỉ giống khung đầu ở một phần số khung (đổi hình ở khung thứ tư): cột trái
+    /// không bị cắt; quảng cáo phải luôn đứng yên thì vẫn bị cắt.
+    #[test]
+    fn side_equal_in_only_some_frames_is_not_cropped() {
+        let pg = page(W, 6000, 147);
+        let a = noise_page(150, H, 1471);
+        let b = noise_page(150, H, 1473);
+        let right = noise_page(150, H, 1472);
+        let mut st = Stitcher::new(W, H);
+        let mut res = Vec::new();
+        for k in 0..6u32 {
+            let l = if k == 3 { &b } else { &a };
+            res.push(st.push(&with_sides(frame(&pg, k * 120, H), l, &right, 750)));
+        }
+        assert_eq!(
+            res[..3],
+            [Push::Appended(H), Push::Appended(120), Push::Appended(120)]
+        );
+        assert!(
+            res[3..].iter().all(|r| matches!(r, Push::Uncertain(_))),
+            "{res:?}"
+        );
+        let (img, n) = st.finish();
+        assert!(n >= 1);
+        assert_eq!((img.width, img.height), (750, 240 + H));
+        assert!(cols_of(&img, 150, 750) == cols_of(&slice(&pg, 0, 240 + H), 150, 750));
+        // Cột trái: quảng cáo A theo hàng của từng khung đã nối (đúng như trên màn hình).
+        assert!(cols_of(&img, 0, 150).bgra[..a.bgra.len()] == a.bgra[..]);
+    }
+
+    /// Trang thường có lề trắng đứng yên hai bên: lề bị cắt, ảnh vẫn đúng từng điểm ảnh.
+    /// `main` cũng ghép được trang này (lề một màu) nhưng giữ cả lề: ảnh rộng 900.
+    #[test]
+    fn white_side_margins_are_cropped() {
+        let pg = page(W, 6000, 148);
+        let white = [255, 255, 255, 255];
+        let left = solid(100, H, white);
+        let right = solid(100, H, white);
+        let mut st = Stitcher::new(W, H);
+        for o in [0u32, 37, 237, 242, 242, 592] {
+            let _ = st.push(&with_sides(frame(&pg, o, H), &left, &right, 800));
+        }
+        let (img, n) = st.finish();
+        assert_eq!(n, 0);
+        assert_eq!((img.width, img.height), (700, 592 + H));
+        assert!(img == cols_of(&slice(&pg, 0, 592 + H), 100, 800));
+    }
+
+    /// Phần giữa hẹp hơn ngưỡng (200 < max(128, 868 / 4) = 217): không cắt cột nào, ghép như cũ.
+    #[test]
+    fn middle_narrower_than_threshold_is_not_cropped() {
+        let pg = page(W, 6000, 149);
+        let white = [255, 255, 255, 255];
+        let left = solid(400, H, white);
+        let right = solid(300, H, white);
+        let shot = |o: u32| with_sides(frame(&pg, o, H), &left, &right, 600);
+        let mut st = Stitcher::new(W, H);
+        for k in 0..6u32 {
+            let want = if k == 0 { H } else { 100 };
+            assert_eq!(st.push(&shot(k * 100)), Push::Appended(want), "frame {k}");
+        }
+        let (img, n) = st.finish();
+        assert_eq!(n, 0);
+        assert_eq!((img.width, img.height), (W, 500 + H));
+        let want = with_sides(
+            slice(&pg, 0, 500 + H),
+            &solid(400, 500 + H, white),
+            &solid(300, 500 + H, white),
+            600,
+        );
+        assert!(img == want);
+    }
+
+    /// Cột bên ngẫu nhiên rộng `sw`, cao `h`: nhiễu, một màu hoặc sọc dọc (mỗi cột một màu).
+    fn side_image(rng: &mut Rng, sw: u32, h: u32, seed: u64) -> Image {
+        match rng.below(3) {
+            0 => noise_page(sw, h, seed),
+            1 => solid(sw, h, rng.color()),
+            _ => {
+                let mut img = blank(sw, h);
+                let colors: Vec<[u8; 4]> = (0..sw).map(|_| rng.color()).collect();
+                for y in 0..h {
+                    for x in 0..sw {
+                        set_px(&mut img, x, y, colors[x as usize]);
+                    }
+                }
+                img
+            }
+        }
+    }
+
+    /// Fuzz trang không lặp có cột đứng yên hai bên (độ rộng, kiểu và vị trí ngẫu nhiên; một phần
+    /// phiên đổi một phần cột trái giữa chừng), cùng dải tĩnh trên/dưới và thanh cuộn như fuzz
+    /// trên. Mọi lần nối đúng độ dịch thật, và ảnh ra không bao giờ bỏ cột nội dung. Số seed:
+    /// biến `DARKSHOT_FUZZ_SEEDS` (mặc định 40), ví dụ 2000 với
+    /// `cargo test -p darkshot-core --release --lib fuzz_static_sides -- --nocapture`.
+    #[test]
+    fn fuzz_static_sides_never_lose_content_silently() {
+        let seeds: u64 = std::env::var("DARKSHOT_FUZZ_SEEDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(40);
+        let (mut ok, mut cropped, mut warned) = (0u32, 0u32, 0u32);
+        for seed in 1..=seeds {
+            let mut rng = Rng::new(seed * 6_700_417);
+            let w = 260 + rng.below(500) as u32;
+            let pg = fuzz_page(w, 2500, &mut rng);
+            let fz = Fuzz::new(seed, pg);
+            let h = fz.h;
+            let bar_w = if fz.bar { 10 } else { 0 };
+            let lw = rng.below(u64::from(w / 3)) as u32;
+            let rw = rng.below(u64::from(w / 3)) as u32;
+            let left = side_image(&mut rng, lw, h, seed + 11);
+            let right = side_image(&mut rng, rw, h, seed + 12);
+            let x_r = w - bar_w - rw;
+            // Cột trái [c, lw) đổi từ bước `change` (quảng cáo đổi hình).
+            let mut left2 = left.clone();
+            let change = if lw > 0 && rng.below(3) == 0 {
+                let c = rng.below(u64::from(lw)) as u32;
+                let other = noise_page(lw, h, seed + 13);
+                for y in 0..h {
+                    for x in c..lw {
+                        let i = ((y * lw + x) * 4) as usize;
+                        left2.bgra[i..i + 4].copy_from_slice(&other.bgra[i..i + 4]);
+                    }
+                }
+                Some(rng.below(60) as u32)
+            } else {
+                None
+            };
+            let shot = |o: u32, k: u32| {
+                let l = if change.is_some_and(|c| k >= c) {
+                    &left2
+                } else {
+                    &left
+                };
+                with_sides(fz.frame(o), l, &right, x_r)
+            };
+            let max_o = fz.pg.height - h;
+            let mut st = Stitcher::new(w, h);
+            assert_eq!(st.push(&shot(0, 0)), Push::Appended(h));
+            let (mut o, mut prev, mut failed) = (0u32, 0u32, false);
+            for k in 0..60 {
+                if failed && rng.below(2) == 0 {
+                    o = prev;
+                }
+                let step: i64 = match rng.below(10) {
+                    0..=3 => 1 + rng.below(40) as i64,
+                    4..=6 => 40 + rng.below(u64::from(h / 2)) as i64,
+                    7 => i64::from(h / 2) + rng.below(u64::from(h) + 100) as i64,
+                    8 => -(1 + rng.below(u64::from(h / 2)) as i64),
+                    _ => 0,
+                };
+                o = (i64::from(o) + step).clamp(0, i64::from(max_o)) as u32;
+                match st.push(&shot(o, k)) {
+                    Push::Appended(d) => {
+                        let truth = i64::from(o) - i64::from(prev);
+                        assert_eq!(i64::from(d), truth, "seed {seed}: wrong shift");
+                        ok += 1;
+                        prev = o;
+                        failed = false;
+                    }
+                    Push::Limit => break,
+                    Push::NoChange => {}
+                    Push::Uncertain(_) => failed = true,
+                }
+            }
+            // Ảnh ra giữ mọi cột nội dung [lw, x_r) khi trang đã cuộn ít nhất một lần.
+            let (lo, hi) = st.cols();
+            let x1 = if hi < st.main_w() { hi } else { w };
+            if st.appended_frames() > 1 {
+                assert!(
+                    lo <= lw && x1 >= x_r,
+                    "seed {seed}: kept [{lo}, {x1}), content [{lw}, {x_r})"
+                );
+            }
+            if x1 - lo < w {
+                cropped += 1;
+            }
+            let (img, n) = st.finish();
+            assert_eq!(img.width, x1 - lo);
+            if n > 0 {
+                warned += 1;
+            }
+        }
+        println!(
+            "static sides: {seeds} sessions, {ok} correct appends, 0 wrong, {cropped} cropped, \
+             {warned} with a warning"
+        );
+        assert!(ok > 10 * seeds as u32, "{ok}");
+    }
+
+    /// Đo thời gian một lần `push` với khung 2874×1634 (cỡ khung thật của chủ dự án), có và không
+    /// có cột đứng yên hai bên (`cargo test -p darkshot-core --release --lib perf_2874 --
+    /// --ignored --nocapture`). Mỗi ca chạy 5 lần, lấy lần nhanh nhất.
+    #[test]
+    #[ignore]
+    fn perf_2874x1634() {
+        const PW: u32 = 2874;
+        const PH: u32 = 1634;
+        fn best_of(f0: &Image, f1: &Image) -> (f64, Push) {
+            let mut out = Push::NoChange;
+            let ms = (0..5)
+                .map(|_| {
+                    let mut st = Stitcher::new(PW, PH);
+                    st.push(f0);
+                    let t = std::time::Instant::now();
+                    out = st.push(f1);
+                    t.elapsed().as_secs_f64() * 1000.0
+                })
+                .fold(f64::MAX, f64::min);
+            (ms, out)
+        }
+        let pg = page(PW, 4000, 18);
+        let (ms, r) = best_of(&frame(&pg, 0, PH), &frame(&pg, 150, PH));
+        println!("push 2874x1634 no sides: {ms:.2} ms ({r:?})");
+        let (ms, r) = best_of(&frame(&pg, 0, PH), &frame(&pg, 0, PH));
+        println!("push 2874x1634 no sides, same frame: {ms:.2} ms ({r:?})");
+        let (left, right) = (noise_page(700, PH, 19), noise_page(600, PH, 20));
+        let shot = |o| with_sides(frame(&pg, o, PH), &left, &right, PW - 600);
+        let (ms, r) = best_of(&shot(0), &shot(150));
+        println!("push 2874x1634 static sides: {ms:.2} ms ({r:?})");
+        let (ms, r) = best_of(&shot(0), &shot(0));
+        println!("push 2874x1634 static sides, same frame: {ms:.2} ms ({r:?})");
+    }
+
+    /// Đọc khung thô: rộng u32 LE, cao u32 LE, rồi BGRA.
+    fn read_raw(p: &std::path::Path) -> Image {
+        let b = std::fs::read(p).expect("read frame");
+        assert!(b.len() >= 8, "{}: short file", p.display());
+        let w = u32::from_le_bytes(b[0..4].try_into().unwrap());
+        let h = u32::from_le_bytes(b[4..8].try_into().unwrap());
+        Image {
+            width: w,
+            height: h,
+            bgra: b[8..].to_vec(),
+        }
+    }
+
+    /// Chạy lại khung thô thật của một lần chụp cuộn, ngoài ứng dụng. Khung thật không bao giờ vào
+    /// repo. `DARKSHOT_SCROLL_REPLAY` = thư mục các tệp `*.raw` (rộng u32 LE, cao u32 LE, rồi
+    /// BGRA), đẩy theo thứ tự tên. `DARKSHOT_SCROLL_REPLAY_OUT` (không bắt buộc) = đường dẫn tệp
+    /// ghi ảnh ghép cùng định dạng. Thiếu biến thì bỏ qua.
+    /// `cargo test -p darkshot-core --release --lib replay_real_frames -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn replay_real_frames() {
+        let Ok(dir) = std::env::var("DARKSHOT_SCROLL_REPLAY") else {
+            println!("DARKSHOT_SCROLL_REPLAY is not set: skipped");
+            return;
+        };
+        let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+            .expect("read DARKSHOT_SCROLL_REPLAY")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "raw"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no *.raw in {dir}");
+        let mut st: Option<Stitcher> = None;
+        let (mut appended, mut nochange, mut limit) = (0u32, 0u32, 0u32);
+        let mut reasons: Vec<(Reason, u32)> = Vec::new();
+        for p in &files {
+            let img = read_raw(p);
+            let st = st.get_or_insert_with(|| Stitcher::new(img.width, img.height));
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+            let t = std::time::Instant::now();
+            let r = st.push(&img);
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "{name}: {r:?} ({ms:.1} ms, height {}, L {}, R {})",
+                st.height(),
+                st.left,
+                st.right
+            );
+            match r {
+                Push::Appended(_) => appended += 1,
+                Push::NoChange => nochange += 1,
+                Push::Limit => limit += 1,
+                Push::Uncertain(x) => match reasons.iter_mut().find(|e| e.0 == x) {
+                    Some(e) => e.1 += 1,
+                    None => reasons.push((x, 1)),
+                },
+            }
+        }
+        let st = st.expect("at least one frame");
+        println!(
+            "{} frames: {appended} Appended, {nochange} NoChange, {limit} Limit, Uncertain \
+             {reasons:?}; L {}, R {}, columns compared {:?}",
+            files.len(),
+            st.left,
+            st.right,
+            st.cols()
+        );
+        let (img, n) = st.finish();
+        println!(
+            "result {} x {} px, {n} uncertain joins",
+            img.width, img.height
+        );
+        if let Ok(out) = std::env::var("DARKSHOT_SCROLL_REPLAY_OUT") {
+            let mut b = Vec::with_capacity(8 + img.bgra.len());
+            b.extend_from_slice(&img.width.to_le_bytes());
+            b.extend_from_slice(&img.height.to_le_bytes());
+            b.extend_from_slice(&img.bgra);
+            std::fs::write(&out, b).expect("write DARKSHOT_SCROLL_REPLAY_OUT");
+            println!("wrote {out}");
+        }
     }
 }
