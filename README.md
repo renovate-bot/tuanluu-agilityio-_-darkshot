@@ -380,7 +380,7 @@ Cách dùng:
 1. Chọn vùng trong lớp phủ như thường (có thể dùng gợi ý cửa sổ).
 2. Bấm nút **Chụp cuộn** trên thanh ngang (giữa Nhận dạng chữ và Hủy) hoặc `Ctrl+L`.
 3. Trong lúc chụp, một khung nét đứt bao quanh vùng và một thanh điều khiển nổi hiện lên: chấm đỏ, "Chụp cuộn · Cuộn xuống từ từ", chiều cao hiện có (px), rồi nút **Xong** và **Hủy**. Tự cuộn xuống từ từ.
-4. Nếu khung vừa cuộn không ghép được, trạng thái chuyển vàng và nói lý do: "Cuộn chậm hơn" (cuộn quá nhanh, hãy cuộn chậm lại), "Cuộn lên một chút rồi cuộn chậm hơn" (cuộn quá xa nên khung mới không còn chồng lấp với khung trước; cuộn lên lại chỗ còn chồng lấp rồi cuộn chậm hơn), "Cuộn xuống, không cuộn lên" (cuộn ngược lên làm khung đó bị bỏ) hoặc "Nội dung đang đổi — thử vùng hẹp hơn" (vùng có video, quảng cáo chạy hay phần tự đổi mà không cuộn; chọn lại vùng tránh phần đó). Việc chụp và ghép chạy trên một luồng nền nên thanh và ứng dụng vẫn nhanh khi vùng lớn.
+4. Nếu khung vừa cuộn không ghép được, trạng thái chuyển vàng và nói lý do: "Cuộn chậm hơn" (khớp không chắc, thường do nội dung lặp lại; hãy cuộn chậm lại), "Cuộn lên một chút rồi cuộn chậm hơn" (cuộn quá xa nên khung mới không còn chồng lấp với khung trước; cuộn lên lại chỗ còn chồng lấp rồi cuộn chậm hơn), "Cuộn xuống, không cuộn lên" (cuộn ngược lên làm khung đó bị bỏ) hoặc "Nội dung đang đổi — thử vùng hẹp hơn" (vùng có video, quảng cáo chạy hay phần tự đổi mà không cuộn; chọn lại vùng tránh phần đó). Việc chụp và ghép chạy trên một luồng nền nên thanh và ứng dụng vẫn nhanh khi vùng lớn.
 5. Bấm **Xong** để xem kết quả, hoặc **Hủy** (hay `Esc`) để bỏ.
 
 Thanh điều khiển:
