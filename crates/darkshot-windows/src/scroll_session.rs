@@ -42,8 +42,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowRect, KillTimer,
-    LoadCursorW, PostMessageW, RegisterClassW, SetLayeredWindowAttributes, SetTimer,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetWindowRect, IsWindow,
+    KillTimer, LoadCursorW, PostMessageW, RegisterClassW, SetLayeredWindowAttributes, SetTimer,
     SetWindowDisplayAffinity, SetWindowPos, ShowWindow, HTTRANSPARENT, IDC_ARROW, LWA_ALPHA,
     MA_NOACTIVATE, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
     WDA_EXCLUDEFROMCAPTURE, WINDOW_EX_STYLE, WM_APP, WM_CAPTURECHANGED, WM_DISPLAYCHANGE,
@@ -579,11 +579,13 @@ struct Tick {
 #[derive(Debug)]
 enum Event {
     Tick(Tick),
-    /// Ảnh ghép, số chỗ không chắc chắn, và cờ "chưa có khung mà lần chụp cuối lỗi".
+    /// Ảnh ghép, số chỗ không chắc chắn, cờ "chưa có khung mà lần chụp cuối lỗi" và cờ đã chạm
+    /// giới hạn (kể cả khi lượt `Push::Limit` chưa kịp được luồng giao diện xử lý trước Xong).
     Finished {
         image: Image,
         uncertain: u32,
         capture_failed: bool,
+        limited: bool,
     },
 }
 
@@ -608,12 +610,14 @@ impl Drop for LiveGuard {
 struct Worker {
     tx: Sender<Cmd>,
     events: Events,
+    handle: std::thread::JoinHandle<()>,
 }
 
 impl Worker {
     /// Chạy luồng `darkshot-scroll`: lượt đầu sau `interval` ms, mỗi lượt gọi `source(region)` rồi
-    /// `push`, ghi kết quả và gọi `wake` (đăng `WM_SCROLL_WORK`; `false` khi cửa sổ chủ không còn:
-    /// luồng dừng). `None` khi không tạo được luồng.
+    /// `push`, ghi kết quả và gọi `wake` (đăng `WM_SCROLL_WORK`; `false` chỉ khi cửa sổ chủ không
+    /// còn: luồng dừng. Đăng lỗi mà cửa sổ còn thì vẫn chạy, hẹn giờ giao diện lấy kết quả).
+    /// `None` khi không tạo được luồng.
     fn spawn<S, W>(region: Rect, interval: u32, source: S, wake: W) -> Option<Worker>
     where
         S: FnMut(Rect) -> Result<Image, ()> + Send + 'static,
@@ -629,16 +633,21 @@ impl Worker {
                 let _live = LiveGuard;
                 worker_loop(region, interval, rx, &out, source, wake);
             });
-        if spawned.is_err() {
+        let Ok(handle) = spawned else {
             WORKERS_LIVE.fetch_sub(1, Ordering::AcqRel);
             return None;
-        }
-        Some(Worker { tx, events })
+        };
+        Some(Worker { tx, events, handle })
     }
 
-    /// Gửi lệnh; luồng nền đã dừng thì bỏ qua.
-    fn send(&self, c: Cmd) {
-        let _ = self.tx.send(c);
+    /// Gửi lệnh; `false` khi luồng nền đã dừng.
+    fn send(&self, c: Cmd) -> bool {
+        self.tx.send(c).is_ok()
+    }
+
+    /// Luồng nền đã ra khỏi vòng. Kiểm TRƯỚC `take_events`: mọi kết quả nó ghi đã nằm trong hộp.
+    fn dead(&self) -> bool {
+        self.handle.is_finished()
     }
 
     /// Lấy hết kết quả đang chờ, theo thứ tự.
@@ -685,7 +694,7 @@ fn worker_loop<S, W>(
                 continue;
             }
             Ok(Cmd::Finish { grab }) => {
-                finish_and_post(st, grab, region, &rx, events, &mut source, &wake);
+                finish_and_post(st, grab, limited, region, &rx, events, &mut source, &wake);
                 return;
             }
             Err(RecvTimeoutError::Disconnected) => return,
@@ -718,7 +727,7 @@ fn worker_loop<S, W>(
         }
         limited |= push == Some(Push::Limit);
         if let Some(grab) = finish {
-            finish_and_post(st, grab, region, &rx, events, &mut source, &wake);
+            finish_and_post(st, grab, limited, region, &rx, events, &mut source, &wake);
             return;
         }
         let rest = Duration::from_millis(u64::from(interval))
@@ -728,11 +737,13 @@ fn worker_loop<S, W>(
     }
 }
 
-/// Lượt cuối: chụp một khung khi `grab` và chưa có khung nào, rồi gửi ảnh ghép. Đã Hủy (kênh
-/// đóng) thì không ghép, không giao.
+/// Lượt cuối: chụp một khung khi `grab` và chưa có khung nào, rồi gửi ảnh ghép kèm cờ `limited`
+/// (đã chạm giới hạn). Đã Hủy (kênh đóng) thì không ghép, không giao.
+#[allow(clippy::too_many_arguments)]
 fn finish_and_post<S, W>(
     mut st: Stitcher,
     grab: bool,
+    mut limited: bool,
     region: Rect,
     rx: &Receiver<Cmd>,
     events: &Events,
@@ -745,9 +756,7 @@ fn finish_and_post<S, W>(
     let mut capture_failed = false;
     if grab && st.height() == 0 {
         match source(region) {
-            Ok(img) => {
-                st.push(&img);
-            }
+            Ok(img) => limited |= st.push(&img) == Push::Limit,
             Err(()) => capture_failed = true,
         }
     }
@@ -759,6 +768,7 @@ fn finish_and_post<S, W>(
         image,
         uncertain,
         capture_failed,
+        limited,
     };
     post(events, e, wake);
 }
@@ -1248,18 +1258,23 @@ where
         let to = wake_to.clone();
         move || {
             let raw = to.load(Ordering::Acquire);
-            // SAFETY: HWND không `Send` nên đi qua luồng dưới dạng số; PostMessageW được phép gọi
-            // từ mọi luồng và chỉ báo lỗi khi cửa sổ không còn.
-            raw != 0
-                && unsafe {
-                    PostMessageW(
-                        Some(HWND(raw as *mut core::ffi::c_void)),
-                        WM_SCROLL_WORK,
-                        WPARAM(0),
-                        LPARAM(0),
-                    )
-                }
-                .is_ok()
+            if raw == 0 {
+                return false;
+            }
+            let h = HWND(raw as *mut core::ffi::c_void);
+            #[cfg(test)]
+            match TEST_WAKE.load(Ordering::Acquire) {
+                WAKE_DROP_POSTS => return true,
+                WAKE_HOST_GONE => return false,
+                _ => {}
+            }
+            // SAFETY: HWND không `Send` nên đi qua luồng dưới dạng số; PostMessageW và IsWindow
+            // được phép gọi từ mọi luồng. Đăng lỗi (hàng đợi đầy) không dừng luồng nền: hẹn giờ
+            // giao diện vẫn lấy kết quả từ hộp chung; chỉ dừng khi cửa sổ chủ không còn.
+            unsafe {
+                let _ = PostMessageW(Some(h), WM_SCROLL_WORK, WPARAM(0), LPARAM(0));
+                IsWindow(Some(h)).as_bool()
+            }
         }
     };
     // Lượt chụp đầu sau một nhịp, như hẹn giờ cũ: cửa sổ của phiên đã loại khỏi ảnh chụp (hoặc nằm
@@ -1371,6 +1386,23 @@ pub fn done() {
     end_with(Input::Done);
 }
 
+/// Kiểm thử giả lập đánh thức: đăng thông điệp lỗi (cửa sổ còn), hoặc báo cửa sổ chủ không còn.
+#[cfg(test)]
+static TEST_WAKE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+#[cfg(test)]
+const WAKE_DROP_POSTS: u8 = 1;
+#[cfg(test)]
+const WAKE_HOST_GONE: u8 = 2;
+
+/// Luồng nền đã chết mà phiên chưa xong (không còn ai giao ảnh): kết thúc phiên, không giao ảnh,
+/// báo không chụp được. Không bao giờ để phiên kẹt (`active()` đúng mãi chặn mọi lần chụp).
+fn end_dead_worker() {
+    if active() {
+        finish_ended(None);
+        ON_CAPTURE_FAILED.with(|c| c.get())();
+    }
+}
+
 /// Hủy (nút Hủy, Esc, thoát ứng dụng, đăng xuất): bỏ hết, không giao ảnh, không chờ luồng nền.
 /// Đang chờ ảnh ghép (sau Xong, giới hạn, vùng mất) thì cũng bỏ.
 pub fn cancel() {
@@ -1397,14 +1429,12 @@ fn end_with(i: Input) {
 /// Phiên vừa sang giai đoạn kết thúc. Hủy: dọn ngay. Có giao ảnh: báo luồng nền chụp lần cuối
 /// (`grab`: chỉ Xong) và ghép xong, ẩn cửa sổ, gỡ Esc tạm; `finish_ended` chạy khi ảnh tới.
 fn on_ended(grab: bool) {
-    let Some((delivers, wins, host, esc)) = with(|s| {
+    let Some((delivers, sent, wins, host, esc)) = with(|s| {
         let delivers = s.machine.phase().delivers();
-        if delivers {
-            s.worker.send(Cmd::Finish { grab });
-        }
+        let sent = delivers && s.worker.send(Cmd::Finish { grab });
         let esc = std::mem::take(&mut s.esc);
         let wins: Vec<HWND> = s.frames.iter().copied().chain(s.bar).collect();
-        (delivers, wins, s.host, esc)
+        (delivers, sent, wins, s.host, esc)
     }) else {
         return;
     };
@@ -1418,6 +1448,13 @@ fn on_ended(grab: bool) {
         finish_ended(None);
         return;
     }
+    // Luồng nền đã dừng (kênh lệnh đóng): ảnh ghép sẽ không bao giờ tới. Kết quả nó đã ghi (nếu
+    // có) được lấy trước.
+    if !sent {
+        on_work();
+        end_dead_worker();
+        return;
+    }
     for h in wins {
         // SAFETY: ẩn cửa sổ của phiên trên luồng này (không giữ mượn `SESSION`).
         unsafe {
@@ -1426,8 +1463,9 @@ fn on_ended(grab: bool) {
     }
 }
 
-/// Ảnh ghép luồng nền gửi về: ảnh, số chỗ không chắc chắn, chưa có khung mà lần chụp cuối lỗi.
-type Finished = (Image, u32, bool);
+/// Ảnh ghép luồng nền gửi về: ảnh, số chỗ không chắc chắn, chưa có khung mà lần chụp cuối lỗi, đã
+/// chạm giới hạn.
+type Finished = (Image, u32, bool, bool);
 
 /// Lấy trạng thái ra, dọn cửa sổ (Drop), rồi `ON_END` → `ON_RESULT` → `ON_LIMIT`, và
 /// `ON_CAPTURE_FAILED` khi Xong mà không chụp được khung nào. `None`: Hủy, không giao gì.
@@ -1438,26 +1476,42 @@ fn finish_ended(result: Option<Finished>) {
     let phase = s.machine.phase();
     drop(s);
     ON_END.with(|c| c.get())();
-    let Some((img, uncertain, capture_failed)) = result.filter(|_| phase.delivers()) else {
+    let Some(f) = result else {
         return;
     };
+    let (show, limit, failed) = deliveries(phase, &f);
+    let (img, uncertain) = (f.0, f.1);
     let height = img.height;
-    if img.width > 0 && img.height > 0 {
+    if show {
         ON_RESULT.with(|c| c.get())(img, uncertain);
     }
-    if phase == Phase::Limit {
+    if limit {
         ON_LIMIT.with(|c| c.get())(height);
     }
-    if capture_failed {
+    if failed {
         ON_CAPTURE_FAILED.with(|c| c.get())();
     }
+}
+
+/// Giao gì cho ảnh ghép `f` khi phiên kết thúc ở `phase`: (hàm kết quả, báo giới hạn, báo không
+/// chụp được), theo thứ tự đó. Giới hạn theo giai đoạn HOẶC cờ của luồng nền: lượt `Push::Limit`
+/// có thể chưa được xử lý khi người dùng bấm Xong.
+fn deliveries(phase: Phase, f: &Finished) -> (bool, bool, bool) {
+    if !phase.delivers() {
+        return (false, false, false);
+    }
+    let (img, _, failed, limited) = f;
+    let show = img.width > 0 && img.height > 0;
+    (show, phase == Phase::Limit || *limited, *failed)
 }
 
 /// `WM_SCROLL_WORK` hoặc nhịp hẹn giờ giao diện: nhận kết quả luồng nền (máy trạng thái, chiều
 /// cao, nhịp), cập nhật trạng thái vàng, giao ảnh ghép khi đã có. Không chụp, không ghép.
 fn on_work() {
-    let Some((finished, ended, repaint)) = with(|s| {
+    let Some((finished, ended, repaint, dead)) = with(|s| {
         let now = now_ms(s);
+        // Trước `take_events`: luồng đã dừng thì mọi kết quả của nó đã nằm trong hộp.
+        let dead = s.worker.dead();
         let events = s.worker.take_events();
         let out = apply_events(&mut s.machine, events, now);
         s.height = out.height.unwrap_or(s.height);
@@ -1475,12 +1529,21 @@ fn on_work() {
             s.ui.status = warn.map_or_else(Vec::new, |m| wide(lang::tr(m)));
             repaint = true;
         }
-        (out.finished, out.ended, repaint.then_some(s.bar).flatten())
+        (
+            out.finished,
+            out.ended,
+            repaint.then_some(s.bar).flatten(),
+            dead,
+        )
     }) else {
         return;
     };
     if let Some(f) = finished {
         finish_ended(Some(f));
+        return;
+    }
+    if dead {
+        end_dead_worker();
         return;
     }
     if ended {
@@ -1532,7 +1595,8 @@ fn apply_events(m: &mut Machine, events: Vec<Event>, now_ms: u64) -> Applied {
                 image,
                 uncertain,
                 capture_failed,
-            } => out.finished = Some((image, uncertain, capture_failed)),
+                limited,
+            } => out.finished = Some((image, uncertain, capture_failed, limited)),
         }
     }
     out
@@ -2195,7 +2259,16 @@ mod tests {
                 image,
                 uncertain,
                 capture_failed,
+                ..
             } => Some((image, *uncertain, *capture_failed)),
+            Event::Tick(_) => None,
+        })
+    }
+
+    /// Cờ "đã chạm giới hạn" của ảnh ghép.
+    fn finished_limited(ev: &[Event]) -> Option<bool> {
+        ev.iter().find_map(|e| match e {
+            Event::Finished { limited, .. } => Some(*limited),
             Event::Tick(_) => None,
         })
     }
@@ -2242,6 +2315,7 @@ mod tests {
         // Ảnh ghép là lần báo cuối, là phần đầu trang; không có gì sau nó.
         assert!(matches!(ev.last(), Some(Event::Finished { .. })));
         let (img, uncertain, failed) = finished(&ev).unwrap();
+        assert_eq!(finished_limited(&ev), Some(false));
         let h = ts.last().unwrap().height;
         assert_eq!(h, PH + 10 * (ts.len() as u32 - 1));
         assert_eq!(*img, rows_of(&noise_page(PW, 400, 1), 0, h));
@@ -2399,7 +2473,62 @@ mod tests {
         let ev = collect(&w, 3000, |e| finished(e).is_some());
         let (img, _, failed) = finished(&ev).unwrap();
         assert_eq!((img.height, failed), (0, false));
+        // Ảnh ghép mang cờ giới hạn (lượt `Limit` có thể chưa được luồng giao diện xử lý).
+        assert_eq!(finished_limited(&ev), Some(true));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Xong trước lượt đầu, khung chụp lần cuối vượt giới hạn: cũng mang cờ.
+        let w = Worker::spawn(
+            region,
+            60_000,
+            move |_: Rect| Ok(noise_page(1, tall, 8)),
+            || true,
+        )
+        .unwrap();
+        w.send(Cmd::Finish { grab: true });
+        let ev = collect(&w, 3000, |e| finished(e).is_some());
+        assert_eq!(finished_limited(&ev), Some(true));
+    }
+
+    /// Thứ tự giao khi phiên kết thúc: giới hạn báo cả khi Xong tới trước lượt `Limit` (cờ của
+    /// luồng nền); Hủy không giao gì; ảnh rỗng không mở kết quả.
+    #[test]
+    fn deliveries_report_limit_even_when_done_came_first() {
+        let img = Image {
+            width: 2,
+            height: 1,
+            bgra: vec![1; 8],
+        };
+        let empty = Image {
+            width: 0,
+            height: 0,
+            bgra: Vec::new(),
+        };
+        let f = |i: &Image, failed, limited| (i.clone(), 0, failed, limited);
+        assert_eq!(
+            deliveries(Phase::Done, &f(&img, false, true)),
+            (true, true, false)
+        );
+        assert_eq!(
+            deliveries(Phase::Done, &f(&img, false, false)),
+            (true, false, false)
+        );
+        assert_eq!(
+            deliveries(Phase::Limit, &f(&img, false, false)),
+            (true, true, false)
+        );
+        assert_eq!(
+            deliveries(Phase::Lost, &f(&img, false, true)),
+            (true, true, false)
+        );
+        assert_eq!(
+            deliveries(Phase::Done, &f(&empty, true, false)),
+            (false, false, true)
+        );
+        assert_eq!(
+            deliveries(Phase::Cancelled, &f(&img, true, true)),
+            (false, false, false)
+        );
     }
 
     /// Không chụp dồn: máy chậm hơn nhịp thì lượt sau chỉ bắt đầu sau khi lượt trước xong, nghỉ ít
@@ -2490,12 +2619,13 @@ mod tests {
                     image: img.clone(),
                     uncertain: 3,
                     capture_failed: false,
+                    limited: true,
                 },
             ],
             400,
         );
         assert!(!out.ended);
-        assert_eq!(out.finished, Some((img, 3, false)));
+        assert_eq!(out.finished, Some((img, 3, false, true)));
         assert_eq!(m.phase(), Phase::Limit);
     }
 
@@ -2991,6 +3121,66 @@ mod live {
         // Lượt chụp dở xong sau khi đã hủy: không giao gì.
         pump_for(50);
         assert!(RESULT.with(|r| r.borrow_mut().take()).is_none());
+        // SAFETY: hủy cửa sổ thử của chính kiểm thử.
+        unsafe {
+            let _ = DestroyWindow(tw);
+        }
+        pump_for(50);
+    }
+
+    /// Đánh thức thất bại mà cửa sổ chủ vẫn còn (hàng đợi đầy): luồng nền không dừng, hẹn giờ giao
+    /// diện vẫn lấy kết quả; Xong kết thúc phiên và giao ảnh. Luồng nền chết (cửa sổ chủ báo không
+    /// còn) khi phiên chưa xong: phiên tự kết thúc, báo không chụp được, không kẹt.
+    #[test]
+    #[ignore]
+    fn lost_wake_messages_never_leave_the_session_stuck() {
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        dpi_aware();
+        PAGE.with(|p| *p.borrow_mut() = make_page());
+        OFFSET.with(|o| o.set(0));
+        let (tw, region) = test_window();
+        pump_for(200);
+        set_on_result(keep_result);
+        set_on_capture_failed(count_capture_failed);
+        CAPTURE_FAILS.with(|c| c.set(0));
+
+        // Mọi lần đăng đều "lỗi" (không tới), cửa sổ chủ còn.
+        TEST_WAKE.store(WAKE_DROP_POSTS, Ordering::Release);
+        assert_eq!(start(region), Ok(()));
+        pump_for(400);
+        assert_eq!(
+            WORKERS_LIVE.load(Ordering::Acquire),
+            1,
+            "luồng nền phải còn chạy"
+        );
+        done();
+        pump_until_idle(3000);
+        assert!(!active(), "phiên kẹt sau Xong");
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_some());
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 0);
+        wait_workers(3000);
+
+        // Luồng nền dừng sau lượt đầu (báo cửa sổ chủ không còn) rồi mới bấm Xong.
+        TEST_WAKE.store(WAKE_HOST_GONE, Ordering::Release);
+        assert_eq!(start(region), Ok(()));
+        let end = Instant::now() + Duration::from_secs(2);
+        while WORKERS_LIVE.load(Ordering::Acquire) > 0 && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(WORKERS_LIVE.load(Ordering::Acquire), 0);
+        done();
+        pump_until_idle(1000);
+        assert!(!active(), "phiên kẹt khi luồng nền đã chết");
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 1);
+        assert!(RESULT.with(|r| r.borrow_mut().take()).is_none());
+
+        // Luồng nền chết khi phiên còn chạy (không bấm gì): hẹn giờ giao diện kết thúc phiên.
+        assert_eq!(start(region), Ok(()));
+        pump_until_idle(2000);
+        assert!(!active(), "phiên kẹt khi luồng nền chết giữa chừng");
+        assert_eq!(CAPTURE_FAILS.with(|c| c.get()), 2);
+        TEST_WAKE.store(0, Ordering::Release);
+        wait_workers(3000);
         // SAFETY: hủy cửa sổ thử của chính kiểm thử.
         unsafe {
             let _ = DestroyWindow(tw);
