@@ -400,7 +400,7 @@ Cửa sổ **Ảnh chụp cuộn** (sau khi bấm Xong):
 Cách ghép và khi nào bỏ khung:
 
 - darkshot so khớp nội dung giữa các khung liên tiếp, tự nhận tiêu đề và chân trang dính, nên các phần đó không lặp lại trong ảnh.
-- Cột đứng yên hai bên trong suốt lần chụp (lề, ảnh nền hay quảng cáo cố định không đổi) được bỏ khỏi ảnh, nên ảnh có thể hẹp hơn vùng chọn; khi bỏ cột bên phải thì thanh cuộn ở mép phải cũng được bỏ.
+- Cột giống hệt nhau ở mọi khung của lần chụp (lề, ảnh nền hay quảng cáo cố định không đổi) được bỏ khỏi ảnh, nên ảnh có thể hẹp hơn vùng chọn; dải hẹp ở mép phải (chỗ thanh cuộn) luôn được giữ. Quảng cáo động hay đổi hình hai bên chưa được hỗ trợ.
 - Khung không ghép được (nền một màu, nội dung lặp lại đều, cuộn quá nhanh với bước lớn hơn khoảng 2/3 vùng, hay cuộn ngược) bị bỏ khỏi ảnh. Nếu đã có ghép trước đó, kết quả được đánh dấu không chắc chắn.
 - Cú nhảy lớn hơn một nửa vùng vẫn được ghép nhưng tính là không chắc chắn. darkshot không âm thầm ghép sai một trang không có phần lặp.
 

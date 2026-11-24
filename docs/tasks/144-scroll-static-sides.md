@@ -31,8 +31,8 @@ Task này chỉ xử lý nguyên nhân 1, theo cách nhỏ và dễ chứng minh
    - Mọi ngưỡng, luật và lý do giữ nguyên. Khi `L = R = 0`, kết quả phải giống hệt `main` từng bit.
 3. **Phần giữa tối thiểu.** Phần giữa phải rộng ít nhất một ngưỡng có tên, có chú thích tiếng Việt. Gợi ý: lớn hơn của 128 px và 1/4 bề rộng phần chính. Hẹp hơn ngưỡng thì không bỏ cột nào và so trên cả hàng như cũ.
 4. **Cắt khi `finish`.**
-   - Ảnh ra chỉ giữ cột `[L, W − R')`, với `L`, `R` là giá trị cuối.
-   - Khi `R > 0`, `R'` gồm cả dải thanh cuộn, nên ảnh bỏ luôn thanh cuộn.
+   - Ảnh ra giữ cột `[L, main − R)` nối với dải phải `[main, W)`, với `main = W − strip` và `L`, `R` là giá trị cuối.
+   - Dải phải (chỗ thanh cuộn) LUÔN được giữ, kể cả khi `R > 0`: dải này không bao giờ được đo nên có thể chứa nội dung đang cuộn; bỏ nó là mất nội dung âm thầm. (Sửa sau rà soát: bản đầu của mục này ghi "khi `R > 0` bỏ luôn dải thanh cuộn", sai.)
    - Khi `R = 0`, ảnh giữ hết bề rộng bên phải như hiện nay.
    - `body` cứ giữ đủ bề rộng trong suốt phiên, chỉ cắt lúc `finish`. Không cấp gấp đôi bộ nhớ: cắt tại chỗ hoặc theo từng hàng, giữ giới hạn `MAX_BYTES`.
 5. **`L`/`R` giảm giữa phiên** (ví dụ quảng cáo bên đổi hình): các lần nối trước đó vẫn đúng, vì lúc so, các cột ấy giống khung đầu. Lần so kế tiếp dùng khoảng rộng hơn và có thể thất bại; khi đó khung bị bỏ và có báo như hiện nay. Không thêm luật nào khác.

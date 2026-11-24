@@ -488,6 +488,10 @@ impl Stitcher {
             let r = main - self.right as usize * 4;
             self.right = same_suffix(&a[r..main], &b[r..main]);
         }
+        if self.left == 0 && self.right == 0 {
+            // Không thể giảm thêm: khung đầu không còn cần.
+            self.first = Vec::new();
+        }
     }
 
     /// Nhận một khung.
@@ -731,9 +735,10 @@ impl Stitcher {
             return (empty, self.uncertain);
         };
         let stride = self.stride();
-        // Cắt cột đứng yên: giữ [lo, x1); có cột đứng yên bên phải thì bỏ luôn dải thanh cuộn.
+        // Cắt cột đứng yên: giữ [lo, hi) nối với dải phải [main, W). Dải phải (chỗ thanh cuộn)
+        // không bao giờ được đo nên có thể chứa nội dung đang cuộn: luôn giữ.
         let (lo, hi) = self.cols();
-        let x1 = if hi < self.main_w() { hi } else { self.w };
+        let main = self.main_w();
         let mut bgra = self.body;
         let tail_bytes = &prev.bgra[self.tail as usize * stride..];
         // Không cấp được bộ nhớ cho phần đuôi: trả phần thân, vẫn là ảnh đúng.
@@ -741,10 +746,15 @@ impl Stitcher {
             bgra.extend_from_slice(tail_bytes);
         }
         let height = (bgra.len() / stride) as u32;
-        keep_columns(&mut bgra, stride, lo as usize * 4, x1 as usize * 4);
+        keep_columns(
+            &mut bgra,
+            stride,
+            (lo as usize * 4, hi as usize * 4),
+            main as usize * 4,
+        );
         (
             Image {
-                width: x1 - lo,
+                width: (hi - lo) + (self.w - main),
                 height,
                 bgra,
             },
@@ -753,16 +763,20 @@ impl Stitcher {
     }
 }
 
-/// Giữ byte [a, b) của mỗi hàng dài `stride`, tại chỗ (không cấp thêm bộ nhớ).
-fn keep_columns(bgra: &mut Vec<u8>, stride: usize, a: usize, b: usize) {
-    let n = b - a;
+/// Giữ byte [a, b) rồi [c, stride) của mỗi hàng dài `stride`, tại chỗ (không cấp thêm bộ nhớ).
+/// Cần a ≤ b ≤ c ≤ stride.
+fn keep_columns(bgra: &mut Vec<u8>, stride: usize, (a, b): (usize, usize), c: usize) {
+    let n = (b - a) + (stride - c);
     if n == stride || stride == 0 {
         return;
     }
     let rows = bgra.len() / stride;
     for y in 0..rows {
-        // Đích y·n ≤ nguồn y·stride + a vì n ≤ stride: chép tăng dần không đè phần chưa chép.
-        bgra.copy_within(y * stride + a..y * stride + b, y * n);
+        let src = y * stride;
+        // Đích y·n ≤ nguồn y·stride + a (và y·n + b − a ≤ y·stride + c) vì n ≤ stride, b ≤ c:
+        // chép tăng dần không đè phần chưa chép.
+        bgra.copy_within(src + a..src + b, y * n);
+        bgra.copy_within(src + c..src + stride, y * n + (b - a));
     }
     bgra.truncate(rows * n);
 }
@@ -1756,8 +1770,9 @@ mod tests {
             "{res:?}"
         );
         assert_eq!(n, 0);
-        assert_eq!((img.width, img.height), (600, last + H));
-        assert!(img == cols_of(&slice(&pg, 0, last + H), 150, 750));
+        // Cột [150, 750) cùng dải phải [868, 900) (ở đây là quảng cáo phải, luôn giữ).
+        assert_eq!((img.width, img.height), (632, last + H));
+        assert!(cols_of(&img, 0, 600) == cols_of(&slice(&pg, 0, last + H), 150, 750));
     }
 
     /// Thanh cuộn 12 px ở mép phải, con trượt di chuyển, ngay cạnh cột quảng cáo phải.
@@ -1792,9 +1807,14 @@ mod tests {
         }
         let (img, n) = st.finish();
         assert_eq!(n, 0);
-        // Cột phải [750, 868) đứng yên nên ảnh bỏ cả nó lẫn dải thanh cuộn [868, 900).
-        assert_eq!((img.width, img.height), (600, o + H));
-        assert!(img == cols_of(&slice(&pg, 0, o + H), 150, 750));
+        // Cột phải [750, 868) đứng yên nên bị bỏ; dải thanh cuộn [868, 900) luôn giữ.
+        assert_eq!((img.width, img.height), (632, o + H));
+        assert!(cols_of(&img, 0, 600) == cols_of(&slice(&pg, 0, o + H), 150, 750));
+        // 100 hàng cuối (lần nối cuối dịch 100) lấy từ khung cuối, gồm cả thanh cuộn của nó.
+        assert!(
+            slice(&cols_of(&img, 600, 632), o + H - 100, o + H)
+                == slice(&cols_of(&shot(o), 868, 900), H - 100, H)
+        );
     }
 
     /// Quảng cáo trái đổi hình giữa phiên (cột [100, 150) đổi từ khung thứ năm): L giảm, lần so
@@ -1832,8 +1852,8 @@ mod tests {
         );
         let (img, n) = st.finish();
         assert!(n >= 1);
-        // Ảnh giữ cột [100, 750): cột [100, 150) là quảng cáo cũ, phần còn lại đúng trang.
-        assert_eq!((img.width, img.height), (650, 360 + H));
+        // Ảnh giữ cột [100, 750) và dải phải [868, 900): cột [100, 150) là quảng cáo cũ.
+        assert_eq!((img.width, img.height), (682, 360 + H));
         assert!(cols_of(&img, 50, 650) == cols_of(&slice(&pg, 0, 360 + H), 150, 750));
     }
 
@@ -1861,7 +1881,8 @@ mod tests {
         );
         let (img, n) = st.finish();
         assert!(n >= 1);
-        assert_eq!((img.width, img.height), (750, 240 + H));
+        // Cột [0, 750) và dải phải [868, 900).
+        assert_eq!((img.width, img.height), (782, 240 + H));
         assert!(cols_of(&img, 150, 750) == cols_of(&slice(&pg, 0, 240 + H), 150, 750));
         // Cột trái: quảng cáo A theo hàng của từng khung đã nối (đúng như trên màn hình).
         assert!(cols_of(&img, 0, 150).bgra[..a.bgra.len()] == a.bgra[..]);
@@ -1881,8 +1902,59 @@ mod tests {
         }
         let (img, n) = st.finish();
         assert_eq!(n, 0);
-        assert_eq!((img.width, img.height), (700, 592 + H));
-        assert!(img == cols_of(&slice(&pg, 0, 592 + H), 100, 800));
+        // Giữ [100, 800) và dải phải [868, 900) (lề trắng).
+        assert_eq!((img.width, img.height), (732, 592 + H));
+        let want = hcat(
+            &cols_of(&slice(&pg, 0, 592 + H), 100, 800),
+            &solid(32, 592 + H, white),
+        );
+        assert!(img == want);
+    }
+
+    /// Ghép ngang hai ảnh cùng chiều cao.
+    fn hcat(a: &Image, b: &Image) -> Image {
+        let (sa, sb) = (a.width as usize * 4, b.width as usize * 4);
+        let mut bgra = Vec::with_capacity(a.bgra.len() + b.bgra.len());
+        for y in 0..a.height as usize {
+            bgra.extend_from_slice(&a.bgra[y * sa..(y + 1) * sa]);
+            bgra.extend_from_slice(&b.bgra[y * sb..(y + 1) * sb]);
+        }
+        Image {
+            width: a.width + b.width,
+            height: a.height,
+            bgra,
+        }
+    }
+
+    /// Hồi quy (rà soát Task 144): cột [850, 868) trắng ở mọi khung nên R = 18, còn dải phải
+    /// [868, 900) không được đo: cột [868, 872) trắng, [872, 900) có nội dung đang cuộn. Bản đầu
+    /// của Task 144 cắt luôn dải phải: ảnh 850×1300, 0 chỗ không chắc chắn, mất cột [872, 900)
+    /// âm thầm. Ảnh ra phải giữ dải phải và khớp từng điểm ảnh.
+    #[test]
+    fn content_in_right_strip_is_kept_when_right_side_is_cropped() {
+        let mut pg = page(W, 6000, 777);
+        let white = [255, 255, 255, 255];
+        for y in 0..pg.height {
+            for x in 850..872 {
+                set_px(&mut pg, x, y, white);
+            }
+        }
+        let mut st = Stitcher::new(W, H);
+        let offsets = [0u32, 100, 200, 300, 400, 500, 600];
+        for &o in &offsets {
+            let want = if o == 0 { H } else { 100 };
+            assert_eq!(
+                st.push(&frame(&pg, o, H)),
+                Push::Appended(want),
+                "offset {o}"
+            );
+        }
+        assert_eq!(st.cols(), (0, 850));
+        let (img, n) = st.finish();
+        assert_eq!(n, 0);
+        let sl = slice(&pg, 0, 600 + H);
+        assert_eq!((img.width, img.height), (882, 600 + H));
+        assert!(img == hcat(&cols_of(&sl, 0, 850), &cols_of(&sl, 868, 900)));
     }
 
     /// Phần giữa hẹp hơn ngưỡng (200 < max(128, 868 / 4) = 217): không cắt cột nào, ghép như cũ.
@@ -1929,9 +2001,12 @@ mod tests {
     }
 
     /// Fuzz trang không lặp có cột đứng yên hai bên (độ rộng, kiểu và vị trí ngẫu nhiên; một phần
-    /// phiên đổi một phần cột trái giữa chừng), cùng dải tĩnh trên/dưới và thanh cuộn như fuzz
-    /// trên. Mọi lần nối đúng độ dịch thật, và ảnh ra không bao giờ bỏ cột nội dung. Số seed:
-    /// biến `DARKSHOT_FUZZ_SEEDS` (mặc định 40), ví dụ 2000 với
+    /// phiên đổi một phần cột trái giữa chừng; một phần phiên đặt quảng cáo phải sát dải phải để
+    /// dải phải chứa nội dung đang cuộn), cùng dải tĩnh trên/dưới và thanh cuộn như fuzz trên.
+    /// Kiểm: mọi lần nối đúng độ dịch thật; cột bị bỏ giống khung đầu ở mọi khung; ảnh ra giữ mọi
+    /// cột nội dung và dải phải; ảnh ra khớp từng điểm ảnh với ảnh mong đợi (dựng lại theo các
+    /// lần nối rồi cắt), và cột nội dung khớp từng điểm ảnh với tiêu đề + trang + chân trang. Số
+    /// seed: biến `DARKSHOT_FUZZ_SEEDS` (mặc định 40), ví dụ 2000 với
     /// `cargo test -p darkshot-core --release --lib fuzz_static_sides -- --nocapture`.
     #[test]
     fn fuzz_static_sides_never_lose_content_silently() {
@@ -1939,19 +2014,26 @@ mod tests {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(40);
-        let (mut ok, mut cropped, mut warned) = (0u32, 0u32, 0u32);
+        let (mut ok, mut cropped, mut warned, mut strip_content) = (0u32, 0u32, 0u32, 0u32);
         for seed in 1..=seeds {
             let mut rng = Rng::new(seed * 6_700_417);
             let w = 260 + rng.below(500) as u32;
             let pg = fuzz_page(w, 2500, &mut rng);
             let fz = Fuzz::new(seed, pg);
             let h = fz.h;
+            let main = w - right_strip(w);
             let bar_w = if fz.bar { 10 } else { 0 };
             let lw = rng.below(u64::from(w / 3)) as u32;
             let rw = rng.below(u64::from(w / 3)) as u32;
             let left = side_image(&mut rng, lw, h, seed + 11);
             let right = side_image(&mut rng, rw, h, seed + 12);
-            let x_r = w - bar_w - rw;
+            // Không có thanh cuộn: một nửa số phiên đặt quảng cáo phải sát mép phần chính, dải
+            // phải [main, w) là nội dung đang cuộn.
+            let in_strip = !fz.bar && rng.below(2) == 0;
+            let x_r = if in_strip { main - rw } else { w - bar_w - rw };
+            if in_strip {
+                strip_content += 1;
+            }
             // Cột trái [c, lw) đổi từ bước `change` (quảng cáo đổi hình).
             let mut left2 = left.clone();
             let change = if lw > 0 && rng.below(3) == 0 {
@@ -1975,9 +2057,13 @@ mod tests {
                 };
                 with_sides(fz.frame(o), l, &right, x_r)
             };
+            let s = w as usize * 4;
             let max_o = fz.pg.height - h;
             let mut st = Stitcher::new(w, h);
-            assert_eq!(st.push(&shot(0, 0)), Push::Appended(h));
+            let f0 = shot(0, 0);
+            assert_eq!(st.push(&f0), Push::Appended(h));
+            // Ảnh ghép đủ bề rộng dựng lại theo các lần nối (cùng luật hàng với `append`).
+            let (mut body, mut tail, mut last) = (f0.bgra.clone(), h, f0.clone());
             let (mut o, mut prev, mut failed) = (0u32, 0u32, false);
             for k in 0..60 {
                 if failed && rng.below(2) == 0 {
@@ -1991,10 +2077,31 @@ mod tests {
                     _ => 0,
                 };
                 o = (i64::from(o) + step).clamp(0, i64::from(max_o)) as u32;
-                match st.push(&shot(o, k)) {
+                let f = shot(o, k);
+                let r = st.push(&f);
+                // Cột đứng yên đã đo giống khung đầu ở khung này (nên ở mọi khung).
+                assert!(
+                    cols_of(&f, 0, st.left) == cols_of(&f0, 0, st.left)
+                        && cols_of(&f, main - st.right, main)
+                            == cols_of(&f0, main - st.right, main),
+                    "seed {seed}: static columns differ from the first frame"
+                );
+                match r {
                     Push::Appended(d) => {
                         let truth = i64::from(o) - i64::from(prev);
                         assert_eq!(i64::from(d), truth, "seed {seed}: wrong shift");
+                        let (_, bottom) = st.bands.expect("bands after append");
+                        let run_end = h - bottom;
+                        let mut rows = (body.len() / s) as u32;
+                        if tail > run_end {
+                            rows -= tail - run_end;
+                            tail = run_end;
+                        }
+                        body.truncate(rows as usize * s);
+                        let from = tail - d;
+                        body.extend_from_slice(&f.bgra[from as usize * s..run_end as usize * s]);
+                        tail = run_end;
+                        last = f;
                         ok += 1;
                         prev = o;
                         failed = false;
@@ -2004,27 +2111,63 @@ mod tests {
                     Push::Uncertain(_) => failed = true,
                 }
             }
-            // Ảnh ra giữ mọi cột nội dung [lw, x_r) khi trang đã cuộn ít nhất một lần.
+            body.extend_from_slice(&last.bgra[tail as usize * s..]);
+            let full = Image {
+                width: w,
+                height: (body.len() / s) as u32,
+                bgra: body,
+            };
             let (lo, hi) = st.cols();
-            let x1 = if hi < st.main_w() { hi } else { w };
+            // Ảnh ra giữ mọi cột nội dung [lw, x_r) khi trang đã cuộn ít nhất một lần; dải phải
+            // [main, w) luôn được giữ.
             if st.appended_frames() > 1 {
                 assert!(
-                    lo <= lw && x1 >= x_r,
-                    "seed {seed}: kept [{lo}, {x1}), content [{lw}, {x_r})"
+                    lo <= lw && hi >= x_r.min(main),
+                    "seed {seed}: kept [{lo}, {hi}), content [{lw}, {x_r})"
                 );
             }
-            if x1 - lo < w {
+            if hi - lo < main {
                 cropped += 1;
             }
             let (img, n) = st.finish();
-            assert_eq!(img.width, x1 - lo);
+            let want = hcat(&cols_of(&full, lo, hi), &cols_of(&full, main, w));
+            assert!(
+                img == want,
+                "seed {seed}: output differs from the expected image"
+            );
+            assert_eq!(img.height, prev + h, "seed {seed}");
+            // Cột nội dung khớp tiêu đề + trang + chân trang, độc lập với luật hàng.
+            let (hh, fh) = (fz.header.height, fz.footer.height);
+            let mut comp = fz.header.bgra.clone();
+            comp.extend_from_slice(&slice(&fz.pg, hh, prev + h - fh).bgra);
+            comp.extend_from_slice(&fz.footer.bgra);
+            let comp = Image {
+                width: w,
+                height: prev + h,
+                bgra: comp,
+            };
+            let (c0, c1) = (lw, x_r.min(main));
+            if c1 > c0 && lo <= c0 && hi >= c1 {
+                assert!(
+                    cols_of(&img, c0 - lo, c1 - lo) == cols_of(&comp, c0, c1),
+                    "seed {seed}: content columns differ"
+                );
+            }
+            if in_strip {
+                let x = hi - lo;
+                assert!(
+                    cols_of(&img, x, x + (w - main)) == cols_of(&comp, main, w),
+                    "seed {seed}: right strip content lost"
+                );
+            }
             if n > 0 {
                 warned += 1;
             }
         }
         println!(
             "static sides: {seeds} sessions, {ok} correct appends, 0 wrong, {cropped} cropped, \
-             {warned} with a warning"
+             {strip_content} with content in the right strip, {warned} with a warning, \
+             0 pixel mismatches"
         );
         assert!(ok > 10 * seeds as u32, "{ok}");
     }

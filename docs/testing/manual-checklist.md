@@ -541,7 +541,7 @@ Chạy bản demo cách ly: `powershell -File scripts/demo-scroll.ps1 -Exe targe
 - [ ] Tài liệu Word và PDF dài: ảnh ghép đúng thứ tự, không lặp đoạn.
 - [ ] Danh sách trong Explorer (cuộn dọc trong khung danh sách): ảnh ghép đúng thứ tự, tên tệp không bị cắt.
 - [ ] Trang có tiêu đề dính (header cố định) và chân trang dính: tiêu đề và chân trang không lặp lại nhiều lần trong ảnh.
-- [ ] (Task 144) Trang tin có ảnh nền hoặc quảng cáo cố định ở hai bên vùng chọn: các khung ghép được, ảnh chỉ còn phần giữa (hẹp hơn vùng, không có cột hai bên và thanh cuộn), nội dung đúng thứ tự, không mất hàng.
+- [ ] (Task 144) Trang tin có ảnh nền hoặc quảng cáo cố định ở hai bên vùng chọn: các khung ghép được, ảnh chỉ còn phần giữa cùng dải thanh cuộn ở mép phải (hẹp hơn vùng, không có cột hai bên), nội dung đúng thứ tự, không mất hàng.
 - [ ] Cuộn nhanh (một cú lăn lớn): khung bị bỏ hoặc có cảnh báo; không có đoạn ghép sai mà không báo.
 - [ ] Cuộn ngược giữa chừng: khung ngược bị bỏ, nội dung tiếp tục ghép đúng khi cuộn xuống lại.
 - [ ] Nội dung nền một màu (trang trắng gần như hết): kết quả có cảnh báo hoặc khung bị bỏ, không ghép sai âm thầm.
