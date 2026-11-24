@@ -463,6 +463,11 @@ messages! {
     ScrollBarTitle => ("Chụp cuộn", "Scrolling capture"),
     ScrollHint => ("Cuộn xuống từ từ", "Scroll down slowly"),
     ScrollSlowDown => ("Cuộn chậm hơn", "Scroll more slowly"),
+    ScrollDownNotUp => ("Cuộn xuống, không cuộn lên", "Scroll down, not up"),
+    ScrollContentChanging => (
+        "Nội dung đang đổi — thử vùng hẹp hơn",
+        "Content is changing — try a narrower region"
+    ),
     ScrollDone => ("Xong", "Done"),
     ScrollCancel => ("Hủy", "Cancel"),
     ScrollLimitTitle => ("Đã đạt giới hạn chiều cao", "Height limit reached"),
@@ -898,7 +903,7 @@ f) Bấm Kiểm tra kết nối, chờ báo thành công, rồi bấm OK.\n\
 \nBật \"Bật lịch sử ảnh chụp\" ở Tùy chọn, tab Thông thường, rồi mở \"Lịch sử ảnh chụp\" từ menu khay. Cửa sổ giữ 50 ảnh gần nhất: xem trước, mở lại, sao chép ảnh hoặc liên kết, mở thư mục chứa ảnh, tìm và lọc. Dữ liệu chỉ nằm trên máy này. Xóa một mục hay xóa lịch sử không xóa ảnh bạn đã lưu và không xóa ảnh đã tải lên R2.\n\n7. Chụp từng bước\nChọn \"Chụp từng bước\" ở menu khay để mở thanh phiên, rồi bấm \"Chụp bước\" (hoặc Ctrl+N trong lúc chọn vùng) để thêm ảnh có hình đánh dấu vào phiên, tối đa 99 bước. \"Xem lại\" cho đổi thứ tự, ghi chú, xóa bước và xuất ra một thư mục gồm ảnh đánh số và tệp steps.md. Ảnh bước chỉ nằm trên máy cho đến khi bạn xuất.
 
 8. Chụp cuộn
-Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; ảnh dài tối đa 30 000 px.
+Để chụp một trang dài thành một ảnh dọc: chọn vùng, bấm \"Chụp cuộn\" trên thanh công cụ (hoặc Ctrl+L), rồi tự cuộn nội dung xuống từ từ. darkshot ghép các phần lại; bấm \"Xong\" để xem kết quả và lưu, chép, tải lên hoặc ghim, \"Hủy\" hoặc Esc để bỏ. Hình đánh dấu không được kèm. Cuộn quá nhanh hay cuộn ngược thì phần đó không được ghép và kết quả có cảnh báo; thanh chụp cuộn nói lý do (cuộn chậm hơn, cuộn xuống, nội dung đang đổi). Ảnh dài tối đa 30 000 px.
 
 9. Ghi GIF
 Để ghi một đoạn ngắn trên màn hình thành ảnh động: chọn vùng, bấm \"Ghi GIF\" trên thanh công cụ (hoặc Ctrl+G), rồi thao tác như bình thường. Bấm \"Dừng\" để lưu tệp GIF vào thư mục lưu, \"Hủy\" để bỏ. Mỗi lần ghi tối đa 60 giây, 10 khung hình mỗi giây, không có con trỏ chuột và âm thanh; hình đánh dấu không được kèm. Vùng rất lớn được thu nhỏ còn khoảng 0,5 triệu điểm ảnh (500 000).
@@ -951,7 +956,7 @@ The image is always saved to the save folder, so it is not lost. Check your netw
 \nTurn on \"Enable Screenshot History\" in Options, General tab, then open \"Screenshot history\" from the tray menu. The window keeps your 50 latest screenshots: preview, reopen, copy the image or link, show the file in its folder, search and filter. Data stays on this device. Removing an entry or clearing history never deletes images you saved or images uploaded to R2.\n\n7. Step capture\nChoose \"Step capture\" in the tray menu to open the session bar, then click \"Capture step\" (or press Ctrl+N while selecting a region) to add an annotated image to the session, up to 99 steps. \"Review\" lets you reorder steps, add captions, delete steps and export a folder of numbered images plus a steps.md file. Step images stay on this device until you export.
 
 8. Scrolling capture
-To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the image can be up to 30,000 px tall.
+To capture a long page as one tall image: select a region, click \"Scrolling capture\" on the toolbar (or press Ctrl+L), then scroll the content down slowly yourself. darkshot joins the parts; click \"Done\" to see the result and save, copy, upload or pin it, or \"Cancel\" (or Esc) to discard it. Annotations are not included. If you scroll too fast or scroll up, that part is not joined and the result shows a warning; the capture bar says why (scroll more slowly, scroll down, content is changing). The image can be up to 30,000 px tall.
 
 9. Recording a GIF
 To record a short part of the screen as an animated image: select a region, click \"Record GIF\" on the toolbar (or press Ctrl+G), then work as usual. Click \"Stop\" to save the GIF file to the save folder, or \"Cancel\" to discard it. Each recording is up to 60 seconds at 10 frames per second, without the mouse pointer or sound; annotations are not included. A very large region is scaled down to about 500,000 pixels.
@@ -1711,6 +1716,16 @@ mod tests {
             (Msg::ScrollBarTitle, "Chụp cuộn", "Scrolling capture"),
             (Msg::ScrollHint, "Cuộn xuống từ từ", "Scroll down slowly"),
             (Msg::ScrollSlowDown, "Cuộn chậm hơn", "Scroll more slowly"),
+            (
+                Msg::ScrollDownNotUp,
+                "Cuộn xuống, không cuộn lên",
+                "Scroll down, not up",
+            ),
+            (
+                Msg::ScrollContentChanging,
+                "Nội dung đang đổi — thử vùng hẹp hơn",
+                "Content is changing — try a narrower region",
+            ),
             (Msg::ScrollDone, "Xong", "Done"),
             (Msg::ScrollCancel, "Hủy", "Cancel"),
             (
