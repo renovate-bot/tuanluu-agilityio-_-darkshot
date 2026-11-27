@@ -28,9 +28,10 @@ use windows::core::{w, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, DeleteObject, DrawTextW, EndPaint, ExcludeClipRect, FillRect, GetDC,
-    GetTextExtentPoint32W, GetWindowDC, InvalidateRect, RedrawWindow, ReleaseDC, ScreenToClient,
-    SelectObject, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE,
-    DT_VCENTER, DT_WORDBREAK, HDC, HFONT, HGDIOBJ, PAINTSTRUCT, RDW_INVALIDATE, RDW_UPDATENOW,
+    GetMonitorInfoW, GetTextExtentPoint32W, GetWindowDC, InvalidateRect, MonitorFromWindow,
+    RedrawWindow, ReleaseDC, ScreenToClient, SelectObject, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
+    DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, HDC, HFONT, HGDIOBJ,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, RDW_INVALIDATE, RDW_UPDATENOW,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -1505,6 +1506,20 @@ fn set_test_result(c: &Ctl, text: &str, tone: Tone) {
     set_text(c.test_res, text);
 }
 
+/// Hình chữ nhật của cửa sổ sau khi cao thêm `extra` px: giữ mép trên, nhưng nếu đáy vượt vùng làm việc
+/// `work` thì dời lên vừa đủ (không quá `work.top`; cửa sổ cao hơn vùng thì sát `work.top`).
+fn grow_rect(wr: RECT, extra: i32, work: RECT) -> RECT {
+    let h = wr.bottom - wr.top + extra;
+    let overflow = (wr.top + h - work.bottom).max(0);
+    let top = (wr.top - overflow).max(work.top.min(wr.top));
+    RECT {
+        left: wr.left,
+        top,
+        right: wr.right,
+        bottom: top + h,
+    }
+}
+
 fn show_error(msg: &str) {
     if let Some(c) = ctl() {
         set_text(c.err, msg);
@@ -1515,18 +1530,42 @@ fn show_error(msg: &str) {
             let h = HWND(open as *mut c_void);
             let extra = scale(ERR_GAP + ERR_H, DPI.with(|d| d.get()));
             let mut wr = RECT::default();
-            // SAFETY: `h` là cửa sổ Tùy chọn đang mở ở luồng này (OPEN khác 0); chỉ đổi kích thước nó.
+            // SAFETY: `h` là cửa sổ Tùy chọn đang mở ở luồng này (OPEN khác 0); chỉ đổi vị trí và kích
+            // thước nó; MONITORINFO có cbSize đúng.
             unsafe {
                 if open != 0 && GetWindowRect(h, &mut wr).is_ok() {
-                    let cur = wr.bottom - wr.top;
+                    let r = if want {
+                        let mut mi = MONITORINFO {
+                            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                            ..Default::default()
+                        };
+                        let mon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+                        if GetMonitorInfoW(mon, &mut mi).as_bool() {
+                            grow_rect(wr, extra, mi.rcWork)
+                        } else {
+                            grow_rect(
+                                wr,
+                                extra,
+                                RECT {
+                                    bottom: i32::MAX,
+                                    ..wr
+                                },
+                            )
+                        }
+                    } else {
+                        RECT {
+                            bottom: wr.bottom - extra,
+                            ..wr
+                        }
+                    };
                     let _ = SetWindowPos(
                         h,
                         None,
-                        0,
-                        0,
-                        wr.right - wr.left,
-                        if want { cur + extra } else { cur - extra },
-                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                        r.left,
+                        r.top,
+                        r.right - r.left,
+                        r.bottom - r.top,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
                     );
                 }
             }
@@ -3651,6 +3690,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn grow_rect_moves_window_up_only_when_needed() {
+        let rc = |t, b| RECT {
+            left: 10,
+            top: t,
+            right: 510,
+            bottom: b,
+        };
+        let work = rc(0, 1000);
+        // Đủ chỗ: giữ mép trên.
+        assert_eq!(grow_rect(rc(100, 600), 80, work), rc(100, 680));
+        // Sát đáy: dời lên đúng phần vượt.
+        assert_eq!(grow_rect(rc(500, 980), 80, work), rc(440, 1000));
+        // Vừa khít: không dời.
+        assert_eq!(grow_rect(rc(420, 920), 80, work), rc(420, 1000));
+        // Màn hình thấp hơn cửa sổ: sát mép trên vùng làm việc, không lên quá.
+        assert_eq!(grow_rect(rc(50, 450), 80, rc(0, 400)), rc(0, 480));
+        // Cửa sổ đã nằm trên vùng làm việc (work.top > top): không kéo xuống.
+        assert_eq!(grow_rect(rc(-20, 400), 80, rc(0, 1000)), rc(-20, 480));
     }
 
     /// Bề rộng chữ (px) khi vẽ bằng `font`.
