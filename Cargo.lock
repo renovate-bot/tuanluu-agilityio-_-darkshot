@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "darkshot-core"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "base64",
  "getrandom 0.4.3",
@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "darkshot-windows"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "darkshot-core",
  "embed-resource",

@@ -4,10 +4,17 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ## [Chưa phát hành]
 
+## [0.6.3] - 2026-11-27
+
 ### Sửa lỗi
 
 - Tùy chọn: bỏ khoảng trống thừa dưới mô tả Lịch sử và phía trên các nút (dòng lỗi chỉ chiếm chỗ khi có lỗi); khe giữa các nhóm ở tab Thông thường bằng nhau; khoảng cách giữa chữ các tab đạt ≥ 24 DIP ở 100 %, 125 %, 150 % và 200 %.
 - Chụp cuộn: khi cuộn quá xa nên khung mới không còn chồng lấp, thanh nói "Cuộn lên một chút rồi cuộn chậm hơn" (trước đây chỉ "Cuộn chậm hơn"), vì phải cuộn lên lại chỗ còn chồng lấp thì mới ghép tiếp được.
+
+### Đã biết
+
+- Bố cục Tùy chọn và khoảng cách dải tab ở DPI 100 %, 125 % và 150 % mới được kiểm bằng kiểm thử tự động; trên màn hình thật mới đo ở 200 %. Dòng lỗi dưới hàng nút (cửa sổ cao thêm khi có lỗi) chưa được thử tay.
+- Mục "Cửa sổ Tùy chọn còn khoảng trống thừa" của 0.6.1 đã được sửa. Các mục "Đã biết" khác của 0.6.2 và 0.6.1 vẫn đúng.
 
 ## [0.6.2] - 2026-11-24
 
@@ -159,7 +166,8 @@ Bản phát hành đầu tiên.
 - Giao diện luôn tối; hai ngôn ngữ Tiếng Việt và English.
 - Người dùng bản cũ tên shotme: lần chạy đầu tự chép cấu hình (kể cả khóa R2) và chuyển mục khởi động cùng Windows.
 
-[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.2...HEAD
+[Chưa phát hành]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/tuanluu-agilityio/darkshot/compare/v0.5.0...v0.6.0
