@@ -579,6 +579,8 @@ thread_local! {
     static CANCEL_FAILED: RefCell<Vec<HotkeyRole>> = const { RefCell::new(Vec::new()) };
     /// DPI lúc mở cửa sổ (bố cục và mọi kích thước vẽ tay theo nó).
     static DPI: Cell<u32> = const { Cell::new(96) };
+    /// Dòng lỗi dưới hàng nút đang mở (cửa sổ cao thêm `ERR_GAP + ERR_H` DIP).
+    static ERR_OPEN: Cell<bool> = const { Cell::new(false) };
     /// Phông đậm của tab đang chọn và nút OK; tạo khi mở, xóa ở WM_NCDESTROY của cửa sổ.
     static BOLD: Cell<Option<HFONT>> = const { Cell::new(None) };
     /// Tab đang được trỏ chuột (-1 = không có).
@@ -1506,6 +1508,29 @@ fn set_test_result(c: &Ctl, text: &str, tone: Tone) {
 fn show_error(msg: &str) {
     if let Some(c) = ctl() {
         set_text(c.err, msg);
+        // Dòng lỗi nằm dưới hàng nút; cửa sổ chỉ cao thêm khi có lỗi để lúc bình thường không thừa chỗ.
+        let want = !msg.is_empty();
+        if ERR_OPEN.with(|e| e.replace(want)) != want {
+            let open = OPEN.with(|o| o.get());
+            let h = HWND(open as *mut c_void);
+            let extra = scale(ERR_GAP + ERR_H, DPI.with(|d| d.get()));
+            let mut wr = RECT::default();
+            // SAFETY: `h` là cửa sổ Tùy chọn đang mở ở luồng này (OPEN khác 0); chỉ đổi kích thước nó.
+            unsafe {
+                if open != 0 && GetWindowRect(h, &mut wr).is_ok() {
+                    let cur = wr.bottom - wr.top;
+                    let _ = SetWindowPos(
+                        h,
+                        None,
+                        0,
+                        0,
+                        wr.right - wr.left,
+                        if want { cur + extra } else { cur - extra },
+                        SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -2047,7 +2072,7 @@ const HK_BTN_W: i32 = 70;
 const HK_GAP: i32 = 6;
 /// Đệm ngang mỗi bên của mục tab (DIP): chữ hai tab liền kề cách nhau ít nhất 2 × giá trị này trừ phần
 /// chữ đậm rộng hơn chữ thường (tab đang chọn in đậm).
-const TAB_PAD_X: i32 = 16;
+const TAB_PAD_X: i32 = 18;
 /// Phần cộng thêm vào bề rộng chữ của mỗi tab (hai lần đệm ngang `TAB_PAD_X`); `TAB_STRIP_SLACK` là phần
 /// dải tab không dùng cho mục (tab đang chọn nhô ra hai bên).
 const TAB_ITEM_PAD: i32 = 2 * TAB_PAD_X;
@@ -2268,10 +2293,36 @@ impl GeneralLayout {
 
 /// Ghi chú Lịch sử thụt vào bằng ô vuông của ô tích cộng khe (theme: 18 + 6 DIP) để thẳng hàng với chữ.
 const NOTE_INDENT: i32 = 24;
-/// Chiều cao ô tích, bước giữa hai ô tích liền nhau, khe dưới ghi chú.
+/// Chiều cao ô tích, bước giữa hai ô tích liền nhau.
 const CHECK_H: i32 = 22;
 const CHECK_STEP: i32 = 26;
-const NOTE_GAP: i32 = 6;
+/// Khe giữa hai nhóm của tab Thông thường (cuối nhóm trước tới đầu nhóm sau): sau ghi chú Lịch sử,
+/// sau ghi chú Privacy Shield, trước hàng thư mục, trước hàng ngôn ngữ. Luôn bằng nhau (quyết định 166).
+const GROUP_GAP: i32 = 10;
+/// Hàng nút: khe từ đáy dải tab, chiều cao nút, lề đáy; dòng lỗi nằm dưới hàng nút và chỉ làm cửa sổ
+/// cao thêm `ERR_GAP + ERR_H` khi có lỗi.
+const BTN_GAP: i32 = 12;
+const BTN_H: i32 = 28;
+const BOTTOM_MARGIN: i32 = 12;
+const ERR_GAP: i32 = 8;
+const ERR_H: i32 = 36;
+
+/// Vị trí dọc (DIP) của hàng nút, dòng lỗi và chiều cao vùng client, theo đáy dải tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ChromeLayout {
+    buttons_y: i32,
+    err_y: i32,
+    client_h: i32,
+}
+
+fn chrome_layout(tab_bottom_dip: i32) -> ChromeLayout {
+    let buttons_y = tab_bottom_dip + BTN_GAP;
+    ChromeLayout {
+        buttons_y,
+        err_y: buttons_y + BTN_H + ERR_GAP,
+        client_h: buttons_y + BTN_H + BOTTOM_MARGIN,
+    }
+}
 
 /// Bề rộng (DIP) của ô tích một dòng trên tab Thông thường.
 fn general_check_width(l: Layout) -> i32 {
@@ -2298,24 +2349,24 @@ fn general_layout(l: Layout, note_h: i32, privacy_note_h: i32) -> GeneralLayout 
     let history = (LX, y, cw, CHECK_H);
     y += CHECK_H + 2;
     let history_note = (LX + NOTE_INDENT, y, general_note_width(l), note_h);
-    y += note_h + NOTE_GAP;
+    y += note_h + GROUP_GAP;
     let privacy = (LX, y, cw, CHECK_H);
     y += CHECK_H + 2;
     let privacy_note = (LX + NOTE_INDENT, y, general_note_width(l), privacy_note_h);
-    y += privacy_note_h + NOTE_GAP;
+    y += privacy_note_h + GROUP_GAP;
     let keep_selection = (LX, y, cw, CHECK_H);
     y += CHECK_STEP;
     let include_cursor = (LX, y, cw, CHECK_H);
     y += CHECK_STEP;
     let snap_windows = (LX, y, cw, CHECK_H);
-    y += 32;
+    y += CHECK_H + GROUP_GAP;
     let dir_label = (LX, y + 3, EX - LX - 4, 20);
     let dir = (EX, y, l.ew - 76, 24);
     let browse = (EX + l.ew - 70, y - 1, 70, 26);
-    y += 34;
+    y += 24 + GROUP_GAP;
     let lang_label = (LX, y + 3, EX - LX - 4, 20);
     let language = (EX, y, 160, 24);
-    y += 32;
+    y += 24;
     GeneralLayout {
         autostart,
         notices,
@@ -2332,7 +2383,7 @@ fn general_layout(l: Layout, note_h: i32, privacy_note_h: i32) -> GeneralLayout 
         browse,
         lang_label,
         language,
-        height: y + 4,
+        height: y + BOTTOM_MARGIN,
     }
 }
 
@@ -2376,6 +2427,15 @@ fn note_height_dip(font: HFONT, dpi: i32, texts: &[&str], w_dip: i32) -> Option<
     Some((px * 96 + dpi - 1) / dpi + 2)
 }
 
+/// Chiều cao (DIP) hai ghi chú của tab Thông thường (Lịch sử, Privacy Shield) bằng ngôn ngữ `lang`.
+fn note_heights(font: HFONT, dpi: i32, lang: Lang, l: Layout) -> Option<(i32, i32)> {
+    let w = general_note_width(l);
+    Some((
+        note_height_dip(font, dpi, &[t(lang, Msg::NoteHistory)], w)?,
+        note_height_dip(font, dpi, &[t(lang, Msg::NotePrivacyShield)], w)?,
+    ))
+}
+
 /// Giá trị các ô tích của tab Thông thường theo cấu hình, theo thứ tự Tab.
 fn general_checks(c: &Config) -> [(i32, bool); 8] {
     [
@@ -2392,19 +2452,13 @@ fn general_checks(c: &Config) -> [(i32, bool); 8] {
 
 /// Ô của tab Thông thường. Thứ tự tạo là thứ tự Tab.
 fn build_general(b: &mut Builder) -> GeneralCtl {
-    let notes = Lang::ALL.map(|l| t(l, Msg::NoteHistory));
-    let note_w = general_note_width(b.layout);
-    // Không đo được (không có phông): đủ ba dòng chữ thường.
-    let note_h = b
+    // Cửa sổ dựng theo ngôn ngữ đang dùng (đổi ngôn ngữ có hiệu lực từ lần mở sau), nên chỉ đo chữ của
+    // ngôn ngữ đó: không chừa chỗ cho ngôn ngữ dài hơn (quyết định 166).
+    let (note_h, privacy_note_h) = b
         .font
-        .and_then(|f| note_height_dip(f, b.dpi, &notes, note_w))
-        .unwrap_or(54);
-    let privacy_notes = Lang::ALL.map(|l| t(l, Msg::NotePrivacyShield));
-    // Không đo được: đủ bốn dòng chữ thường.
-    let privacy_note_h = b
-        .font
-        .and_then(|f| note_height_dip(f, b.dpi, &privacy_notes, note_w))
-        .unwrap_or(72);
+        .and_then(|f| note_heights(f, b.dpi, lang::current(), b.layout))
+        // Không đo được (không có phông): đủ ba và bốn dòng chữ thường.
+        .unwrap_or((54, 72));
     let g = general_layout(b.layout, note_h, privacy_note_h);
     let check = |b: &mut Builder, msg: Msg, r: DipRect, id: i32| {
         b.button(lang::tr(msg), ws(BS_AUTOCHECKBOX), r, id)
@@ -2895,20 +2949,21 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
     }
 
     // Dòng lỗi và hàng nút, dưới dải tab. Nút Trợ giúp ở x = 12; OK và Hủy ở bên phải.
-    y = (tab_bottom * 96 + b.dpi - 1) / b.dpi.max(1) + 8;
-    let err = b.label("", 12, y, inner_w, 36);
-    y += 40;
+    let chrome = chrome_layout((tab_bottom * 96 + b.dpi - 1) / b.dpi.max(1));
+    y = chrome.buttons_y;
+    // Dòng lỗi dưới hàng nút, ngoài vùng client cho tới khi `show_error` nới cửa sổ.
+    let err = b.label("", 12, chrome.err_y, inner_w, ERR_H);
     // Nút Trợ giúp tạo ngay trước OK để đứng liền trước OK trong thứ tự Tab; không phải nút mặc định.
     b.button(
         lang::tr(Msg::BtnHelp),
         ws(BS_PUSHBUTTON),
-        (12, y, 80, 28),
+        (12, y, 80, BTN_H),
         ID_HELP,
     );
     b.button(
         i18n::OK_LABEL,
         ws(BS_DEFPUSHBUTTON),
-        (b.layout.client_w - 180, y, 80, 28),
+        (b.layout.client_w - 180, y, 80, BTN_H),
         ID_OK,
     );
     // Hủy không có WS_GROUP: OK và Hủy cùng một nhóm mũi tên.
@@ -2916,10 +2971,10 @@ fn build_controls(b: &mut Builder, current: &Config, notice: Option<&str>) -> (i
         w!("BUTTON"),
         lang::tr(Msg::BtnCancel),
         WS_TABSTOP | ws(BS_PUSHBUTTON),
-        (b.layout.client_w - 92, y, 80, 28),
+        (b.layout.client_w - 92, y, 80, BTN_H),
         ID_CANCEL,
     );
-    y += 40;
+    y = chrome.client_h;
     // Đặt lại dải tab xuống đáy thứ tự Z sau khi mọi cửa sổ con đã có.
     // SAFETY: đổi thứ tự Z của dải tab vừa tạo.
     unsafe {
@@ -3110,6 +3165,7 @@ pub fn show(
     // Xóa ở WM_NCDESTROY của cửa sổ, kể cả khi dựng điều khiển lỗi.
     BOLD.with(|b| b.set(crate::winutil::system_font_styled(dpi, 100, true)));
     TAB_HOT.with(|h| h.set(-1));
+    ERR_OPEN.with(|e| e.set(false));
     TEST_TONE.with(|t| t.set(Tone::Neutral));
     let mut b = Builder {
         parent: hwnd,
@@ -3564,7 +3620,7 @@ mod tests {
                 assert!(g.check_updates.1 < g.history.1, "dpi {dpi}");
                 assert!(g.history.1 < g.history_note.1, "dpi {dpi}");
                 // Ô Privacy Shield ngay dưới ghi chú Lịch sử, ghi chú của nó ngay dưới ô.
-                assert_eq!(g.privacy.1, g.history_note.1 + note_h + NOTE_GAP);
+                assert_eq!(g.privacy.1, g.history_note.1 + note_h + GROUP_GAP);
                 assert_eq!(g.privacy_note.1, g.privacy.1 + CHECK_H + 2);
                 assert_eq!(g.privacy_note.3, privacy_h);
                 assert_eq!(g.privacy_note.0, g.history_note.0);
@@ -3593,6 +3649,135 @@ mod tests {
                         assert!(apart, "dpi {dpi}: {a:?} overlaps {b:?}");
                     }
                 }
+            }
+        }
+    }
+
+    /// Bề rộng chữ (px) khi vẽ bằng `font`.
+    fn text_px(font: HFONT, text: &str) -> i32 {
+        let w: Vec<u16> = text.encode_utf16().collect();
+        let mut size = SIZE::default();
+        // SAFETY: DC màn hình lấy và trả trong khối này; phông cũ được chọn lại trước khi trả DC.
+        unsafe {
+            let hdc = GetDC(None);
+            let old = SelectObject(hdc, HGDIOBJ(font.0));
+            let _ = GetTextExtentPoint32W(hdc, &w, &mut size);
+            SelectObject(hdc, old);
+            ReleaseDC(None, hdc);
+        }
+        size.cx
+    }
+
+    /// Bố cục Tùy chọn ở DPI 96/120/144/192 và hai ngôn ngữ, chỉ tính bằng phông tạo theo từng DPI (không
+    /// cần cửa sổ thật): khoảng trống giữa chữ hai tab liền kề, dải tab một hàng, không ô nào đè ô nào hay
+    /// tràn khung, khe giữa các nhóm bằng nhau, hàng nút cách đáy dải tab đúng `BTN_GAP`.
+    /// Chỉ cửa sổ thật mới đo được `TCM_ADJUSTRECT` thực và vị trí ô sau khi dựng: xem `options_tab_gaps`.
+    #[test]
+    fn options_layout_holds_at_all_dpis_and_languages() {
+        const MIN_TAB_GAP_DIP: i32 = 24;
+        let _gdi = crate::capture::GDI_TEST_LOCK.lock();
+        for dpi in [96u32, 120, 144, 192] {
+            let font = crate::winutil::system_font(dpi).expect("system font");
+            let bold = crate::winutil::system_font_styled(dpi, 100, true).expect("bold font");
+            let dip = |px: i32| (px * 96 + dpi as i32 - 1) / dpi as i32;
+            // Như `build_controls`: nhãn phím tắt dài nhất, rồi nới cho dải tab của từng ngôn ngữ.
+            let widest = HotkeyRole::ALL
+                .iter()
+                .flat_map(|r| Lang::ALL.map(|l| t(l, r.label())))
+                .map(|s| dip(text_px(font, s)))
+                .max();
+            let mut l = Layout::from_label_width(widest);
+            for lang in Lang::ALL {
+                let w: Vec<i32> = Tab::ALL
+                    .iter()
+                    .map(|tab| dip(text_px(font, t(lang, tab.label()))) + TAB_ITEM_PAD)
+                    .collect();
+                l = l.widen_for_tabs(&w);
+            }
+            for lang in Lang::ALL {
+                let ctx = format!("dpi {dpi} {lang:?}");
+                // Dải tab.
+                let normal: Vec<i32> = Tab::ALL
+                    .iter()
+                    .map(|tab| text_px(font, t(lang, tab.label())))
+                    .collect();
+                let extra: Vec<i32> = Tab::ALL
+                    .iter()
+                    .zip(&normal)
+                    .map(|(tab, n)| text_px(bold, t(lang, tab.label())) - n)
+                    .collect();
+                let min_px = scale(MIN_TAB_GAP_DIP, dpi);
+                for i in 0..normal.len() - 1 {
+                    // Ô mục = chữ thường + hai đệm; chữ đậm rộng hơn nên ăn vào khe.
+                    let gap = 2 * scale(TAB_PAD_X, dpi) - (extra[i] + extra[i + 1] + 1) / 2;
+                    assert!(gap >= min_px, "{ctx}: tab gap {gap}px < {min_px}px");
+                }
+                let widths: Vec<i32> = normal.iter().map(|n| dip(*n) + TAB_ITEM_PAD).collect();
+                let bold_extra = dip(extra.iter().copied().max().unwrap_or(0));
+                assert!(tabs_fit(&widths, l.tab_strip_w()), "{ctx}: tabs wrap");
+                assert!(
+                    widths.iter().sum::<i32>() + bold_extra <= l.tab_strip_w() + TAB_STRIP_SLACK,
+                    "{ctx}: bold tab overflows the strip"
+                );
+
+                // Tab Thông thường: ghi chú đo bằng ngôn ngữ đang hiện, không chừa thừa.
+                let (note_h, privacy_h) = note_heights(font, dpi as i32, lang, l).expect("measure");
+                let w = general_note_width(l);
+                for (h, msg) in [
+                    (note_h, Msg::NoteHistory),
+                    (privacy_h, Msg::NotePrivacyShield),
+                ] {
+                    let need = text_height_px(font, t(lang, msg), scale(w, dpi)).expect("measure");
+                    assert!(scale(h, dpi) >= need, "{ctx}: note clipped");
+                    assert!(
+                        scale(h, dpi) <= need + scale(2, dpi) + 2,
+                        "{ctx}: note has spare room"
+                    );
+                }
+                let g = general_layout(l, note_h, privacy_h);
+                // Khe giữa các nhóm bằng nhau.
+                assert_eq!(g.history_note.1 + note_h + GROUP_GAP, g.privacy.1, "{ctx}");
+                assert_eq!(
+                    g.privacy_note.1 + privacy_h + GROUP_GAP,
+                    g.keep_selection.1,
+                    "{ctx}"
+                );
+                assert_eq!(g.snap_windows.1 + CHECK_H + GROUP_GAP, g.dir.1, "{ctx}");
+                assert_eq!(g.dir.1 + g.dir.3 + GROUP_GAP, g.language.1, "{ctx}");
+                assert_eq!(
+                    g.language.1 + g.language.3 + BOTTOM_MARGIN,
+                    g.height,
+                    "{ctx}"
+                );
+                // Không ô nào đè ô nào hay tràn khung.
+                let rects = g.rects();
+                let px = |r: DipRect| {
+                    let (x, y) = (scale(r.0, dpi), scale(r.1, dpi));
+                    (x, y, x + scale(r.2, dpi), y + scale(r.3, dpi))
+                };
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.0 >= LX && a.1 >= 0, "{ctx}: {a:?}");
+                    assert!(a.0 + a.2 <= l.client_w - 36, "{ctx}: {a:?}");
+                    assert!(px(*a).3 <= scale(g.height, dpi), "{ctx}: {a:?}");
+                    for b in &rects[i + 1..] {
+                        let (pa, pb) = (px(*a), px(*b));
+                        let apart = pa.2 <= pb.0 || pb.2 <= pa.0 || pa.3 <= pb.1 || pb.3 <= pa.1;
+                        assert!(apart, "{ctx}: {a:?} overlaps {b:?}");
+                    }
+                }
+                // Hàng nút cách đáy dải tab đúng `BTN_GAP`, lề đáy chuẩn, dòng lỗi dưới hàng nút.
+                let c = chrome_layout(g.height + 40);
+                assert_eq!(c.buttons_y - (g.height + 40), BTN_GAP, "{ctx}");
+                assert_eq!(c.client_h - (c.buttons_y + BTN_H), BOTTOM_MARGIN, "{ctx}");
+                assert!(c.err_y >= c.buttons_y + BTN_H, "{ctx}");
+                // Help (12..92), OK, Hủy không chồng nhau và nằm trong client.
+                assert!(12 + 80 <= l.client_w - 180, "{ctx}");
+                assert!(l.client_w - 180 + 80 <= l.client_w - 92, "{ctx}");
+            }
+            // SAFETY: phông tạo riêng cho kiểm thử, không DC nào còn chọn chúng.
+            unsafe {
+                let _ = DeleteObject(HGDIOBJ(font.0));
+                let _ = DeleteObject(HGDIOBJ(bold.0));
             }
         }
     }
@@ -4815,6 +5000,61 @@ mod tests {
             for s in &slack {
                 assert!(*s >= 0, "{code}: bold text wider than its tab");
             }
+        });
+        // SAFETY: dọn cửa sổ cha.
+        unsafe {
+            let _ = DestroyWindow(parent);
+        }
+    }
+
+    /// Đo các khe dọc trên cửa sổ thật (đơn vị DIP, quy từ pixel theo DPI của cửa sổ): đáy ghi chú Lịch
+    /// sử tới ô kế tiếp, đáy ô ngôn ngữ tới đáy khung, đáy dải tab tới hàng nút, và dòng lỗi mở/đóng.
+    /// Cần màn hình thật. Chạy tay: `cargo test -p darkshot-windows -- --ignored --nocapture options_vertical_gaps`.
+    #[test]
+    #[ignore]
+    fn options_vertical_gaps() {
+        use windows::Win32::UI::WindowsAndMessaging::GetDlgItem;
+        crate::webshot::per_monitor();
+        let parent = test_parent(w!("darkshot-settings-vgap-parent"));
+        let cfg = Config::defaults(std::path::Path::new("C:/Screenshots"), Lang::Vi);
+        crate::webshot::each_lang(|_, code| {
+            let code = code.to_string();
+            with_options_window(parent, &cfg, move |h| {
+                let rect = |w: HWND| {
+                    let mut r = RECT::default();
+                    // SAFETY: đọc hình chữ nhật của cửa sổ thuộc tiến trình này.
+                    unsafe {
+                        let _ = GetWindowRect(w, &mut r);
+                    }
+                    r
+                };
+                // SAFETY: tra điều khiển con theo mã trong cửa sổ Tùy chọn của tiến trình này.
+                let item =
+                    |p: HWND, id: i32| unsafe { GetDlgItem(Some(p), id).unwrap_or_default() };
+                let frame = item(h, ID_FRAME0 + Tab::General.index() as i32);
+                // DPI suy từ cỡ phông của dải tab như `tab_gaps_px` (GetDpiForWindow sai ở luồng phụ).
+                let tabs = find_tabs(h);
+                let (dpi_t, _, _) = tab_gaps_px(h);
+                let d = |px: i32| px as f64 * 96.0 / dpi_t as f64;
+                let hn = rect(item(frame, ID_HISTORY_NOTE));
+                let pv = rect(item(frame, ID_PRIVACY));
+                let pn = rect(item(frame, ID_PRIVACY_NOTE));
+                let ks = rect(item(frame, ID_KEEP_SELECTION));
+                let lg = rect(item(frame, ID_LANGUAGE));
+                let fr = rect(frame);
+                let tb = rect(tabs);
+                let ok = rect(item(h, ID_OK));
+                println!(
+                    "{code} dpi {dpi_t}: history note h {:.1}, note->privacy {:.1}, privacy note->keep {:.1}, \
+                     language top->frame bottom {:.1}, tab bottom->buttons {:.1}, frame bottom->buttons {:.1}",
+                    d(hn.bottom - hn.top),
+                    d(pv.top - hn.bottom),
+                    d(ks.top - pn.bottom),
+                    d(fr.bottom - lg.top),
+                    d(ok.top - tb.bottom),
+                    d(ok.top - fr.bottom),
+                );
+            });
         });
         // SAFETY: dọn cửa sổ cha.
         unsafe {
