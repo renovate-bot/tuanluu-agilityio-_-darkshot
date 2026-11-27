@@ -1,9 +1,10 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-24
+Cập nhật: 2026-11-27
 
 ## Đang ở đâu
 
+- **Task 148 (2026-11-27, quyết định 166): XONG, gộp `main` qua PR.** Tùy chọn bỏ khoảng trống thừa (dưới mô tả Lịch sử, trên hàng nút), kiểm bố cục và dải tab ở DPI 96/120/144/192 (kiểm thử thường); đệm tab 18 DIP; dòng lỗi dưới hàng nút, cửa sổ cao thêm và dời lên nếu chạm đáy vùng làm việc. Chưa phát hành. Cần chủ dự án thử tay: hiện/xóa lỗi (thư mục lưu trống → OK), DPI 100/125/150 %. Chủ dự án chọn dọn lỗi nhỏ trước; kế hoạch MCP (nhánh máy `task/115-mcp-design`) để sau. Viên nhắc Bắt cửa sổ (quyết định 109) vẫn chờ tái hiện bằng chuột thật.
 - **Phát hành v0.6.2** (2026-11-24, chủ dự án yêu cầu; quyết định 164): Task 142, 144, 145. Tag `v0.6.2`, release kèm `darkshot-v0.6.2-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Exe 2.483.712 byte, chưa ký số. Website không đổi. Đã dọn worktree và thư mục tạm; nhánh máy `task/143-scroll-column-stitch` giữ để tra cứu (chưa đẩy).
 - **Task 147 (2026-11-24, quyết định 165): XONG, gộp `main` qua PR.** Lời nhắc riêng khi cuộn quá xa (`NoOverlap`): "Cuộn lên một chút rồi cuộn chậm hơn" (`Msg::ScrollBackUp`); thanh đo bề rộng mọi lời nhắc trong `WARN_MSGS`. Chưa phát hành (CHANGELOG "Chưa phát hành"). Không task nào đang làm.
 
