@@ -1,9 +1,10 @@
 # Bối cảnh hiện tại
 
-Cập nhật: 2026-11-24
+Cập nhật: 2026-11-27
 
 ## Đang ở đâu
 
+- **Task 148 (2026-11-27): ĐANG LÀM** trên nhánh `task/148-options-spacing`: Tùy chọn bỏ khoảng trống thừa (dưới mô tả Lịch sử, trên hàng nút), kiểm bố cục và dải tab ở DPI 96/120/144/192. Chủ dự án chọn dọn lỗi nhỏ trước (kế hoạch MCP để sau).
 - **Phát hành v0.6.2** (2026-11-24, chủ dự án yêu cầu; quyết định 164): Task 142, 144, 145. Tag `v0.6.2`, release kèm `darkshot-v0.6.2-windows-x64.zip`, `darkshot.exe`, `SHA256SUMS.txt`. Exe 2.483.712 byte, chưa ký số. Website không đổi. Đã dọn worktree và thư mục tạm; nhánh máy `task/143-scroll-column-stitch` giữ để tra cứu (chưa đẩy).
 - **Task 147 (2026-11-24, quyết định 165): XONG, gộp `main` qua PR.** Lời nhắc riêng khi cuộn quá xa (`NoOverlap`): "Cuộn lên một chút rồi cuộn chậm hơn" (`Msg::ScrollBackUp`); thanh đo bề rộng mọi lời nhắc trong `WARN_MSGS`. Chưa phát hành (CHANGELOG "Chưa phát hành"). Không task nào đang làm.
 
