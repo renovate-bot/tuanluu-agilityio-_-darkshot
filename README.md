@@ -4,7 +4,7 @@ darkshot là ứng dụng Windows 11 chạy ở khay hệ thống. Bấm `PrintS
 
 ## Tải về
 
-Bản mới nhất: **0.6.2** ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases/latest) (`darkshot-v0.6.2-windows-x64.zip` gồm `darkshot.exe` và README, hoặc chỉ `darkshot.exe`; kiểm tra bằng `SHA256SUMS.txt`). Không cần cài đặt: chạy thẳng `darkshot.exe`. File chưa ký số nên SmartScreen có thể cảnh báo lần đầu: **More info** → **Run anyway**.
+Bản mới nhất: **0.6.3** ở [trang Releases](https://github.com/tuanluu-agilityio/darkshot/releases/latest) (`darkshot-v0.6.3-windows-x64.zip` gồm `darkshot.exe` và README, hoặc chỉ `darkshot.exe`; kiểm tra bằng `SHA256SUMS.txt`). Không cần cài đặt: chạy thẳng `darkshot.exe`. File chưa ký số nên SmartScreen có thể cảnh báo lần đầu: **More info** → **Run anyway**.
 
 Thay đổi của từng phiên bản: [CHANGELOG.md](CHANGELOG.md).
 
@@ -16,7 +16,7 @@ Yêu cầu: Rust (cài qua rustup), Windows 11.
 cargo build --release
 ```
 
-File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.6.2 đo ngày 2026-11-24: **2.483.712 byte** (khoảng 2,37 MiB, bản `--release` trên Windows 11).
+File chạy nằm tại `target\release\darkshot.exe`. Kích thước bản build 0.6.3 đo ngày 2026-11-27: **2.484.224 byte** (khoảng 2,37 MiB, bản `--release` trên Windows 11).
 
 Biểu tượng ứng dụng nằm ở `crates\darkshot-windows\res\darkshot.ico`, sinh bằng `python crates\darkshot-windows\res\make_icon.py` (cần Pillow). Script ghi đè `darkshot.ico` cạnh nó.
 
