@@ -6,6 +6,7 @@ Mọi thay đổi đáng chú ý của darkshot, mới nhất ở trên. Phiên 
 
 ### Sửa lỗi
 
+- Tùy chọn: bỏ khoảng trống thừa dưới mô tả Lịch sử và phía trên các nút (dòng lỗi chỉ chiếm chỗ khi có lỗi); khe giữa các nhóm ở tab Thông thường bằng nhau; khoảng cách giữa chữ các tab đạt ≥ 24 DIP ở 100 %, 125 %, 150 % và 200 %.
 - Chụp cuộn: khi cuộn quá xa nên khung mới không còn chồng lấp, thanh nói "Cuộn lên một chút rồi cuộn chậm hơn" (trước đây chỉ "Cuộn chậm hơn"), vì phải cuộn lên lại chỗ còn chồng lấp thì mới ghép tiếp được.
 
 ## [0.6.2] - 2026-11-24
